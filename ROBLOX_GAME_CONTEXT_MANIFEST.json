@@ -1,0 +1,37 @@
+{
+  "format": "roblox-ai-context-pack",
+  "version": 1,
+  "snapshotDate": "2026-10-01",
+  "place": {
+    "name": "Untitled Game",
+    "placeId": 121864357793790,
+    "captureMode": "Studio Edit DataModel"
+  },
+  "documents": [
+    {
+      "path": "ROBLOX_GAME_CONTEXT.md",
+      "purpose": "Compact architecture, behavior, risks, and test handoff"
+    },
+    {
+      "path": "roblox_context_exporter_improved.lua",
+      "purpose": "Read-only raw Studio hierarchy/source exporter with chunked console output"
+    }
+  ],
+  "systems": [
+    "profiles",
+    "plots",
+    "trees",
+    "chopping",
+    "inventory",
+    "economy",
+    "crafting",
+    "goblins",
+    "client UI"
+  ],
+  "rawExport": {
+    "status": "Executed in Studio",
+    "scriptCount": 76,
+    "consoleParts": 80,
+    "retrievalLimitation": "Studio console output was truncated by the bridge; use the chunk labels in Studio Output for a complete raw source dump."
+  }
+}

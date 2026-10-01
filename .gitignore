@@ -1,0 +1,11 @@
+# Local Studio backups are valuable, but too large/noisy for the source repository.
+/backups/
+
+# Generated Rojo builds and maps.
+/build/
+*.sourcemap.json
+
+# OS/editor noise.
+.DS_Store
+Thumbs.db
+.vscode/
