@@ -1,0 +1,97 @@
+{
+  "className": "ParticleEmitter",
+  "properties": {
+    "Rate": 10.0,
+    "Rotation": {
+      "NumberRange": [
+        -15.0,
+        50.0
+      ]
+    },
+    "TextureContent": "rbxassetid://2586918100",
+    "Enabled": false,
+    "LightInfluence": 1.0,
+    "Speed": {
+      "NumberRange": [
+        0.0,
+        0.0
+      ]
+    },
+    "Size": {
+      "NumberSequence": {
+        "keypoints": [
+          {
+            "time": 0.0,
+            "value": 0.0,
+            "envelope": 0.0
+          },
+          {
+            "time": 0.0,
+            "value": 0.0,
+            "envelope": 0.0
+          },
+          {
+            "time": 0.00001,
+            "value": 4.69,
+            "envelope": 0.0
+          },
+          {
+            "time": 0.0068886336,
+            "value": 0.24999976,
+            "envelope": 0.0
+          },
+          {
+            "time": 0.014925373,
+            "value": 0.062499642,
+            "envelope": 0.0
+          },
+          {
+            "time": 0.9988519,
+            "value": 0.0,
+            "envelope": 0.0
+          },
+          {
+            "time": 1.0,
+            "value": 5.8124995,
+            "envelope": 0.0
+          }
+        ]
+      }
+    },
+    "Drag": 20.0,
+    "Acceleration": [
+      0.0,
+      -10.0,
+      -2.0
+    ],
+    "Lifetime": {
+      "NumberRange": [
+        0.0,
+        0.0
+      ]
+    },
+    "LockedToPart": true,
+    "ZOffset": 0.5,
+    "Transparency": {
+      "NumberSequence": {
+        "keypoints": [
+          {
+            "time": 0.0,
+            "value": 0.33333337,
+            "envelope": 0.0
+          },
+          {
+            "time": 0.12883435,
+            "value": 0.060109317,
+            "envelope": 0.060109317
+          },
+          {
+            "time": 1.0,
+            "value": 1.0,
+            "envelope": 0.0
+          }
+        ]
+      }
+    }
+  }
+}
