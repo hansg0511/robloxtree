@@ -1,34 +1,40 @@
 {
   "name": "RobloxTree",
-  "servePlaceIds": [121864357793790],
-  "globIgnorePaths": [
-    "**/*.spec.lua"
-  ],
   "tree": {
     "$className": "DataModel",
     "ReplicatedStorage": {
       "$className": "ReplicatedStorage",
-      "$path": "src/ReplicatedStorage",
-      "$ignoreUnknownInstances": true
+      "$ignoreUnknownInstances": true,
+      "$path": "src/ReplicatedStorage"
     },
     "ServerScriptService": {
       "$className": "ServerScriptService",
-      "$path": "src/ServerScriptService",
-      "$ignoreUnknownInstances": true
+      "$ignoreUnknownInstances": true,
+      "$path": "src/ServerScriptService"
     },
     "StarterGui": {
       "$className": "StarterGui",
-      "$path": "src/StarterGui",
-      "$ignoreUnknownInstances": true
+      "$ignoreUnknownInstances": true,
+      "$path": "src/StarterGui"
     },
     "StarterPlayer": {
       "$className": "StarterPlayer",
-      "$ignoreUnknownInstances": true,
       "StarterPlayerScripts": {
         "$className": "StarterPlayerScripts",
-        "$path": "src/StarterPlayerScripts",
-        "$ignoreUnknownInstances": true
-      }
+        "$ignoreUnknownInstances": true,
+        "$path": "src/StarterPlayerScripts"
+      },
+      "$properties": {
+        "CameraMaxZoomDistance": 128.0,
+        "GameSettingsAvatar": "R6"
+      },
+      "$ignoreUnknownInstances": true
     }
-  }
+  },
+  "servePlaceIds": [
+    121864357793790
+  ],
+  "globIgnorePaths": [
+    "**/*.spec.lua"
+  ]
 }
