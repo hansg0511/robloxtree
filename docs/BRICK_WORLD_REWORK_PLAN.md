@@ -4,7 +4,7 @@ Checkpoint: `7b03f72` on `main` and `archive/pre-gameplay-rework`. Active develo
 
 ## Recovery boundary
 
-The Git archive includes the 2026-10-01 full place (`archive/pre-gameplay-rework/Untitled Game - pre-rojo.rbxl`), which retains the pre-Rojo Studio world. The current Studio Workspace is still outside Rojo. Before deleting its mountain, terrain, Forge, Anvil, crafting table, or platform, save a fresh full-place copy from the current Studio session and verify the saved file. The older backup is a recovery baseline but may omit subsequent Studio edits.
+The Git archive includes the 2026-10-01 full place (`archive/pre-gameplay-rework/Untitled Game - pre-rojo.rbxl`) and a fresh 2026-10-02 full place (`archive/pre-gameplay-rework/Untitled Game - studio-before-brick-rework.rbxl`). The latter was downloaded from the current Studio Edit session before world deletion; its size and SHA-256 are recorded in the archive README. Workspace is still outside Rojo.
 
 ## Keep unchanged or nearly unchanged
 
