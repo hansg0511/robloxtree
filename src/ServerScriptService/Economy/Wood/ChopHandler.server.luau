@@ -5,7 +5,6 @@ local TreeObject = require(game.ServerScriptService.Trees.TreeObject)
 local WorldProgressService = require(game.ServerScriptService.WorldProgressService)
 local DamageService = require(game.ServerStorage.DamageService)
 
-local MAX_CHOP_DISTANCE = 16
 local MIN_CHOP_INTERVAL = 0.3
 local lastChop = {}
 
@@ -18,7 +17,7 @@ local function hasEquippedAxe(player, profile)
 	return weapon ~= nil and weapon.ItemType == "Weapon" and tool.Name == weapon.InstanceName
 end
 
-ChopEvent.OnServerEvent:Connect(function(player, targetCandidate)
+ChopEvent.OnServerEvent:Connect(function(player)
 	local now = os.clock()
 	if now - (lastChop[player] or -math.huge) < MIN_CHOP_INTERVAL then return end
 	lastChop[player] = now
@@ -27,13 +26,14 @@ ChopEvent.OnServerEvent:Connect(function(player, targetCandidate)
 	if not profile or not profile.Data.Runtime then return end
 	if not hasEquippedAxe(player, profile) then return end
 
-	-- The client only nominates an Instance it aimed at. Resolution and every
-	-- meaningful validation remain server-owned.
-	local tree = TreeObject.GetTreeFromTarget(targetCandidate)
+	-- This request deliberately has no target payload. The server resolves the
+	-- closest eligible registered tree from its own interaction geometry, so a
+	-- client cannot nominate a model, HP, damage value, or reward target.
+	local tree = TreeObject.GetBestChopTarget(player, function(candidate)
+		return candidate:CanChop(player)
+			and WorldProgressService.CanInteractWithTree(player, candidate)
+	end)
 	if not tree then return end
-	if not tree:CanChop(player) then return end
-	if not tree:IsPlayerWithinChopDistance(player, MAX_CHOP_DISTANCE) then return end
-	if not WorldProgressService.CanInteractWithTree(player, tree) then return end
 
 	local stats = profile.Data.Runtime.FinalStats
 	local attack = stats and stats.Attack

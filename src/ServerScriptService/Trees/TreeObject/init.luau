@@ -97,6 +97,15 @@ local function makeBrickPlaceholder()
 	model.PrimaryPart = bark
 	addBarkStuds(bark, bark, barkColor)
 
+	-- Server-owned trunk interaction geometry. It is invisible and non-queryable
+	-- so it never becomes a client aiming aid; the server uses its bounds only.
+	local chopHitbox = makeBrickPart("ChopHitbox", Vector3.new(10, 18, 10), Vector3.new(0, 9, 0), Color3.new(), model, bark)
+	chopHitbox.Transparency = 1
+	chopHitbox.CanCollide = false
+	chopHitbox.CanTouch = false
+	chopHitbox.CanQuery = false
+	chopHitbox.Massless = true
+
 	for index, definition in ipairs({
 		{ Vector3.new(7, 4, 7), Vector3.new(1, 6, -1), Color3.fromRGB(159, 95, 54) },
 		{ Vector3.new(8, 4, 8), Vector3.new(-1, 10, 1), barkColor },
@@ -123,13 +132,15 @@ local function makeBrickPlaceholder()
 end
 
 Tree.ActiveTrees = {}
-Tree.ByModel = {}
+Tree._nextCreationId = 0
 
 function Tree.new(options)
 	assert(type(options) == "table", "Tree options required")
 	local definition = Definitions[options.DefinitionId]
 	assert(definition, "Unknown tree definition: " .. tostring(options.DefinitionId))
 	assert(Definitions.Categories[definition.Category], "Unknown tree category")
+	assert(type(definition.InteractionPartName) == "string", "Tree definition requires InteractionPartName")
+	assert(type(definition.ChopRadius) == "number" and definition.ChopRadius >= 0, "Tree definition requires a non-negative ChopRadius")
 	assert(options.Parent and options.CFrame, "Tree parent and CFrame required")
 
 	local self = setmetatable({}, Tree)
@@ -143,17 +154,20 @@ function Tree.new(options)
 	self.OwnerUserId = options.OwnerUserId
 	self.Choppable = definition.Choppable
 	self.ForestId = options.ForestId or definition.ForestId or "Base"
+	self.InteractionPartName = definition.InteractionPartName
+	self.ChopRadius = definition.ChopRadius
 	self.Parent = options.Parent
 	self.CFrame = options.CFrame
 	self.isDead = false
 	self.destroyed = false
+	Tree._nextCreationId += 1
+	self.CreationId = Tree._nextCreationId
 	Tree.ActiveTrees[self] = true
 	return self
 end
 
 function Tree:Spawn()
 	if self.destroyed then return nil end
-	if self.model then Tree.ByModel[self.model] = nil end
 	local model
 	if self.ModelName == "BrickPlaceholder" then
 		model = makeBrickPlaceholder()
@@ -171,7 +185,14 @@ function Tree:Spawn()
 	model.Parent = self.Parent
 	self.model = model
 	self.isDead = false
-	Tree.ByModel[model] = self
+	local interactionPart = model:FindFirstChild(self.InteractionPartName, true)
+	if not interactionPart or not interactionPart:IsA("BasePart") then
+		warn("Tree is missing its required interaction part", self.DefinitionId, self.InteractionPartName)
+		model:Destroy()
+		self.model = nil
+		return nil
+	end
+	self.InteractionPart = interactionPart
 	self:BuildLeafPool()
 	return model
 end
@@ -196,28 +217,50 @@ function Tree:CanChop(player)
 	return true
 end
 
-function Tree.GetTreeFromTarget(target)
-	if typeof(target) ~= "Instance" then return nil end
-	local cursor = target
-	while cursor do
-		local tree = Tree.ByModel[cursor]
-		if tree then
-			if tree.model == cursor and not tree.destroyed and cursor.Parent then
-				return tree
-			end
-			return nil
-		end
-		cursor = cursor.Parent
+function Tree:GetInteractionDistance(worldPosition)
+	local part = self.InteractionPart
+	if typeof(worldPosition) ~= "Vector3"
+		or not part
+		or not part:IsA("BasePart")
+		or not self.model
+		or not part:IsDescendantOf(self.model) then
+		return math.huge
 	end
-	return nil
+
+	local localPosition = part.CFrame:PointToObjectSpace(worldPosition)
+	local halfSize = part.Size * 0.5
+	local closestLocalPoint = Vector3.new(
+		math.clamp(localPosition.X, -halfSize.X, halfSize.X),
+		math.clamp(localPosition.Y, -halfSize.Y, halfSize.Y),
+		math.clamp(localPosition.Z, -halfSize.Z, halfSize.Z)
+	)
+	local closestWorldPoint = part.CFrame:PointToWorldSpace(closestLocalPoint)
+	return (worldPosition - closestWorldPoint).Magnitude
 end
 
-function Tree:IsPlayerWithinChopDistance(player, maxDistance)
+function Tree.GetBestChopTarget(player, eligibilityFilter)
+	assert(type(eligibilityFilter) == "function", "Tree eligibility filter required")
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	local root = character and character:FindFirstChild("HumanoidRootPart")
-	if not humanoid or humanoid.Health <= 0 or not root or not self.model then return false end
-	return (self.model:GetPivot().Position - root.Position).Magnitude <= maxDistance
+	if not humanoid or humanoid.Health <= 0 or not root then return nil end
+
+	local bestTree = nil
+	local bestDistance = math.huge
+	for tree in pairs(Tree.ActiveTrees) do
+		if eligibilityFilter(tree) then
+			local distance = tree:GetInteractionDistance(root.Position)
+			if distance <= tree.ChopRadius then
+				if distance < bestDistance - 0.001
+					or (math.abs(distance - bestDistance) <= 0.001 and bestTree and tree.CreationId < bestTree.CreationId)
+					or not bestTree then
+					bestTree = tree
+					bestDistance = distance
+				end
+			end
+		end
+	end
+	return bestTree
 end
 
 local function leavesForHP(hp, maxHP, totalLeaves)
@@ -260,7 +303,6 @@ function Tree:Die(player)
 	if self.isDead or self.destroyed then return end
 	self.isDead = true
 	local fallenModel = self.model
-	Tree.ByModel[fallenModel] = nil
 	task.spawn(function()
 		FXService:TreeFall(fallenModel, player)
 	end)
@@ -282,10 +324,10 @@ function Tree:Destroy()
 	self.destroyed = true
 	Tree.ActiveTrees[self] = nil
 	if self.model then
-		Tree.ByModel[self.model] = nil
 		self.model:Destroy()
 	end
 	self.model = nil
+	self.InteractionPart = nil
 end
 
 return Tree

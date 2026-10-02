@@ -5,7 +5,6 @@ local ChopFX = ReplicatedStorage.Chop.ChopFX
 local FXService = require(game.ReplicatedStorage.FXService)
 
 local player = game.Players.LocalPlayer
-local mouse = player:GetMouse()
 
 local animation = Instance.new("Animation")
 animation.AnimationId = "rbxassetid://125763233049501"
@@ -36,28 +35,19 @@ ChopFX.OnClientEvent:Connect(function(fxType, ctx)
 	end
 end)
 
-local function getTargetCandidate()
-	local target = mouse.Target
-	local cursor = target
-	while cursor do
-		if cursor:IsA("Model") and cursor.Name == "Tree" then
-			return cursor
-		end
-		cursor = cursor.Parent
-	end
-	return nil
+local function isChopInput(input)
+	return input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch
+		or (input.UserInputType == Enum.UserInputType.Gamepad1 and input.KeyCode == Enum.KeyCode.ButtonR2)
 end
 
 UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then return end
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		local targetCandidate = getTargetCandidate()
-		if not targetCandidate then return end
+	if isChopInput(input) then
 		if track then track:Play() end
-		-- This is a request only. The server resolves the model against its
-		-- registry and rejects anything invalid, out of range, or unauthorized.
-		ChopEvent:FireServer(targetCandidate)
-	end	
+		-- Intent only: the server finds the closest eligible tree itself.
+		ChopEvent:FireServer()
+	end
 end)
 
 

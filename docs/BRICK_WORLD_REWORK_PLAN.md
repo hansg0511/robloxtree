@@ -18,7 +18,7 @@ The Git archive includes the 2026-10-01 full place (`archive/pre-gameplay-rework
 - Profile initialization: remove account-specific live wiping; make leave cleanup nil-safe; keep mock persistence explicitly documented for safe development.
 - PlotManager: create required Workspace container itself, retain player ownership/release, expose an open Grove planting area, and remove hardcoded radial passive plot presentation.
 - TreeObject: select definition/category from server data, allow trees under public or player containers, track many instances, and make HP, leaves, death and respawn independent of `PlotModel.Tree`.
-- Chop handler: receive a client-nominated target candidate, resolve it through a server-owned model-to-`TreeObject` registry, validate player state, ownership, forest eligibility, equipped item and range, enforce a server cooldown, and calculate damage only on the server.
+- Chop handler: receive an intent-only request, select the deterministic closest eligible registered `TreeObject` using its server-owned interaction geometry, validate player state, ownership, forest eligibility and equipped item, enforce a server cooldown, and calculate damage only on the server.
 - Inventory remote handlers: validate current server inventory/tool state, guard uninitialized state, and rate-limit server mutations. Unsupported rearrange/sort remotes are removed rather than silently ignored.
 - UI bootstrap: wait for replicated child hierarchy before accessing it.
 - Documentation: update service ownership and describe current test limitations.
@@ -34,7 +34,7 @@ The old `Basic` tree mesh was replaced by a source-built chunky brick placeholde
 ## Stable interfaces
 
 - `ProfileLoadedEvent` and `ProfileLoadEvent` readiness signals.
-- `ChopEvent` remains a client request: it may nominate an aimed model but cannot supply damage, HP, crits, rewards, RNG, or progression state.
+- `ChopEvent` remains an intent-only client request with no target payload. The server selects the closest eligible tree and cannot receive damage, HP, crits, rewards, RNG, or progression state from the client.
 - Inventory item UID records and the existing `EconomyUpdated(currency, amount)` outbound display contract.
 
 `WorldProgressService` is the temporary server-only forest eligibility seam. Base and Forest 1 access are available for this scaffold; Forest 2 access is denied until server gameplay unlocks it. No barrier or Forest 2 content is implemented here.

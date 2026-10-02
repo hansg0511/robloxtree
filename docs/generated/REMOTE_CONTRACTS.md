@@ -4,7 +4,7 @@ These are inferred from current source and Studio smoke tests; there is no typed
 
 | Remote / bindable | Direction | Current contract |
 | --- | --- | --- |
-| `ReplicatedStorage.Chop.ChopEvent` | client → server | One aimed-at target candidate (`Instance`). The server resolves it through the registered `TreeObject` model map, then checks cooldown, alive/choppable state, owner, character/range, equipped axe, and `WorldProgressService` forest access. Damage, crit, HP, rewards, and RNG are server-calculated. |
+| `ReplicatedStorage.Chop.ChopEvent` | client → server | Intent only; no payload. The server selects the closest eligible registered `TreeObject` using each tree's explicit server-owned `ChopHitbox` bounds, then checks cooldown, alive/choppable state, owner, character/range, equipped axe, and `WorldProgressService` forest access. Damage, crit, HP, rewards, and RNG are server-calculated. |
 | `ReplicatedStorage.Chop.ChopFX` | server → clients | Named visual effect plus model data. |
 | `ReplicatedStorage.DamageEvent` | server → clients | `{ Target, Damage, IsCrit, HP, MaxHP }` for display only. |
 | `ReplicatedStorage.Economy.EconomyUpdated` | server → client | `(currency, amount)`; existing economy UI selects the named frame. |

@@ -22,6 +22,10 @@ That is not a gameplay-security boundary. Runtime code creates the minimal
 `BaseGround`, `BaseSpawn`, and `PlayerPlots` shell, while server services decide
 what a player may interact with.
 
+`ReplicatedStorage.Zone` is the exact archived ZonePlus package retained as a
+source-controlled general spatial utility. It has no active gameplay consumer
+in this foundation and must never be used as a client-side permission check.
+
 The active clean place is `BrickWorldBase.rbxl`. Open it in Studio, run `rojo
 serve default.project.json`, and connect the Rojo 7.7.0 plugin. Plot placement
 is configured in `ServerStorage.PlotConfiguration`; `PlotManager` creates eight

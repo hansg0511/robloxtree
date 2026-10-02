@@ -1,23 +1,24 @@
 local DefaultPlayerData = {}
-	-- List of axe names the player owns
-export type PlayerData = { 
-	Inventory: {
-		{
-			ItemID : number,
-			UID : string,
-			Stats : {
-				[string] : number,
-			},
-			Rarity: string
-		}
-	},
-		
-	Equipped : {
-		Weapon:string,},
-	Coins : number,
-	Wood : number,
-	ActivePets : { string },
 
+-- Persistent profile shape only. Runtime data is initialized separately and is
+-- intentionally excluded because the current foundation does not persist it.
+export type InventoryItem = {
+	ItemID: number,
+	UID: string,
+	Stats: { [string]: number },
+	Substat: { [string]: number },
+	Rarity: string,
+}
+
+export type PlayerData = {
+	Inventory: { InventoryItem },
+	Coins: number,
+	Wood: number,
+	LogInTimes: number,
+	Equipped: {
+		Weapon: string,
+	},
+	ActivePets: { string },
 }
 
 return DefaultPlayerData

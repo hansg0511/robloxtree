@@ -8,6 +8,8 @@ local TreeDefinitions = {
 		OwnerOnly = true,
 		Choppable = true,
 		ForestId = "Base",
+		InteractionPartName = "ChopHitbox",
+		ChopRadius = 6,
 	},
 }
 
