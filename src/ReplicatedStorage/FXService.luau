@@ -18,15 +18,16 @@ table.insert(sounds, chopSound)
 ContentProvider:PreloadAsync(sounds)
 
 function FXService:playHit(tree, intensityDegrees, totalDuration, shakes)
+	if not tree then return end
 	local primary = tree.PrimaryPart or tree:FindFirstChildWhichIsA("BasePart")
-	local chopAudio = chopSound:Clone()
-	chopAudio.Parent = primary
-	chopAudio:Play()
-	Debris:AddItem(chopAudio, 1)
 	if not primary then
 		warn("Tree has no PrimaryPart or BasePart to shake")
 		return
 	end
+	local chopAudio = chopSound:Clone()
+	chopAudio.Parent = primary
+	chopAudio:Play()
+	Debris:AddItem(chopAudio, 1)
 	intensityDegrees = intensityDegrees or 6    -- max rotation degrees per axis
 	totalDuration = totalDuration or 0.6        -- total shake duration
 	shakes = shakes or 6                        -- number of shake pulses
@@ -56,14 +57,19 @@ function FXService:playHit(tree, intensityDegrees, totalDuration, shakes)
 end
 
 function FXService:TreeFall(model, player)
+	if not model or not model.Parent then return end
 	local treeModel = model
-	local primary = treeModel.PrimaryPart
+	local primary = treeModel.PrimaryPart or treeModel:FindFirstChildWhichIsA("BasePart")
+	if not primary then treeModel:Destroy() return end
 	local pivotCF = treeModel:GetPivot().Position + Vector3.new(0,primary.Size.Y/8,0)
 
 
 
 	---- Compute fall direction
-	local dir = -(primary.Position - player.Character.HumanoidRootPart.Position).Unit
+	local character = player and player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local offsetFromPlayer = root and (primary.Position - root.Position) or Vector3.new(1, 0, 0)
+	local dir = offsetFromPlayer.Magnitude > 0 and -offsetFromPlayer.Unit or Vector3.new(1, 0, 0)
 	local fallAxis = Vector3.new(-dir.Z, 0, dir.X).Unit
 	local angle = math.rad(75) -- tree falls over
 	local rotation = CFrame.fromAxisAngle(fallAxis, angle)
@@ -86,7 +92,6 @@ function FXService:TreeFall(model, player)
 		{ CFrame = newCFrame }
 	)
 	fallTween:Play()
-	print(fallTween, "TreeFallTween")
 	fallTween.Completed:Wait()
 	task.delay(0.5 + 0.2, function()
 		TweenService:Create(
@@ -124,7 +129,10 @@ end
 local function GetGroundY(origin, treeModel)
 	local rayParams = RaycastParams.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
-	rayParams.FilterDescendantsInstances = {treeModel, treeModel.Parent.Zone}
+	local excluded = {treeModel}
+	local zone = treeModel.Parent and treeModel.Parent:FindFirstChild("Zone")
+	if zone then table.insert(excluded, zone) end
+	rayParams.FilterDescendantsInstances = excluded
 
 	local result = workspace:Raycast(
 		origin,

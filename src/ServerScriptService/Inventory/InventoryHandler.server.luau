@@ -118,13 +118,11 @@ profileBindableEvent.Event:Connect(function(player: Player)
 		end)
 		local itemUID = playerProfile.Data.Equipped.Weapon
 		EquipItem(player, playerProfile.Data.Runtime.Weapon[itemUID])
-		print(playerProfile, "PROFILE")
 		
 	end)
 	if player.Character then
 		local itemUID = playerProfile.Data.Equipped.Weapon
 		EquipItem(player, playerProfile.Data.Runtime.Weapon[itemUID])
-		print(playerProfile, "PROFILE")
 	end
 	
 	

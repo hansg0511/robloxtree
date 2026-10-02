@@ -1,25 +1,43 @@
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ChopEvent = ReplicatedStorage.Chop.ChopEvent
+local Players = game:GetService("Players")
+local ChopEvent = game.ReplicatedStorage.Chop.ChopEvent
 local profileCache = require(game.ServerScriptService.PlayerProfile.ProfileService.ProfileDataCache)
-local economyManager = require(game.ServerScriptService.Economy.EconomyManager)
-local plotManager = require(game.ServerStorage.PlotManager)
-local treeObj = require(game.ServerScriptService.Trees.TreeObject)
+local TreeObject = require(game.ServerScriptService.Trees.TreeObject)
+local DamageService = require(game.ServerStorage.DamageService)
 
-local statsAggregator = require(game.ServerStorage.Items.StatsAggregator)
-local damageService = require(game.ServerStorage.DamageService)
+local MAX_CHOP_DISTANCE = 16
+local MIN_CHOP_INTERVAL = 0.3
+local lastChop = {}
 
+local function hasEquippedAxe(player, profile)
+	local character = player.Character
+	local tool = character and character:FindFirstChildOfClass("Tool")
+	if not tool or not tool:GetAttribute("EquippedAxe") then return false end
+	local uid = profile.Data.Equipped.Weapon
+	local weapon = uid and profile.Data.Runtime.Weapon[uid]
+	return weapon ~= nil and weapon.ItemType == "Weapon" and tool.Name == weapon.InstanceName
+end
 
 ChopEvent.OnServerEvent:Connect(function(player)
-	local tree = treeObj.ActiveTreeByPlayer[player]
+	local now = os.clock()
+	if now - (lastChop[player] or -math.huge) < MIN_CHOP_INTERVAL then return end
+	lastChop[player] = now
+
 	local profile = profileCache.GetProfile(player)
-	local weaponUID = profile.Data.Equipped
-	local finalStats = profileCache.GetProfile(player).Data.Runtime.FinalStats
-	if tree then
-		local damage, context = damageService.Calculate(damageService:createDamageContext(player, tree, weaponUID, finalStats))
-		--print(finalStats)
-		--damage = 10
-		tree:TakeDamage(context, player)
-		--print("Tree took " .. damage .. " dmg, left with " .. tree.HP .. " HP")
-	end
+	if not profile or not profile.Data.Runtime then return end
+	if not hasEquippedAxe(player, profile) then return end
+
+	local tree = TreeObject.GetClosestChoppableTree(player, MAX_CHOP_DISTANCE)
+	if not tree then return end
+
+	local stats = profile.Data.Runtime.FinalStats
+	local attack = stats and stats.Attack
+	if type(attack) ~= "number" or attack ~= attack or attack <= 0 or attack == math.huge then return end
+	local weaponUID = profile.Data.Equipped.Weapon
+	local context = DamageService:createDamageContext(player, tree, weaponUID, stats)
+	local _, calculated = DamageService.Calculate(context)
+	tree:TakeDamage(calculated, player)
 end)
 
+Players.PlayerRemoving:Connect(function(player)
+	lastChop[player] = nil
+end)
