@@ -12,6 +12,6 @@ This repository contains Rojo-mapped source plus a cleaned full Studio place. It
 
 ## Source-of-truth boundaries
 
-Rojo maps five service roots in `default.project.json`; `Workspace` is Studio-owned. `BrickWorldBase.rbxl` is the active minimal place snapshot. Files under `archive/` are rollback-only and not Rojo-mapped.
+Rojo maps the gameplay/code service roots in `default.project.json` without permissive unknown-instance handling; Git is authoritative for their contents. `Workspace` is Studio-owned for geometry, not for progression security. `BrickWorldBase.rbxl` is the active minimal place snapshot. Files under `archive/` are rollback-only and not Rojo-mapped.
 
 For gameplay changes, edit source in `src/`. For Studio-only geometry, save a fresh full place copy and update the world manifest. Do not run blanket `syncback` over the curated rework source. Review `.rbxm` assets in Studio when visual hierarchy or nested properties matter.

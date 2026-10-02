@@ -4,12 +4,14 @@ These are inferred from current source and Studio smoke tests; there is no typed
 
 | Remote / bindable | Direction | Current contract |
 | --- | --- | --- |
-| `ReplicatedStorage.Chop.ChopEvent` | client → server | No payload. Server checks cooldown, profile, equipped axe, character, ownership, and distance; resolves a registered target and computes damage. |
+| `ReplicatedStorage.Chop.ChopEvent` | client → server | One aimed-at target candidate (`Instance`). The server resolves it through the registered `TreeObject` model map, then checks cooldown, alive/choppable state, owner, character/range, equipped axe, and `WorldProgressService` forest access. Damage, crit, HP, rewards, and RNG are server-calculated. |
 | `ReplicatedStorage.Chop.ChopFX` | server → clients | Named visual effect plus model data. |
 | `ReplicatedStorage.DamageEvent` | server → clients | `{ Target, Damage, IsCrit, HP, MaxHP }` for display only. |
 | `ReplicatedStorage.Economy.EconomyUpdated` | server → client | `(currency, amount)`; existing economy UI selects the named frame. |
 | `ServerScriptService.PlayerProfile.ProfileInit.ProfileLoadedEvent` | server bindable | Profile readiness for plot/inventory initialization. |
-| `ReplicatedStorage.Inventory.NewInventoryItemRE` | server → client | New item notification; replaces the old mismatched `AddRE` client listener. |
-| `ReplicatedStorage.Inventory/*` | mixed | Existing inventory actions/data; some unfinished capacity/sort/split flows remain disabled or guarded. Audit before enabling. |
+| `ReplicatedStorage.Inventory.NewInventoryItemRE` | server → client | New item notification. |
+| `ReplicatedStorage.Inventory.EquipRE` | client → server | A slot-index request only. The server validates the existing server inventory item and limits each player to one request per 0.15 seconds. |
+| `ReplicatedStorage.Inventory.SpawnEquippedItemRE` | client → server | Requests spawning the currently server-selected weapon. The server validates the runtime item/template/character, replaces only server-marked tools, recalculates stats, and limits each player to one request per 0.75 seconds. |
+| `ReplicatedStorage.Inventory.GetDataRF` | client → server | Read-only snapshot of the server inventory. |
 
-The client is not authoritative for HP, damage, inventory, currency, or future progression. The inactive legacy Gun scripts were removed from the active source.
+The client is not authoritative for HP, damage, inventory, currency, or forest progression. Obsolete `AddRE`, slot mutation, sort, and per-item lookup remotes were removed rather than kept as inactive attack surface.
