@@ -1,14 +1,15 @@
 # Runtime remote contracts
 
-These are inferred from the current source; the repository does not yet enforce typed remote schemas.
+These are inferred from current source and Studio smoke tests; there is no typed remote schema yet.
 
-| Remote / bindable | Direction | Payload / role | Evidence |
-| --- | --- | --- | --- |
-| `ReplicatedStorage.Chop.ChopEvent` | client → server | Fired by `FireChop` when the player has `InZone`; drives tree damage. | `StarterPlayerScripts/Chopping/FireChop.client.luau`, `ServerScriptService/Economy/Wood/ChopHandler.server.luau` |
-| `ReplicatedStorage.Chop.ChopFX` | server → all clients | Named chop visual effect and effect data. | `TreeObject` |
-| `ReplicatedStorage.DamageEvent` | server → all clients | `{ Target, Damage, IsCrit, HP, MaxHP }` for damage UI. | `TreeObject` |
-| `ReplicatedStorage.Economy.EconomyUpdated` | server → client | `(currency, amount)`; UI selects `<currency>Frame`. | `EconomyManager`, embedded `EconomyGui` script |
-| `ServerScriptService.PlayerProfile.ProfileInit.ProfileLoadedEvent` | server bindable | Signals profile readiness; initializes a player plot and trees. | `Trees/BuildTreePlots.server.luau` |
-| `ReplicatedStorage.Inventory/*` | mixed | Inventory commands and data functions; contracts need an explicit schema audit. | `ReplicatedStorage/Inventory` |
+| Remote / bindable | Direction | Current contract |
+| --- | --- | --- |
+| `ReplicatedStorage.Chop.ChopEvent` | client → server | No payload. Server checks cooldown, profile, equipped axe, character, ownership, and distance; resolves a registered target and computes damage. |
+| `ReplicatedStorage.Chop.ChopFX` | server → clients | Named visual effect plus model data. |
+| `ReplicatedStorage.DamageEvent` | server → clients | `{ Target, Damage, IsCrit, HP, MaxHP }` for display only. |
+| `ReplicatedStorage.Economy.EconomyUpdated` | server → client | `(currency, amount)`; existing economy UI selects the named frame. |
+| `ServerScriptService.PlayerProfile.ProfileInit.ProfileLoadedEvent` | server bindable | Profile readiness for plot/inventory initialization. |
+| `ReplicatedStorage.Inventory.NewInventoryItemRE` | server → client | New item notification; replaces the old mismatched `AddRE` client listener. |
+| `ReplicatedStorage.Inventory/*` | mixed | Existing inventory actions/data; some unfinished capacity/sort/split flows remain disabled or guarded. Audit before enabling. |
 
-Review risk: remotes should validate rate, player state, and payloads on the server. The chop path was previously observed without an explicit rate limiter in the sampled handler.
+The client is not authoritative for HP, damage, inventory, currency, or future progression. The inactive legacy Gun scripts were removed from the active source.

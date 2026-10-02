@@ -29,7 +29,7 @@ The Git archive includes the 2026-10-01 full place (`archive/pre-gameplay-rework
 - Old passive-plot/bush presentation, `Tree Minecraft`, and decorative platform assets.
 - Studio-owned mountains, terrain layout, Forge, Anvil, crafting table and other old world decoration, once a fresh full-place snapshot exists.
 
-Keep the current `Basic` tree model as a temporary chop smoke target until a replacement placeholder is verified in Studio; it is not the final brick-style art asset.
+The old `Basic` tree mesh was replaced by a source-built chunky brick placeholder and verified in Studio. It is only a smoke-test target, not final art. The cleaned `BrickWorldBase.rbxl` place is tracked as the active minimal Studio shell.
 
 ## Stable interfaces
 
@@ -42,3 +42,5 @@ Server-only tree definitions and registration may change internally. Public fore
 ## Verification and rollback
 
 Run a fresh Rojo build, inspect live Studio Output, join a player, confirm profile/plot/inventory startup, inspect remote initialization, and test a server-authorized tree hit and cleanup. Compare errors with the pre-rework baseline (missing sound `rbxassetid://90`, inventory `InventoryFrame` race, and mock profile wipe path). If live Studio changes fail, restore the full place snapshot and the archive branch; never force-push.
+
+Studio smoke testing passed the new plot/tree/chop path. The old `rbxassetid://90` warning remains, but the inventory frame error did not recur. Do not mistake the remaining mock profile and old UI styling for production-ready systems.

@@ -1,12 +1,7 @@
-# Binary source artifacts
+# Active binary source artifacts
 
-Rojo preserves complex Studio instances as `.rbxm` files. They are versioned here but are not useful for line-by-line code review without opening them in Roblox Studio.
+The major old-world and Goblin/Gun binaries were removed from active source after the full Studio place backup. They remain recoverable from `archive/pre-gameplay-rework` and the archive Git branch.
 
-Notable binary artifacts:
+The active repo still includes `.rbxm` GUI hierarchies under `src/StarterGui` and reusable axe/item assets under `src/ServerStorage/AxeParts` and `src/ServerStorage/Items`. These binaries need Studio inspection for visual hierarchy and nested instance properties; adjacent `.luau` and `.json` files are preferable for code review.
 
-- `src/StarterGui/EconomyGui.rbxm`, `InventoryScreenGui.rbxm`, and `TEMPLATES.rbxm` — existing GUI hierarchy and embedded GUI scripts.
-- `src/ServerStorage/TreeTypes/Basic.rbxm`, `PlotTemplate/PlotModel.rbxm`, and `PassivePlotTemplate/**/*.rbxm` — gameplay templates instantiated at runtime.
-- `src/ServerStorage/Goblin.rbxm`, `Platform.rbxm`, `Tree Minecraft.rbxm`, and `AxeParts/**/*.rbxm` — models and imported assets.
-- `archive/pre-normalization/Trees-before-filename-normalization.rbxm` — rollback-only copy of the formerly slash-named `Trees` branch.
-
-For review: inspect the adjacent `.luau` and `.json` files first. Open the `.rbxm` in Studio when reviewing instance properties, constraints, attachments, GUI layout, or scripts nested inside the binary model.
+`BrickWorldBase.rbxl` is the cleaned full place. It is not a source of truth for Rojo-mapped scripts; use `src/` for those. `archive/pre-normalization/Trees-before-filename-normalization.rbxm` is rollback-only.

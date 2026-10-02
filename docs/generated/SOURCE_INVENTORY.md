@@ -1,21 +1,15 @@
-# Source inventory
+# Active source inventory
 
-Current Rojo-mapped snapshot:
+`default.project.json` maps `ReplicatedStorage`, `ServerScriptService`, `ServerStorage`, `StarterGui`, and `StarterPlayerScripts`. `Workspace` remains outside Rojo; `BrickWorldBase.rbxl` is the cleaned full-place snapshot.
 
-| Artifact type | Count | Review use |
-| --- | ---: | --- |
-| `.luau` | 67 | Primary executable source; review these first. |
-| `.json` | 64 | Rojo instance metadata, remotes, values, and properties. |
-| `.rbxm` | 25 | Complex Studio models and GUIs; inspect in Studio when needed. |
+Review these entry points first:
 
-Mapped services are `ReplicatedStorage`, `ServerScriptService`, `ServerStorage`, `StarterGui`, and `StarterPlayerScripts`.
+- `src/ServerScriptService/PlayerProfile/ProfileInit/init.server.luau` — mock-backed profile startup and readiness signal.
+- `src/ServerScriptService/WorldBootstrap.server.luau` — minimal base ground and spawn.
+- `src/ServerStorage/PlotManager.luau` — plot ownership and five Grove slot markers.
+- `src/ServerScriptService/Trees/TreeDefinitions.luau` and `Trees/TreeObject/init.luau` — server-only tree category definitions and lifecycle/registry.
+- `src/ServerScriptService/Trees/BuildTreePlots.server.luau` — initial plot/tree assignment.
+- `src/ServerScriptService/Economy/Wood/ChopHandler.server.luau` — server validation and damage path.
+- `src/StarterPlayerScripts/Chopping/FireChop.client.luau` — client request input only.
 
-Key entry points:
-
-- `src/ServerScriptService/PlayerProfile/ProfileInit/init.server.luau` — profile initialization.
-- `src/ServerScriptService/Trees/BuildTreePlots.server.luau` — plot assignment and initial tree spawning.
-- `src/ServerScriptService/Economy/Wood/ChopHandler.server.luau` — chop event handling.
-- `src/StarterPlayerScripts/Chopping/FireChop.client.luau` — client chop input.
-- `src/ServerStorage/PlotManager.luau` — plot and tree construction.
-
-The `Workspace` world is not in this inventory because it remains Studio-owned.
+`ROBLOX_GAME_CONTEXT.md` is a historical pre-rework snapshot, not the active world description. The archived `.rbxl` files preserve that former state.

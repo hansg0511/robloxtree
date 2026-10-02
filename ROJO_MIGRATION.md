@@ -1,27 +1,9 @@
-# Rojo migration status
+# Rojo ownership and recovery
 
-## Safety posture
+`default.project.json` maps `ReplicatedStorage`, `ServerScriptService`, `ServerStorage`, `StarterGui`, and `StarterPlayer.StarterPlayerScripts`. Each mapped root uses `$ignoreUnknownInstances: true`; a removed filesystem asset may remain as an unknown Studio instance until explicitly deleted. `Workspace` is intentionally not mapped.
 
-This project is initially **partially managed**. Only the code/UI service roots are mapped:
+The active clean place is `BrickWorldBase.rbxl`. Open it in Studio, run `rojo serve default.project.json`, and connect the Rojo 7.7.0 plugin. The source-built `WorldBootstrap` script makes a plain base ground/spawn in a Rojo-built place; `PlotManager` creates six runtime plots and five Grove slot markers per plot. World geometry for the future corridor is not implemented.
 
-- `ReplicatedStorage`
-- `ServerScriptService`
-- `StarterGui`
-- `StarterPlayer.StarterPlayerScripts`
+The full pre-rework Studio place is preserved in `archive/pre-gameplay-rework/Untitled Game - studio-before-brick-rework.rbxl`. The earlier pre-Rojo place is there too. See that archive's README for checksums. Do not assume a Git source checkout alone reconstructs the archived world.
 
-Every mapped service has `$ignoreUnknownInstances: true`. Rojo will preserve Studio instances not represented in this filesystem. Terrain, Workspace map content, CSG/UnionOperations, Forge/Anvil assets, and ServerStorage assets remain Studio-owned until deliberately migrated.
-
-## Next safe migration step
-
-1. In Roblox Studio: **File → Save to File As…**
-2. Save a local backup as `backups/Untitled Game - pre-rojo.rbxl`.
-3. Run:
-
-   ```powershell
-   rojo syncback default.project.json --input "backups/Untitled Game - pre-rojo.rbxl"
-   ```
-
-4. Inspect the generated `src/` tree before starting `rojo serve`.
-5. Commit the generated source before connecting the Rojo Studio plugin.
-
-Do not connect a Rojo server to the live place before step 4. The source tree must first contain the migrated scripts/UI.
+Do not re-run `syncback` over this curated source tree. To change Studio-only geometry, save a new full-place copy and update the world manifest. Rojo 7.7.0 crashed when a mapped directory was deleted while serving; restart `rojo serve` and reconnect if that occurs.
