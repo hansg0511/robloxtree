@@ -6,8 +6,9 @@ local ChopFX = game.ReplicatedStorage.Chop.ChopFX
 local DamageEvent = game.ReplicatedStorage.DamageEvent
 local FXService = require(game.ReplicatedStorage.FXService)
 local Definitions = require(script.Parent.TreeDefinitions)
+local WorldProgressService = require(game.ServerScriptService.WorldProgressService)
 
-local function makeBrickPart(name, size, position, color, parent, root)
+local function makeBrickPart(name, size, position, color, parent, root, canCollide)
 	local part = Instance.new("Part")
 	part.Name = name
 	part.Size = size
@@ -21,7 +22,11 @@ local function makeBrickPart(name, size, position, color, parent, root)
 	part.LeftSurface = Enum.SurfaceType.Studs
 	part.RightSurface = Enum.SurfaceType.Studs
 	part.Anchored = root == nil
-	part.CanCollide = root == nil
+	if canCollide == nil then
+		part.CanCollide = root == nil
+	else
+		part.CanCollide = canCollide
+	end
 	part.Parent = parent
 	if root then
 		local weld = Instance.new("WeldConstraint")
@@ -105,6 +110,7 @@ local function makeBrickPlaceholder()
 	chopHitbox.CanTouch = false
 	chopHitbox.CanQuery = false
 	chopHitbox.Massless = true
+	chopHitbox:SetAttribute("AlwaysInvisible", true)
 
 	for index, definition in ipairs({
 		{ Vector3.new(7, 4, 7), Vector3.new(1, 6, -1), Color3.fromRGB(159, 95, 54) },
@@ -131,6 +137,131 @@ local function makeBrickPlaceholder()
 	return model
 end
 
+local function makeTreeFrame(modelName, trunkSize, trunkPosition, barkColor)
+	local model = Instance.new("Model")
+	model.Name = modelName
+
+	local trunk = makeBrickPart("Bark", trunkSize, trunkPosition, barkColor, model)
+	trunk.PivotOffset = CFrame.new(0, -trunkSize.Y * 0.5, 0)
+	model.PrimaryPart = trunk
+	addBarkStuds(trunk, trunk, barkColor)
+
+	local leaves = Instance.new("Folder")
+	leaves.Name = "Leaves"
+	leaves.Parent = model
+	return model, trunk, leaves
+end
+
+local function addBarkBrick(model, root, name, size, position, color, canCollide)
+	local brick = makeBrickPart(name, size, position, color, model, root, canCollide)
+	addBarkStuds(brick, root, color)
+	return brick
+end
+
+local function addLeafBricks(leaves, root, definitions, canCollide)
+	for index, definition in ipairs(definitions) do
+		local leaf = makeBrickPart(
+			"Leaf" .. index,
+			definition.Size,
+			definition.Position,
+			definition.Color,
+			leaves,
+			root,
+			canCollide
+		)
+		leaf.CanCollide = canCollide == true
+	end
+end
+
+local function addChopHitbox(model, root, size, position)
+	local hitbox = makeBrickPart("ChopHitbox", size, position, Color3.new(), model, root, false)
+	hitbox.Transparency = 1
+	hitbox.CanCollide = false
+	hitbox.CanTouch = false
+	hitbox.CanQuery = false
+	hitbox.Massless = true
+	hitbox:SetAttribute("AlwaysInvisible", true)
+	return hitbox
+end
+
+local function makeStarterForestTree()
+	local barkColor = Color3.fromRGB(132, 78, 43)
+	local model, trunk, leaves = makeTreeFrame(
+		"StarterForestTree",
+		Vector3.new(6, 10, 6),
+		Vector3.new(0, 5, 0),
+		barkColor
+	)
+	addBarkBrick(model, trunk, "BarkBrick1", Vector3.new(5, 5, 5), Vector3.new(0, 11, 0), Color3.fromRGB(150, 91, 51))
+	addBarkBrick(model, trunk, "BarkBrick2", Vector3.new(4, 5, 4), Vector3.new(0, 15, 0), barkColor)
+	addLeafBricks(leaves, trunk, {
+		{ Size = Vector3.new(18, 8, 16), Position = Vector3.new(0, 20, 0), Color = Color3.fromRGB(79, 168, 70) },
+		{ Size = Vector3.new(12, 7, 12), Position = Vector3.new(-7, 23, -2), Color = Color3.fromRGB(94, 190, 75) },
+		{ Size = Vector3.new(12, 7, 12), Position = Vector3.new(7, 23, 2), Color = Color3.fromRGB(68, 153, 66) },
+		{ Size = Vector3.new(15, 7, 14), Position = Vector3.new(0, 27, 0), Color = Color3.fromRGB(92, 188, 77) },
+		{ Size = Vector3.new(10, 7, 10), Position = Vector3.new(0, 33, 0), Color = Color3.fromRGB(108, 202, 83) },
+	}, false)
+	addChopHitbox(model, trunk, Vector3.new(10, 22, 10), Vector3.new(0, 11, 0))
+	return model
+end
+
+local function makeForest2Tree()
+	local barkColor = Color3.fromRGB(91, 65, 49)
+	local model, trunk, leaves = makeTreeFrame(
+		"Forest2Tree",
+		Vector3.new(7, 16, 7),
+		Vector3.new(0, 8, 0),
+		barkColor
+	)
+	addBarkBrick(model, trunk, "BarkBrick1", Vector3.new(6, 9, 6), Vector3.new(0, 18, 0), Color3.fromRGB(111, 76, 52))
+	addBarkBrick(model, trunk, "BarkBrick2", Vector3.new(5, 8, 5), Vector3.new(0, 25, 0), barkColor)
+	addBarkBrick(model, trunk, "BoughLeft", Vector3.new(11, 4, 5), Vector3.new(-5, 23, 0), Color3.fromRGB(107, 73, 51))
+	addBarkBrick(model, trunk, "BoughRight", Vector3.new(11, 4, 5), Vector3.new(5, 28, 0), Color3.fromRGB(107, 73, 51))
+	addLeafBricks(leaves, trunk, {
+		{ Size = Vector3.new(20, 7, 18), Position = Vector3.new(0, 31, 0), Color = Color3.fromRGB(31, 112, 91) },
+		{ Size = Vector3.new(15, 7, 15), Position = Vector3.new(0, 37, 0), Color = Color3.fromRGB(40, 137, 105) },
+		{ Size = Vector3.new(11, 7, 11), Position = Vector3.new(0, 43, 0), Color = Color3.fromRGB(47, 154, 114) },
+		{ Size = Vector3.new(7, 7, 7), Position = Vector3.new(0, 49, 0), Color = Color3.fromRGB(67, 174, 125) },
+		{ Size = Vector3.new(10, 6, 10), Position = Vector3.new(-7, 34, 0), Color = Color3.fromRGB(35, 124, 99) },
+		{ Size = Vector3.new(10, 6, 10), Position = Vector3.new(7, 39, 0), Color = Color3.fromRGB(36, 129, 102) },
+	}, false)
+	addChopHitbox(model, trunk, Vector3.new(11, 32, 11), Vector3.new(0, 16, 0))
+	return model
+end
+
+local function makeBarrierTree()
+	local barkColor = Color3.fromRGB(105, 61, 39)
+	local model, trunk, leaves = makeTreeFrame(
+		"BarrierTree",
+		Vector3.new(38, 28, 18),
+		Vector3.new(0, 14, 0),
+		barkColor
+	)
+	-- A broad, continuous wooden core and overlapping side posts make this a
+	-- physical gate as well as a server-registered chop target.
+	addBarkBrick(model, trunk, "BarrierBeam", Vector3.new(62, 12, 20), Vector3.new(0, 32, 0), Color3.fromRGB(123, 72, 43), true)
+	addBarkBrick(model, trunk, "BarrierPostLeft", Vector3.new(16, 30, 20), Vector3.new(-24, 15, 0), Color3.fromRGB(116, 66, 41), true)
+	addBarkBrick(model, trunk, "BarrierPostRight", Vector3.new(16, 30, 20), Vector3.new(24, 15, 0), Color3.fromRGB(116, 66, 41), true)
+	addLeafBricks(leaves, trunk, {
+		{ Size = Vector3.new(42, 10, 22), Position = Vector3.new(0, 43, 0), Color = Color3.fromRGB(47, 105, 58) },
+		{ Size = Vector3.new(29, 10, 20), Position = Vector3.new(0, 51, 0), Color = Color3.fromRGB(59, 126, 62) },
+		{ Size = Vector3.new(20, 9, 18), Position = Vector3.new(0, 59, 0), Color = Color3.fromRGB(75, 143, 66) },
+		{ Size = Vector3.new(20, 10, 22), Position = Vector3.new(-21, 45, 0), Color = Color3.fromRGB(40, 93, 53) },
+		{ Size = Vector3.new(20, 10, 22), Position = Vector3.new(21, 45, 0), Color = Color3.fromRGB(40, 93, 53) },
+		{ Size = Vector3.new(14, 9, 18), Position = Vector3.new(-31, 53, 0), Color = Color3.fromRGB(58, 119, 60) },
+		{ Size = Vector3.new(14, 9, 18), Position = Vector3.new(31, 53, 0), Color = Color3.fromRGB(58, 119, 60) },
+	}, true)
+	addChopHitbox(model, trunk, Vector3.new(76, 68, 30), Vector3.new(0, 34, 0))
+	return model
+end
+
+local SOURCE_BUILT_MODELS = {
+	BrickPlaceholder = makeBrickPlaceholder,
+	StarterForestTree = makeStarterForestTree,
+	Forest2Tree = makeForest2Tree,
+	BarrierTree = makeBarrierTree,
+}
+
 Tree.ActiveTrees = {}
 Tree._nextCreationId = 0
 
@@ -154,6 +285,7 @@ function Tree.new(options)
 	self.OwnerUserId = options.OwnerUserId
 	self.Choppable = definition.Choppable
 	self.ForestId = options.ForestId or definition.ForestId or "Base"
+	self.UnlockForestId = definition.UnlockForestId
 	self.InteractionPartName = definition.InteractionPartName
 	self.ChopRadius = definition.ChopRadius
 	self.Parent = options.Parent
@@ -168,9 +300,10 @@ end
 
 function Tree:Spawn()
 	if self.destroyed then return nil end
+	local builder = SOURCE_BUILT_MODELS[self.ModelName]
 	local model
-	if self.ModelName == "BrickPlaceholder" then
-		model = makeBrickPlaceholder()
+	if builder then
+		model = builder()
 	else
 		local templates = ServerStorage:FindFirstChild("TreeTypes")
 		local template = templates and templates:FindFirstChild(self.ModelName)
@@ -183,6 +316,11 @@ function Tree:Spawn()
 	model.Name = "Tree"
 	model:PivotTo(self.CFrame)
 	model.Parent = self.Parent
+	-- Keep useful read-only identity metadata on every lifecycle incarnation,
+	-- including respawns. Gameplay authority remains the server TreeObject.
+	model:SetAttribute("DefinitionId", self.DefinitionId)
+	model:SetAttribute("ForestId", self.ForestId)
+	model:SetAttribute("TreeCategory", self.Category)
 	self.model = model
 	self.isDead = false
 	local interactionPart = model:FindFirstChild(self.InteractionPartName, true)
@@ -302,6 +440,9 @@ end
 function Tree:Die(player)
 	if self.isDead or self.destroyed then return end
 	self.isDead = true
+	if self.UnlockForestId then
+		WorldProgressService.UnlockForest(player, self.UnlockForestId)
+	end
 	local fallenModel = self.model
 	task.spawn(function()
 		FXService:TreeFall(fallenModel, player)

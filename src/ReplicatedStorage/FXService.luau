@@ -220,8 +220,12 @@ function FXService:FadeIn(treeModel)
 	local parts = {}
 	for _, obj in ipairs(treeModel:GetDescendants()) do
 		if obj:IsA("BasePart") then
-			table.insert(parts, obj)
-			obj.Transparency = 1
+			if obj:GetAttribute("AlwaysInvisible") then
+				obj.Transparency = 1
+			else
+				table.insert(parts, obj)
+				obj.Transparency = 1
+			end
 		end
 	end
 
