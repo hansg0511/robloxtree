@@ -16,7 +16,7 @@ The Git archive includes the 2026-10-01 full place (`archive/pre-gameplay-rework
 ## Refactor
 
 - Profile initialization: remove account-specific live wiping; make leave cleanup nil-safe; keep mock persistence explicitly documented for safe development.
-- PlotManager: create required Workspace container itself, retain player ownership/release, expose stable Grove slot descriptors, and remove hardcoded radial passive plot presentation.
+- PlotManager: create required Workspace container itself, retain player ownership/release, expose an open Grove planting area, and remove hardcoded radial passive plot presentation.
 - TreeObject: select definition/category from server data, allow trees under public or player containers, track many instances, and make HP, leaves, death and respawn independent of `PlotModel.Tree`.
 - Chop handler: choose a server-registered target, validate player state, equipped item and range, enforce a server cooldown, and calculate damage only on the server.
 - Inventory remote handlers: align active names, validate item/slot/sort inputs, and guard uninitialized state. Preserve the current individualized item schema without inventing final stats.

@@ -6,7 +6,7 @@ Review these entry points first:
 
 - `src/ServerScriptService/PlayerProfile/ProfileInit/init.server.luau` — mock-backed profile startup and readiness signal.
 - `src/ServerScriptService/WorldBootstrap.server.luau` — minimal base ground and spawn.
-- `src/ServerStorage/PlotManager.luau` — plot ownership and five Grove slot markers.
+- `src/ServerStorage/PlotManager.luau` — plot ownership, U layout, and open Grove-area validation.
 - `src/ServerScriptService/Trees/TreeDefinitions.luau` and `Trees/TreeObject/init.luau` — server-only tree category definitions and lifecycle/registry.
 - `src/ServerScriptService/Trees/BuildTreePlots.server.luau` — initial plot/tree assignment.
 - `src/ServerScriptService/Economy/Wood/ChopHandler.server.luau` — server validation and damage path.

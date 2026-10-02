@@ -4,8 +4,20 @@ local Workspace = game:GetService("Workspace")
 local TreeObject = require(game.ServerScriptService.Trees.TreeObject)
 
 local PLOT_COUNT = 6
-local SLOT_COUNT = 5
-local PLOT_SPACING = 36
+local PLOT_SIZE = Vector3.new(42, 0.05, 42)
+local GROVE_MARGIN = 6
+local PLOT_COLOR = Color3.fromRGB(118, 160, 98)
+
+-- A U-shaped village leaves the front open for the future base-to-forest route.
+-- These are plot boundaries only; trees are not tied to markers inside them.
+local PLOT_CENTERS = {
+	Vector3.new(-70, 0, -50),
+	Vector3.new(-70, 0, 0),
+	Vector3.new(-24, 0, 48),
+	Vector3.new(24, 0, 48),
+	Vector3.new(70, 0, 0),
+	Vector3.new(70, 0, -50),
+}
 
 PlotManager.playerPlotMap = {}
 PlotManager.playerTrees = {}
@@ -35,7 +47,7 @@ local function makePart(name, size, cframe, color, parent)
 	part.Size = size
 	part.CFrame = cframe
 	part.Color = color
-	part.Material = Enum.Material.SmoothPlastic
+	part.Material = Enum.Material.Plastic
 	part.TopSurface = Enum.SurfaceType.Studs
 	part.BottomSurface = Enum.SurfaceType.Smooth
 	part.Parent = parent
@@ -53,19 +65,25 @@ local function makePlot(plotId)
 	model.Name = "PlotModel"
 	model.Parent = plot
 
-	local center = Vector3.new((plotId - (PLOT_COUNT - 1) / 2) * PLOT_SPACING, 0, 0)
-	local base = makePart("Base", Vector3.new(30, 1, 30), CFrame.new(center), Color3.fromRGB(81, 192, 241), model)
+	local center = PLOT_CENTERS[plotId + 1]
+	-- This paper-thin colored surface sits flush with BaseGround; it is deliberately
+	-- not a raised platform.
+	local base = makePart("Base", PLOT_SIZE, CFrame.new(center.X, -0.475, center.Z), PLOT_COLOR, model)
+	base.CanCollide = false
 	model.PrimaryPart = base
 
-	local slots = Instance.new("Folder")
-	slots.Name = "GroveSlots"
-	slots.Parent = model
-	for slotId = 1, SLOT_COUNT do
-		local angle = (slotId - 1) * (2 * math.pi / SLOT_COUNT)
-		local position = center + Vector3.new(math.cos(angle) * 9, 0.7, math.sin(angle) * 9)
-		local slot = makePart("Slot" .. slotId, Vector3.new(5, 0.25, 5), CFrame.new(position), Color3.fromRGB(255, 208, 87), slots)
-		slot:SetAttribute("SlotId", slotId)
-	end
+	local groveArea = makePart(
+		"GroveArea",
+		Vector3.new(PLOT_SIZE.X - GROVE_MARGIN * 2, 1, PLOT_SIZE.Z - GROVE_MARGIN * 2),
+		CFrame.new(center),
+		Color3.new(),
+		model
+	)
+	groveArea.Transparency = 1
+	groveArea.CanCollide = false
+	groveArea.CanTouch = false
+	groveArea.CanQuery = false
+	groveArea:SetAttribute("Purpose", "Open planting bounds; future trees choose their own positions")
 
 	return plot
 end
@@ -98,26 +116,48 @@ function PlotManager.assignPlot(player)
 	return nil
 end
 
-function PlotManager.GetGroveSlots(player)
+function PlotManager.GetGroveArea(player)
 	local plot = PlotManager.playerPlotMap[player]
 	if not plot then return nil end
-	return plot.PlotModel.GroveSlots
+	return plot.PlotModel.GroveArea
 end
 
-function PlotManager.CreateTree(player, slotId)
+local function containsPosition(area, position)
+	local localPosition = area.CFrame:PointToObjectSpace(position)
+	local halfSize = area.Size * 0.5
+	return math.abs(localPosition.X) <= halfSize.X and math.abs(localPosition.Z) <= halfSize.Z
+end
+
+function PlotManager.GetPreviewTreeCFrame(player)
+	local area = PlotManager.GetGroveArea(player)
+	if not area then return nil end
+	-- A temporary smoke-test tree gets a fresh open-area position. Real planting
+	-- will supply a stored world position rather than inheriting a fixed slot.
+	local random = Random.new()
+	local halfSize = area.Size * 0.5
+	return area.CFrame * CFrame.new(
+		random:NextNumber(-halfSize.X + 7, halfSize.X - 7),
+		0,
+		random:NextNumber(-halfSize.Z + 7, halfSize.Z - 7)
+	)
+end
+
+function PlotManager.CreateTree(player, treeCFrame)
 	local plot = PlotManager.playerPlotMap[player]
 	if not plot then return nil end
-	local slot = plot.PlotModel.GroveSlots:FindFirstChild("Slot" .. tostring(slotId))
-	if not slot then return nil end
+	local area = plot.PlotModel:FindFirstChild("GroveArea")
+	if not area then return nil end
+	if typeof(treeCFrame) == "Vector3" then treeCFrame = CFrame.new(treeCFrame) end
+	if typeof(treeCFrame) ~= "CFrame" or not containsPosition(area, treeCFrame.Position) then return nil end
 
 	local tree = TreeObject.new({
 		DefinitionId = "BasicGrove",
 		Parent = plot.PlotModel,
-		CFrame = slot.CFrame * CFrame.new(0, 0.15, 0),
+		CFrame = treeCFrame,
 		OwnerUserId = player.UserId,
 	})
 	PlotManager.playerTrees[player] = PlotManager.playerTrees[player] or {}
-	PlotManager.playerTrees[player][slotId] = tree
+	table.insert(PlotManager.playerTrees[player], tree)
 	return tree
 end
 

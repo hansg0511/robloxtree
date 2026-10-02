@@ -7,41 +7,116 @@ local DamageEvent = game.ReplicatedStorage.DamageEvent
 local FXService = require(game.ReplicatedStorage.FXService)
 local Definitions = require(script.Parent.TreeDefinitions)
 
+local function makeBrickPart(name, size, position, color, parent, root)
+	local part = Instance.new("Part")
+	part.Name = name
+	part.Size = size
+	part.CFrame = CFrame.new(position)
+	part.Color = color
+	part.Material = Enum.Material.Plastic
+	part.TopSurface = Enum.SurfaceType.Studs
+	part.BottomSurface = Enum.SurfaceType.Inlet
+	part.FrontSurface = Enum.SurfaceType.Studs
+	part.BackSurface = Enum.SurfaceType.Studs
+	part.LeftSurface = Enum.SurfaceType.Studs
+	part.RightSurface = Enum.SurfaceType.Studs
+	part.Anchored = root == nil
+	part.CanCollide = root == nil
+	part.Parent = parent
+	if root then
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = root
+		weld.Part1 = part
+		weld.Parent = part
+	end
+	return part
+end
+
+local function addBarkStuds(brick, root, color)
+	local halfX, halfZ = brick.Size.X * 0.25, brick.Size.Z * 0.25
+	for _, offset in ipairs({
+		Vector3.new(-halfX, 0, -halfZ), Vector3.new(halfX, 0, -halfZ),
+		Vector3.new(-halfX, 0, halfZ), Vector3.new(halfX, 0, halfZ),
+	}) do
+		local stud = Instance.new("Part")
+		stud.Name = "BarkStud"
+		stud.Shape = Enum.PartType.Cylinder
+		stud.Size = Vector3.new(0.35, 0.9, 0.9)
+		stud.CFrame = brick.CFrame * CFrame.new(offset.X, brick.Size.Y * 0.5 + 0.16, offset.Z) * CFrame.Angles(0, 0, math.rad(90))
+		stud.Color = color
+		stud.Material = Enum.Material.Plastic
+		stud.Anchored = false
+		stud.CanCollide = false
+		stud.Parent = brick.Parent
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = root
+		weld.Part1 = stud
+		weld.Parent = stud
+	end
+
+	-- Top studs alone disappear when bricks are stacked. These small side studs
+	-- keep the trunk visibly brick-built from the player's eye level.
+	for _, verticalOffset in ipairs({ -brick.Size.Y * 0.2, brick.Size.Y * 0.2 }) do
+		for _, horizontalOffset in ipairs({ -halfX, halfX }) do
+			local frontStud = Instance.new("Part")
+			frontStud.Name = "BarkStud"
+			frontStud.Shape = Enum.PartType.Cylinder
+			frontStud.Size = Vector3.new(0.45, 0.8, 0.8)
+			frontStud.CFrame = brick.CFrame
+				* CFrame.new(horizontalOffset, verticalOffset, brick.Size.Z * 0.5 + 0.2)
+				* CFrame.Angles(0, math.rad(90), 0)
+			frontStud.Color = color
+			frontStud.Material = Enum.Material.Plastic
+			frontStud.Anchored = false
+			frontStud.CanCollide = false
+			frontStud.Parent = brick.Parent
+			local frontWeld = Instance.new("WeldConstraint")
+			frontWeld.Part0 = root
+			frontWeld.Part1 = frontStud
+			frontWeld.Parent = frontStud
+
+			local sideStud = frontStud:Clone()
+			sideStud.CFrame = brick.CFrame * CFrame.new(brick.Size.X * 0.5 + 0.2, verticalOffset, horizontalOffset)
+			sideStud.Parent = brick.Parent
+			local sideWeld = sideStud:FindFirstChildOfClass("WeldConstraint")
+			if sideWeld then
+				sideWeld.Part0 = root
+				sideWeld.Part1 = sideStud
+			end
+		end
+	end
+end
+
 local function makeBrickPlaceholder()
 	local model = Instance.new("Model")
 	model.Name = "BrickPlaceholder"
 
-	local bark = Instance.new("Part")
-	bark.Name = "Bark"
-	bark.Size = Vector3.new(4, 12, 4)
-	bark.CFrame = CFrame.new(0, 6, 0)
-	bark.PivotOffset = CFrame.new(0, -6, 0)
-	bark.Color = Color3.fromRGB(151, 90, 51)
-	bark.Material = Enum.Material.Plastic
-	bark.TopSurface = Enum.SurfaceType.Studs
-	bark.Anchored = true
-	bark.Parent = model
+	local barkColor = Color3.fromRGB(144, 85, 48)
+	local bark = makeBrickPart("Bark", Vector3.new(8, 4, 8), Vector3.new(0, 2, 0), barkColor, model)
+	bark.PivotOffset = CFrame.new(0, -2, 0)
 	model.PrimaryPart = bark
+	addBarkStuds(bark, bark, barkColor)
+
+	for index, definition in ipairs({
+		{ Vector3.new(7, 4, 7), Vector3.new(1, 6, -1), Color3.fromRGB(159, 95, 54) },
+		{ Vector3.new(8, 4, 8), Vector3.new(-1, 10, 1), barkColor },
+		{ Vector3.new(7, 4, 7), Vector3.new(0, 14, 0), Color3.fromRGB(159, 95, 54) },
+	}) do
+		local brick = makeBrickPart("BarkBrick" .. index, definition[1], definition[2], definition[3], model, bark)
+		addBarkStuds(brick, bark, definition[3])
+	end
 
 	local leaves = Instance.new("Folder")
 	leaves.Name = "Leaves"
 	leaves.Parent = model
-	for index, offset in ipairs({
-		Vector3.new(0, 12, 0),
-		Vector3.new(-3, 15, 0),
-		Vector3.new(3, 15, 0),
-		Vector3.new(0, 18, 0),
+	for index, definition in ipairs({
+		{ Vector3.new(18, 8, 18), Vector3.new(0, 18, 0), Color3.fromRGB(77, 181, 87) },
+		{ Vector3.new(14, 8, 14), Vector3.new(-6, 22, -2), Color3.fromRGB(87, 201, 93) },
+		{ Vector3.new(14, 8, 14), Vector3.new(6, 22, 2), Color3.fromRGB(66, 162, 78) },
+		{ Vector3.new(16, 7, 16), Vector3.new(0, 27, 0), Color3.fromRGB(89, 205, 99) },
 	}) do
-		local leaf = Instance.new("Part")
-		leaf.Name = "Leaf" .. index
-		leaf.Size = Vector3.new(8, 5, 8)
-		leaf.CFrame = CFrame.new(offset)
-		leaf.Color = Color3.fromRGB(65, 194, 83)
-		leaf.Material = Enum.Material.Plastic
-		leaf.TopSurface = Enum.SurfaceType.Studs
-		leaf.Anchored = true
+		local leaf = makeBrickPart("Leaf" .. index, definition[1], definition[2], definition[3], leaves, bark)
 		leaf.CanCollide = false
-		leaf.Parent = leaves
 	end
 
 	return model

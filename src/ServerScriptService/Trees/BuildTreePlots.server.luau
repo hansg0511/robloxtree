@@ -11,9 +11,9 @@ local function onProfileLoaded(player)
 		return
 	end
 
-	-- One temporary Grove tree keeps the existing chop path testable.
-	-- The remaining slots are stable placeholders for future growing rules.
-	local tree = PlotManager.CreateTree(player, 1)
+	-- One temporary tree keeps the chop path testable. It deliberately uses a
+	-- free position within the GroveArea instead of a fixed planting marker.
+	local tree = PlotManager.CreateTree(player, PlotManager.GetPreviewTreeCFrame(player))
 	if tree then tree:Spawn() end
 end
 
