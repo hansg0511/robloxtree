@@ -27,7 +27,7 @@ local remoteCallbacks: IMC.RemoteCallbacks = {
 
 IMC.IMS.DefineRemotesToServer(remoteCallbacks)
 
-RS.Inventory.AddRE.OnClientEvent:Connect(function(newItem, stackOnAdd)
+RS.Inventory.NewInventoryItemRE.OnClientEvent:Connect(function(newItem, stackOnAdd)
 	IMC.AddItem(newItem, stackOnAdd)
 end)
 

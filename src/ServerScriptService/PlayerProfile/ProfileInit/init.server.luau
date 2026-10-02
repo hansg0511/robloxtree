@@ -82,11 +82,7 @@ end
 
 
 local function PlayerAdded(player)
-	if player.Name == "ForsakenDemonz" or player.Name == "C1osedA1" then
-		ProfileStore:WipeProfileAsync("Player_" .. player.UserId)
-		print("Wiped")
-		player.Character.Humanoid.WalkSpeed = 50
-	end
+	-- Rework testing intentionally uses the mock store. Never wipe live player data on join.
 	local profile = ProfileStore.Mock:LoadProfileAsync("Player_" .. player.UserId)
 	if profile ~= nil then
 		print("New Player")
@@ -100,6 +96,7 @@ local function PlayerAdded(player)
 		if player:IsDescendantOf(Players) == true then
 			profileCache.Set(player, profile)
 			bindableLoaded:Fire(player)
+			player:SetAttribute("ProfileReady", true)
 			remoteLoaded:FireClient(player)
 			
 			
@@ -120,8 +117,8 @@ Players.PlayerAdded:Connect(PlayerAdded)
 
 Players.PlayerRemoving:Connect(function(player)
 	local profile = profileCache.GetProfile(player)
-	profile.Data.Runtime = nil
 	if profile ~= nil then
+		profile.Data.Runtime = nil
 		profile:Release()
 		profileCache.Remove(player)
 	end

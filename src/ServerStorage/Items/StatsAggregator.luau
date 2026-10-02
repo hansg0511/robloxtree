@@ -17,16 +17,17 @@ function StatAggregator.CollectSources(player)
 	local playerProfile = playerProfileCache.GetProfile(player)
 	-- Equipped weapon
 	local weaponUID = playerProfile.Data.Equipped.Weapon
-	if weaponUID then
+	local weapon = weaponUID and playerProfile.Data.Runtime.Weapon[weaponUID]
+	if weapon then
 		table.insert(sources, {
 			SourceType = "Weapon",
 			SourceId = weaponUID,
-			Stats = playerProfile.Data.Runtime.Weapon[weaponUID].ItemStats
+			Stats = weapon.ItemStats or {}
 		})
 		table.insert(sources, {
 			SourceType = "Weapon",
 			SourceId = weaponUID .. "SubStats",
-			Stats = playerProfile.Data.Runtime.Weapon[weaponUID].ItemSubstat
+			Stats = weapon.ItemSubstat or {}
 		})
 	end
 

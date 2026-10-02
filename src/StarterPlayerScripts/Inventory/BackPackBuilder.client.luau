@@ -7,10 +7,10 @@ local UIS = game:GetService("UserInputService")
 local player = game.Players.LocalPlayer
 
 local playerGui = player.PlayerGui
-local screenGui = playerGui:WaitForChild("InventoryScreenGui", 5)
-local templates = playerGui.TEMPLATES.Templates
+local screenGui = playerGui:WaitForChild("InventoryScreenGui")
+local templates = playerGui:WaitForChild("TEMPLATES"):WaitForChild("Templates")
 
-local bpFrame = screenGui.InventoryFrame
+local bpFrame = screenGui:WaitForChild("InventoryFrame")
 local emptySlotTemplate = templates.EmptySlot
 local filledSlotTemplate = templates.FilledSlot
 
@@ -182,13 +182,22 @@ end)
 ---------
 
 --- Populate and build backpack on profile data load
-profileLoadEvent.OnClientEvent:Connect(function()
+local inventoryBuilt = false
+local function buildInventory()
+	if inventoryBuilt then return end
 	IMC.Populate(function()
 		local info = GetInvDataRF:InvokeServer()
+		if not info then return {}, 30 end
 		return info.data, info.capacity
 	end)	
 	IMC.Build({ backpack })
-end)
+	inventoryBuilt = true
+end
+
+profileLoadEvent.OnClientEvent:Connect(buildInventory)
+if player:GetAttribute("ProfileReady") then
+	buildInventory()
+end
 
 
 IMC.DefineOnToggledCallback(function(toggled: boolean)
