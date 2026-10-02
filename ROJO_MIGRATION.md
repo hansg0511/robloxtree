@@ -9,7 +9,8 @@ every mapped gameplay/code root. Rojo owns their full contents:
 - `ServerScriptService`
 - `ServerStorage`
 - `StarterGui`
-- `StarterPlayer`, including `StarterPlayerScripts`
+- `StarterPlayer`, including `StarterPlayerScripts` and the intentionally empty
+  `StarterCharacterScripts` container
 
 Consequently, a script, ModuleScript, RemoteEvent, or GUI left only in Studio is
 not part of the game contract and is removed by a full Rojo sync. This prevents

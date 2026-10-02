@@ -30,6 +30,10 @@
         "$ignoreUnknownInstances": false,
         "$path": "src/StarterPlayerScripts"
       },
+      "StarterCharacterScripts": {
+        "$className": "StarterCharacterScripts",
+        "$ignoreUnknownInstances": false
+      },
       "$properties": {
         "CameraMaxZoomDistance": 128.0,
         "GameSettingsAvatar": "R6"
