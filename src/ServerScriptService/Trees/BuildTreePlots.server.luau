@@ -5,6 +5,7 @@ local profileLoaded = game.ServerScriptService.PlayerProfile.ProfileInit.Profile
 PlotManager.buildPlots()
 
 local function onProfileLoaded(player)
+	if PlotManager.playerPlotMap[player] then return end
 	local plot = PlotManager.assignPlot(player)
 	if not plot then
 		warn("No free plot for", player.Name)

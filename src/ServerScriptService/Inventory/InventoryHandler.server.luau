@@ -1,7 +1,5 @@
 local Players = game:GetService("Players")
-local SSS = game:GetService("ServerScriptService")
 local SS = game:GetService("ServerStorage")
-local RS = game:GetService("ReplicatedStorage")
 
 local IMS = require(script.Parent.Module.IMS)
 local IMRemotes = game.ReplicatedStorage:WaitForChild("Inventory")
@@ -12,9 +10,11 @@ local itemDataBase = require(itemFolder.ItemDataBase)
 local StatsAggregator = require(itemFolder.StatsAggregator)
 local StatsDatabase = require(itemFolder.StatsDatabase)
 
-local itemGen = require(itemFolder.ItemGeneratorModule)
-
 local MAX_INVENTORY_CAPACITY = 30
+local REMOTE_INTERVALS = {
+	Equip = 0.15,
+	SpawnEquippedItem = 0.75,
+}
 
 
 local IMS_REMOTES_TO_CLIENT: IMS.RemoteCallbacks = {
@@ -37,6 +37,20 @@ local IMS_REMOTES_TO_CLIENT: IMS.RemoteCallbacks = {
 
 
 local playerInventories = {}
+local nextRemoteUse = {}
+
+local function consumeRemoteBudget(player, action)
+	local interval = REMOTE_INTERVALS[action]
+	local now = os.clock()
+	local playerBudget = nextRemoteUse[player]
+	if not playerBudget then
+		playerBudget = {}
+		nextRemoteUse[player] = playerBudget
+	end
+	if now < (playerBudget[action] or 0) then return false end
+	playerBudget[action] = now + interval
+	return true
+end
 
 
 local function initInventoryData(player: Player): { any }
@@ -132,6 +146,7 @@ end)
 
 Players.PlayerRemoving:Connect(function(player: Player)
 	destroyInventory(player)
+	nextRemoteUse[player] = nil
 end)
 
 
@@ -141,55 +156,19 @@ IMRemotes.GetDataRF.OnServerInvoke = function(player)
 	return {data = inv:Items(), capacity = MAX_INVENTORY_CAPACITY}
 end
 
-IMRemotes.GetItemDataRF.OnServerInvoke = function(player, slotIndex)
-	if typeof(slotIndex) ~= "number" or slotIndex % 1 ~= 0 then return nil end
-	local inv = playerInventories[player]
-	if not inv then return end
-	local item = inv:GetItem(slotIndex)
-	if not item then return end
-	return item
-end
-
-
-
 IMRemotes.SpawnEquippedItemRE.OnServerEvent:Connect(function(player)
+	if not consumeRemoteBudget(player, "SpawnEquippedItem") then return end
 	if EquipItem(player) then
 		IMRemotes.SpawnEquippedItemRE:FireClient(player)
 	end
 end)
 
-
-
---IMRemotes.SwitchRE.OnServerEvent:Connect(function(player, slotIndex1, slotIndex2)
---    local inv = playerInventories[player]
---    if not inv then return end
-
---	inv:Switch(slotIndex1, slotIndex2)
---end)
-
---IMRemotes.StackRE.OnServerEvent:Connect(function(player, targetSlotIndex, currSlotIndex)
---    local inv = playerInventories[player]
---    if not inv then return end
-
---    inv:Stack(targetSlotIndex, currSlotIndex)
---end)
-
---IMRemotes.SplitRE.OnServerEvent:Connect(function(player, newSlotIndex, splitSlotIndex)
---    local inv = playerInventories[player]
---    if not inv then return end
-
---    inv:Split(newSlotIndex, splitSlotIndex)
---end)
-
 IMRemotes.EquipRE.OnServerEvent:Connect(function(player, slotIndex)
+	if not consumeRemoteBudget(player, "Equip") then return end
 	local inv = playerInventories[player]
 	if not inv or typeof(slotIndex) ~= "number" or slotIndex % 1 ~= 0 then return end
 	local item = inv:GetItem(slotIndex)
 	if not item or item.ItemType ~= "Weapon" then return end
 
 	inv:SetEquippedItem(slotIndex)
-end)
-
-IMRemotes.SortRE.OnServerEvent:Connect(function(player: Player, sorterName: string, ...: any)
-	-- No server sorters are registered yet; ignore untrusted names instead of throwing.
 end)

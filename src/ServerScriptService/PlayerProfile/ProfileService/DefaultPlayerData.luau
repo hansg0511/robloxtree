@@ -15,8 +15,8 @@ export type PlayerData = {
 	Equipped : {
 		Weapon:string,},
 	Coins : number,
-	TreeLevel : number,
 	Wood : number,
+	ActivePets : { string },
 
 }
 

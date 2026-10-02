@@ -129,10 +129,7 @@ end
 local function GetGroundY(origin, treeModel)
 	local rayParams = RaycastParams.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
-	local excluded = {treeModel}
-	local zone = treeModel.Parent and treeModel.Parent:FindFirstChild("Zone")
-	if zone then table.insert(excluded, zone) end
-	rayParams.FilterDescendantsInstances = excluded
+	rayParams.FilterDescendantsInstances = {treeModel}
 
 	local result = workspace:Raycast(
 		origin,

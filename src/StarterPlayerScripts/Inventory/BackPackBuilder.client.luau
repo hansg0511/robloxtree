@@ -21,7 +21,9 @@ local EquipBtnColorChange = require(itemDetailsFrame.MainItemDetails.ItemStats.E
 IMC.Initialize(screenGui)
 
 
-local backpack = IMC.Container("bp", 25, IMC.NO_AUTO_EQUIP + IMC.NO_DRAGGING)
+-- Inventory rearranging/sorting is not implemented server-side yet, so keep
+-- this UI read-only apart from selecting an equipped item.
+local backpack = IMC.Container("bp", 25, IMC.NO_AUTO_EQUIP + IMC.NO_DRAGGING + IMC.NO_SORTING)
 
 -----------------------------------------------------------------
 

@@ -4,36 +4,36 @@
     "$className": "DataModel",
     "ReplicatedStorage": {
       "$className": "ReplicatedStorage",
-      "$ignoreUnknownInstances": true,
+      "$ignoreUnknownInstances": false,
       "$path": "src/ReplicatedStorage"
     },
     "ServerScriptService": {
       "$className": "ServerScriptService",
-      "$ignoreUnknownInstances": true,
+      "$ignoreUnknownInstances": false,
       "$path": "src/ServerScriptService"
     },
     "ServerStorage": {
       "$className": "ServerStorage",
-      "$ignoreUnknownInstances": true,
+      "$ignoreUnknownInstances": false,
       "$path": "src/ServerStorage"
     },
     "StarterGui": {
       "$className": "StarterGui",
-      "$ignoreUnknownInstances": true,
+      "$ignoreUnknownInstances": false,
       "$path": "src/StarterGui"
     },
     "StarterPlayer": {
       "$className": "StarterPlayer",
+      "$ignoreUnknownInstances": false,
       "StarterPlayerScripts": {
         "$className": "StarterPlayerScripts",
-        "$ignoreUnknownInstances": true,
+        "$ignoreUnknownInstances": false,
         "$path": "src/StarterPlayerScripts"
       },
       "$properties": {
         "CameraMaxZoomDistance": 128.0,
         "GameSettingsAvatar": "R6"
-      },
-      "$ignoreUnknownInstances": true
+      }
     }
   },
   "servePlaceIds": [

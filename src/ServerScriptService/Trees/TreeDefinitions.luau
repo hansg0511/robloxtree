@@ -7,6 +7,7 @@ local TreeDefinitions = {
 		RespawnSeconds = 3,
 		OwnerOnly = true,
 		Choppable = true,
+		ForestId = "Base",
 	},
 }
 

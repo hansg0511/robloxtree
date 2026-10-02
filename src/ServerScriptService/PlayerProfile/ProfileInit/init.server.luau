@@ -1,4 +1,5 @@
 local profileCache = require(script.Parent.ProfileService.ProfileDataCache)
+local DevelopmentLoadouts = require(script.Parent.DevelopmentLoadouts)
 local bindableLoaded = script.ProfileLoadedEvent
 local remoteLoaded = game.ReplicatedStorage.Profile.ProfileLoadEvent
 
@@ -8,56 +9,22 @@ local ProfileTemplate = {
 	Inventory = {
 		{
 			ItemID = 101,
-			UID = "1232",
+			UID = "starter-basic-axe",
 			Stats = {
-				["Attack"] = 5000000,
-				["AttackSpeed"] = 3
+				["Attack"] = 5,
 			},
-			Substat = {
-				["CritChance"] = 5,
-				["CritDamage"] = 10000000,
-			},
+			Substat = {},
 			Rarity = "Common",
 		},
-		
-		{
-			ItemID = 101,
-			UID = "1233",
-			Stats = {
-				["Attack"] = 1,
-				["CritChance"] = 5
-			},
-			Substat = {
-				["AttackSpeed"] = 3,
-				["CritChance"] = 10
-			},
-			Rarity = "Common",
-		},
-		
-		{
-			ItemID = 201,
-			UID = "1234",
-			Stats = {
-				["Attack"] = 10,
-				["CritChance"] = 5
-			},
-			Substat = {
-				["AttackSpeed"] = 3,
-				["CritChance"] = 10
-			},
-			Rarity = "Common",
-		}
-	,
-
-		
 	},
 	Coins = 0,
-	TreeLevel = 1,
 	Wood = 0,
 	LogInTimes = 0,
 	Equipped = {
-		Weapon = "1232",
+		Weapon = "starter-basic-axe",
 	},
+	-- Retained because StatsAggregator supports legacy/current pet records. New
+	-- profiles start empty; pets are not part of this rework's feature scope.
 	ActivePets = {}
 }
 
@@ -88,6 +55,7 @@ local function PlayerAdded(player)
 		print("New Player")
 		profile:AddUserId(player.UserId) -- GDPR compliance
 		profile:Reconcile() -- Fill in missing variables from ProfileTemplate (optional)
+		DevelopmentLoadouts.ApplyStudioPreset(player, profile.Data)
 		profile:ListenToRelease(function()
 			profileCache.Remove(player)
 			-- The profile could've been loaded on another Roblox server:

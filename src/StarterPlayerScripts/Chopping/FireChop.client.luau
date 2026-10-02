@@ -4,8 +4,8 @@ local ChopEvent = ReplicatedStorage.Chop.ChopEvent
 local ChopFX = ReplicatedStorage.Chop.ChopFX
 local FXService = require(game.ReplicatedStorage.FXService)
 
-	
 local player = game.Players.LocalPlayer
+local mouse = player:GetMouse()
 
 local animation = Instance.new("Animation")
 animation.AnimationId = "rbxassetid://125763233049501"
@@ -27,19 +27,6 @@ FXHandlers.playHit = function(ctx)
 	FXService:playHit(ctx.model)
 end
 
-FXHandlers.DropLeaves = function(ctx)
-	FXService:DropLeaves(ctx.model, ctx.pool, ctx.leavesToDrop)
-end
-
-FXHandlers.TreeDies = function(ctx)
-	player = game.Players:GetPlayerByUserId(ctx.playerID)
-	FXService:TreeFall(ctx.model, player)
-end
-
-FXHandlers.TreeRespawn = function(ctx)
-	FXService:FadeIn(ctx.model)
-end
-
 ChopFX.OnClientEvent:Connect(function(fxType, ctx)
 	local handler = FXHandlers[fxType]
 	if handler then
@@ -49,11 +36,27 @@ ChopFX.OnClientEvent:Connect(function(fxType, ctx)
 	end
 end)
 
+local function getTargetCandidate()
+	local target = mouse.Target
+	local cursor = target
+	while cursor do
+		if cursor:IsA("Model") and cursor.Name == "Tree" then
+			return cursor
+		end
+		cursor = cursor.Parent
+	end
+	return nil
+end
+
 UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then return end
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		local targetCandidate = getTargetCandidate()
+		if not targetCandidate then return end
 		if track then track:Play() end
-		ChopEvent:FireServer()
+		-- This is a request only. The server resolves the model against its
+		-- registry and rejects anything invalid, out of range, or unauthorized.
+		ChopEvent:FireServer(targetCandidate)
 	end	
 end)
 

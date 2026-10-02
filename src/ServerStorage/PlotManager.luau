@@ -2,25 +2,17 @@ local PlotManager = {}
 
 local Workspace = game:GetService("Workspace")
 local TreeObject = require(game.ServerScriptService.Trees.TreeObject)
+local PlotConfiguration = require(game.ServerStorage.PlotConfiguration)
 
-local PLOT_COUNT = 6
-local PLOT_SIZE = Vector3.new(42, 0.05, 42)
-local GROVE_MARGIN = 6
-local PLOT_COLOR = Color3.fromRGB(118, 160, 98)
-
--- A U-shaped village leaves the front open for the future base-to-forest route.
--- These are plot boundaries only; trees are not tied to markers inside them.
-local PLOT_CENTERS = {
-	Vector3.new(-70, 0, -50),
-	Vector3.new(-70, 0, 0),
-	Vector3.new(-24, 0, 48),
-	Vector3.new(24, 0, 48),
-	Vector3.new(70, 0, 0),
-	Vector3.new(70, 0, -50),
-}
+local PLOT_COUNT = PlotConfiguration.MAX_PLOTS
+local PLOT_SIZE = PlotConfiguration.PLOT_SIZE
+local GROVE_MARGIN = PlotConfiguration.GROVE_MARGIN
+local PLOT_COLOR = PlotConfiguration.PLOT_COLOR
+local PLOT_CENTERS = PlotConfiguration.PLOT_CENTERS
 
 PlotManager.playerPlotMap = {}
 PlotManager.playerTrees = {}
+PlotManager.MAX_PLOTS = PLOT_COUNT
 
 local function getPlotContainer()
 	local container = Workspace:FindFirstChild("PlayerPlots")
@@ -169,8 +161,11 @@ function PlotManager.CleanUp(player)
 
 	local plot = PlotManager.playerPlotMap[player]
 	if plot then
-		plot.Occupancy.Value = false
-		plot.OwnerID.Value = 0
+		-- Never clear a plot that was reassigned after this player's old state.
+		if plot.OwnerID.Value == player.UserId then
+			plot.Occupancy.Value = false
+			plot.OwnerID.Value = 0
+		end
 		player:SetAttribute("PlotNumber", nil)
 	end
 	PlotManager.playerPlotMap[player] = nil

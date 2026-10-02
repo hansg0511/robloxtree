@@ -123,6 +123,7 @@ local function makeBrickPlaceholder()
 end
 
 Tree.ActiveTrees = {}
+Tree.ByModel = {}
 
 function Tree.new(options)
 	assert(type(options) == "table", "Tree options required")
@@ -141,6 +142,7 @@ function Tree.new(options)
 	self.OwnerOnly = definition.OwnerOnly
 	self.OwnerUserId = options.OwnerUserId
 	self.Choppable = definition.Choppable
+	self.ForestId = options.ForestId or definition.ForestId or "Base"
 	self.Parent = options.Parent
 	self.CFrame = options.CFrame
 	self.isDead = false
@@ -151,6 +153,7 @@ end
 
 function Tree:Spawn()
 	if self.destroyed then return nil end
+	if self.model then Tree.ByModel[self.model] = nil end
 	local model
 	if self.ModelName == "BrickPlaceholder" then
 		model = makeBrickPlaceholder()
@@ -168,6 +171,7 @@ function Tree:Spawn()
 	model.Parent = self.Parent
 	self.model = model
 	self.isDead = false
+	Tree.ByModel[model] = self
 	self:BuildLeafPool()
 	return model
 end
@@ -187,28 +191,33 @@ function Tree:BuildLeafPool()
 end
 
 function Tree:CanChop(player)
-	if self.destroyed or self.isDead or not self.Choppable or not self.model then return false end
+	if self.destroyed or self.isDead or not self.Choppable or not self.model or not self.model.Parent then return false end
 	if self.OwnerOnly and self.OwnerUserId ~= player.UserId then return false end
 	return true
 end
 
-function Tree.GetClosestChoppableTree(player, maxDistance)
+function Tree.GetTreeFromTarget(target)
+	if typeof(target) ~= "Instance" then return nil end
+	local cursor = target
+	while cursor do
+		local tree = Tree.ByModel[cursor]
+		if tree then
+			if tree.model == cursor and not tree.destroyed and cursor.Parent then
+				return tree
+			end
+			return nil
+		end
+		cursor = cursor.Parent
+	end
+	return nil
+end
+
+function Tree:IsPlayerWithinChopDistance(player, maxDistance)
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	local root = character and character:FindFirstChild("HumanoidRootPart")
-	if not humanoid or humanoid.Health <= 0 or not root then return nil end
-	local closest = nil
-	local closestDistance = maxDistance
-	for tree in pairs(Tree.ActiveTrees) do
-		if tree:CanChop(player) then
-			local distance = (tree.CFrame.Position - root.Position).Magnitude
-			if distance <= closestDistance then
-				closest = tree
-				closestDistance = distance
-			end
-		end
-	end
-	return closest
+	if not humanoid or humanoid.Health <= 0 or not root or not self.model then return false end
+	return (self.model:GetPivot().Position - root.Position).Magnitude <= maxDistance
 end
 
 local function leavesForHP(hp, maxHP, totalLeaves)
@@ -251,6 +260,7 @@ function Tree:Die(player)
 	if self.isDead or self.destroyed then return end
 	self.isDead = true
 	local fallenModel = self.model
+	Tree.ByModel[fallenModel] = nil
 	task.spawn(function()
 		FXService:TreeFall(fallenModel, player)
 	end)
@@ -271,7 +281,10 @@ end
 function Tree:Destroy()
 	self.destroyed = true
 	Tree.ActiveTrees[self] = nil
-	if self.model then self.model:Destroy() end
+	if self.model then
+		Tree.ByModel[self.model] = nil
+		self.model:Destroy()
+	end
 	self.model = nil
 end
 
