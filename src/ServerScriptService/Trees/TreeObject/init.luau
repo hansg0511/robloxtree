@@ -2,6 +2,7 @@ local Tree = {}
 Tree.__index = Tree
 
 local ServerStorage = game:GetService("ServerStorage")
+local SpeciesVisuals = require(ServerStorage:WaitForChild("SpeciesVisuals"))
 local ChopFX = game.ReplicatedStorage.Chop.ChopFX
 local DamageEvent = game.ReplicatedStorage.DamageEvent
 local FXService = require(game.ReplicatedStorage.FXService)
@@ -109,7 +110,8 @@ local function makeBrickPlaceholder()
 	local model = Instance.new("Model")
 	model.Name = "BrickPlaceholder"
 
-	local barkColor = Color3.fromRGB(144, 85, 48)
+	local oakPalette = SpeciesVisuals.GetPalette("Oak")
+	local barkColor = oakPalette.Bark
 	local bark = makeBrickPart("Bark", Vector3.new(8, 4, 8), Vector3.new(0, 2, 0), barkColor, model)
 	bark.PivotOffset = CFrame.new(0, -2, 0)
 	model.PrimaryPart = bark
@@ -126,9 +128,9 @@ local function makeBrickPlaceholder()
 	chopHitbox:SetAttribute("AlwaysInvisible", true)
 
 	for index, definition in ipairs({
-		{ Vector3.new(7, 4, 7), Vector3.new(1, 6, -1), Color3.fromRGB(159, 95, 54) },
+		{ Vector3.new(7, 4, 7), Vector3.new(1, 6, -1), oakPalette.BarkHighlight },
 		{ Vector3.new(8, 4, 8), Vector3.new(-1, 10, 1), barkColor },
-		{ Vector3.new(7, 4, 7), Vector3.new(0, 14, 0), Color3.fromRGB(159, 95, 54) },
+		{ Vector3.new(7, 4, 7), Vector3.new(0, 14, 0), oakPalette.BarkHighlight },
 	}) do
 		local brick = makeBrickPart("BarkBrick" .. index, definition[1], definition[2], definition[3], model, bark)
 		addBarkStuds(brick, bark, definition[3])
@@ -198,14 +200,15 @@ local function addChopHitbox(model, root, size, position)
 end
 
 local function makeStarterForestTree()
-	local barkColor = Color3.fromRGB(132, 78, 43)
+	local oakPalette = SpeciesVisuals.GetPalette("Oak")
+	local barkColor = oakPalette.Bark
 	local model, trunk, leaves = makeTreeFrame(
 		"StarterForestTree",
 		Vector3.new(6, 10, 6),
 		Vector3.new(0, 5, 0),
 		barkColor
 	)
-	addBarkBrick(model, trunk, "BarkBrick1", Vector3.new(5, 5, 5), Vector3.new(0, 11, 0), Color3.fromRGB(150, 91, 51))
+	addBarkBrick(model, trunk, "BarkBrick1", Vector3.new(5, 5, 5), Vector3.new(0, 11, 0), oakPalette.BarkHighlight)
 	addBarkBrick(model, trunk, "BarkBrick2", Vector3.new(4, 5, 4), Vector3.new(0, 15, 0), barkColor)
 	addLeafBricks(leaves, trunk, {
 		{ Size = Vector3.new(18, 8, 16), Position = Vector3.new(0, 20, 0), Color = Color3.fromRGB(79, 168, 70) },
@@ -219,17 +222,18 @@ local function makeStarterForestTree()
 end
 
 local function makeForest2Tree()
-	local barkColor = Color3.fromRGB(91, 65, 49)
+	local ironwoodPalette = SpeciesVisuals.GetPalette("Ironwood")
+	local barkColor = ironwoodPalette.Bark
 	local model, trunk, leaves = makeTreeFrame(
 		"Forest2Tree",
 		Vector3.new(7, 16, 7),
 		Vector3.new(0, 8, 0),
 		barkColor
 	)
-	addBarkBrick(model, trunk, "BarkBrick1", Vector3.new(6, 9, 6), Vector3.new(0, 18, 0), Color3.fromRGB(111, 76, 52))
+	addBarkBrick(model, trunk, "BarkBrick1", Vector3.new(6, 9, 6), Vector3.new(0, 18, 0), ironwoodPalette.BarkHighlight)
 	addBarkBrick(model, trunk, "BarkBrick2", Vector3.new(5, 8, 5), Vector3.new(0, 25, 0), barkColor)
-	addBarkBrick(model, trunk, "BoughLeft", Vector3.new(11, 4, 5), Vector3.new(-5, 23, 0), Color3.fromRGB(107, 73, 51))
-	addBarkBrick(model, trunk, "BoughRight", Vector3.new(11, 4, 5), Vector3.new(5, 28, 0), Color3.fromRGB(107, 73, 51))
+	addBarkBrick(model, trunk, "BoughLeft", Vector3.new(11, 4, 5), Vector3.new(-5, 23, 0), ironwoodPalette.BarkHighlight)
+	addBarkBrick(model, trunk, "BoughRight", Vector3.new(11, 4, 5), Vector3.new(5, 28, 0), ironwoodPalette.BarkHighlight)
 	addLeafBricks(leaves, trunk, {
 		{ Size = Vector3.new(20, 7, 18), Position = Vector3.new(0, 31, 0), Color = Color3.fromRGB(31, 112, 91) },
 		{ Size = Vector3.new(15, 7, 15), Position = Vector3.new(0, 37, 0), Color = Color3.fromRGB(40, 137, 105) },
@@ -297,6 +301,7 @@ function Tree.new(options)
 	self.SpeciesId = definition.SpeciesId
 	self.BaseWeightKg = definition.BaseWeightKg
 	self.ValuePerKg = definition.ValuePerKg
+	self.YieldsLog = definition.YieldsLog == true
 	self.SizeScale = 1
 	self.DamageContributions = {}
 	self.RespawnSeconds = definition.RespawnSeconds
@@ -323,7 +328,8 @@ function Tree:Spawn()
 		and type(self.SpeciesId) == "string"
 		and type(self.BaseWeightKg) == "number"
 	self.SizeScale = if hasLogDrop then rollTreeScale() else 1
-	self.MaxHP = self.BaseHP * (self.SizeScale ^ 1.4)
+	-- Combat state stays integral even though the presentation size is fractional.
+	self.MaxHP = math.max(1, math.floor(self.BaseHP * (self.SizeScale ^ 1.4) + 0.5))
 	self.HP = self.MaxHP
 	self.DamageContributions = {}
 
@@ -442,7 +448,7 @@ function Tree:TakeDamage(ctx, player)
 	local damage = ctx.Damage
 	if type(damage) ~= "number" or damage ~= damage or damage <= 0 or damage == math.huge then return false end
 
-	local appliedDamage = math.min(damage, self.HP)
+	local appliedDamage = math.min(math.floor(damage), self.HP)
 	if appliedDamage <= 0 then return false end
 	self.HP = math.max(0, self.HP - appliedDamage)
 	local contribution = self.DamageContributions[player.UserId]
@@ -479,7 +485,7 @@ end
 function Tree:Die(player)
 	if self.isDead or self.destroyed then return end
 	self.isDead = true
-	if self.Category ~= "Barrier" and self.SpeciesId and self.BaseWeightKg then
+	if self.YieldsLog then
 		LogService.AwardTreeLog(self, self.DamageContributions)
 	end
 	if self.UnlockForestId then

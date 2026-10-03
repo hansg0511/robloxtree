@@ -1,0 +1,70 @@
+{
+  "ClassName": "Tool",
+  "Properties": {
+    "CanBeDropped": false,
+    "RequiresHandle": true,
+    "ToolTip": "A copper-headed starter upgrade"
+  },
+  "Children": [
+    {
+      "Name": "Handle",
+      "ClassName": "Part",
+      "Properties": {
+        "Anchored": false,
+        "CanCollide": false,
+        "CanTouch": false,
+        "CanQuery": false,
+        "Massless": true,
+        "Material": "Wood",
+        "Color": [0.29, 0.18, 0.13],
+        "Size": [0.3, 2.5, 0.3],
+        "CFrame": [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]
+      }
+    },
+    {
+      "Name": "CopperHead",
+      "ClassName": "Part",
+      "Properties": {
+        "Anchored": false,
+        "CanCollide": false,
+        "CanTouch": false,
+        "CanQuery": false,
+        "Massless": true,
+        "Material": "Metal",
+        "Color": [0.69, 0.35, 0.18],
+        "Size": [1.05, 0.55, 0.43],
+        "CFrame": [0, 0.78, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]
+      }
+    },
+    {
+      "Name": "CopperBlade",
+      "ClassName": "Part",
+      "Properties": {
+        "Anchored": false,
+        "CanCollide": false,
+        "CanTouch": false,
+        "CanQuery": false,
+        "Massless": true,
+        "Material": "Metal",
+        "Color": [0.86, 0.56, 0.31],
+        "Size": [0.2, 0.45, 0.45],
+        "CFrame": [-0.58, 0.78, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]
+      }
+    },
+    {
+      "Name": "GripBand",
+      "ClassName": "Part",
+      "Properties": {
+        "Anchored": false,
+        "CanCollide": false,
+        "CanTouch": false,
+        "CanQuery": false,
+        "Massless": true,
+        "Material": "Plastic",
+        "Color": [0.42, 0.22, 0.12],
+        "Size": [0.34, 0.38, 0.34],
+        "CFrame": [0, -0.45, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]
+      }
+    }
+  ]
+}

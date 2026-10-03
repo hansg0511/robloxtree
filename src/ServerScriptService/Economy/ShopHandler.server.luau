@@ -7,7 +7,7 @@ local profileCache = require(ServerScriptService.PlayerProfile.ProfileService.Pr
 local itemDataBase = require(game.ServerStorage.Items.ItemDataBase)
 local catalog = require(script.Parent.AxeShopCatalog)
 local LogService = require(ServerScriptService.Inventory.LogService)
-local LogService = require(ServerScriptService.Inventory.LogService)
+local BaseStationAccess = require(ServerScriptService.WorldLayout.BaseStationAccess)
 
 local economyRemotes = ReplicatedStorage:WaitForChild("Economy")
 local getShopData = economyRemotes:WaitForChild("GetShopDataRF")
@@ -99,7 +99,7 @@ end
 purchaseAxe.OnServerEvent:Connect(function(player, axeId, ...)
 	if select("#", ...) ~= 0 then return end
 	if not takeBudget(player, "PurchaseAxe") then return end
-	if not LogService.CanSellAtBase(player) then return end
+	if not BaseStationAccess.CanUseAxeShop(player) then return end
 	local profile = profileCache.GetProfile(player)
 	if not profile or not profile.Data or not profile.Data.Runtime then return end
 
@@ -130,7 +130,7 @@ end)
 purchaseCapacity.OnServerEvent:Connect(function(player, requestedCapacity, ...)
 	if select("#", ...) ~= 0 then return end
 	if not takeBudget(player, "PurchaseCapacity") then return end
-	if not LogService.CanSellAtBase(player) then return end
+	if not BaseStationAccess.CanUseAxeShop(player) then return end
 	local profile = profileCache.GetProfile(player)
 	if not profile or not profile.Data or not profile.Data.Runtime then return end
 	if not isFiniteNumber(requestedCapacity) or requestedCapacity % 1 ~= 0 then return end

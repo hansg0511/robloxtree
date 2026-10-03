@@ -1,0 +1,55 @@
+{
+  "ClassName": "Tool",
+  "Properties": {
+    "CanBeDropped": false,
+    "RequiresHandle": true,
+    "ToolTip": "A small, dependable woodcutter's hatchet"
+  },
+  "Children": [
+    {
+      "Name": "Handle",
+      "ClassName": "Part",
+      "Properties": {
+        "Anchored": false,
+        "CanCollide": false,
+        "CanTouch": false,
+        "CanQuery": false,
+        "Massless": true,
+        "Material": "Wood",
+        "Color": [0.35, 0.23, 0.13],
+        "Size": [0.28, 2.3, 0.28],
+        "CFrame": [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]
+      }
+    },
+    {
+      "Name": "HatchetHead",
+      "ClassName": "Part",
+      "Properties": {
+        "Anchored": false,
+        "CanCollide": false,
+        "CanTouch": false,
+        "CanQuery": false,
+        "Massless": true,
+        "Material": "Metal",
+        "Color": [0.35, 0.37, 0.39],
+        "Size": [0.9, 0.48, 0.42],
+        "CFrame": [0, 0.77, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]
+      }
+    },
+    {
+      "Name": "BladeEdge",
+      "ClassName": "Part",
+      "Properties": {
+        "Anchored": false,
+        "CanCollide": false,
+        "CanTouch": false,
+        "CanQuery": false,
+        "Massless": true,
+        "Material": "Metal",
+        "Color": [0.64, 0.66, 0.68],
+        "Size": [0.18, 0.38, 0.44],
+        "CFrame": [-0.5, 0.77, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]
+      }
+    }
+  ]
+}

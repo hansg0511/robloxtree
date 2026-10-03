@@ -165,6 +165,88 @@ local function createHomeEconomyStation(parent)
 	return station
 end
 
+local function createAxeShopStation(parent)
+	local station = Instance.new("Model")
+	station.Name = "AxeShopStation"
+	station:SetAttribute("WorldLayoutOwned", true)
+	station:SetAttribute("UseDistance", Configuration.AXE_SHOP_STATION.UseDistance)
+	station.Parent = parent
+
+	local position = Configuration.AXE_SHOP_STATION.Position
+	local counter = createPart(
+		"Counter",
+		Vector3.new(10, 3.5, 3.5),
+		CFrame.new(position + Vector3.new(0, 1.75, 0)),
+		Color3.fromRGB(235, 162, 61),
+		Enum.Material.WoodPlanks,
+		station
+	)
+	counter:SetAttribute("WorldLayoutOwned", true)
+
+	local counterTop = createPart(
+		"CounterTop",
+		Vector3.new(11, 0.6, 4.2),
+		CFrame.new(position + Vector3.new(0, 3.8, 0)),
+		Color3.fromRGB(255, 214, 77),
+		Enum.Material.Plastic,
+		station
+	)
+	counterTop:SetAttribute("WorldLayoutOwned", true)
+	counterTop.TopSurface = Enum.SurfaceType.Studs
+
+	local signPost = createPart(
+		"SignPost",
+		Vector3.new(0.6, 3.4, 0.6),
+		CFrame.new(position + Vector3.new(0, 5.5, 0)),
+		Color3.fromRGB(92, 137, 80),
+		Enum.Material.Plastic,
+		station
+	)
+	signPost:SetAttribute("WorldLayoutOwned", true)
+
+	local sign = Instance.new("BillboardGui")
+	sign.Name = "StationSign"
+	sign.Size = UDim2.fromOffset(260, 70)
+	sign.StudsOffsetWorldSpace = Vector3.new(0, 2.2, 0)
+	sign.AlwaysOnTop = true
+	sign.Parent = signPost
+	local signText = Instance.new("TextLabel")
+	signText.BackgroundColor3 = Color3.fromRGB(81, 179, 107)
+	signText.BackgroundTransparency = 0
+	signText.Size = UDim2.fromScale(1, 1)
+	signText.Font = Enum.Font.GothamBold
+	signText.Text = "AXE SHOP"
+	signText.TextColor3 = Color3.fromRGB(255, 249, 219)
+	signText.TextStrokeTransparency = 0.5
+	signText.TextScaled = true
+	signText.Parent = sign
+
+	local interaction = createPart(
+		"Interaction",
+		Vector3.new(10, 6, 5),
+		CFrame.new(position + Vector3.new(0, 3, -3.5)),
+		Color3.fromRGB(88, 164, 92),
+		Enum.Material.Plastic,
+		station
+	)
+	interaction.Transparency = 1
+	interaction.CanCollide = false
+	interaction.CanTouch = false
+	interaction.CanQuery = false
+	interaction:SetAttribute("WorldLayoutOwned", true)
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "AxeShopPrompt"
+	prompt.ActionText = "Browse axes"
+	prompt.ObjectText = "Axe Shop"
+	prompt.MaxActivationDistance = Configuration.AXE_SHOP_STATION.UseDistance
+	prompt.RequiresLineOfSight = false
+	prompt.HoldDuration = 0
+	prompt.Parent = interaction
+
+	return station
+end
+
 local function spawnTreeRecord(forestFolder, forestId, record)
 	local definition = TreeDefinitions[record.DefinitionId]
 	if not definition then
@@ -208,6 +290,7 @@ local function buildWorld()
 	local forestRoot = createFolder("Forests", root)
 	root:SetAttribute("WorldLayoutOwned", true)
 	createHomeEconomyStation(root)
+	createAxeShopStation(root)
 
 	createGround(
 		terrain,

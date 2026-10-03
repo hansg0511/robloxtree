@@ -11,6 +11,7 @@ local StatsAggregator = require(itemFolder.StatsAggregator)
 local StatsDatabase = require(itemFolder.StatsDatabase)
 local EquipAxeRE = game.ReplicatedStorage.Economy:WaitForChild("EquipAxeRE")
 local LogService = require(game.ServerScriptService.Inventory.LogService)
+local BaseStationAccess = require(game.ServerScriptService.WorldLayout.BaseStationAccess)
 local addShopAxeItem = script.Parent:WaitForChild("AddShopAxeItem")
 assert(addShopAxeItem:IsA("BindableFunction"), "AddShopAxeItem must be a BindableFunction")
 
@@ -54,6 +55,29 @@ local function consumeRemoteBudget(player, action)
 	end
 	if now < (playerBudget[action] or 0) then return false end
 	playerBudget[action] = now + interval
+	return true
+end
+
+local function prepareToolAssembly(tool)
+	local handle = tool:FindFirstChild("Handle")
+	if not handle or not handle:IsA("BasePart") then return false end
+
+	for _, descendant in ipairs(tool:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.Anchored = false
+			descendant.Massless = true
+			descendant.CanCollide = false
+			descendant.CanTouch = false
+			descendant.CanQuery = false
+			if descendant ~= handle then
+				local weld = Instance.new("WeldConstraint")
+				weld.Name = "ToolAssemblyWeld"
+				weld.Part0 = handle
+				weld.Part1 = descendant
+				weld.Parent = descendant
+			end
+		end
+	end
 	return true
 end
 
@@ -121,7 +145,12 @@ local function EquipItem(player, item)
 		end
 	end
 	local tool = toolTemplate:Clone()
+	if not prepareToolAssembly(tool) then
+		tool:Destroy()
+		return false
+	end
 	tool:SetAttribute("EquippedAxe", true)
+	tool:SetAttribute("AxeItemUID", item.ItemUID)
 	tool.Parent = backpack
 	playerHumanoid:EquipTool(tool)
 	StatsAggregator.Aggregate(player)
@@ -230,6 +259,7 @@ IMRemotes.EquipRE.OnServerEvent:Connect(function(player, slotIndex)
 	if not inv or typeof(slotIndex) ~= "number" or slotIndex % 1 ~= 0 then return end
 	local item = inv:GetItem(slotIndex)
 	if not item or item.ItemType ~= "Weapon" then return end
+	if not BaseStationAccess.CanUseAxeShop(player) then return end
 
 	inv:SetEquippedItem(slotIndex)
 end)
@@ -237,6 +267,7 @@ end)
 EquipAxeRE.OnServerEvent:Connect(function(player, uid, ...)
 	if select("#", ...) ~= 0 then return end
 	if not consumeRemoteBudget(player, "EquipAxe") then return end
+	if not BaseStationAccess.CanUseAxeShop(player) then return end
 	if EquipOwnedAxe(player, uid) then
 		IMRemotes.SpawnEquippedItemRE:FireClient(player)
 		LogService.NotifyState(player)

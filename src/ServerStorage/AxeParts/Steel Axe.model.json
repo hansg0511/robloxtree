@@ -1,0 +1,70 @@
+{
+  "ClassName": "Tool",
+  "Properties": {
+    "CanBeDropped": false,
+    "RequiresHandle": true,
+    "ToolTip": "A wide steel axe with a bright cutting edge"
+  },
+  "Children": [
+    {
+      "Name": "Handle",
+      "ClassName": "Part",
+      "Properties": {
+        "Anchored": false,
+        "CanCollide": false,
+        "CanTouch": false,
+        "CanQuery": false,
+        "Massless": true,
+        "Material": "Wood",
+        "Color": [0.31, 0.2, 0.12],
+        "Size": [0.33, 2.8, 0.33],
+        "CFrame": [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]
+      }
+    },
+    {
+      "Name": "SteelHead",
+      "ClassName": "Part",
+      "Properties": {
+        "Anchored": false,
+        "CanCollide": false,
+        "CanTouch": false,
+        "CanQuery": false,
+        "Massless": true,
+        "Material": "Metal",
+        "Color": [0.49, 0.52, 0.57],
+        "Size": [1.35, 0.72, 0.48],
+        "CFrame": [0, 0.84, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]
+      }
+    },
+    {
+      "Name": "SteelBlade",
+      "ClassName": "Part",
+      "Properties": {
+        "Anchored": false,
+        "CanCollide": false,
+        "CanTouch": false,
+        "CanQuery": false,
+        "Massless": true,
+        "Material": "Metal",
+        "Color": [0.78, 0.81, 0.85],
+        "Size": [0.24, 0.62, 0.5],
+        "CFrame": [-0.78, 0.84, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]
+      }
+    },
+    {
+      "Name": "HandleWrap",
+      "ClassName": "Part",
+      "Properties": {
+        "Anchored": false,
+        "CanCollide": false,
+        "CanTouch": false,
+        "CanQuery": false,
+        "Massless": true,
+        "Material": "Plastic",
+        "Color": [0.59, 0.42, 0.22],
+        "Size": [0.38, 0.42, 0.38],
+        "CFrame": [0, -0.4, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]
+      }
+    }
+  ]
+}

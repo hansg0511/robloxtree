@@ -49,11 +49,11 @@ itemDataBase.Info = {
 local Parts = game.ServerStorage.AxeParts
 
 itemDataBase.Instances = {
-	[101] = Parts["Basic Axe"],
-	[102] = Parts["Basic Axe"],
-	[103] = Parts["Basic Axe"],
-	[104] = Parts["Basic Axe"],
-	[105] = Parts["Basic Axe"],
+	[101] = Parts["Starter Hatchet"],
+	[102] = Parts["Copper Axe"],
+	[103] = Parts["Iron Axe"],
+	[104] = Parts["Steel Axe"],
+	[105] = Parts["Heavy Cleaver"],
 }
 
 itemDataBase.StatPools = {

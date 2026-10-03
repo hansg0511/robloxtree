@@ -15,7 +15,7 @@ end
 
 local WorldLayoutConfiguration = {
 	ROOT_NAME = "SourceWorld",
-	VERSION = 2,
+	VERSION = 3,
 
 	-- The narrow section follows the six-stud opening between the two rear plots.
 	-- It widens once it clears the plots and stays centered on the same route.
@@ -46,6 +46,10 @@ local WorldLayoutConfiguration = {
 	HOME_ECONOMY_STATION = {
 		Position = Vector3.new(14, -0.4, -82),
 		SellDistance = 14,
+	},
+	AXE_SHOP_STATION = {
+		Position = Vector3.new(-17, -0.4, -82),
+		UseDistance = 14,
 	},
 	FORESTS = {
 		{

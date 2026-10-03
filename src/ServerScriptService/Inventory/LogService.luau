@@ -7,6 +7,8 @@ local Workspace = game:GetService("Workspace")
 local ProfileCache = require(game.ServerScriptService.PlayerProfile.ProfileService.ProfileDataCache)
 local EconomyManager = require(game.ServerScriptService.Economy.EconomyManager)
 local TreeDefinitions = require(game.ServerScriptService.Trees.TreeDefinitions)
+local SpeciesVisuals = require(game.ServerStorage:WaitForChild("SpeciesVisuals"))
+local BaseStationAccess = require(game.ServerScriptService.WorldLayout.BaseStationAccess)
 
 local LogService = {}
 
@@ -18,7 +20,6 @@ local OWNER_RESERVATION_SECONDS = 60
 -- loot race after the reservation expires.
 local GROUND_LOG_LIFETIME_SECONDS = 60
 local MAX_PICKUP_DISTANCE = 12
-local MAX_SELL_DISTANCE = 14
 local REMOTE_INTERVALS = {
 	Sell = 1,
 	Lock = 0.15,
@@ -28,6 +29,7 @@ local REMOTE_INTERVALS = {
 
 local economyRemotes = ReplicatedStorage:WaitForChild("Economy")
 local GetLogsDataRF = economyRemotes:WaitForChild("GetLogsDataRF")
+local GetSellSummaryRF = economyRemotes:WaitForChild("GetSellSummaryRF")
 local SellUnlockedLogsRE = economyRemotes:WaitForChild("SellUnlockedLogsRE")
 local SetLogLockedRE = economyRemotes:WaitForChild("SetLogLockedRE")
 local SetHeldLogRE = economyRemotes:WaitForChild("SetHeldLogRE")
@@ -124,6 +126,27 @@ local function makeClientSnapshot(player)
 	}
 end
 
+local function makeSellSummary(player)
+	local data = getPlayerData(player)
+	if not data then return nil end
+
+	local eligibleCount = 0
+	local totalValue = 0
+	for _, logRecord in ipairs(data.Logs) do
+		local value = getLogValue(logRecord)
+		if value and logRecord.Locked ~= true then
+			eligibleCount += 1
+			totalValue += value
+		end
+	end
+
+	return {
+		EligibleCount = eligibleCount,
+		TotalValue = totalValue,
+		Coins = data.Coins,
+	}
+end
+
 function LogService.NotifyState(player)
 	local snapshot = makeClientSnapshot(player)
 	if snapshot and player:IsDescendantOf(Players) then
@@ -158,34 +181,46 @@ local function consumeRemoteBudget(player, action)
 end
 
 local function clearHeldLog(player)
-	local held = heldLogByPlayer[player]
-	if held and held.Parent then held:Destroy() end
+	local heldTool = heldLogByPlayer[player]
+	if heldTool and heldTool.Parent then heldTool:Destroy() end
 	heldLogByPlayer[player] = nil
+
+	-- Also clear a server-created held-log Tool after a script reload, when the
+	-- in-memory table no longer has its reference. Older live sessions used a
+	-- welded HeldLog Part, so remove that exact legacy cosmetic as well.
+	local backpack = player:FindFirstChildOfClass("Backpack")
+	for _, container in ipairs({ backpack, player.Character }) do
+		if container then
+			for _, child in ipairs(container:GetChildren()) do
+				if child:IsA("Tool") and child:GetAttribute("TemporaryLogTool") == true then
+					child:Destroy()
+				elseif child:IsA("BasePart") and child.Name == "HeldLog" and child:GetAttribute("ItemType") == "Log" then
+					child:Destroy()
+				end
+			end
+		end
+	end
 	player:SetAttribute("HeldLogUID", nil)
 end
 
-local function getHand(character)
-	return character:FindFirstChild("RightHand")
-		or character:FindFirstChild("Right Arm")
-		or character:FindFirstChild("HumanoidRootPart")
-end
+local function buildLogTool(logRecord, ownerUserId)
+	local tool = Instance.new("Tool")
+	tool.Name = tostring(logRecord.SpeciesId) .. " Log"
+	tool.ToolTip = string.format("%.2f kg", logRecord.WeightKg)
+	tool.RequiresHandle = true
+	tool.CanBeDropped = false
+	tool:SetAttribute("TemporaryLogTool", true)
+	tool:SetAttribute("LogUID", logRecord.UID)
+	tool:SetAttribute("LogOwnerUserId", ownerUserId)
+	tool:SetAttribute("SpeciesId", logRecord.SpeciesId)
+	tool:SetAttribute("WeightKg", logRecord.WeightKg)
 
-local function makeLogPart(logRecord, name)
-	local sizeScale = if isFinitePositive(logRecord.SizeScale) then math.clamp(logRecord.SizeScale, 0.45, 1.7) else 1
-	local part = Instance.new("Part")
-	part.Name = name
-	part.Shape = Enum.PartType.Cylinder
-	part.Size = Vector3.new(2, 0.65, 0.65) * sizeScale
-	part.Material = Enum.Material.Wood
-	part.Color = if logRecord.SpeciesId == "Ironwood"
-		then Color3.fromRGB(95, 70, 51)
-		else Color3.fromRGB(142, 91, 54)
-	part.TopSurface = Enum.SurfaceType.Studs
-	part.BottomSurface = Enum.SurfaceType.Inlet
-	part:SetAttribute("ItemType", "Log")
-	part:SetAttribute("SpeciesId", logRecord.SpeciesId)
-	part:SetAttribute("SizeScale", sizeScale)
-	return part
+	local handle, caps = SpeciesVisuals.CreateLogParts(logRecord, "Handle")
+	handle.Parent = tool
+	for _, cap in ipairs(caps) do
+		cap.Parent = tool
+	end
+	return tool
 end
 
 function LogService.HoldLog(player, uid)
@@ -197,53 +232,39 @@ function LogService.HoldLog(player, uid)
 	local data = getPlayerData(player)
 	if not data then return false end
 	local logRecord = findLog(data, uid)
-	if not logRecord then return false end
+	if not logRecord or not getLogValue(logRecord) or type(logRecord.SpeciesId) ~= "string" then return false end
 
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-	local hand = character and getHand(character)
-	if not humanoid or humanoid.Health <= 0 or not hand or not hand:IsA("BasePart") then return false end
+	local backpack = player:FindFirstChildOfClass("Backpack")
+	if not humanoid or humanoid.Health <= 0 or not backpack then return false end
 
 	clearHeldLog(player)
-	local heldPart = makeLogPart(logRecord, "HeldLog")
-	heldPart.Anchored = false
-	heldPart.Massless = true
-	heldPart.CanCollide = false
-	heldPart.CanTouch = false
-	heldPart.CanQuery = false
-	heldPart.CFrame = hand.CFrame * CFrame.new(0, -0.4, -0.7)
-	heldPart.Parent = character
-	local weld = Instance.new("WeldConstraint")
-	weld.Part0 = hand
-	weld.Part1 = heldPart
-	weld.Parent = heldPart
-	heldLogByPlayer[player] = heldPart
+	local tool = buildLogTool(logRecord, player.UserId)
+	tool.Parent = backpack
+	humanoid:EquipTool(tool)
+	if tool.Parent ~= character then
+		tool:Destroy()
+		return false
+	end
+	heldLogByPlayer[player] = tool
 	player:SetAttribute("HeldLogUID", uid)
+	-- A log is a temporary physical projection. When the player switches to an
+	-- axe (or otherwise unequips it), remove the old projection rather than
+	-- leaving a second, stale inventory tool in their Backpack.
+	tool.Unequipped:Connect(function()
+		task.defer(function()
+			if heldLogByPlayer[player] == tool and tool.Parent ~= player.Character then
+				clearHeldLog(player)
+				LogService.NotifyState(player)
+			end
+		end)
+	end)
 	return true
 end
 
-local function getStationDistance(player)
-	local station = Workspace:FindFirstChild("SourceWorld")
-		and Workspace.SourceWorld:FindFirstChild("HomeEconomyStation")
-		and Workspace.SourceWorld.HomeEconomyStation:FindFirstChild("Interaction")
-	if not station or not station:IsA("BasePart") then return math.huge end
-	local character = player.Character
-	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-	local root = character and character:FindFirstChild("HumanoidRootPart")
-	if not humanoid or humanoid.Health <= 0 or not root then return math.huge end
-
-	local localPosition = station.CFrame:PointToObjectSpace(root.Position)
-	local halfSize = station.Size * 0.5
-	local closestLocalPoint = Vector3.new(
-		math.clamp(localPosition.X, -halfSize.X, halfSize.X),
-		math.clamp(localPosition.Y, -halfSize.Y, halfSize.Y),
-		math.clamp(localPosition.Z, -halfSize.Z, halfSize.Z)
-	)
-	return (root.Position - station.CFrame:PointToWorldSpace(closestLocalPoint)).Magnitude
-end
-
 function LogService.CanSellAtBase(player)
-	return getStationDistance(player) <= MAX_SELL_DISTANCE
+	return BaseStationAccess.CanUseLumberDepot(player)
 end
 
 local function getGroundDropFolder()
@@ -264,15 +285,16 @@ local function getGroundHeight(position)
 	return position.Y
 end
 
-local function tryPickupGroundLog(player, part)
-	local drop = activeGroundDrops[part]
-	if not drop or not part.Parent or not part:IsDescendantOf(Workspace) then return false end
+local function tryPickupGroundLog(player, model)
+	local drop = activeGroundDrops[model]
+	local handle = model and model.PrimaryPart
+	if not drop or not model.Parent or not model:IsDescendantOf(Workspace) or not handle then return false end
 	if not consumeRemoteBudget(player, "Pickup") then return false end
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	if not humanoid or humanoid.Health <= 0 or not root then return false end
-	if (root.Position - part.Position).Magnitude > MAX_PICKUP_DISTANCE then return false end
+	if (root.Position - handle.Position).Magnitude > MAX_PICKUP_DISTANCE then return false end
 	if player.UserId ~= drop.OwnerUserId then return false end
 
 	local data = getPlayerData(player)
@@ -281,29 +303,40 @@ local function tryPickupGroundLog(player, part)
 
 	-- Remove the server registry entry before mutating the profile or destroying
 	-- the physical pickup. Prompt spam cannot award the same UID twice.
-	activeGroundDrops[part] = nil
+	activeGroundDrops[model] = nil
 	table.insert(data.Logs, drop.LogRecord)
-	part:Destroy()
+	model:Destroy()
 	LogService.NotifyState(player)
 	return true
 end
 
 local function spawnGroundDrop(logRecord, ownerUserId, position)
-	local part = makeLogPart(logRecord, "DroppedLog")
-	part.Anchored = true
-	part.CanCollide = false
-	part.CanTouch = false
-	part.CanQuery = true
-	part.CFrame = CFrame.new(
+	local model = Instance.new("Model")
+	model.Name = "DroppedLog"
+	local handle, caps = SpeciesVisuals.CreateLogParts(logRecord, "LogHandle")
+	handle.Parent = model
+	local assemblyParts = { handle }
+	for _, cap in ipairs(caps) do
+		cap.Parent = model
+		table.insert(assemblyParts, cap)
+	end
+	model.PrimaryPart = handle
+	for _, part in ipairs(assemblyParts) do
+		part.Anchored = true
+	end
+	model:PivotTo(CFrame.new(
 		position.X,
-		getGroundHeight(position) + part.Size.Y * 0.5 + 0.08,
+		getGroundHeight(position) + handle.Size.Y * 0.5 + 0.08,
 		position.Z
-	)
-	part:SetAttribute("UID", logRecord.UID)
-	part:SetAttribute("WeightKg", logRecord.WeightKg)
-	part:SetAttribute("OwnerUserId", ownerUserId)
-	part:SetAttribute("OwnerReservationSeconds", OWNER_RESERVATION_SECONDS)
-	part.Parent = getGroundDropFolder()
+	))
+	model:SetAttribute("UID", logRecord.UID)
+	model:SetAttribute("ItemType", "Log")
+	model:SetAttribute("SpeciesId", logRecord.SpeciesId)
+	model:SetAttribute("SizeScale", logRecord.SizeScale)
+	model:SetAttribute("WeightKg", logRecord.WeightKg)
+	model:SetAttribute("OwnerUserId", ownerUserId)
+	model:SetAttribute("OwnerReservationSeconds", OWNER_RESERVATION_SECONDS)
+	model.Parent = getGroundDropFolder()
 
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = "PickupPrompt"
@@ -312,21 +345,21 @@ local function spawnGroundDrop(logRecord, ownerUserId, position)
 	prompt.HoldDuration = 0.15
 	prompt.MaxActivationDistance = MAX_PICKUP_DISTANCE
 	prompt.RequiresLineOfSight = false
-	prompt.Parent = part
+	prompt.Parent = handle
 
-	activeGroundDrops[part] = {
+	activeGroundDrops[model] = {
 		LogRecord = logRecord,
 		OwnerUserId = ownerUserId,
 		ReservedUntil = os.clock() + OWNER_RESERVATION_SECONDS,
 	}
 	prompt.Triggered:Connect(function(player)
-		tryPickupGroundLog(player, part)
+		tryPickupGroundLog(player, model)
 	end)
 
 	task.delay(GROUND_LOG_LIFETIME_SECONDS, function()
-		if activeGroundDrops[part] then
-			activeGroundDrops[part] = nil
-			if part.Parent then part:Destroy() end
+		if activeGroundDrops[model] then
+			activeGroundDrops[model] = nil
+			if model.Parent then model:Destroy() end
 		end
 	end)
 end
@@ -348,7 +381,7 @@ local function createLogRecord(tree)
 end
 
 function LogService.AwardTreeLog(tree, contributions)
-	if not tree or tree.Category == "Barrier" then return false end
+	if not tree or tree.YieldsLog ~= true then return false end
 	if type(tree.SpeciesId) ~= "string"
 		or not valuePerKgBySpecies[tree.SpeciesId]
 		or not isFinitePositive(tree.BaseWeightKg)
@@ -392,6 +425,11 @@ LogService.CAPACITY_STEPS = { 10, 15, 20, 30, 40 }
 GetLogsDataRF.OnServerInvoke = function(player, ...)
 	if select("#", ...) ~= 0 then return nil end
 	return makeClientSnapshot(player)
+end
+
+GetSellSummaryRF.OnServerInvoke = function(player, ...)
+	if select("#", ...) ~= 0 then return nil end
+	return makeSellSummary(player)
 end
 
 SellUnlockedLogsRE.OnServerEvent:Connect(function(player, ...)

@@ -1,0 +1,70 @@
+{
+  "ClassName": "Tool",
+  "Properties": {
+    "CanBeDropped": false,
+    "RequiresHandle": true,
+    "ToolTip": "A broad, weighty cleaver"
+  },
+  "Children": [
+    {
+      "Name": "Handle",
+      "ClassName": "Part",
+      "Properties": {
+        "Anchored": false,
+        "CanCollide": false,
+        "CanTouch": false,
+        "CanQuery": false,
+        "Massless": true,
+        "Material": "Wood",
+        "Color": [0.24, 0.15, 0.11],
+        "Size": [0.38, 2.9, 0.38],
+        "CFrame": [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]
+      }
+    },
+    {
+      "Name": "CleaverCore",
+      "ClassName": "Part",
+      "Properties": {
+        "Anchored": false,
+        "CanCollide": false,
+        "CanTouch": false,
+        "CanQuery": false,
+        "Massless": true,
+        "Material": "Metal",
+        "Color": [0.25, 0.28, 0.31],
+        "Size": [1.18, 0.86, 0.55],
+        "CFrame": [0, 0.83, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]
+      }
+    },
+    {
+      "Name": "WideBlade",
+      "ClassName": "Part",
+      "Properties": {
+        "Anchored": false,
+        "CanCollide": false,
+        "CanTouch": false,
+        "CanQuery": false,
+        "Massless": true,
+        "Material": "Metal",
+        "Color": [0.78, 0.63, 0.28],
+        "Size": [0.27, 0.76, 0.62],
+        "CFrame": [-0.72, 0.83, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]
+      }
+    },
+    {
+      "Name": "Counterweight",
+      "ClassName": "Part",
+      "Properties": {
+        "Anchored": false,
+        "CanCollide": false,
+        "CanTouch": false,
+        "CanQuery": false,
+        "Massless": true,
+        "Material": "Metal",
+        "Color": [0.42, 0.3, 0.15],
+        "Size": [0.56, 0.3, 0.48],
+        "CFrame": [0.02, 1.28, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]
+      }
+    }
+  ]
+}

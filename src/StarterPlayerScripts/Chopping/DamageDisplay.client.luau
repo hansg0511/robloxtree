@@ -44,6 +44,7 @@ local Debris = game:GetService("Debris")
 
 
 local function displayDamage(amount, target, isCrit)
+	amount = math.max(0, math.floor(tonumber(amount) or 0))
 	local damagePart = damageTemplate:Clone().RootPart
 
 	damagePart.Position = target:GetPivot().Position
@@ -113,6 +114,8 @@ local function GetOrCreateHealthBar(target, maxHP)
 end
 
 local function UpdateHealthBar(target, hp, maxHP)
+	hp = math.max(0, math.floor(tonumber(hp) or 0))
+	maxHP = math.max(1, math.floor(tonumber(maxHP) or 1))
 	local bar = GetOrCreateHealthBar(target, maxHP)
 
 	bar.lastSeen = os.clock()
@@ -138,7 +141,7 @@ local function UpdateHealthBar(target, hp, maxHP)
 	bar.part.Position =
 		target:GetPivot().Position + Vector3.new(0, 10, 0)
 	
-	bar.label.Text = hp .. "/" .. maxHP
+	bar.label.Text = string.format("%d / %d", hp, maxHP)
 	
 	bar.lastHP = hp
 	
