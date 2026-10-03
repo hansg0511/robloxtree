@@ -36,16 +36,16 @@ local COLORS = {
 	Stroke = Color3.fromRGB(75, 133, 109),
 	Disabled = Color3.fromRGB(105, 130, 121),
 	BagBack = Color3.fromRGB(31, 38, 35),
-	BagFrame = Color3.fromRGB(113, 128, 111),
-	BagHeader = Color3.fromRGB(75, 218, 45),
+	BagFrame = Color3.fromRGB(75, 91, 79),
+	BagHeader = Color3.fromRGB(72, 213, 67),
 	BagAction = Color3.fromRGB(105, 244, 54),
 	BagClose = Color3.fromRGB(245, 48, 65),
-	BagSlot = Color3.fromRGB(77, 88, 81),
-	BagSelected = Color3.fromRGB(51, 105, 53),
+	BagSlot = Color3.fromRGB(68, 79, 74),
+	BagSelected = Color3.fromRGB(44, 112, 58),
 	BagLine = Color3.fromRGB(7, 10, 8),
 	BagText = Color3.fromRGB(255, 255, 255),
-	BagMuted = Color3.fromRGB(213, 223, 214),
-	BagPreview = Color3.fromRGB(55, 67, 60),
+	BagMuted = Color3.fromRGB(226, 233, 226),
+	BagPreview = Color3.fromRGB(44, 58, 50),
 }
 
 local function round(parent, radius)
@@ -98,6 +98,67 @@ local function button(parent, name, text, size, position, color)
 	return item
 end
 
+-- A small native UI log illustration keeps item cards readable on clients
+-- where the wood emoji is rendered as a missing-glyph square.
+local function makeLogIllustration(parent, name, zIndex)
+	local holder = Instance.new("Frame")
+	holder.Name = name
+	holder.BackgroundTransparency = 1
+	holder.AnchorPoint = Vector2.new(0.5, 0.5)
+	holder.Position = UDim2.fromScale(0.5, 0.5)
+	holder.Size = UDim2.fromScale(0.74, 0.44)
+	holder.ZIndex = zIndex or 2
+	holder.Parent = parent
+
+	local body = Instance.new("Frame")
+	body.Name = "Bark"
+	body.AnchorPoint = Vector2.new(0.5, 0.5)
+	body.Position = UDim2.fromScale(0.54, 0.5)
+	body.Size = UDim2.fromScale(0.82, 0.7)
+	body.BackgroundColor3 = Color3.fromRGB(116, 73, 42)
+	body.BorderSizePixel = 0
+	body.ZIndex = holder.ZIndex + 1
+	body.Parent = holder
+	round(body, 8)
+	outline(body, COLORS.BagLine, 2)
+
+	local barkStripe = Instance.new("Frame")
+	barkStripe.Name = "BarkStripe"
+	barkStripe.AnchorPoint = Vector2.new(0.5, 0.5)
+	barkStripe.Position = UDim2.fromScale(0.64, 0.5)
+	barkStripe.Size = UDim2.fromScale(0.08, 0.56)
+	barkStripe.BackgroundColor3 = Color3.fromRGB(75, 45, 28)
+	barkStripe.BorderSizePixel = 0
+	barkStripe.ZIndex = holder.ZIndex + 2
+	barkStripe.Parent = holder
+	round(barkStripe, 4)
+
+	local cutEnd = Instance.new("Frame")
+	cutEnd.Name = "CutEnd"
+	cutEnd.AnchorPoint = Vector2.new(0.5, 0.5)
+	cutEnd.Position = UDim2.fromScale(0.2, 0.5)
+	cutEnd.Size = UDim2.fromScale(0.34, 0.88)
+	cutEnd.BackgroundColor3 = Color3.fromRGB(223, 169, 93)
+	cutEnd.BorderSizePixel = 0
+	cutEnd.ZIndex = holder.ZIndex + 3
+	cutEnd.Parent = holder
+	round(cutEnd, 999)
+	outline(cutEnd, COLORS.BagLine, 2)
+
+	local grain = Instance.new("Frame")
+	grain.Name = "Grain"
+	grain.AnchorPoint = Vector2.new(0.5, 0.5)
+	grain.Position = UDim2.fromScale(0.2, 0.5)
+	grain.Size = UDim2.fromScale(0.15, 0.39)
+	grain.BackgroundColor3 = Color3.fromRGB(184, 122, 67)
+	grain.BorderSizePixel = 0
+	grain.ZIndex = holder.ZIndex + 4
+	grain.Parent = holder
+	round(grain, 999)
+
+	return holder
+end
+
 local function formatCoins(value)
 	if typeof(value) ~= "number" or value ~= value then return "0" end
 	if value >= 1000000 then return string.format("%.1fM", value / 1000000) end
@@ -118,15 +179,15 @@ local function makeModal(screen, name, titleText, subtitleText)
 	panel.Name = name .. "Panel"
 	panel.AnchorPoint = Vector2.new(0.5, 0.5)
 	panel.Position = UDim2.fromScale(0.5, 0.5)
-	panel.Size = UDim2.new(0.94, 0, 0.88, 0)
+	panel.Size = UDim2.new(0.94, 0, 0.9, 0)
 	panel.BackgroundColor3 = COLORS.Panel
 	panel.Parent = overlay
 	round(panel, 22)
 	outline(panel, COLORS.Gold, 3)
 
 	local constraint = Instance.new("UISizeConstraint")
-	constraint.MinSize = Vector2.new(280, 280)
-	constraint.MaxSize = Vector2.new(1040, 740)
+	constraint.MinSize = Vector2.new(300, 280)
+	constraint.MaxSize = Vector2.new(1180, 820)
 	constraint.Parent = panel
 
 	local header = Instance.new("Frame")
@@ -188,7 +249,7 @@ logsPill.BackgroundColor3 = COLORS.Surface
 logsPill.Parent = hud
 round(logsPill, 16)
 outline(logsPill, COLORS.Blue, 2)
-local hudLogs = label(logsPill, "LogCount", "🪵  BAG  0 / 10", UDim2.new(1, -14, 1, 0), UDim2.new(0, 8, 0, 0), 13, COLORS.Ink, Enum.Font.GothamBlack)
+local hudLogs = label(logsPill, "LogCount", "🪵  BAG  0 / 10", UDim2.new(1, -14, 1, 0), UDim2.new(0, 8, 0, 0), 15, COLORS.Ink, Enum.Font.GothamBlack)
 
 local bagButton = button(hud, "OpenBagButton", "OPEN BAG  •  M", UDim2.new(0.39, -4, 1, 0), UDim2.new(), COLORS.Green)
 bagButton.LayoutOrder = 3
@@ -205,6 +266,12 @@ round(feedback, 14)
 outline(feedback, COLORS.Gold, 2)
 
 local bagOverlay, bagPanel = makeModal(screen, "LogBag", "LOG BAG", "Tap a log to equip it. Locked logs stay safe from SELL ALL.")
+bagPanel.Size = UDim2.new(0.94, 0, 0.9, 0)
+local bagSizeConstraint = bagPanel:FindFirstChildOfClass("UISizeConstraint")
+if bagSizeConstraint then
+	bagSizeConstraint.MinSize = Vector2.new(300, 280)
+	bagSizeConstraint.MaxSize = Vector2.new(1180, 820)
+end
 bagPanel.BackgroundColor3 = COLORS.BagFrame
 bagPanel.BackgroundTransparency = 0
 for _, decoration in ipairs(bagPanel:GetChildren()) do
@@ -218,24 +285,23 @@ end
 bagPanel.Header.BackgroundColor3 = COLORS.BagHeader
 bagPanel.Header.BackgroundTransparency = 0
 bagPanel.Header.Position = UDim2.new(0, 9, 0, 8)
-bagPanel.Header.Size = UDim2.new(1, -18, 0, 54)
+bagPanel.Header.Size = UDim2.new(1, -18, 0, 64)
 round(bagPanel.Header, 12)
 outline(bagPanel.Header, COLORS.BagLine, 3)
-bagPanel.Header.Title.Text = "INVENTORY"
-bagPanel.Header.Title.Position = UDim2.new(0, 12, 0, 0)
-bagPanel.Header.Title.Size = UDim2.new(0, 190, 1, 0)
-bagPanel.Header.Title.TextSize = 25
+bagPanel.Header.Title.Text = "MY BAG"
+bagPanel.Header.Title.AnchorPoint = Vector2.new(0.5, 0)
+bagPanel.Header.Title.Position = UDim2.new(0.5, 0, 0, 0)
+bagPanel.Header.Title.Size = UDim2.new(0, 300, 1, 0)
+bagPanel.Header.Title.TextXAlignment = Enum.TextXAlignment.Center
+bagPanel.Header.Title.TextSize = 36
 bagPanel.Header.Title.Font = Enum.Font.GothamBlack
 bagPanel.Header.Title.TextColor3 = COLORS.BagText
 bagPanel.Header.Title.TextStrokeColor3 = COLORS.BagLine
 bagPanel.Header.Title.TextStrokeTransparency = 0
 bagPanel.Header.Subtitle.Text = "YOUR LOGS AND TOOLS"
-bagPanel.Header.Subtitle.Position = UDim2.new(0, 204, 0, 0)
-bagPanel.Header.Subtitle.Size = UDim2.new(1, -254, 1, 0)
-bagPanel.Header.Subtitle.TextSize = 12
-bagPanel.Header.Subtitle.TextColor3 = COLORS.DarkInk
+bagPanel.Header.Subtitle.Visible = false
 bagPanel.Header.CloseButton.Position = UDim2.new(1, -42, 0, 7)
-bagPanel.Header.CloseButton.Size = UDim2.fromOffset(34, 34)
+bagPanel.Header.CloseButton.Size = UDim2.fromOffset(48, 48)
 bagPanel.Header.CloseButton.BackgroundColor3 = COLORS.BagClose
 bagPanel.Header.CloseButton.TextColor3 = COLORS.BagText
 bagPanel.Header.CloseButton.TextSize = 22
@@ -248,23 +314,29 @@ if closeStroke then
 end
 local bagToolbar = Instance.new("Frame")
 bagToolbar.Name = "Toolbar"
-bagToolbar.BackgroundTransparency = 1
-bagToolbar.Position = UDim2.new(0, 12, 0, 68)
-bagToolbar.Size = UDim2.new(1, -24, 0, 32)
+bagToolbar.BackgroundColor3 = COLORS.BagBack
+bagToolbar.Position = UDim2.new(0, 12, 0, 86)
+bagToolbar.Size = UDim2.new(0, 150, 1, -98)
 bagToolbar.Parent = bagPanel
+round(bagToolbar, 12)
+outline(bagToolbar, COLORS.BagLine, 3)
 local sortModes = { "Weight", "Value", "Species", "Newest" }
 local sortIndex = 1
-local logsTab = button(bagToolbar, "LogsTab", "LOGS", UDim2.new(0, 64, 1, 0), UDim2.new(), COLORS.BagHeader)
+local logsTab = button(bagToolbar, "LogsTab", "LOGS", UDim2.new(1, -20, 0, 64), UDim2.new(0, 10, 0, 12), COLORS.BagHeader)
 logsTab.TextColor3 = COLORS.BagBack
-logsTab.TextSize = 12
-local axesTab = button(bagToolbar, "AxesTab", "AXES", UDim2.new(0, 64, 1, 0), UDim2.new(0, 70, 0, 0), COLORS.BagSlot)
+logsTab.TextSize = 20
+local axesTab = button(bagToolbar, "AxesTab", "AXES", UDim2.new(1, -20, 0, 64), UDim2.new(0, 10, 0, 86), COLORS.BagSlot)
 axesTab.TextColor3 = COLORS.BagText
-axesTab.TextSize = 12
-local sortButton = button(bagToolbar, "SortButton", "SORT", UDim2.new(0, 66, 1, 0), UDim2.new(0, 140, 0, 0), COLORS.BagSlot)
-sortButton.TextSize = 11
+axesTab.TextSize = 20
+local sortButton = button(bagToolbar, "SortButton", "SORT: WT", UDim2.new(1, -20, 0, 54), UDim2.new(0, 10, 0, 164), COLORS.BagSlot)
+sortButton.TextSize = 16
 sortButton.TextColor3 = COLORS.BagText
-local bagCountLabel = label(bagToolbar, "Capacity", "0/10", UDim2.new(1, -218, 1, 0), UDim2.new(0, 218, 0, 0), 12, COLORS.BagText, Enum.Font.GothamBlack)
-bagCountLabel.TextXAlignment = Enum.TextXAlignment.Right
+local bagCountLabel = label(bagToolbar, "Capacity", "0 / 10 LOGS", UDim2.new(1, -20, 0, 60), UDim2.new(0, 10, 0, 230), 16, COLORS.BagText, Enum.Font.GothamBlack)
+bagCountLabel.TextXAlignment = Enum.TextXAlignment.Center
+bagCountLabel.TextYAlignment = Enum.TextYAlignment.Center
+local infoButton = button(bagToolbar, "InfoButton", "INFO", UDim2.new(1, -20, 0, 50), UDim2.new(0, 10, 0, 298), COLORS.BagAction)
+infoButton.TextSize = 16
+infoButton.Visible = false
 for _, control in ipairs({ logsTab, axesTab, sortButton }) do
 	local controlCorner = control:FindFirstChildOfClass("UICorner")
 	if controlCorner then controlCorner.CornerRadius = UDim.new(0, 8) end
@@ -278,15 +350,15 @@ end
 local bagBody = Instance.new("Frame")
 bagBody.Name = "BagBody"
 bagBody.BackgroundTransparency = 1
-bagBody.Position = UDim2.new(0, 12, 0, 108)
-bagBody.Size = UDim2.new(1, -24, 1, -120)
+bagBody.Position = UDim2.new(0, 174, 0, 86)
+bagBody.Size = UDim2.new(1, -186, 1, -98)
 bagBody.Parent = bagPanel
 
 local logGrid = Instance.new("ScrollingFrame")
 logGrid.Name = "ItemGrid"
 logGrid.BackgroundColor3 = COLORS.BagBack
 logGrid.BorderSizePixel = 0
-logGrid.ScrollBarThickness = 6
+logGrid.ScrollBarThickness = 8
 logGrid.ScrollBarImageColor3 = COLORS.BagMuted
 logGrid.CanvasSize = UDim2.new()
 logGrid.AutomaticCanvasSize = Enum.AutomaticSize.Y
@@ -295,31 +367,41 @@ round(logGrid, 10)
 outline(logGrid, COLORS.BagLine, 3)
 
 local gridPadding = Instance.new("UIPadding")
-gridPadding.PaddingTop = UDim.new(0, 6)
-gridPadding.PaddingBottom = UDim.new(0, 6)
-gridPadding.PaddingLeft = UDim.new(0, 8)
-gridPadding.PaddingRight = UDim.new(0, 8)
+gridPadding.PaddingTop = UDim.new(0, 10)
+gridPadding.PaddingBottom = UDim.new(0, 10)
+gridPadding.PaddingLeft = UDim.new(0, 10)
+gridPadding.PaddingRight = UDim.new(0, 10)
 gridPadding.Parent = logGrid
 
 local gridLayout = Instance.new("UIGridLayout")
 gridLayout.SortOrder = Enum.SortOrder.LayoutOrder
-gridLayout.CellPadding = UDim2.fromOffset(8, 8)
-gridLayout.CellSize = UDim2.fromOffset(76, 76)
-gridLayout.FillDirectionMaxCells = 3
+gridLayout.CellPadding = UDim2.fromOffset(10, 10)
+gridLayout.CellSize = UDim2.fromOffset(132, 132)
+gridLayout.FillDirectionMaxCells = 4
 gridLayout.Parent = logGrid
 
-local emptyState = label(bagBody, "EmptyState", "", UDim2.new(1, 0, 1, -50), UDim2.new(), 12, COLORS.BagMuted, Enum.Font.GothamBold)
+local emptyState = label(bagBody, "EmptyState", "", UDim2.new(1, 0, 1, 0), UDim2.new(), 18, COLORS.BagMuted, Enum.Font.GothamBlack)
 emptyState.TextXAlignment = Enum.TextXAlignment.Center
 emptyState.TextYAlignment = Enum.TextYAlignment.Center
 emptyState.ZIndex = 3
 emptyState.Visible = false
 
 local detailPanel = Instance.new("Frame")
-detailPanel.Name = "ItemFooter"
+detailPanel.Name = "ItemDetails"
 detailPanel.BackgroundColor3 = COLORS.BagSlot
 detailPanel.Parent = bagBody
+detailPanel.ClipsDescendants = true
 round(detailPanel, 10)
 outline(detailPanel, COLORS.BagLine, 3)
+
+local infoOverlay = Instance.new("Frame")
+infoOverlay.Name = "ItemInfoOverlay"
+infoOverlay.Size = UDim2.fromScale(1, 1)
+infoOverlay.BackgroundColor3 = Color3.fromRGB(9, 15, 12)
+infoOverlay.BackgroundTransparency = 0.24
+infoOverlay.Visible = false
+infoOverlay.ZIndex = 8
+infoOverlay.Parent = bagPanel
 
 local detailPreview = Instance.new("Frame")
 detailPreview.Name = "ItemPreview"
@@ -331,19 +413,30 @@ outline(detailPreview, COLORS.BagLine, 3)
 
 local detailIcon = label(detailPanel, "ItemIcon", "🪵", UDim2.new(0, 32, 1, 0), UDim2.new(0, 6, 0, 0), 20, COLORS.BagText, Enum.Font.GothamBold)
 detailIcon.TextXAlignment = Enum.TextXAlignment.Center
-local detailSpecies = label(detailPanel, "Species", "NO LOG SELECTED", UDim2.new(0.42, -42, 0, 20), UDim2.new(0, 42, 0, 3), 12, COLORS.BagText, Enum.Font.GothamBlack)
+detailIcon.ZIndex = 10
+local detailLogVisual = makeLogIllustration(detailPreview, "LogVisual", 12)
+detailLogVisual.Size = UDim2.fromScale(0.82, 0.5)
+detailLogVisual.Visible = false
+local detailSpecies = label(detailPanel, "Species", "NO LOG SELECTED", UDim2.new(1, -36, 0, 30), UDim2.new(0, 18, 0, 12), 23, COLORS.BagText, Enum.Font.GothamBlack)
 detailSpecies.TextTruncate = Enum.TextTruncate.AtEnd
 detailSpecies.TextStrokeColor3 = COLORS.BagLine
 detailSpecies.TextStrokeTransparency = 0
-local detailStatus = label(detailPanel, "Status", "CHOOSE A SLOT", UDim2.new(0.42, -42, 0, 16), UDim2.new(0, 42, 0, 22), 9, COLORS.BagMuted, Enum.Font.GothamBold)
-local detailWeight = label(detailPanel, "Weight", "", UDim2.new(0.22, -8, 1, 0), UDim2.new(0.46, 0, 0, 0), 10, COLORS.BagMuted, Enum.Font.GothamBold)
+detailSpecies.TextStrokeColor3 = COLORS.BagLine
+detailSpecies.TextStrokeTransparency = 0
+local detailStatus = label(detailPanel, "Status", "CHOOSE A SLOT", UDim2.new(1, -36, 0, 26), UDim2.new(0, 18, 0, 46), 16, COLORS.BagMuted, Enum.Font.GothamBold)
+local detailMetricLabel = label(detailPanel, "MetricLabel", "WEIGHT", UDim2.new(1, -36, 0, 24), UDim2.new(0, 18, 0, 0), 16, COLORS.BagMuted, Enum.Font.GothamBlack)
+local detailWeight = label(detailPanel, "Weight", "", UDim2.new(1, -36, 0, 40), UDim2.new(0, 18, 0, 0), 30, COLORS.BagAction, Enum.Font.GothamBlack)
 detailWeight.TextXAlignment = Enum.TextXAlignment.Center
 local detailValue = label(detailPanel, "Value", "", UDim2.new(), UDim2.new(), 1, COLORS.BagMuted)
 detailValue.Visible = false
 local detailSize = label(detailPanel, "Size", "", UDim2.new(), UDim2.new(), 1, COLORS.BagMuted)
 detailSize.Visible = false
+local detailExtraLabel = label(detailPanel, "ExtraStatsLabel", "OTHER STATS", UDim2.new(1, -36, 0, 24), UDim2.new(0, 18, 0, 0), 16, COLORS.BagText, Enum.Font.GothamBlack)
+local detailExtraValue = label(detailPanel, "ExtraStatsValue", "Not configured yet", UDim2.new(1, -36, 0, 28), UDim2.new(0, 18, 0, 0), 16, COLORS.BagMuted, Enum.Font.GothamBold)
+detailExtraLabel.Visible = false
+detailExtraValue.Visible = false
 local favoriteButton = button(detailPanel, "FavoriteButton", "LOCK", UDim2.new(0, 82, 0, 32), UDim2.new(1, -88, 0.5, -16), COLORS.BagHeader)
-favoriteButton.TextSize = 12
+favoriteButton.TextSize = 18
 favoriteButton.TextColor3 = COLORS.BagText
 favoriteButton.TextStrokeColor3 = COLORS.BagLine
 favoriteButton.TextStrokeTransparency = 0
@@ -353,50 +446,135 @@ if favoriteStroke then
 	favoriteStroke.Thickness = 3
 end
 favoriteButton.Visible = false
+favoriteButton.Size = UDim2.new(1, -36, 0, 52)
+favoriteButton.Position = UDim2.new(0, 18, 1, -64)
+local infoCloseButton = button(detailPanel, "InfoCloseButton", "CLOSE", UDim2.new(1, -36, 0, 48), UDim2.new(0, 18, 1, -60), COLORS.BagClose)
+infoCloseButton.TextSize = 18
+infoCloseButton.TextColor3 = COLORS.BagText
+infoCloseButton.Visible = false
+detailPanel.ZIndex = 10
+for _, descendant in ipairs(detailPanel:GetDescendants()) do
+	if descendant:IsA("GuiObject") then descendant.ZIndex = 11 end
+end
+
+local function styleStationModal(panel, titleText, subtitleText)
+	panel.Size = UDim2.new(0.94, 0, 0.9, 0)
+	panel.BackgroundColor3 = COLORS.BagFrame
+	for _, decoration in ipairs(panel:GetChildren()) do
+		if decoration:IsA("UICorner") then
+			decoration.CornerRadius = UDim.new(0, 16)
+		elseif decoration:IsA("UIStroke") then
+			decoration.Color = COLORS.BagLine
+			decoration.Thickness = 5
+		end
+	end
+
+	local header = panel.Header
+	header.BackgroundColor3 = COLORS.BagHeader
+	header.BackgroundTransparency = 0
+	header.Position = UDim2.new(0, 9, 0, 8)
+	header.Size = UDim2.new(1, -18, 0, 70)
+	round(header, 12)
+	outline(header, COLORS.BagLine, 3)
+
+	header.Title.Text = titleText
+	header.Title.Position = UDim2.new(0, 18, 0, 2)
+	header.Title.Size = UDim2.new(1, -92, 0, 38)
+	header.Title.Font = Enum.Font.GothamBlack
+	header.Title.TextSize = 32
+	header.Title.TextColor3 = COLORS.BagText
+	header.Title.TextStrokeColor3 = COLORS.BagLine
+	header.Title.TextStrokeTransparency = 0
+
+	header.Subtitle.Text = subtitleText
+	header.Subtitle.Position = UDim2.new(0, 20, 0, 40)
+	header.Subtitle.Size = UDim2.new(1, -96, 0, 22)
+	header.Subtitle.Font = Enum.Font.GothamBold
+	header.Subtitle.TextSize = 15
+	header.Subtitle.TextColor3 = COLORS.DarkInk
+
+	header.CloseButton.Position = UDim2.new(1, -58, 0, 10)
+	header.CloseButton.Size = UDim2.fromOffset(48, 48)
+	header.CloseButton.BackgroundColor3 = COLORS.BagClose
+	header.CloseButton.TextColor3 = COLORS.BagText
+	header.CloseButton.TextSize = 28
+	header.CloseButton.TextStrokeColor3 = COLORS.BagLine
+	header.CloseButton.TextStrokeTransparency = 0
+	local closeStroke = header.CloseButton:FindFirstChildOfClass("UIStroke")
+	if closeStroke then
+		closeStroke.Color = COLORS.BagLine
+		closeStroke.Thickness = 3
+	end
+end
 
 local shopOverlay, shopPanel = makeModal(screen, "AxeShop", "AXE SHOP", "Pick up more power and chop tougher trees.")
-local shopNotice = label(shopPanel, "ShopNotice", "CHOPPING TOOLS", UDim2.new(1, -36, 0, 26), UDim2.new(0, 18, 0, 76), 13, COLORS.DarkInk, Enum.Font.GothamBlack)
+styleStationModal(shopPanel, "AXE SHOP", "PICK A TOOL THAT FITS YOUR CHOPPING POWER")
+local shopNotice = label(shopPanel, "ShopNotice", "CHOPPING TOOLS", UDim2.new(1, -42, 0, 30), UDim2.new(0, 21, 0, 88), 18, COLORS.BagText, Enum.Font.GothamBlack)
+shopNotice.TextStrokeColor3 = COLORS.BagLine
+shopNotice.TextStrokeTransparency = 0
 local shopList = Instance.new("ScrollingFrame")
 shopList.Name = "ShopList"
-shopList.Position = UDim2.new(0, 18, 0, 108)
-shopList.Size = UDim2.new(1, -36, 1, -126)
-shopList.BackgroundTransparency = 1
+shopList.Position = UDim2.new(0, 20, 0, 124)
+shopList.Size = UDim2.new(1, -40, 1, -144)
+shopList.BackgroundColor3 = COLORS.BagBack
+shopList.BackgroundTransparency = 0
 shopList.BorderSizePixel = 0
-shopList.ScrollBarThickness = 6
-shopList.ScrollBarImageColor3 = COLORS.GreenDark
+shopList.ScrollBarThickness = 8
+shopList.ScrollBarImageColor3 = COLORS.BagMuted
 shopList.AutomaticCanvasSize = Enum.AutomaticSize.Y
 shopList.CanvasSize = UDim2.new()
 shopList.Parent = shopPanel
+round(shopList, 12)
+outline(shopList, COLORS.BagLine, 3)
+local shopPadding = Instance.new("UIPadding")
+shopPadding.PaddingTop = UDim.new(0, 12)
+shopPadding.PaddingBottom = UDim.new(0, 12)
+shopPadding.PaddingLeft = UDim.new(0, 12)
+shopPadding.PaddingRight = UDim.new(0, 12)
+shopPadding.Parent = shopList
 local shopLayout = Instance.new("UIListLayout")
-shopLayout.Padding = UDim.new(0, 8)
+shopLayout.Padding = UDim.new(0, 12)
 shopLayout.SortOrder = Enum.SortOrder.LayoutOrder
 shopLayout.Parent = shopList
 
 local sellOverlay, sellPanel = makeModal(screen, "SellLogs", "SELL LOGS", "Cash out your ready logs for Coins.")
+styleStationModal(sellPanel, "LUMBER DEPOT", "TURN READY LOGS INTO COINS")
 local sellCard = Instance.new("Frame")
 sellCard.Name = "SaleSummary"
 sellCard.AnchorPoint = Vector2.new(0.5, 0.5)
-sellCard.Position = UDim2.fromScale(0.5, 0.6)
-sellCard.Size = UDim2.new(0.84, 0, 0, 224)
-sellCard.BackgroundColor3 = COLORS.Surface
+sellCard.Position = UDim2.fromScale(0.5, 0.58)
+sellCard.Size = UDim2.new(0.84, 0, 0, 320)
+sellCard.BackgroundColor3 = COLORS.BagBack
 sellCard.Parent = sellPanel
-round(sellCard, 20)
-outline(sellCard, COLORS.Gold, 2)
+round(sellCard, 16)
+outline(sellCard, COLORS.BagLine, 4)
 local sellCardConstraint = Instance.new("UISizeConstraint")
-sellCardConstraint.MinSize = Vector2.new(250, 224)
-sellCardConstraint.MaxSize = Vector2.new(640, 224)
+sellCardConstraint.MinSize = Vector2.new(280, 300)
+sellCardConstraint.MaxSize = Vector2.new(700, 360)
 sellCardConstraint.Parent = sellCard
-local sellIcon = label(sellCard, "Icon", "🪙", UDim2.new(1, 0, 0, 42), UDim2.new(0, 0, 0, 12), 34, COLORS.Gold, Enum.Font.GothamBold)
+local sellIcon = label(sellCard, "Icon", "READY LOGS", UDim2.new(1, -32, 0, 34), UDim2.new(0, 16, 0, 16), 22, COLORS.BagAction, Enum.Font.GothamBlack)
 sellIcon.TextXAlignment = Enum.TextXAlignment.Center
-local sellCount = label(sellCard, "EligibleCount", "0 LOGS READY TO SELL", UDim2.new(1, -20, 0, 30), UDim2.new(0, 10, 0, 58), 15, COLORS.Ink, Enum.Font.GothamBlack)
+sellIcon.TextStrokeColor3 = COLORS.BagLine
+sellIcon.TextStrokeTransparency = 0
+local sellCount = label(sellCard, "EligibleCount", "0 LOGS READY TO SELL", UDim2.new(1, -32, 0, 34), UDim2.new(0, 16, 0, 58), 23, COLORS.BagText, Enum.Font.GothamBlack)
 sellCount.TextXAlignment = Enum.TextXAlignment.Center
-local sellValue = label(sellCard, "TotalValue", "0 COINS", UDim2.new(1, -20, 0, 36), UDim2.new(0, 10, 0, 90), 26, COLORS.GreenDark, Enum.Font.GothamBlack)
+sellCount.TextStrokeColor3 = COLORS.BagLine
+sellCount.TextStrokeTransparency = 0
+local sellValue = label(sellCard, "TotalValue", "0 COINS", UDim2.new(1, -32, 0, 52), UDim2.new(0, 16, 0, 96), 38, COLORS.BagAction, Enum.Font.GothamBlack)
 sellValue.TextXAlignment = Enum.TextXAlignment.Center
-local sellHint = label(sellCard, "LockHint", "Locked logs stay in your bag.", UDim2.new(1, -20, 0, 20), UDim2.new(0, 10, 0, 130), 11, COLORS.Muted, Enum.Font.GothamBold)
+sellValue.TextStrokeColor3 = COLORS.BagLine
+sellValue.TextStrokeTransparency = 0
+local sellHint = label(sellCard, "LockHint", "LOCKED LOGS STAY SAFE IN YOUR BAG.", UDim2.new(1, -32, 0, 26), UDim2.new(0, 16, 0, 154), 15, COLORS.BagMuted, Enum.Font.GothamBold)
 sellHint.TextXAlignment = Enum.TextXAlignment.Center
-local sellButton = button(sellCard, "SellUnlockedButton", "SELL ALL", UDim2.new(1, -28, 0, 54), UDim2.new(0, 14, 1, -66), COLORS.Gold)
-sellButton.TextSize = 20
-round(sellButton, 16)
+local sellButton = button(sellCard, "SellUnlockedButton", "SELL ALL", UDim2.new(1, -36, 0, 70), UDim2.new(0, 18, 1, -86), COLORS.BagAction)
+sellButton.TextSize = 26
+sellButton.TextColor3 = COLORS.DarkInk
+round(sellButton, 14)
+local sellStroke = sellButton:FindFirstChildOfClass("UIStroke")
+if sellStroke then
+	sellStroke.Color = COLORS.BagLine
+	sellStroke.Thickness = 4
+end
 local sellPending = false
 local sellEligibleCount = 0
 
@@ -405,6 +583,8 @@ local latestShopData
 local selectedLogUid
 local selectedAxeUid
 local activeBagTab = "Logs"
+local showingBagInfo = false
+local bagWideLayout = false
 local refreshShop
 local isRefreshingLogs = false
 local refreshLogsQueued = false
@@ -426,6 +606,8 @@ local function closeAllPanels()
 	bagOverlay.Visible = false
 	shopOverlay.Visible = false
 	sellOverlay.Visible = false
+	showingBagInfo = false
+	infoOverlay.Visible = false
 end
 
 local function showPanel(target)
@@ -434,92 +616,142 @@ local function showPanel(target)
 end
 
 local function setBagLayout()
-	local width = bagBody.AbsoluteSize.X
-	local height = bagBody.AbsoluteSize.Y
 	local panelWidth = bagPanel.AbsoluteSize.X
-	bagPanel.Header.Subtitle.Visible = panelWidth >= 560
-	bagPanel.Header.Title.Size = if panelWidth >= 560
-		then UDim2.new(0, 190, 1, 0)
-		else UDim2.new(1, -68, 1, 0)
-	bagPanel.Header.Title.TextSize = if panelWidth >= 560 then 25 else 22
-	bagToolbar.Position = UDim2.new(0, 12, 0, 68)
-	bagToolbar.Size = UDim2.new(1, -24, 0, 32)
-	if bagToolbar.AbsoluteSize.X < 310 then
-		bagCountLabel.Position = UDim2.new(0, 210, 0, 0)
-		bagCountLabel.Size = UDim2.new(1, -210, 1, 0)
-		bagCountLabel.TextSize = 10
-	else
-		bagCountLabel.Position = UDim2.new(0, 218, 0, 0)
-		bagCountLabel.Size = UDim2.new(1, -218, 1, 0)
-		bagCountLabel.TextSize = 12
-	end
-	bagBody.Position = UDim2.new(0, 12, 0, 108)
-	bagBody.Size = UDim2.new(1, -24, 1, -120)
-	local sideBySide = width >= 720 and height >= 500
+	local panelHeight = bagPanel.AbsoluteSize.Y
+	local railWidth = if panelWidth < 520 then 94 elseif panelWidth < 780 then 120 else 154
+	bagPanel.Header.Title.Size = UDim2.new(1, -112, 1, 0)
+	bagPanel.Header.Title.TextSize = if panelWidth < 520 then 26 else 36
+	bagToolbar.Position = UDim2.new(0, 12, 0, 86)
+	bagToolbar.Size = UDim2.new(0, railWidth, 1, -98)
+	logsTab.Position = UDim2.new(0, 10, 0, 12)
+	logsTab.Size = UDim2.new(1, -20, 0, if railWidth < 110 then 54 else 64)
+	logsTab.TextSize = if railWidth < 110 then 16 else if railWidth < 140 then 18 else 20
+	axesTab.Position = UDim2.new(0, 10, 0, if railWidth < 110 then 76 else 86)
+	axesTab.Size = UDim2.new(1, -20, 0, if railWidth < 110 then 54 else 64)
+	axesTab.TextSize = logsTab.TextSize
+	local sortTop = if railWidth < 110 then 142 else 164
+	sortButton.Position = UDim2.new(0, 10, 0, sortTop)
+	sortButton.Size = UDim2.new(1, -20, 0, if railWidth < 110 then 46 else 54)
+	sortButton.TextSize = if railWidth < 110 then 14 else 16
+	bagCountLabel.Position = UDim2.new(0, 10, 0, sortTop + 58)
+	bagCountLabel.Size = UDim2.new(1, -20, 0, 56)
+	bagCountLabel.TextSize = if railWidth < 110 then 14 else 16
+	infoButton.Position = UDim2.new(0, 10, 0, sortTop + 122)
+	infoButton.Size = UDim2.new(1, -20, 0, if railWidth < 110 then 44 else 50)
+	infoButton.TextSize = if railWidth < 110 then 14 else 16
+	bagBody.Position = UDim2.new(0, railWidth + 24, 0, 86)
+	bagBody.Size = UDim2.new(1, -(railWidth + 36), 1, -98)
+	local width = math.max(0, panelWidth - railWidth - 36)
+	local height = math.max(0, panelHeight - 98)
+	bagWideLayout = width >= 760 and height >= 470
+	infoButton.Visible = not bagWideLayout
 	local gridWidth = width
-	local gridHeight = height
-	if sideBySide then
-		local detailWidth = math.clamp(math.floor(width * 0.31), 240, 320)
-		local gap = 12
+	if bagWideLayout then
+		if detailPanel.Parent ~= bagBody then detailPanel.Parent = bagBody end
+		infoOverlay.Visible = false
+		detailPanel.Visible = true
+		local detailWidth = math.clamp(math.floor(width * 0.32), 290, 350)
+		local gap = 14
 		gridWidth = width - detailWidth - gap
 		logGrid.Position = UDim2.new(0, 0, 0, 0)
 		logGrid.Size = UDim2.new(0, gridWidth, 1, 0)
 		emptyState.Position = UDim2.new(0, 0, 0, 0)
 		emptyState.Size = UDim2.new(0, gridWidth, 1, 0)
+		detailPanel.AnchorPoint = Vector2.zero
 		detailPanel.Position = UDim2.new(0, gridWidth + gap, 0, 0)
 		detailPanel.Size = UDim2.new(0, detailWidth, 1, 0)
+		infoCloseButton.Visible = false
 		detailPreview.Visible = true
-		local previewSide = math.clamp(math.floor(math.min(detailWidth - 36, height * 0.39)), 128, 224)
-		local previewTop = 86
+		local previewSide = math.clamp(math.floor(math.min(detailWidth - 48, height * 0.29)), 112, 164)
+		local previewTop = 94
 		detailPreview.Position = UDim2.new(0.5, -previewSide / 2, 0, previewTop)
 		detailPreview.Size = UDim2.fromOffset(previewSide, previewSide)
-		detailSpecies.Position = UDim2.new(0, 12, 0, 12)
-		detailSpecies.Size = UDim2.new(1, -24, 0, 30)
-		detailSpecies.TextSize = 20
+		detailSpecies.Position = UDim2.new(0, 18, 0, 12)
+		detailSpecies.Size = UDim2.new(1, -36, 0, 34)
+		detailSpecies.TextSize = 25
 		detailSpecies.TextXAlignment = Enum.TextXAlignment.Center
-		detailStatus.Position = UDim2.new(0, 12, 0, 46)
-		detailStatus.Size = UDim2.new(1, -24, 0, 24)
-		detailStatus.TextSize = 12
+		detailStatus.Position = UDim2.new(0, 18, 0, 50)
+		detailStatus.Size = UDim2.new(1, -36, 0, 30)
+		detailStatus.TextSize = 16
 		detailStatus.TextXAlignment = Enum.TextXAlignment.Center
 		detailIcon.Position = UDim2.new(0.5, -previewSide / 2, 0, previewTop)
 		detailIcon.Size = UDim2.fromOffset(previewSide, previewSide)
 		detailIcon.TextSize = math.floor(previewSide * 0.48)
-		detailWeight.Position = UDim2.new(0, 12, 0, previewTop + previewSide + 8)
-		detailWeight.Size = UDim2.new(1, -24, 0, 34)
-		detailWeight.TextSize = 18
-		favoriteButton.Position = UDim2.new(0, 12, 1, -58)
-		favoriteButton.Size = UDim2.new(1, -24, 0, 46)
-		favoriteButton.TextSize = 16
+		detailMetricLabel.Position = UDim2.new(0, 18, 0, previewTop + previewSide + 8)
+		detailMetricLabel.Size = UDim2.new(1, -36, 0, 24)
+		detailMetricLabel.TextXAlignment = Enum.TextXAlignment.Center
+		detailMetricLabel.TextSize = 16
+		detailWeight.Position = UDim2.new(0, 18, 0, previewTop + previewSide + 30)
+		detailWeight.Size = UDim2.new(1, -36, 0, 42)
+		detailWeight.TextSize = 30
+		detailWeight.TextXAlignment = Enum.TextXAlignment.Center
+		detailExtraLabel.Position = UDim2.new(0, 18, 0, previewTop + previewSide + 78)
+		detailExtraLabel.Size = UDim2.new(1, -36, 0, 24)
+		detailExtraLabel.TextXAlignment = Enum.TextXAlignment.Center
+		detailExtraLabel.TextSize = 16
+		detailExtraValue.Position = UDim2.new(0, 18, 0, previewTop + previewSide + 104)
+		detailExtraValue.Size = UDim2.new(1, -36, 0, 44)
+		detailExtraValue.TextXAlignment = Enum.TextXAlignment.Center
+		detailExtraValue.TextSize = 16
+		favoriteButton.Position = UDim2.new(0, 18, 1, -64)
+		favoriteButton.Size = UDim2.new(1, -36, 0, 52)
+		favoriteButton.TextSize = 18
 	else
-		gridHeight = math.max(0, height - 52)
+		if detailPanel.Parent ~= infoOverlay then detailPanel.Parent = infoOverlay end
+		infoOverlay.Visible = showingBagInfo
+		detailPanel.Visible = showingBagInfo
+		detailPanel.AnchorPoint = Vector2.new(0.5, 0.5)
+		detailPanel.Position = UDim2.fromScale(0.5, 0.5)
+		detailPanel.Size = UDim2.new(0.86, 0, 0.86, 0)
+		infoCloseButton.Visible = true
+		detailPreview.Visible = true
 		logGrid.Position = UDim2.new(0, 0, 0, 0)
-		logGrid.Size = UDim2.new(1, 0, 0, gridHeight)
+		logGrid.Size = UDim2.fromScale(1, 1)
 		emptyState.Position = UDim2.new(0, 0, 0, 0)
-		emptyState.Size = UDim2.new(1, 0, 0, gridHeight)
-		detailPanel.Position = UDim2.new(0, 0, 1, -46)
-		detailPanel.Size = UDim2.new(1, 0, 0, 46)
-		detailPreview.Visible = false
-		detailIcon.Position = UDim2.new(0, 5, 0, 0)
-		detailIcon.Size = UDim2.new(0, 36, 1, 0)
-		detailIcon.TextSize = 23
-		detailSpecies.Position = UDim2.new(0, 44, 0, 2)
-		detailSpecies.Size = UDim2.new(0.48, -48, 0, 20)
-		detailSpecies.TextSize = 12
-		detailSpecies.TextXAlignment = Enum.TextXAlignment.Left
-		detailStatus.Position = UDim2.new(0, 44, 0, 23)
-		detailStatus.Size = UDim2.new(0.48, -48, 0, 16)
-		detailStatus.TextSize = 9
-		detailStatus.TextXAlignment = Enum.TextXAlignment.Left
-		detailWeight.Position = UDim2.new(0.52, 0, 0, 0)
-		detailWeight.Size = UDim2.new(0.18, -4, 1, 0)
-		detailWeight.TextSize = 10
-		favoriteButton.Position = UDim2.new(1, -86, 0.5, -16)
-		favoriteButton.Size = UDim2.fromOffset(78, 32)
-		favoriteButton.TextSize = 11
+		emptyState.Size = UDim2.fromScale(1, 1)
+		local detailWidth = math.max(220, math.floor(width * 0.86))
+		local detailHeight = math.max(220, math.floor(height * 0.86))
+		local previewSide = math.clamp(math.floor(math.min(detailWidth - 48, (detailHeight - 220) * 0.48)), 64, 142)
+		local previewTop = 82
+		detailSpecies.Position = UDim2.new(0, 18, 0, 10)
+		detailSpecies.Size = UDim2.new(1, -36, 0, 32)
+		detailSpecies.TextSize = if detailWidth < 310 then 20 else 24
+		detailSpecies.TextXAlignment = Enum.TextXAlignment.Center
+		detailStatus.Position = UDim2.new(0, 18, 0, 44)
+		detailStatus.Size = UDim2.new(1, -36, 0, 28)
+		detailStatus.TextSize = 16
+		detailStatus.TextXAlignment = Enum.TextXAlignment.Center
+		detailPreview.Position = UDim2.new(0.5, -previewSide / 2, 0, previewTop)
+		detailPreview.Size = UDim2.fromOffset(previewSide, previewSide)
+		detailIcon.Position = UDim2.new(0.5, -previewSide / 2, 0, previewTop)
+		detailIcon.Size = UDim2.fromOffset(previewSide, previewSide)
+		detailIcon.TextSize = math.floor(previewSide * 0.48)
+		detailMetricLabel.Position = UDim2.new(0, 18, 0, previewTop + previewSide + 6)
+		detailMetricLabel.Size = UDim2.new(1, -36, 0, 22)
+		detailMetricLabel.TextSize = 14
+		detailMetricLabel.TextXAlignment = Enum.TextXAlignment.Center
+		detailWeight.Position = UDim2.new(0, 18, 0, previewTop + previewSide + 26)
+		detailWeight.Size = UDim2.new(1, -36, 0, 36)
+		detailWeight.TextSize = 26
+		detailWeight.TextXAlignment = Enum.TextXAlignment.Center
+		detailExtraLabel.Position = UDim2.new(0, 18, 0, previewTop + previewSide + 66)
+		detailExtraLabel.Size = UDim2.new(1, -36, 0, 22)
+		detailExtraLabel.TextSize = 14
+		detailExtraLabel.TextXAlignment = Enum.TextXAlignment.Center
+		detailExtraValue.Position = UDim2.new(0, 18, 0, previewTop + previewSide + 88)
+		detailExtraValue.Size = UDim2.new(1, -36, 0, 24)
+		detailExtraValue.TextSize = 14
+		detailExtraValue.TextXAlignment = Enum.TextXAlignment.Center
+		favoriteButton.Position = UDim2.new(0, 18, 1, -116)
+		favoriteButton.Size = UDim2.new(1, -36, 0, 48)
+		favoriteButton.TextSize = 16
+		infoCloseButton.Position = UDim2.new(0, 18, 1, -58)
+		infoCloseButton.Size = UDim2.new(1, -36, 0, 46)
+		infoCloseButton.TextSize = 16
 	end
-	local availableWidth = math.max(0, gridWidth - 22)
-	local columns = math.clamp(math.floor((availableWidth + 8) / 78), 2, 10)
-	local cellSide = math.clamp(math.floor((availableWidth - 8 * (columns - 1)) / columns), 56, 84)
+	local availableWidth = math.max(0, gridWidth - 20)
+	local columns = if availableWidth >= 560 then 4 elseif availableWidth >= 360 then 3 elseif availableWidth >= 180 then 2 else 1
+	local cellSide = math.clamp(math.floor((availableWidth - 10 * (columns - 1)) / columns), 82, 156)
 	gridLayout.FillDirectionMaxCells = columns
 	gridLayout.CellSize = UDim2.fromOffset(cellSide, cellSide)
 end
@@ -541,6 +773,7 @@ local function showEmptyState(text)
 	emptyState.TextColor3 = COLORS.BagText
 	emptyState.TextStrokeColor3 = COLORS.BagLine
 	emptyState.TextStrokeTransparency = 0
+	emptyState.TextSize = 18
 	emptyState.Visible = true
 end
 
@@ -576,27 +809,27 @@ local function updateBagTabs(logCount, capacity, axeCount)
 	axesTab.BackgroundColor3 = if not logsActive then COLORS.BagAction else COLORS.BagSlot
 	axesTab.TextColor3 = if not logsActive then COLORS.DarkInk else COLORS.BagText
 	bagCountLabel.Text = if logsActive
-		then string.format("%d/%d%s", logCount or 0, capacity or 10, if bagToolbar.AbsoluteSize.X < 310 then "" else " LOGS")
-		else string.format("%d%s", axeCount or 0, if bagToolbar.AbsoluteSize.X < 310 then " AXE" else " OWNED")
+		then string.format("%d / %d", logCount or 0, capacity or 10)
+		else string.format("%d OWNED", axeCount or 0)
 	bagCountLabel.TextColor3 = COLORS.BagMuted
 	bagCountLabel.TextWrapped = false
-	local sortLabels = { "WT", "VALUE", "A-Z", "NEW" }
-	sortButton.Text = "SORT " .. sortLabels[sortIndex]
+	local sortLabels = { "WEIGHT", "VALUE", "A-Z", "NEWEST" }
+	sortButton.Text = "SORT  " .. sortLabels[sortIndex]
 	sortButton.Visible = activeBagTab == "Logs"
 end
 
 local function renderLogDetail(record)
 	local hasRecord = type(record) == "table"
-	-- Roblox's default UI font does not render the wood emoji consistently on
-	-- every client. A simple text mark keeps the empty and selected previews
-	-- intentional instead of displaying a missing-glyph box.
-	detailIcon.Text = if hasRecord then "LOG" else ""
-	detailIcon.TextColor3 = COLORS.BagHeader
+	detailIcon.Visible = false
+	detailLogVisual.Visible = hasRecord
 	detailSpecies.Text = if hasRecord then tostring(record.SpeciesId or "Unknown") else "NO LOG SELECTED"
+	detailMetricLabel.Text = "WEIGHT"
 	detailWeight.Text = if hasRecord then string.format("%.2f KG", tonumber(record.WeightKg) or 0) else ""
 	detailWeight.TextColor3 = if hasRecord then COLORS.BagAction else COLORS.BagMuted
 	detailValue.Text = ""
 	detailSize.Text = ""
+	detailExtraLabel.Visible = false
+	detailExtraValue.Visible = false
 	detailStatus.Text = if not hasRecord then "CHOOSE A SLOT" elseif player:GetAttribute("HeldLogUID") == record.UID then "EQUIPPED" else "TAP TO EQUIP"
 	detailStatus.TextColor3 = if hasRecord and player:GetAttribute("HeldLogUID") == record.UID then COLORS.BagAction else COLORS.BagMuted
 	favoriteButton.Visible = hasRecord
@@ -608,14 +841,21 @@ end
 
 local function renderAxeDetail(axe)
 	local hasAxe = type(axe) == "table"
+	detailIcon.Visible = true
+	detailLogVisual.Visible = false
 	detailIcon.Text = "🪓"
 	detailSpecies.Text = if hasAxe then tostring(axe.Name or "Axe") else "OWNED AXES"
-	detailWeight.Text = if hasAxe then "PWR " .. tostring(axe.Power or 0) else ""
+	detailMetricLabel.Text = "POWER"
+	detailWeight.Text = if hasAxe then tostring(axe.Power or 0) else "—"
 	detailWeight.TextColor3 = if hasAxe then COLORS.BagAction else COLORS.BagMuted
 	detailStatus.Text = if not hasAxe then "NO OWNED AXES" elseif axe.Equipped then "EQUIPPED" else "TAP TO EQUIP"
 	detailStatus.TextColor3 = if hasAxe and axe.Equipped then COLORS.BagAction else COLORS.BagMuted
 	detailValue.Text = ""
 	detailSize.Text = ""
+	detailExtraLabel.Text = "OTHER STATS"
+	detailExtraValue.Text = "Not configured yet"
+	detailExtraLabel.Visible = true
+	detailExtraValue.Visible = true
 	favoriteButton.Visible = false
 end
 
@@ -630,33 +870,39 @@ local function makeItemSlot(name, order, icon, title, metadata, isEquipped, isSe
 	round(slot, 9)
 	outline(slot, COLORS.BagLine, 3)
 	local cellSide = gridLayout.CellSize.Y.Offset
-	local iconHeight = math.clamp(math.floor(cellSide * 0.38), 20, 30)
+	local iconHeight = math.clamp(math.floor(cellSide * 0.42), 30, 64)
 	local nameY = iconHeight + 5
-	local nameHeight = math.clamp(math.floor(cellSide * 0.21), 13, 18)
-	local iconLabel = label(slot, "Icon", icon, UDim2.new(1, -8, 0, iconHeight), UDim2.new(0, 4, 0, 2), math.floor(iconHeight * 0.85), COLORS.BagText, Enum.Font.GothamBold)
-	iconLabel.TextXAlignment = Enum.TextXAlignment.Center
-	iconLabel.TextWrapped = false
-	iconLabel.TextStrokeColor3 = COLORS.BagLine
-	iconLabel.TextStrokeTransparency = 0
-	local nameLabel = label(slot, "Name", title, UDim2.new(1, -6, 0, nameHeight), UDim2.new(0, 3, 0, nameY), 10, COLORS.BagText, Enum.Font.GothamBlack)
+	local nameHeight = math.clamp(math.floor(cellSide * 0.2), 18, 28)
+	if icon == "LOG" then
+		local logVisual = makeLogIllustration(slot, "LogIcon", 2)
+		logVisual.Position = UDim2.new(0.5, 0, 0, iconHeight * 0.5 + 3)
+		logVisual.Size = UDim2.new(0.78, 0, 0, iconHeight)
+	else
+		local iconLabel = label(slot, "Icon", icon, UDim2.new(1, -8, 0, iconHeight), UDim2.new(0, 4, 0, 2), math.clamp(math.floor(iconHeight * 0.85), 24, 48), COLORS.BagText, Enum.Font.GothamBold)
+		iconLabel.TextXAlignment = Enum.TextXAlignment.Center
+		iconLabel.TextWrapped = false
+		iconLabel.TextStrokeColor3 = COLORS.BagLine
+		iconLabel.TextStrokeTransparency = 0
+	end
+	local nameLabel = label(slot, "Name", title, UDim2.new(1, -6, 0, nameHeight), UDim2.new(0, 3, 0, nameY), math.clamp(math.floor(cellSide * 0.13), 14, 19), COLORS.BagText, Enum.Font.GothamBlack)
 	nameLabel.TextXAlignment = Enum.TextXAlignment.Center
 	nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
 	nameLabel.TextWrapped = false
 	nameLabel.TextStrokeColor3 = COLORS.BagLine
 	nameLabel.TextStrokeTransparency = 0
-	local metadataLabel = label(slot, "Metadata", metadata, UDim2.new(1, -6, 0, 14), UDim2.new(0, 3, 1, -17), 9, COLORS.BagText, Enum.Font.GothamBold)
+	local metadataLabel = label(slot, "Metadata", metadata, UDim2.new(1, -6, 0, 20), UDim2.new(0, 3, 1, -22), 14, COLORS.BagText, Enum.Font.GothamBold)
 	metadataLabel.TextXAlignment = Enum.TextXAlignment.Center
 	metadataLabel.TextTruncate = Enum.TextTruncate.AtEnd
 	metadataLabel.TextWrapped = false
 	metadataLabel.TextStrokeColor3 = COLORS.BagLine
 	metadataLabel.TextStrokeTransparency = 0
 	if isEquipped then
-		local equippedMark = label(slot, "Equipped", "ON", UDim2.new(0, 24, 0, 12), UDim2.new(1, -26, 0, 2), 8, COLORS.BagAction, Enum.Font.GothamBlack)
+		local equippedMark = label(slot, "Equipped", "ON", UDim2.new(0, 36, 0, 18), UDim2.new(1, -38, 0, 2), 14, COLORS.BagAction, Enum.Font.GothamBlack)
 		equippedMark.TextXAlignment = Enum.TextXAlignment.Right
 		equippedMark.TextStrokeColor3 = COLORS.BagLine
 		equippedMark.TextStrokeTransparency = 0
 	elseif isLocked then
-		local lockedMark = label(slot, "Locked", "L", UDim2.new(0, 12, 0, 12), UDim2.new(0, 3, 0, 2), 8, COLORS.BagText, Enum.Font.GothamBlack)
+		local lockedMark = label(slot, "Locked", "LOCK", UDim2.new(0, 46, 0, 18), UDim2.new(0, 4, 0, 2), 14, COLORS.BagText, Enum.Font.GothamBlack)
 		lockedMark.TextXAlignment = Enum.TextXAlignment.Left
 		lockedMark.TextStrokeColor3 = COLORS.BagLine
 		lockedMark.TextStrokeTransparency = 0
@@ -775,7 +1021,7 @@ local function renderLogs(data)
 	for index, record in ipairs(logs) do
 		local isHeld = record.UID == player:GetAttribute("HeldLogUID")
 		local isSelected = record.UID == selectedLogUid
-		makeItemSlot("LogSlot_" .. tostring(record.UID or index), index, "🪵", tostring(record.SpeciesId or "Log"), string.format("%.2f KG", tonumber(record.WeightKg) or 0), isHeld, isSelected, record.Locked == true, function()
+		makeItemSlot("LogSlot_" .. tostring(record.UID or index), index, "LOG", tostring(record.SpeciesId or "Log"), string.format("%.2f KG", tonumber(record.WeightKg) or 0), isHeld, isSelected, record.Locked == true, function()
 			if typeof(record.UID) ~= "string" then return end
 			if player:GetAttribute("HeldLogUID") == record.UID then
 				selectedLogUid = nil
@@ -814,23 +1060,26 @@ local function renderShop(data)
 		local card = Instance.new("Frame")
 		card.Name = "AxeCard_" .. tostring(axe.Id)
 		card.LayoutOrder = layoutOrder
-		card.Size = UDim2.new(1, -8, 0, 86)
-		card.BackgroundColor3 = layoutOrder % 2 == 0 and COLORS.SurfaceAlt or COLORS.Surface
+		card.Size = UDim2.new(1, -8, 0, 116)
+		card.BackgroundColor3 = layoutOrder % 2 == 0 and COLORS.BagPreview or COLORS.BagSlot
 		card.Parent = shopList
-		round(card, 16)
-		outline(card, COLORS.Blue, 1.5)
+		round(card, 12)
+		outline(card, COLORS.BagLine, 3)
 		local axeIcon = Instance.new("Frame")
 		axeIcon.Name = "AxeIcon"
-		axeIcon.Position = UDim2.new(0, 9, 0.5, -20)
-		axeIcon.Size = UDim2.fromOffset(40, 40)
-		axeIcon.BackgroundColor3 = COLORS.Orange
+		axeIcon.Position = UDim2.new(0, 14, 0.5, -38)
+		axeIcon.Size = UDim2.fromOffset(76, 76)
+		axeIcon.BackgroundColor3 = COLORS.BagHeader
 		axeIcon.Parent = card
-		round(axeIcon, 13)
-		local axeEmoji = label(axeIcon, "Emoji", "🪓", UDim2.fromScale(1, 1), UDim2.new(), 23, COLORS.DarkInk, Enum.Font.GothamBlack)
+		round(axeIcon, 12)
+		outline(axeIcon, COLORS.BagLine, 3)
+		local axeEmoji = label(axeIcon, "Emoji", "🪓", UDim2.fromScale(1, 1), UDim2.new(), 38, COLORS.DarkInk, Enum.Font.GothamBlack)
 		axeEmoji.TextXAlignment = Enum.TextXAlignment.Center
-		local name = label(card, "Name", tostring(axe.Name), UDim2.new(0.50, -58, 0, 28), UDim2.new(0, 56, 0, 10), 16, COLORS.Ink, Enum.Font.GothamBlack)
+		local name = label(card, "Name", tostring(axe.Name), UDim2.new(0.54, -108, 0, 36), UDim2.new(0, 104, 0, 18), 23, COLORS.BagText, Enum.Font.GothamBlack)
 		name.TextTruncate = Enum.TextTruncate.AtEnd
-		local power = label(card, "Power", "POWER  " .. tostring(axe.Power), UDim2.new(0.50, -58, 0, 24), UDim2.new(0, 56, 0, 47), 12, COLORS.Blue, Enum.Font.GothamBold)
+		name.TextStrokeColor3 = COLORS.BagLine
+		name.TextStrokeTransparency = 0
+		local power = label(card, "Power", "POWER  " .. tostring(axe.Power), UDim2.new(0.54, -108, 0, 28), UDim2.new(0, 104, 0, 58), 18, COLORS.BagAction, Enum.Font.GothamBlack)
 		power.TextTruncate = Enum.TextTruncate.AtEnd
 		local actionText
 		local actionColor
@@ -841,9 +1090,16 @@ local function renderShop(data)
 			actionText = "BUY  •  " .. formatCoins(axe.Price)
 			actionColor = (data.Coins or 0) >= axe.Price and COLORS.Gold or COLORS.Disabled
 		end
-		local action = button(card, "Action", actionText, UDim2.new(0.43, -8, 0, 52), UDim2.new(0.55, 0, 0.5, -26), actionColor)
-		action.TextSize = 14
-		round(action, 14)
+		local action = button(card, "Action", actionText, UDim2.new(0.42, -16, 0, 62), UDim2.new(0.58, 0, 0.5, -31), actionColor)
+		action.TextSize = 18
+		action.TextStrokeColor3 = COLORS.BagLine
+		action.TextStrokeTransparency = 0
+		round(action, 12)
+		local actionStroke = action:FindFirstChildOfClass("UIStroke")
+		if actionStroke then
+			actionStroke.Color = COLORS.BagLine
+			actionStroke.Thickness = 3
+		end
 		action.Activated:Connect(function()
 			if axe.Owned then
 				if not axe.Equipped and typeof(axe.UID) == "string" then equipAxe:FireServer(axe.UID) end
@@ -864,10 +1120,12 @@ local function renderShop(data)
 	local heading = Instance.new("Frame")
 	heading.Name = "CapacityHeading"
 	heading.LayoutOrder = layoutOrder
-	heading.Size = UDim2.new(1, -8, 0, 40)
+	heading.Size = UDim2.new(1, -8, 0, 50)
 	heading.BackgroundTransparency = 1
 	heading.Parent = shopList
-	label(heading, "Text", "BAG POWER  •  CURRENT CAPACITY " .. tostring(capacity), UDim2.new(1, 0, 1, 0), UDim2.new(), 13, COLORS.DarkInk, Enum.Font.GothamBlack)
+	local headingText = label(heading, "Text", "BAG CAPACITY  •  " .. tostring(capacity) .. " LOGS", UDim2.new(1, 0, 1, 0), UDim2.new(), 20, COLORS.BagText, Enum.Font.GothamBlack)
+	headingText.TextStrokeColor3 = COLORS.BagLine
+	headingText.TextStrokeTransparency = 0
 
 	for _, upgrade in ipairs(data.CapacityUpgrades or {}) do
 		if upgrade.Capacity > capacity then
@@ -875,15 +1133,24 @@ local function renderShop(data)
 			local card = Instance.new("Frame")
 			card.Name = "CapacityCard_" .. tostring(upgrade.Capacity)
 			card.LayoutOrder = layoutOrder
-			card.Size = UDim2.new(1, -8, 0, 76)
-			card.BackgroundColor3 = COLORS.Surface
+			card.Size = UDim2.new(1, -8, 0, 100)
+			card.BackgroundColor3 = COLORS.BagSlot
 			card.Parent = shopList
-			round(card, 16)
-			outline(card, COLORS.Blue, 1.5)
-			label(card, "Upgrade", "CARRY " .. tostring(upgrade.Capacity) .. " LOGS", UDim2.new(0.50, -12, 1, 0), UDim2.new(0, 14, 0, 0), 14, COLORS.Ink, Enum.Font.GothamBlack)
-			local action = button(card, "BuyCapacity", "UPGRADE  •  " .. formatCoins(upgrade.Price), UDim2.new(0.44, -10, 0, 48), UDim2.new(0.56, 0, 0.5, -24), (data.Coins or 0) >= upgrade.Price and COLORS.Gold or COLORS.Disabled)
-			action.TextSize = 12
-			round(action, 14)
+			round(card, 12)
+			outline(card, COLORS.BagLine, 3)
+			local upgradeText = label(card, "Upgrade", "CARRY " .. tostring(upgrade.Capacity) .. " LOGS", UDim2.new(0.52, -20, 1, 0), UDim2.new(0, 16, 0, 0), 20, COLORS.BagText, Enum.Font.GothamBlack)
+			upgradeText.TextStrokeColor3 = COLORS.BagLine
+			upgradeText.TextStrokeTransparency = 0
+			local action = button(card, "BuyCapacity", "UPGRADE  •  " .. formatCoins(upgrade.Price), UDim2.new(0.45, -16, 0, 60), UDim2.new(0.55, 0, 0.5, -30), (data.Coins or 0) >= upgrade.Price and COLORS.BagAction or COLORS.Disabled)
+			action.TextSize = 16
+			action.TextStrokeColor3 = COLORS.BagLine
+			action.TextStrokeTransparency = 0
+			round(action, 12)
+			local actionStroke = action:FindFirstChildOfClass("UIStroke")
+			if actionStroke then
+				actionStroke.Color = COLORS.BagLine
+				actionStroke.Thickness = 3
+			end
 			action.Activated:Connect(function()
 				purchaseCapacity:FireServer(upgrade.Capacity)
 				task.delay(0.35, function()
@@ -932,7 +1199,7 @@ local function refreshSellSummary()
 		sellCount.Text = string.format("%d LOG%s READY TO SELL", count, if count == 1 then "" else "S")
 		sellValue.Text = formatCoins(value) .. " COINS"
 		sellButton.Text = if count > 0 then "SELL ALL" else "NOTHING TO SELL"
-		sellButton.BackgroundColor3 = if count > 0 then COLORS.Gold else COLORS.Disabled
+		sellButton.BackgroundColor3 = if count > 0 then COLORS.BagAction else COLORS.Disabled
 		hudCoins.Text = "🪙 " .. formatCoins(summary.Coins or 0)
 	end)
 end
@@ -957,12 +1224,27 @@ end
 bagButton.Activated:Connect(openBag)
 logsTab.Activated:Connect(function()
 	activeBagTab = "Logs"
+	showingBagInfo = false
+	infoOverlay.Visible = false
 	if latestLogsData then renderLogs(latestLogsData) else refreshLogs() end
 end)
 axesTab.Activated:Connect(function()
 	activeBagTab = "Axes"
+	showingBagInfo = false
+	infoOverlay.Visible = false
 	if latestShopData then renderAxes(latestShopData) else renderAxes(nil) end
 	if not latestShopData then refreshShop() end
+end)
+infoButton.Activated:Connect(function()
+	if bagWideLayout or not bagOverlay.Visible then return end
+	showingBagInfo = true
+	setBagLayout()
+	if activeBagTab == "Axes" then renderAxes(latestShopData) elseif latestLogsData then renderLogs(latestLogsData) end
+end)
+infoCloseButton.Activated:Connect(function()
+	showingBagInfo = false
+	infoOverlay.Visible = false
+	detailPanel.Visible = false
 end)
 sortButton.Activated:Connect(function()
 	sortIndex = sortIndex % #sortModes + 1
