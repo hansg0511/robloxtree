@@ -17,6 +17,12 @@ local ProfileTemplate = {
 			Rarity = "Common",
 		},
 	},
+	-- One unique physical log per slot; capacity upgrades change this count limit.
+	Logs = {},
+	LogCapacity = 10,
+	-- Neutral server-owned seam for future character/prestige progression.
+	-- It deliberately has no player-facing progression in this prototype.
+	LumberjackStrength = 1,
 	Coins = 0,
 	Wood = 0,
 	LogInTimes = 0,

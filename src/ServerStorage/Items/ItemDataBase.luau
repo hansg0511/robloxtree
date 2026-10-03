@@ -3,7 +3,35 @@ local IMS = require(game.ServerScriptService.Inventory.Module.IMS)
 
 itemDataBase.Info = {
 	[101] = {
-		Name = "Basic Axe",
+		Name = "Starter Hatchet",
+		Icon = "rbxasset://Textures/Sword128.png",
+		Type = "Weapon",
+		Skill = "",
+		Substat = "AttackSpeed"
+	},
+	[102] = {
+		Name = "Copper Axe",
+		Icon = "rbxasset://Textures/Sword128.png",
+		Type = "Weapon",
+		Skill = "",
+		Substat = "AttackSpeed"
+	},
+	[103] = {
+		Name = "Iron Axe",
+		Icon = "rbxasset://Textures/Sword128.png",
+		Type = "Weapon",
+		Skill = "",
+		Substat = "AttackSpeed"
+	},
+	[104] = {
+		Name = "Steel Axe",
+		Icon = "rbxasset://Textures/Sword128.png",
+		Type = "Weapon",
+		Skill = "",
+		Substat = "AttackSpeed"
+	},
+	[105] = {
+		Name = "Heavy Cleaver",
 		Icon = "rbxasset://Textures/Sword128.png",
 		Type = "Weapon",
 		Skill = "",
@@ -21,7 +49,11 @@ itemDataBase.Info = {
 local Parts = game.ServerStorage.AxeParts
 
 itemDataBase.Instances = {
-	[101] = Parts["Basic Axe"]
+	[101] = Parts["Basic Axe"],
+	[102] = Parts["Basic Axe"],
+	[103] = Parts["Basic Axe"],
+	[104] = Parts["Basic Axe"],
+	[105] = Parts["Basic Axe"],
 }
 
 itemDataBase.StatPools = {

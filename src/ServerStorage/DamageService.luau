@@ -12,7 +12,16 @@ end
 
 function DamageService.Calculate(ctx)
 	-- 1. Initialize
-	ctx.Damage = ctx.BaseDamage :: number
+	-- `LumberjackStrength` is intentionally a neutral character-progression seam.
+	-- Current profiles use 1, leaving normal axe power unchanged; a future
+	-- prestige/stat design can supply a server-owned multiplier here without
+	-- coupling weapon records to character progression.
+	local lumberjackStrength = ctx.LumberjackStrength
+	if type(lumberjackStrength) ~= "number" or lumberjackStrength ~= lumberjackStrength
+		or lumberjackStrength < 0 or lumberjackStrength == math.huge then
+		lumberjackStrength = 1
+	end
+	ctx.Damage = (ctx.BaseDamage :: number) * lumberjackStrength
 
 	-- 2. Roll crit (unless forced)
 	if ctx.CritChance > 0 then
@@ -35,7 +44,7 @@ function DamageService.Calculate(ctx)
 	return ctx.Damage, ctx
 end
 
-function DamageService:createDamageContext(player, tree, weaponUID, finalStats, weaponState)
+function DamageService:createDamageContext(player, tree, weaponUID, finalStats, weaponState, lumberjackStrength)
 	return {
 		Player = player,
 		Target = tree,
@@ -43,6 +52,7 @@ function DamageService:createDamageContext(player, tree, weaponUID, finalStats, 
 
 		BaseDamage = finalStats.Attack,
 		Damage = finalStats.Attack,
+		LumberjackStrength = lumberjackStrength,
 
 		CritChance = finalStats.CritChance,
 		CritMultiplier = finalStats.CritDamage,

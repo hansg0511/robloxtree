@@ -15,7 +15,7 @@ end
 
 local WorldLayoutConfiguration = {
 	ROOT_NAME = "SourceWorld",
-	VERSION = 1,
+	VERSION = 2,
 
 	-- The narrow section follows the six-stud opening between the two rear plots.
 	-- It widens once it clears the plots and stays centered on the same route.
@@ -40,6 +40,13 @@ local WorldLayoutConfiguration = {
 
 	GROUND_MATERIAL = Enum.Material.Grass,
 	GROUND_COLOR = Color3.fromRGB(91, 132, 79),
+	-- The economy service verifies player distance to this source-built station
+	-- before executing a sale. It is intentionally part of the base rather than
+	-- a generic UI action usable from a forest.
+	HOME_ECONOMY_STATION = {
+		Position = Vector3.new(14, -0.4, -82),
+		SellDistance = 14,
+	},
 	FORESTS = {
 		{
 			Name = "StarterForest",

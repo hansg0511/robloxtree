@@ -9,11 +9,16 @@ local itemFolder = game.ServerStorage.Items
 local itemDataBase = require(itemFolder.ItemDataBase)
 local StatsAggregator = require(itemFolder.StatsAggregator)
 local StatsDatabase = require(itemFolder.StatsDatabase)
+local EquipAxeRE = game.ReplicatedStorage.Economy:WaitForChild("EquipAxeRE")
+local LogService = require(game.ServerScriptService.Inventory.LogService)
+local addShopAxeItem = script.Parent:WaitForChild("AddShopAxeItem")
+assert(addShopAxeItem:IsA("BindableFunction"), "AddShopAxeItem must be a BindableFunction")
 
 local MAX_INVENTORY_CAPACITY = 30
 local REMOTE_INTERVALS = {
 	Equip = 0.15,
 	SpawnEquippedItem = 0.75,
+	EquipAxe = 0.5,
 }
 
 
@@ -123,6 +128,62 @@ local function EquipItem(player, item)
 	return true
 end
 
+local function EquipOwnedAxe(player, uid)
+	if typeof(uid) ~= "string" or #uid < 1 or #uid > 128 then return false end
+	local inv = playerInventories[player]
+	local profile = playerProfileCache.GetProfile(player)
+	if not inv or not profile or not profile.Data.Runtime then return false end
+	local weapon = profile.Data.Runtime.Weapon[uid]
+	if not weapon or weapon.ItemType ~= "Weapon" or weapon.ItemUID ~= uid then return false end
+
+	for slotIndex, item in ipairs(inv:Items()) do
+		if item and item.ItemUID == uid and item.ItemType == "Weapon" and item == weapon then
+			if not EquipItem(player, item) then return false end
+			inv:SetEquippedItem(slotIndex)
+			return true
+		end
+	end
+	return false
+end
+
+addShopAxeItem.OnInvoke = function(player, itemRecord)
+	if typeof(player) ~= "Instance" or not player:IsA("Player") or type(itemRecord) ~= "table" then
+		return false
+	end
+	local profile = playerProfileCache.GetProfile(player)
+	local inv = playerInventories[player]
+	if not profile or not profile.Data.Runtime or not inv then return false end
+	if typeof(itemRecord.ItemID) ~= "number" or itemRecord.ItemID % 1 ~= 0 then return false end
+	if typeof(itemRecord.UID) ~= "string" or #itemRecord.UID < 1 or #itemRecord.UID > 128 then return false end
+	if type(itemRecord.Stats) ~= "table" or type(itemRecord.Substat) ~= "table" or typeof(itemRecord.Rarity) ~= "string" then return false end
+
+	local info = itemDataBase.Info[itemRecord.ItemID]
+	local template = itemDataBase.Instances[itemRecord.ItemID]
+	if not info or info.Type ~= "Weapon" or not template or not template:IsA("Tool") then return false end
+	for _, owned in ipairs(profile.Data.Inventory or {}) do
+		if type(owned) == "table" and (owned.UID == itemRecord.UID or owned.ItemID == itemRecord.ItemID) then
+			return false
+		end
+	end
+	if profile.Data.Runtime.Weapon[itemRecord.UID] then return false end
+
+	local persistedRecord = {
+		ItemID = itemRecord.ItemID,
+		UID = itemRecord.UID,
+		Stats = table.clone(itemRecord.Stats),
+		Substat = table.clone(itemRecord.Substat),
+		Rarity = itemRecord.Rarity,
+	}
+	local runtimeItem = itemDataBase.ParseItem(persistedRecord)
+	profile.Data.Runtime.Weapon[runtimeItem.ItemUID] = runtimeItem
+	if not inv:AddItem(runtimeItem, false) then
+		profile.Data.Runtime.Weapon[runtimeItem.ItemUID] = nil
+		return false
+	end
+	table.insert(profile.Data.Inventory, persistedRecord)
+	return true
+end
+
 profileBindableEvent.Event:Connect(function(player: Player)
 	playerInventories[player] = createInventory(player)
 	local playerProfile = playerProfileCache.GetProfile(player)
@@ -171,4 +232,13 @@ IMRemotes.EquipRE.OnServerEvent:Connect(function(player, slotIndex)
 	if not item or item.ItemType ~= "Weapon" then return end
 
 	inv:SetEquippedItem(slotIndex)
+end)
+
+EquipAxeRE.OnServerEvent:Connect(function(player, uid, ...)
+	if select("#", ...) ~= 0 then return end
+	if not consumeRemoteBudget(player, "EquipAxe") then return end
+	if EquipOwnedAxe(player, uid) then
+		IMRemotes.SpawnEquippedItemRE:FireClient(player)
+		LogService.NotifyState(player)
+	end
 end)

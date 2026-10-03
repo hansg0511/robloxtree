@@ -7,6 +7,19 @@ local DamageEvent = game.ReplicatedStorage.DamageEvent
 local FXService = require(game.ReplicatedStorage.FXService)
 local Definitions = require(script.Parent.TreeDefinitions)
 local WorldProgressService = require(game.ServerScriptService.WorldProgressService)
+local LogService = require(game.ServerScriptService.Inventory.LogService)
+
+local treeRandom = Random.new()
+
+local function rollTreeScale()
+	local roll = treeRandom:NextNumber()
+	if roll < 0.82 then
+		return treeRandom:NextNumber(0.7, 1.3)
+	elseif roll < 0.91 then
+		return treeRandom:NextNumber(0.45, 0.7)
+	end
+	return treeRandom:NextNumber(1.3, 1.7)
+end
 
 local function makeBrickPart(name, size, position, color, parent, root, canCollide)
 	local part = Instance.new("Part")
@@ -278,8 +291,14 @@ function Tree.new(options)
 	self.DefinitionId = options.DefinitionId
 	self.Category = definition.Category
 	self.ModelName = definition.ModelName
+	self.BaseHP = definition.MaxHP
 	self.MaxHP = definition.MaxHP
 	self.HP = definition.MaxHP
+	self.SpeciesId = definition.SpeciesId
+	self.BaseWeightKg = definition.BaseWeightKg
+	self.ValuePerKg = definition.ValuePerKg
+	self.SizeScale = 1
+	self.DamageContributions = {}
 	self.RespawnSeconds = definition.RespawnSeconds
 	self.OwnerOnly = definition.OwnerOnly
 	self.OwnerUserId = options.OwnerUserId
@@ -300,6 +319,14 @@ end
 
 function Tree:Spawn()
 	if self.destroyed then return nil end
+	local hasLogDrop = self.Category ~= "Barrier"
+		and type(self.SpeciesId) == "string"
+		and type(self.BaseWeightKg) == "number"
+	self.SizeScale = if hasLogDrop then rollTreeScale() else 1
+	self.MaxHP = self.BaseHP * (self.SizeScale ^ 1.4)
+	self.HP = self.MaxHP
+	self.DamageContributions = {}
+
 	local builder = SOURCE_BUILT_MODELS[self.ModelName]
 	local model
 	if builder then
@@ -314,6 +341,7 @@ function Tree:Spawn()
 		model = template:Clone()
 	end
 	model.Name = "Tree"
+	model:ScaleTo(self.SizeScale)
 	model:PivotTo(self.CFrame)
 	model.Parent = self.Parent
 	-- Keep useful read-only identity metadata on every lifecycle incarnation,
@@ -321,6 +349,9 @@ function Tree:Spawn()
 	model:SetAttribute("DefinitionId", self.DefinitionId)
 	model:SetAttribute("ForestId", self.ForestId)
 	model:SetAttribute("TreeCategory", self.Category)
+	model:SetAttribute("SizeScale", self.SizeScale)
+	model:SetAttribute("MaxHP", self.MaxHP)
+	if self.SpeciesId then model:SetAttribute("SpeciesId", self.SpeciesId) end
 	self.model = model
 	self.isDead = false
 	local interactionPart = model:FindFirstChild(self.InteractionPartName, true)
@@ -407,15 +438,23 @@ local function leavesForHP(hp, maxHP, totalLeaves)
 end
 
 function Tree:TakeDamage(ctx, player)
-	if not self:CanChop(player) then return false end
+	if not self:CanChop(player) or not WorldProgressService.CanInteractWithTree(player, self) then return false end
 	local damage = ctx.Damage
-	if type(damage) ~= "number" or damage ~= damage or damage <= 0 then return false end
+	if type(damage) ~= "number" or damage ~= damage or damage <= 0 or damage == math.huge then return false end
 
-	self.HP = math.max(0, self.HP - damage)
+	local appliedDamage = math.min(damage, self.HP)
+	if appliedDamage <= 0 then return false end
+	self.HP = math.max(0, self.HP - appliedDamage)
+	local contribution = self.DamageContributions[player.UserId]
+	if not contribution then
+		contribution = { Player = player, Damage = 0 }
+		self.DamageContributions[player.UserId] = contribution
+	end
+	contribution.Damage += appliedDamage
 	ChopFX:FireAllClients("playHit", { model = self.model })
 	DamageEvent:FireAllClients({
 		Target = self.model,
-		Damage = damage,
+		Damage = appliedDamage,
 		IsCrit = ctx.IsCrit,
 		HP = self.HP,
 		MaxHP = self.MaxHP,
@@ -440,6 +479,9 @@ end
 function Tree:Die(player)
 	if self.isDead or self.destroyed then return end
 	self.isDead = true
+	if self.Category ~= "Barrier" and self.SpeciesId and self.BaseWeightKg then
+		LogService.AwardTreeLog(self, self.DamageContributions)
+	end
 	if self.UnlockForestId then
 		WorldProgressService.UnlockForest(player, self.UnlockForestId)
 	end

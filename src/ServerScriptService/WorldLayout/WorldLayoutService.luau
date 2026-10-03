@@ -105,6 +105,66 @@ local function createSign(parent, signConfiguration)
 	end
 end
 
+local function createHomeEconomyStation(parent)
+	local station = Instance.new("Model")
+	station.Name = "HomeEconomyStation"
+	station:SetAttribute("WorldLayoutOwned", true)
+	station:SetAttribute("SellDistance", Configuration.HOME_ECONOMY_STATION.SellDistance)
+	station.Parent = parent
+
+	local position = Configuration.HOME_ECONOMY_STATION.Position
+	local counter = createPart(
+		"Counter",
+		Vector3.new(8, 4, 3),
+		CFrame.new(position + Vector3.new(0, 2, 0)),
+		Color3.fromRGB(113, 72, 44),
+		Enum.Material.WoodPlanks,
+		station
+	)
+	counter:SetAttribute("WorldLayoutOwned", true)
+
+	local interaction = createPart(
+		"Interaction",
+		Vector3.new(8, 6, 5),
+		CFrame.new(position + Vector3.new(0, 3, -3)),
+		Color3.fromRGB(88, 164, 92),
+		Enum.Material.Plastic,
+		station
+	)
+	interaction.Transparency = 1
+	interaction.CanCollide = false
+	interaction.CanTouch = false
+	interaction.CanQuery = false
+	interaction:SetAttribute("WorldLayoutOwned", true)
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "EconomyPrompt"
+	prompt.ActionText = "Open Economy"
+	prompt.ObjectText = "Lumber Depot"
+	prompt.MaxActivationDistance = Configuration.HOME_ECONOMY_STATION.SellDistance
+	prompt.RequiresLineOfSight = false
+	prompt.HoldDuration = 0
+	prompt.Parent = interaction
+
+	local sign = Instance.new("BillboardGui")
+	sign.Name = "StationSign"
+	sign.Size = UDim2.fromOffset(260, 70)
+	sign.StudsOffsetWorldSpace = Vector3.new(0, 4.2, 0)
+	sign.AlwaysOnTop = true
+	sign.Parent = counter
+	local text = Instance.new("TextLabel")
+	text.BackgroundTransparency = 1
+	text.Size = UDim2.fromScale(1, 1)
+	text.Font = Enum.Font.GothamBold
+	text.Text = "LUMBER DEPOT"
+	text.TextColor3 = Color3.fromRGB(255, 234, 181)
+	text.TextStrokeTransparency = 0.35
+	text.TextScaled = true
+	text.Parent = sign
+
+	return station
+end
+
 local function spawnTreeRecord(forestFolder, forestId, record)
 	local definition = TreeDefinitions[record.DefinitionId]
 	if not definition then
@@ -147,6 +207,7 @@ local function buildWorld()
 	local pathFolder = createFolder("Path", root)
 	local forestRoot = createFolder("Forests", root)
 	root:SetAttribute("WorldLayoutOwned", true)
+	createHomeEconomyStation(root)
 
 	createGround(
 		terrain,

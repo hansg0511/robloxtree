@@ -39,7 +39,8 @@ ChopEvent.OnServerEvent:Connect(function(player)
 	local attack = stats and stats.Attack
 	if type(attack) ~= "number" or attack ~= attack or attack <= 0 or attack == math.huge then return end
 	local weaponUID = profile.Data.Equipped.Weapon
-	local context = DamageService:createDamageContext(player, tree, weaponUID, stats)
+	local lumberjackStrength = profile.Data.LumberjackStrength
+	local context = DamageService:createDamageContext(player, tree, weaponUID, stats, nil, lumberjackStrength)
 	local _, calculated = DamageService.Calculate(context)
 	tree:TakeDamage(calculated, player)
 end)

@@ -10,8 +10,22 @@ export type InventoryItem = {
 	Rarity: string,
 }
 
+export type LogItem = {
+	UID: string,
+	ItemType: "Log",
+	SpeciesId: string,
+	WeightKg: number,
+	SizeScale: number,
+	Mutations: { [string]: any },
+	Locked: boolean,
+	CreatedAt: number,
+}
+
 export type PlayerData = {
 	Inventory: { InventoryItem },
+	Logs: { LogItem },
+	LogCapacity: number,
+	LumberjackStrength: number,
 	Coins: number,
 	Wood: number,
 	LogInTimes: number,
