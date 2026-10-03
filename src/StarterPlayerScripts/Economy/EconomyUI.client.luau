@@ -283,6 +283,12 @@ gridLayout.CellSize = UDim2.fromOffset(72, 72)
 gridLayout.FillDirectionMaxCells = 3
 gridLayout.Parent = logGrid
 
+local emptyState = label(bagBody, "EmptyState", "", UDim2.new(1, 0, 1, -50), UDim2.new(), 12, COLORS.BagMuted, Enum.Font.GothamBold)
+emptyState.TextXAlignment = Enum.TextXAlignment.Center
+emptyState.TextYAlignment = Enum.TextYAlignment.Center
+emptyState.ZIndex = 3
+emptyState.Visible = false
+
 local detailPanel = Instance.new("Frame")
 detailPanel.Name = "ItemFooter"
 detailPanel.BackgroundColor3 = COLORS.BagSlot
@@ -393,6 +399,8 @@ local function setBagLayout()
 	bagBody.Size = UDim2.new(1, -24, 1, -102)
 	logGrid.Position = UDim2.new(0, 0, 0, 0)
 	logGrid.Size = UDim2.new(1, 0, 1, -50)
+	emptyState.Position = UDim2.new(0, 0, 0, 0)
+	emptyState.Size = UDim2.new(1, 0, 1, -50)
 	detailPanel.Position = UDim2.new(0, 0, 1, -44)
 	detailPanel.Size = UDim2.new(1, 0, 0, 44)
 	local availableWidth = math.max(0, width - 12)
@@ -403,10 +411,20 @@ local function setBagLayout()
 end
 
 local function clearGrid()
-	gridLayout.Enabled = true
 	for _, child in ipairs(logGrid:GetChildren()) do
 		if child ~= gridLayout and not child:IsA("UIPadding") then child:Destroy() end
 	end
+end
+
+local function showGrid()
+	emptyState.Visible = false
+	logGrid.Visible = true
+end
+
+local function showEmptyState(text)
+	logGrid.Visible = false
+	emptyState.Text = text
+	emptyState.Visible = true
 end
 
 local function sortedLogs(data)
@@ -550,17 +568,14 @@ local function renderAxes(data)
 	end
 	updateBagTabs(latestLogsData and #(latestLogsData.Logs or {}) or 0, latestLogsData and latestLogsData.Capacity or 10, #axes)
 	clearGrid()
+	showGrid()
 	if not data then
-		gridLayout.Enabled = false
-		local loading = label(logGrid, "LoadingAxes", "LOADING AXES...", UDim2.new(1, -12, 1, -12), UDim2.new(0, 6, 0, 6), 12, COLORS.BagMuted, Enum.Font.GothamBold)
-		loading.TextXAlignment = Enum.TextXAlignment.Center
+		showEmptyState("LOADING AXES...")
 		renderAxeDetail(nil)
 		return
 	end
 	if #axes == 0 then
-		gridLayout.Enabled = false
-		local empty = label(logGrid, "EmptyAxes", "NO OWNED AXES YET", UDim2.new(1, -12, 1, -12), UDim2.new(0, 6, 0, 6), 12, COLORS.BagMuted, Enum.Font.GothamBold)
-		empty.TextXAlignment = Enum.TextXAlignment.Center
+		showEmptyState("NO OWNED AXES YET")
 		renderAxeDetail(nil)
 		return
 	end
@@ -613,10 +628,9 @@ local function renderLogs(data)
 		return
 	end
 	clearGrid()
+	showGrid()
 	if #logs == 0 then
-		gridLayout.Enabled = false
-		local empty = label(logGrid, "EmptyBag", "NO LOGS YET • CHOP A TREE TO FILL YOUR BAG", UDim2.new(1, -12, 1, -12), UDim2.new(0, 6, 0, 6), 12, COLORS.BagMuted, Enum.Font.GothamBold)
-		empty.TextXAlignment = Enum.TextXAlignment.Center
+		showEmptyState("NO LOGS YET • CHOP A TREE TO FILL YOUR BAG")
 		renderLogDetail(nil)
 		return
 	end
