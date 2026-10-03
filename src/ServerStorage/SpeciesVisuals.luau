@@ -5,16 +5,26 @@ local SpeciesVisuals = {}
 
 local PALETTES = {
 	Oak = {
-		Bark = Color3.fromRGB(142, 84, 48),
-		BarkHighlight = Color3.fromRGB(164, 101, 57),
-		BarkShadow = Color3.fromRGB(127, 72, 42),
-		CutEnd = Color3.fromRGB(210, 163, 101),
+		Bark = Color3.fromRGB(151, 82, 43),
+		BarkHighlight = Color3.fromRGB(190, 116, 58),
+		BarkShadow = Color3.fromRGB(112, 59, 34),
+		CutEnd = Color3.fromRGB(244, 202, 133),
+		CutRing = Color3.fromRGB(186, 132, 75),
+		CutRingShadow = Color3.fromRGB(143, 92, 50),
+		Leaf = Color3.fromRGB(105, 202, 67),
+		LeafHighlight = Color3.fromRGB(156, 226, 77),
+		LeafShadow = Color3.fromRGB(69, 160, 58),
 	},
 	Ironwood = {
-		Bark = Color3.fromRGB(91, 65, 49),
-		BarkHighlight = Color3.fromRGB(111, 76, 52),
-		BarkShadow = Color3.fromRGB(72, 53, 43),
-		CutEnd = Color3.fromRGB(165, 139, 111),
+		Bark = Color3.fromRGB(79, 50, 36),
+		BarkHighlight = Color3.fromRGB(116, 76, 49),
+		BarkShadow = Color3.fromRGB(52, 38, 31),
+		CutEnd = Color3.fromRGB(185, 159, 126),
+		CutRing = Color3.fromRGB(145, 116, 82),
+		CutRingShadow = Color3.fromRGB(105, 82, 61),
+		Leaf = Color3.fromRGB(30, 105, 76),
+		LeafHighlight = Color3.fromRGB(48, 141, 91),
+		LeafShadow = Color3.fromRGB(23, 77, 63),
 	},
 }
 
@@ -44,6 +54,64 @@ local function configurePart(part)
 	return part
 end
 
+local function addEndGrain(cap, direction, length, diameter, sizeScale, palette)
+	local layers = {
+		{ DiameterScale = 0.68, Color = palette.CutRingShadow },
+		{ DiameterScale = 0.48, Color = palette.CutRing },
+		{ DiameterScale = 0.25, Color = palette.CutRingShadow },
+		{ DiameterScale = 0.12, Color = palette.CutEnd },
+	}
+	for index, layer in ipairs(layers) do
+		local grain = configurePart(Instance.new("Part"))
+		grain.Name = "GrowthRing" .. index
+		grain.Shape = Enum.PartType.Cylinder
+		local thickness = 0.012 * sizeScale
+		local grainDiameter = diameter * layer.DiameterScale
+		grain.Size = Vector3.new(thickness, grainDiameter, grainDiameter)
+		grain.CFrame = CFrame.new(direction * (length * 0.5 + thickness * index), 0, 0)
+		grain.Color = layer.Color
+		grain.Material = Enum.Material.Plastic
+		grain.TopSurface = Enum.SurfaceType.Smooth
+		grain.BottomSurface = Enum.SurfaceType.Smooth
+		grain.Parent = cap
+
+		local weld = Instance.new("WeldConstraint")
+		weld.Name = "LogGrowthRingWeld"
+		weld.Part0 = cap
+		weld.Part1 = grain
+		weld.Parent = grain
+	end
+end
+
+local function addBarkStrips(handle, length, diameter, sizeScale, palette)
+	local stripThickness = 0.045 * sizeScale
+	local stripWidth = diameter * 0.09
+	local stripLength = length * 0.82
+	local faces = {
+		{ Position = Vector3.new(0, diameter * 0.5 - stripThickness * 0.15, 0), Size = Vector3.new(stripLength, stripThickness, stripWidth), Color = palette.BarkHighlight },
+		{ Position = Vector3.new(0, -diameter * 0.5 + stripThickness * 0.15, 0), Size = Vector3.new(stripLength, stripThickness, stripWidth), Color = palette.BarkShadow },
+		{ Position = Vector3.new(0, 0, diameter * 0.5 - stripThickness * 0.15), Size = Vector3.new(stripLength, stripWidth, stripThickness), Color = palette.BarkHighlight },
+		{ Position = Vector3.new(0, 0, -diameter * 0.5 + stripThickness * 0.15), Size = Vector3.new(stripLength, stripWidth, stripThickness), Color = palette.BarkShadow },
+	}
+	for index, definition in ipairs(faces) do
+		local strip = configurePart(Instance.new("Part"))
+		strip.Name = "BarkGrain" .. index
+		strip.Size = definition.Size
+		strip.CFrame = CFrame.new(definition.Position)
+		strip.Color = definition.Color
+		strip.Material = Enum.Material.Plastic
+		strip.TopSurface = Enum.SurfaceType.Smooth
+		strip.BottomSurface = Enum.SurfaceType.Smooth
+		strip.Parent = handle
+
+		local weld = Instance.new("WeldConstraint")
+		weld.Name = "LogBarkWeld"
+		weld.Part0 = handle
+		weld.Part1 = strip
+		weld.Parent = strip
+	end
+end
+
 -- Creates the exact same server-built wood assembly for inventory tools and
 -- world pickups. The caller chooses the parent and whether it is anchored.
 -- Returns a direct-child Handle plus the direct-child decorative end caps.
@@ -56,30 +124,42 @@ function SpeciesVisuals.CreateLogParts(logRecord, handleName)
 
 	local handle = configurePart(Instance.new("Part"))
 	handle.Name = handleName or "Handle"
-	handle.Shape = Enum.PartType.Cylinder
+	-- A square, studded body reads like a toy-brick log while the round end
+	-- plates make it unmistakably a cut section of the matching tree species.
 	handle.Size = Vector3.new(length, diameter, diameter)
 	handle.CFrame = CFrame.new()
 	handle.Color = palette.Bark
 	handle.Material = Enum.Material.Plastic
+	handle.TopSurface = Enum.SurfaceType.Studs
+	handle.BottomSurface = Enum.SurfaceType.Inlet
+	handle.FrontSurface = Enum.SurfaceType.Studs
+	handle.BackSurface = Enum.SurfaceType.Studs
+	handle.LeftSurface = Enum.SurfaceType.Studs
+	handle.RightSurface = Enum.SurfaceType.Studs
 	handle:SetAttribute("ItemType", "Log")
 	handle:SetAttribute("SpeciesId", logRecord.SpeciesId)
 	handle:SetAttribute("SizeScale", sizeScale)
+	addBarkStrips(handle, length, diameter, sizeScale, palette)
 
 	local caps = {}
+	local capThickness = 0.07 * sizeScale
 	for index, direction in ipairs({ -1, 1 }) do
 		local cap = configurePart(Instance.new("Part"))
 		cap.Name = "CutEnd" .. index
 		cap.Shape = Enum.PartType.Cylinder
-		cap.Size = Vector3.new(0.06 * sizeScale, diameter * 0.94, diameter * 0.94)
-		cap.CFrame = CFrame.new(direction * (length * 0.5 - cap.Size.X * 0.5), 0, 0)
+		cap.Size = Vector3.new(capThickness, diameter * 0.84, diameter * 0.84)
+		cap.CFrame = CFrame.new(direction * (length * 0.5 - capThickness * 0.5), 0, 0)
 		cap.Color = palette.CutEnd
 		cap.Material = Enum.Material.Plastic
+		cap.TopSurface = Enum.SurfaceType.Smooth
+		cap.BottomSurface = Enum.SurfaceType.Smooth
 
 		local weld = Instance.new("WeldConstraint")
 		weld.Name = "LogCutWeld"
 		weld.Part0 = handle
 		weld.Part1 = cap
 		weld.Parent = cap
+		addEndGrain(cap, direction, length, diameter, sizeScale, palette)
 		table.insert(caps, cap)
 	end
 

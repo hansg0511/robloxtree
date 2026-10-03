@@ -20,7 +20,7 @@ local STATION_USE_DISTANCES = {
 
 local WorldLayoutConfiguration = {
 	ROOT_NAME = "SourceWorld",
-	VERSION = 4,
+	VERSION = 5,
 	STATION_USE_DISTANCES = STATION_USE_DISTANCES,
 
 	-- The narrow section follows the six-stud opening between the two rear plots.

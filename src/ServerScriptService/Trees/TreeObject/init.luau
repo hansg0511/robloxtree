@@ -51,17 +51,15 @@ local function makeBrickPart(name, size, position, color, parent, root, canColli
 	return part
 end
 
-local function addBarkStuds(brick, root, color)
-	local halfX, halfZ = brick.Size.X * 0.25, brick.Size.Z * 0.25
-	for _, offset in ipairs({
-		Vector3.new(-halfX, 0, -halfZ), Vector3.new(halfX, 0, -halfZ),
-		Vector3.new(-halfX, 0, halfZ), Vector3.new(halfX, 0, halfZ),
-	}) do
+local function addBarkStuds(brick, root, palette)
+	local studDiameter = math.clamp(math.min(brick.Size.X, brick.Size.Z) * 0.11, 0.38, 0.72)
+	local studDepth = math.clamp(studDiameter * 0.48, 0.16, 0.3)
+	local function attachStud(position, rotation, color)
 		local stud = Instance.new("Part")
 		stud.Name = "BarkStud"
 		stud.Shape = Enum.PartType.Cylinder
-		stud.Size = Vector3.new(0.35, 0.9, 0.9)
-		stud.CFrame = brick.CFrame * CFrame.new(offset.X, brick.Size.Y * 0.5 + 0.16, offset.Z) * CFrame.Angles(0, 0, math.rad(90))
+		stud.Size = Vector3.new(studDepth, studDiameter, studDiameter)
+		stud.CFrame = brick.CFrame * CFrame.new(position) * rotation
 		stud.Color = color
 		stud.Material = Enum.Material.Plastic
 		stud.Anchored = false
@@ -73,35 +71,32 @@ local function addBarkStuds(brick, root, color)
 		weld.Parent = stud
 	end
 
-	-- Top studs alone disappear when bricks are stacked. These small side studs
-	-- keep the trunk visibly brick-built from the player's eye level.
-	for _, verticalOffset in ipairs({ -brick.Size.Y * 0.2, brick.Size.Y * 0.2 }) do
-		for _, horizontalOffset in ipairs({ -halfX, halfX }) do
-			local frontStud = Instance.new("Part")
-			frontStud.Name = "BarkStud"
-			frontStud.Shape = Enum.PartType.Cylinder
-			frontStud.Size = Vector3.new(0.45, 0.8, 0.8)
-			frontStud.CFrame = brick.CFrame
-				* CFrame.new(horizontalOffset, verticalOffset, brick.Size.Z * 0.5 + 0.2)
-				* CFrame.Angles(0, math.rad(90), 0)
-			frontStud.Color = color
-			frontStud.Material = Enum.Material.Plastic
-			frontStud.Anchored = false
-			frontStud.CanCollide = false
-			frontStud.Parent = brick.Parent
-			local frontWeld = Instance.new("WeldConstraint")
-			frontWeld.Part0 = root
-			frontWeld.Part1 = frontStud
-			frontWeld.Parent = frontStud
+	local halfX, halfZ = brick.Size.X * 0.24, brick.Size.Z * 0.24
+	local topRotation = CFrame.Angles(0, 0, math.rad(90))
+	for _, x in ipairs({ -halfX, halfX }) do
+		for _, z in ipairs({ -halfZ, halfZ }) do
+			attachStud(Vector3.new(x, brick.Size.Y * 0.5 + studDepth * 0.42, z), topRotation, palette.BarkHighlight)
+		end
+	end
 
-			local sideStud = frontStud:Clone()
-			sideStud.CFrame = brick.CFrame * CFrame.new(brick.Size.X * 0.5 + 0.2, verticalOffset, horizontalOffset)
-			sideStud.Parent = brick.Parent
-			local sideWeld = sideStud:FindFirstChildOfClass("WeldConstraint")
-			if sideWeld then
-				sideWeld.Part0 = root
-				sideWeld.Part1 = sideStud
+	-- Side studs make the trunk read as stacked toy bricks from every approach.
+	local faceStuds = {
+		{ NormalOffset = Vector3.new(0, 0, 1), Rotation = CFrame.Angles(0, math.rad(-90), 0), Axis = "X" },
+		{ NormalOffset = Vector3.new(0, 0, -1), Rotation = CFrame.Angles(0, math.rad(90), 0), Axis = "X" },
+		{ NormalOffset = Vector3.new(1, 0, 0), Rotation = CFrame.new(), Axis = "Z" },
+		{ NormalOffset = Vector3.new(-1, 0, 0), Rotation = CFrame.Angles(0, math.rad(180), 0), Axis = "Z" },
+	}
+	for _, face in ipairs(faceStuds) do
+		for _, y in ipairs({ -brick.Size.Y * 0.24, brick.Size.Y * 0.24 }) do
+			local normalDistance = face.Axis == "X" and brick.Size.Z * 0.5 or brick.Size.X * 0.5
+			local position
+			if face.Axis == "X" then
+				position = Vector3.new(0, y, face.NormalOffset.Z * (normalDistance + studDepth * 0.42))
+			else
+				position = Vector3.new(face.NormalOffset.X * (normalDistance + studDepth * 0.42), y, 0)
 			end
+			local accent = y < 0 and palette.BarkShadow or palette.BarkHighlight
+			attachStud(position, face.Rotation, accent)
 		end
 	end
 end
@@ -115,7 +110,7 @@ local function makeBrickPlaceholder()
 	local bark = makeBrickPart("Bark", Vector3.new(8, 4, 8), Vector3.new(0, 2, 0), barkColor, model)
 	bark.PivotOffset = CFrame.new(0, -2, 0)
 	model.PrimaryPart = bark
-	addBarkStuds(bark, bark, barkColor)
+	addBarkStuds(bark, bark, oakPalette)
 
 	-- Server-owned trunk interaction geometry. It is invisible and non-queryable
 	-- so it never becomes a client aiming aid; the server uses its bounds only.
@@ -133,17 +128,17 @@ local function makeBrickPlaceholder()
 		{ Vector3.new(7, 4, 7), Vector3.new(0, 14, 0), oakPalette.BarkHighlight },
 	}) do
 		local brick = makeBrickPart("BarkBrick" .. index, definition[1], definition[2], definition[3], model, bark)
-		addBarkStuds(brick, bark, definition[3])
+		addBarkStuds(brick, bark, oakPalette)
 	end
 
 	local leaves = Instance.new("Folder")
 	leaves.Name = "Leaves"
 	leaves.Parent = model
 	for index, definition in ipairs({
-		{ Vector3.new(18, 8, 18), Vector3.new(0, 18, 0), Color3.fromRGB(77, 181, 87) },
-		{ Vector3.new(14, 8, 14), Vector3.new(-6, 22, -2), Color3.fromRGB(87, 201, 93) },
-		{ Vector3.new(14, 8, 14), Vector3.new(6, 22, 2), Color3.fromRGB(66, 162, 78) },
-		{ Vector3.new(16, 7, 16), Vector3.new(0, 27, 0), Color3.fromRGB(89, 205, 99) },
+		{ Vector3.new(18, 8, 18), Vector3.new(0, 18, 0), oakPalette.Leaf },
+		{ Vector3.new(14, 8, 14), Vector3.new(-6, 22, -2), oakPalette.LeafHighlight },
+		{ Vector3.new(14, 8, 14), Vector3.new(6, 22, 2), oakPalette.LeafShadow },
+		{ Vector3.new(16, 7, 16), Vector3.new(0, 27, 0), oakPalette.LeafHighlight },
 	}) do
 		local leaf = makeBrickPart("Leaf" .. index, definition[1], definition[2], definition[3], leaves, bark)
 		leaf.CanCollide = false
@@ -152,14 +147,14 @@ local function makeBrickPlaceholder()
 	return model
 end
 
-local function makeTreeFrame(modelName, trunkSize, trunkPosition, barkColor)
+local function makeTreeFrame(modelName, trunkSize, trunkPosition, palette)
 	local model = Instance.new("Model")
 	model.Name = modelName
 
-	local trunk = makeBrickPart("Bark", trunkSize, trunkPosition, barkColor, model)
+	local trunk = makeBrickPart("Bark", trunkSize, trunkPosition, palette.Bark, model)
 	trunk.PivotOffset = CFrame.new(0, -trunkSize.Y * 0.5, 0)
 	model.PrimaryPart = trunk
-	addBarkStuds(trunk, trunk, barkColor)
+	addBarkStuds(trunk, trunk, palette)
 
 	local leaves = Instance.new("Folder")
 	leaves.Name = "Leaves"
@@ -167,9 +162,9 @@ local function makeTreeFrame(modelName, trunkSize, trunkPosition, barkColor)
 	return model, trunk, leaves
 end
 
-local function addBarkBrick(model, root, name, size, position, color, canCollide)
+local function addBarkBrick(model, root, name, size, position, color, palette, canCollide)
 	local brick = makeBrickPart(name, size, position, color, model, root, canCollide)
-	addBarkStuds(brick, root, color)
+	addBarkStuds(brick, root, palette)
 	return brick
 end
 
@@ -201,21 +196,20 @@ end
 
 local function makeStarterForestTree()
 	local oakPalette = SpeciesVisuals.GetPalette("Oak")
-	local barkColor = oakPalette.Bark
 	local model, trunk, leaves = makeTreeFrame(
 		"StarterForestTree",
 		Vector3.new(6, 10, 6),
 		Vector3.new(0, 5, 0),
-		barkColor
+		oakPalette
 	)
-	addBarkBrick(model, trunk, "BarkBrick1", Vector3.new(5, 5, 5), Vector3.new(0, 11, 0), oakPalette.BarkHighlight)
-	addBarkBrick(model, trunk, "BarkBrick2", Vector3.new(4, 5, 4), Vector3.new(0, 15, 0), barkColor)
+	addBarkBrick(model, trunk, "BarkBrick1", Vector3.new(5, 5, 5), Vector3.new(0, 11, 0), oakPalette.BarkHighlight, oakPalette)
+	addBarkBrick(model, trunk, "BarkBrick2", Vector3.new(4, 5, 4), Vector3.new(0, 15, 0), oakPalette.Bark, oakPalette)
 	addLeafBricks(leaves, trunk, {
-		{ Size = Vector3.new(18, 8, 16), Position = Vector3.new(0, 20, 0), Color = Color3.fromRGB(79, 168, 70) },
-		{ Size = Vector3.new(12, 7, 12), Position = Vector3.new(-7, 23, -2), Color = Color3.fromRGB(94, 190, 75) },
-		{ Size = Vector3.new(12, 7, 12), Position = Vector3.new(7, 23, 2), Color = Color3.fromRGB(68, 153, 66) },
-		{ Size = Vector3.new(15, 7, 14), Position = Vector3.new(0, 27, 0), Color = Color3.fromRGB(92, 188, 77) },
-		{ Size = Vector3.new(10, 7, 10), Position = Vector3.new(0, 33, 0), Color = Color3.fromRGB(108, 202, 83) },
+		{ Size = Vector3.new(18, 8, 16), Position = Vector3.new(0, 20, 0), Color = oakPalette.Leaf },
+		{ Size = Vector3.new(12, 7, 12), Position = Vector3.new(-7, 23, -2), Color = oakPalette.LeafHighlight },
+		{ Size = Vector3.new(12, 7, 12), Position = Vector3.new(7, 23, 2), Color = oakPalette.LeafShadow },
+		{ Size = Vector3.new(15, 7, 14), Position = Vector3.new(0, 27, 0), Color = oakPalette.Leaf },
+		{ Size = Vector3.new(10, 7, 10), Position = Vector3.new(0, 33, 0), Color = oakPalette.LeafHighlight },
 	}, false)
 	addChopHitbox(model, trunk, Vector3.new(10, 22, 10), Vector3.new(0, 11, 0))
 	return model
@@ -223,24 +217,23 @@ end
 
 local function makeForest2Tree()
 	local ironwoodPalette = SpeciesVisuals.GetPalette("Ironwood")
-	local barkColor = ironwoodPalette.Bark
 	local model, trunk, leaves = makeTreeFrame(
 		"Forest2Tree",
 		Vector3.new(7, 16, 7),
 		Vector3.new(0, 8, 0),
-		barkColor
+		ironwoodPalette
 	)
-	addBarkBrick(model, trunk, "BarkBrick1", Vector3.new(6, 9, 6), Vector3.new(0, 18, 0), ironwoodPalette.BarkHighlight)
-	addBarkBrick(model, trunk, "BarkBrick2", Vector3.new(5, 8, 5), Vector3.new(0, 25, 0), barkColor)
-	addBarkBrick(model, trunk, "BoughLeft", Vector3.new(11, 4, 5), Vector3.new(-5, 23, 0), ironwoodPalette.BarkHighlight)
-	addBarkBrick(model, trunk, "BoughRight", Vector3.new(11, 4, 5), Vector3.new(5, 28, 0), ironwoodPalette.BarkHighlight)
+	addBarkBrick(model, trunk, "BarkBrick1", Vector3.new(6, 9, 6), Vector3.new(0, 18, 0), ironwoodPalette.BarkHighlight, ironwoodPalette)
+	addBarkBrick(model, trunk, "BarkBrick2", Vector3.new(5, 8, 5), Vector3.new(0, 25, 0), ironwoodPalette.Bark, ironwoodPalette)
+	addBarkBrick(model, trunk, "BoughLeft", Vector3.new(11, 4, 5), Vector3.new(-5, 23, 0), ironwoodPalette.BarkHighlight, ironwoodPalette)
+	addBarkBrick(model, trunk, "BoughRight", Vector3.new(11, 4, 5), Vector3.new(5, 28, 0), ironwoodPalette.BarkHighlight, ironwoodPalette)
 	addLeafBricks(leaves, trunk, {
-		{ Size = Vector3.new(20, 7, 18), Position = Vector3.new(0, 31, 0), Color = Color3.fromRGB(31, 112, 91) },
-		{ Size = Vector3.new(15, 7, 15), Position = Vector3.new(0, 37, 0), Color = Color3.fromRGB(40, 137, 105) },
-		{ Size = Vector3.new(11, 7, 11), Position = Vector3.new(0, 43, 0), Color = Color3.fromRGB(47, 154, 114) },
-		{ Size = Vector3.new(7, 7, 7), Position = Vector3.new(0, 49, 0), Color = Color3.fromRGB(67, 174, 125) },
-		{ Size = Vector3.new(10, 6, 10), Position = Vector3.new(-7, 34, 0), Color = Color3.fromRGB(35, 124, 99) },
-		{ Size = Vector3.new(10, 6, 10), Position = Vector3.new(7, 39, 0), Color = Color3.fromRGB(36, 129, 102) },
+		{ Size = Vector3.new(20, 7, 18), Position = Vector3.new(0, 31, 0), Color = ironwoodPalette.LeafShadow },
+		{ Size = Vector3.new(15, 7, 15), Position = Vector3.new(0, 37, 0), Color = ironwoodPalette.Leaf },
+		{ Size = Vector3.new(11, 7, 11), Position = Vector3.new(0, 43, 0), Color = ironwoodPalette.LeafHighlight },
+		{ Size = Vector3.new(7, 7, 7), Position = Vector3.new(0, 49, 0), Color = ironwoodPalette.LeafHighlight },
+		{ Size = Vector3.new(10, 6, 10), Position = Vector3.new(-7, 34, 0), Color = ironwoodPalette.Leaf },
+		{ Size = Vector3.new(10, 6, 10), Position = Vector3.new(7, 39, 0), Color = ironwoodPalette.LeafShadow },
 	}, false)
 	addChopHitbox(model, trunk, Vector3.new(11, 32, 11), Vector3.new(0, 16, 0))
 	return model
@@ -248,17 +241,22 @@ end
 
 local function makeBarrierTree()
 	local barkColor = Color3.fromRGB(105, 61, 39)
+	local barrierPalette = {
+		Bark = barkColor,
+		BarkHighlight = Color3.fromRGB(138, 82, 48),
+		BarkShadow = Color3.fromRGB(82, 45, 32),
+	}
 	local model, trunk, leaves = makeTreeFrame(
 		"BarrierTree",
 		Vector3.new(38, 28, 18),
 		Vector3.new(0, 14, 0),
-		barkColor
+		barrierPalette
 	)
 	-- A broad, continuous wooden core and overlapping side posts make this a
 	-- physical gate as well as a server-registered chop target.
-	addBarkBrick(model, trunk, "BarrierBeam", Vector3.new(62, 12, 20), Vector3.new(0, 32, 0), Color3.fromRGB(123, 72, 43), true)
-	addBarkBrick(model, trunk, "BarrierPostLeft", Vector3.new(16, 30, 20), Vector3.new(-24, 15, 0), Color3.fromRGB(116, 66, 41), true)
-	addBarkBrick(model, trunk, "BarrierPostRight", Vector3.new(16, 30, 20), Vector3.new(24, 15, 0), Color3.fromRGB(116, 66, 41), true)
+	addBarkBrick(model, trunk, "BarrierBeam", Vector3.new(62, 12, 20), Vector3.new(0, 32, 0), Color3.fromRGB(123, 72, 43), barrierPalette, true)
+	addBarkBrick(model, trunk, "BarrierPostLeft", Vector3.new(16, 30, 20), Vector3.new(-24, 15, 0), Color3.fromRGB(116, 66, 41), barrierPalette, true)
+	addBarkBrick(model, trunk, "BarrierPostRight", Vector3.new(16, 30, 20), Vector3.new(24, 15, 0), Color3.fromRGB(116, 66, 41), barrierPalette, true)
 	addLeafBricks(leaves, trunk, {
 		{ Size = Vector3.new(42, 10, 22), Position = Vector3.new(0, 43, 0), Color = Color3.fromRGB(47, 105, 58) },
 		{ Size = Vector3.new(29, 10, 20), Position = Vector3.new(0, 51, 0), Color = Color3.fromRGB(59, 126, 62) },

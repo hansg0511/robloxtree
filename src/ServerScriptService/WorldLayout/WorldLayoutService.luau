@@ -105,7 +105,7 @@ local function createSign(parent, signConfiguration)
 	end
 end
 
-local function createStationSign(parent, name, text, position, boardColor, textColor)
+local function createStationSign(parent, name, title, subtitle, position, boardColor, textColor)
 	local board = createPart(
 		name .. "SignBoard",
 		Vector3.new(7, 1.8, 0.5),
@@ -128,16 +128,57 @@ local function createStationSign(parent, name, text, position, boardColor, textC
 		signFace.AlwaysOnTop = false
 		signFace.Parent = board
 
+		local panel = Instance.new("Frame")
+		panel.Name = "Panel"
+		panel.Position = UDim2.fromScale(0.035, 0.08)
+		panel.Size = UDim2.fromScale(0.93, 0.84)
+		panel.BackgroundColor3 = Color3.fromRGB(37, 79, 72)
+		panel.BorderSizePixel = 0
+		panel.Parent = signFace
+
+		local panelCorner = Instance.new("UICorner")
+		panelCorner.CornerRadius = UDim.new(0, 12)
+		panelCorner.Parent = panel
+
+		local panelStroke = Instance.new("UIStroke")
+		panelStroke.Color = Color3.fromRGB(255, 205, 78)
+		panelStroke.Thickness = 5
+		panelStroke.Parent = panel
+
+		local topAccent = Instance.new("Frame")
+		topAccent.Name = "TopAccent"
+		topAccent.AnchorPoint = Vector2.new(0.5, 0)
+		topAccent.Position = UDim2.new(0.5, 0, 0.08, 0)
+		topAccent.Size = UDim2.new(0.24, 0, 0, 6)
+		topAccent.BackgroundColor3 = boardColor
+		topAccent.BorderSizePixel = 0
+		topAccent.Parent = panel
+
 		local label = Instance.new("TextLabel")
-		label.Name = "Text"
+		label.Name = "Title"
 		label.BackgroundTransparency = 1
-		label.Size = UDim2.fromScale(1, 1)
-		label.Font = Enum.Font.GothamBold
-		label.Text = text
+		label.Position = UDim2.new(0.06, 0, subtitle and 0.18 or 0.24, 0)
+		label.Size = UDim2.new(0.88, 0, subtitle and 0.48 or 0.58, 0)
+		label.Font = Enum.Font.GothamBlack
+		label.Text = title
 		label.TextColor3 = textColor
 		label.TextScaled = true
-		label.TextStrokeTransparency = 0.5
-		label.Parent = signFace
+		label.TextStrokeTransparency = 0.6
+		label.Parent = panel
+
+		if subtitle then
+			local subtitleLabel = Instance.new("TextLabel")
+			subtitleLabel.Name = "Subtitle"
+			subtitleLabel.BackgroundTransparency = 1
+			subtitleLabel.Position = UDim2.new(0.06, 0, 0.64, 0)
+			subtitleLabel.Size = UDim2.new(0.88, 0, 0.23, 0)
+			subtitleLabel.Font = Enum.Font.GothamBold
+			subtitleLabel.Text = subtitle
+			subtitleLabel.TextColor3 = Color3.fromRGB(255, 218, 101)
+			subtitleLabel.TextScaled = true
+			subtitleLabel.TextStrokeTransparency = 0.7
+			subtitleLabel.Parent = panel
+		end
 	end
 
 	return board
@@ -197,9 +238,10 @@ local function createHomeEconomyStation(parent)
 	createStationSign(
 		station,
 		"LumberDepot",
-		"LUMBER DEPOT",
+		"Lumber Depot",
+		"Sell Logs",
 		position + Vector3.new(0, 6.1, 0),
-		Color3.fromRGB(113, 72, 44),
+		Color3.fromRGB(235, 159, 57),
 		Color3.fromRGB(255, 234, 181)
 	)
 
@@ -248,9 +290,10 @@ local function createAxeShopStation(parent)
 	createStationSign(
 		station,
 		"AxeShop",
-		"AXE SHOP",
+		"Axe Shop",
+		nil,
 		position + Vector3.new(0, 6.2, 0),
-		Color3.fromRGB(81, 179, 107),
+		Color3.fromRGB(68, 191, 104),
 		Color3.fromRGB(255, 249, 219)
 	)
 
