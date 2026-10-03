@@ -203,6 +203,12 @@ local function clearHeldLog(player)
 	player:SetAttribute("HeldLogUID", nil)
 end
 
+function LogService.ClearHeldLog(player)
+	if typeof(player) ~= "Instance" or not player:IsA("Player") then return false end
+	clearHeldLog(player)
+	return true
+end
+
 local function buildLogTool(logRecord, ownerUserId)
 	local tool = Instance.new("Tool")
 	tool.Name = tostring(logRecord.SpeciesId) .. " Log"

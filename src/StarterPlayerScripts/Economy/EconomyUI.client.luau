@@ -35,6 +35,13 @@ local COLORS = {
 	Pink = Color3.fromRGB(255, 107, 158),
 	Stroke = Color3.fromRGB(75, 133, 109),
 	Disabled = Color3.fromRGB(105, 130, 121),
+	BagBack = Color3.fromRGB(24, 27, 31),
+	BagHeader = Color3.fromRGB(220, 128, 38),
+	BagSlot = Color3.fromRGB(43, 47, 53),
+	BagSelected = Color3.fromRGB(62, 51, 32),
+	BagLine = Color3.fromRGB(104, 112, 122),
+	BagText = Color3.fromRGB(245, 246, 248),
+	BagMuted = Color3.fromRGB(186, 194, 202),
 }
 
 local function round(parent, radius)
@@ -194,68 +201,109 @@ round(feedback, 14)
 outline(feedback, COLORS.Gold, 2)
 
 local bagOverlay, bagPanel = makeModal(screen, "LogBag", "LOG BAG", "Tap a log to equip it. Locked logs stay safe from SELL ALL.")
+bagPanel.BackgroundColor3 = COLORS.BagBack
+bagPanel.BackgroundTransparency = 0
+for _, decoration in ipairs(bagPanel:GetChildren()) do
+	if decoration:IsA("UICorner") then
+		decoration.CornerRadius = UDim.new(0, 5)
+	elseif decoration:IsA("UIStroke") then
+		decoration.Color = COLORS.BagLine
+		decoration.Thickness = 1
+	end
+end
+bagPanel.Header.BackgroundColor3 = COLORS.BagHeader
+bagPanel.Header.BackgroundTransparency = 0
+bagPanel.Header.Position = UDim2.new(0, 0, 0, 0)
+bagPanel.Header.Size = UDim2.new(1, 0, 0, 44)
+bagPanel.Header.Title.Text = "BAG"
+bagPanel.Header.Title.Position = UDim2.new(0, 12, 0, 0)
+bagPanel.Header.Title.Size = UDim2.new(0, 66, 1, 0)
+bagPanel.Header.Title.TextSize = 20
+bagPanel.Header.Title.TextColor3 = COLORS.BagBack
+bagPanel.Header.Subtitle.Text = "INVENTORY"
+bagPanel.Header.Subtitle.Position = UDim2.new(0, 80, 0, 0)
+bagPanel.Header.Subtitle.Size = UDim2.new(1, -132, 1, 0)
+bagPanel.Header.Subtitle.TextSize = 11
+bagPanel.Header.Subtitle.TextColor3 = COLORS.BagBack
+bagPanel.Header.CloseButton.Position = UDim2.new(1, -38, 0, 4)
+bagPanel.Header.CloseButton.Size = UDim2.fromOffset(34, 34)
+bagPanel.Header.CloseButton.BackgroundColor3 = COLORS.BagBack
+bagPanel.Header.CloseButton.TextColor3 = COLORS.BagText
+bagPanel.Header.CloseButton.TextSize = 22
 local bagToolbar = Instance.new("Frame")
 bagToolbar.Name = "Toolbar"
 bagToolbar.BackgroundTransparency = 1
-bagToolbar.Position = UDim2.new(0, 18, 0, 78)
-bagToolbar.Size = UDim2.new(1, -36, 0, 40)
+bagToolbar.Position = UDim2.new(0, 12, 0, 52)
+bagToolbar.Size = UDim2.new(1, -24, 0, 30)
 bagToolbar.Parent = bagPanel
 local sortModes = { "Weight", "Value", "Species", "Newest" }
 local sortIndex = 1
-local sortButton = button(bagToolbar, "SortButton", "SORT  •  WEIGHT", UDim2.new(0, 168, 1, 0), UDim2.new(), COLORS.Blue)
-sortButton.TextSize = 12
-local bagCountLabel = label(bagToolbar, "Capacity", "0 / 10 LOGS", UDim2.new(1, -182, 1, 0), UDim2.new(0, 182, 0, 0), 13, COLORS.Muted, Enum.Font.GothamBold)
+local logsTab = button(bagToolbar, "LogsTab", "LOGS", UDim2.new(0, 56, 1, 0), UDim2.new(), COLORS.BagHeader)
+logsTab.TextColor3 = COLORS.BagBack
+logsTab.TextSize = 11
+local axesTab = button(bagToolbar, "AxesTab", "AXES", UDim2.new(0, 56, 1, 0), UDim2.new(0, 60, 0, 0), COLORS.BagSlot)
+axesTab.TextColor3 = COLORS.BagText
+axesTab.TextSize = 11
+local sortButton = button(bagToolbar, "SortButton", "SORT", UDim2.new(0, 54, 1, 0), UDim2.new(0, 120, 0, 0), COLORS.BagSlot)
+sortButton.TextSize = 10
+sortButton.TextColor3 = COLORS.BagText
+local bagCountLabel = label(bagToolbar, "Capacity", "0/10", UDim2.new(1, -180, 1, 0), UDim2.new(0, 180, 0, 0), 11, COLORS.BagMuted, Enum.Font.GothamBold)
 bagCountLabel.TextXAlignment = Enum.TextXAlignment.Right
 
 local bagBody = Instance.new("Frame")
 bagBody.Name = "BagBody"
 bagBody.BackgroundTransparency = 1
-bagBody.Position = UDim2.new(0, 18, 0, 128)
-bagBody.Size = UDim2.new(1, -36, 1, -146)
+bagBody.Position = UDim2.new(0, 12, 0, 90)
+bagBody.Size = UDim2.new(1, -24, 1, -102)
 bagBody.Parent = bagPanel
 
 local logGrid = Instance.new("ScrollingFrame")
-logGrid.Name = "LogGrid"
-logGrid.BackgroundColor3 = COLORS.Surface
+logGrid.Name = "ItemGrid"
+logGrid.BackgroundColor3 = COLORS.BagBack
 logGrid.BorderSizePixel = 0
 logGrid.ScrollBarThickness = 6
-logGrid.ScrollBarImageColor3 = COLORS.GreenDark
+logGrid.ScrollBarImageColor3 = COLORS.BagLine
 logGrid.CanvasSize = UDim2.new()
 logGrid.AutomaticCanvasSize = Enum.AutomaticSize.Y
 logGrid.Parent = bagBody
-round(logGrid, 16)
-outline(logGrid, COLORS.Blue, 2)
+round(logGrid, 4)
+outline(logGrid, COLORS.BagLine, 1)
 
 local gridPadding = Instance.new("UIPadding")
-gridPadding.PaddingTop = UDim.new(0, 8)
-gridPadding.PaddingBottom = UDim.new(0, 8)
-gridPadding.PaddingLeft = UDim.new(0, 8)
-gridPadding.PaddingRight = UDim.new(0, 8)
+gridPadding.PaddingTop = UDim.new(0, 6)
+gridPadding.PaddingBottom = UDim.new(0, 6)
+gridPadding.PaddingLeft = UDim.new(0, 6)
+gridPadding.PaddingRight = UDim.new(0, 6)
 gridPadding.Parent = logGrid
 
 local gridLayout = Instance.new("UIGridLayout")
 gridLayout.SortOrder = Enum.SortOrder.LayoutOrder
-gridLayout.CellPadding = UDim2.fromOffset(8, 8)
-gridLayout.CellSize = UDim2.new(0.5, -6, 0, 104)
-gridLayout.FillDirectionMaxCells = 2
+gridLayout.CellPadding = UDim2.fromOffset(5, 5)
+gridLayout.CellSize = UDim2.fromOffset(72, 72)
+gridLayout.FillDirectionMaxCells = 3
 gridLayout.Parent = logGrid
 
 local detailPanel = Instance.new("Frame")
-detailPanel.Name = "CurrentLog"
-detailPanel.BackgroundColor3 = COLORS.SurfaceAlt
+detailPanel.Name = "ItemFooter"
+detailPanel.BackgroundColor3 = COLORS.BagSlot
 detailPanel.Parent = bagBody
-round(detailPanel, 16)
-outline(detailPanel, COLORS.Gold, 2)
+round(detailPanel, 4)
+outline(detailPanel, COLORS.BagLine, 1)
 
-local detailIcon = label(detailPanel, "LogIcon", "🪵", UDim2.new(0, 48, 0, 42), UDim2.new(0, 14, 0, 12), 30, COLORS.Orange, Enum.Font.GothamBold)
+local detailIcon = label(detailPanel, "ItemIcon", "🪵", UDim2.new(0, 32, 1, 0), UDim2.new(0, 6, 0, 0), 20, COLORS.BagText, Enum.Font.GothamBold)
 detailIcon.TextXAlignment = Enum.TextXAlignment.Center
-local detailSpecies = label(detailPanel, "Species", "NO LOG EQUIPPED", UDim2.new(1, -78, 0, 30), UDim2.new(0, 70, 0, 14), 18, COLORS.Ink, Enum.Font.GothamBlack)
-local detailStatus = label(detailPanel, "Status", "TAP A CARD TO EQUIP", UDim2.new(1, -28, 0, 20), UDim2.new(0, 14, 0, 48), 11, COLORS.Blue, Enum.Font.GothamBlack)
-local detailWeight = label(detailPanel, "Weight", "", UDim2.new(1, -28, 0, 24), UDim2.new(0, 14, 0, 64), 14, COLORS.Muted)
-local detailValue = label(detailPanel, "Value", "", UDim2.new(1, -28, 0, 24), UDim2.new(0, 14, 0, 91), 14, COLORS.GreenDark, Enum.Font.GothamBold)
-local detailSize = label(detailPanel, "Size", "", UDim2.new(1, -28, 0, 22), UDim2.new(0, 14, 0, 118), 12, COLORS.Muted)
-local favoriteButton = button(detailPanel, "FavoriteButton", "♡  LOCK FROM SELLING", UDim2.new(1, -28, 0, 44), UDim2.new(0, 14, 1, -56), COLORS.Pink)
-favoriteButton.TextSize = 12
+local detailSpecies = label(detailPanel, "Species", "NO LOG SELECTED", UDim2.new(0.42, -42, 0, 20), UDim2.new(0, 42, 0, 3), 12, COLORS.BagText, Enum.Font.GothamBold)
+detailSpecies.TextTruncate = Enum.TextTruncate.AtEnd
+local detailStatus = label(detailPanel, "Status", "CHOOSE A SLOT", UDim2.new(0.42, -42, 0, 16), UDim2.new(0, 42, 0, 22), 9, COLORS.BagMuted, Enum.Font.GothamBold)
+local detailWeight = label(detailPanel, "Weight", "", UDim2.new(0.22, -8, 1, 0), UDim2.new(0.46, 0, 0, 0), 10, COLORS.BagMuted, Enum.Font.GothamBold)
+detailWeight.TextXAlignment = Enum.TextXAlignment.Center
+local detailValue = label(detailPanel, "Value", "", UDim2.new(), UDim2.new(), 1, COLORS.BagMuted)
+detailValue.Visible = false
+local detailSize = label(detailPanel, "Size", "", UDim2.new(), UDim2.new(), 1, COLORS.BagMuted)
+detailSize.Visible = false
+local favoriteButton = button(detailPanel, "FavoriteButton", "LOCK", UDim2.new(0, 82, 0, 32), UDim2.new(1, -88, 0.5, -16), COLORS.BagHeader)
+favoriteButton.TextSize = 10
+favoriteButton.TextColor3 = COLORS.BagBack
 favoriteButton.Visible = false
 
 local shopOverlay, shopPanel = makeModal(screen, "AxeShop", "AXE SHOP", "Pick up more power and chop tougher trees.")
@@ -307,11 +355,13 @@ local sellEligibleCount = 0
 local latestLogsData
 local latestShopData
 local selectedLogUid
+local selectedAxeUid
+local activeBagTab = "Logs"
+local refreshShop
 local isRefreshingLogs = false
 local refreshLogsQueued = false
 local saleCoinsBefore
 local feedbackSequence = 0
-local compactBagLayout = false
 
 local function showFeedback(message, color)
 	feedbackSequence += 1
@@ -337,88 +387,23 @@ end
 
 local function setBagLayout()
 	local width = bagBody.AbsoluteSize.X
-	local height = bagBody.AbsoluteSize.Y
-	local wide = width >= 690
-	compactBagLayout = bagPanel.AbsoluteSize.Y < 400
-	if compactBagLayout then
-		-- On short landscape phones, keep the current-log details and lock control usable.
-		bagPanel.Header.Size = UDim2.new(1, -40, 0, 48)
-		bagToolbar.Position = UDim2.new(0, 18, 0, 62)
-		bagToolbar.Size = UDim2.new(1, -36, 0, 32)
-		bagBody.Position = UDim2.new(0, 18, 0, 102)
-		bagBody.Size = UDim2.new(1, -36, 1, -112)
-		logGrid.Position = UDim2.new(0, 0, 0, 0)
-		logGrid.Size = UDim2.new(1, 0, 0, 70)
-		detailPanel.Position = UDim2.new(0, 0, 0, 78)
-		detailPanel.Size = UDim2.new(1, 0, 1, -78)
-		gridLayout.FillDirectionMaxCells = 2
-		gridLayout.CellSize = UDim2.new(0.5, -6, 0, 60)
-
-		detailIcon.Position = UDim2.new(0, 10, 0, 6)
-		detailIcon.Size = UDim2.new(0, 40, 0, 32)
-		detailIcon.TextSize = 22
-		detailSpecies.Position = UDim2.new(0, 56, 0, 7)
-		detailSpecies.Size = UDim2.new(1, -68, 0, 24)
-		detailSpecies.TextSize = 15
-		detailStatus.Position = UDim2.new(0, 12, 0, 32)
-		detailStatus.Size = UDim2.new(1, -24, 0, 18)
-		detailStatus.TextSize = 10
-		detailWeight.Visible = false
-		detailValue.Visible = false
-		detailSize.Visible = false
-		favoriteButton.Position = UDim2.new(0, 12, 1, -40)
-		favoriteButton.Size = UDim2.new(1, -24, 0, 32)
-		favoriteButton.TextSize = 10
-		return
-	end
-
-	bagPanel.Header.Size = UDim2.new(1, -40, 0, 62)
-	bagToolbar.Position = UDim2.new(0, 18, 0, 78)
-	bagToolbar.Size = UDim2.new(1, -36, 0, 40)
-	bagBody.Position = UDim2.new(0, 18, 0, 128)
-	bagBody.Size = UDim2.new(1, -36, 1, -146)
-	detailIcon.Position = UDim2.new(0, 14, 0, 12)
-	detailIcon.Size = UDim2.new(0, 48, 0, 42)
-	detailIcon.TextSize = 30
-	detailSpecies.Position = UDim2.new(0, 70, 0, 14)
-	detailSpecies.Size = UDim2.new(1, -78, 0, 30)
-	detailSpecies.TextSize = 18
-	detailStatus.Position = UDim2.new(0, 14, 0, 48)
-	detailStatus.Size = UDim2.new(1, -28, 0, 20)
-	detailStatus.TextSize = 11
-	detailWeight.Visible = true
-	detailValue.Visible = true
-	detailWeight.Position = UDim2.new(0, 14, 0, 74)
-	detailWeight.Size = UDim2.new(1, -28, 0, 24)
-	detailWeight.TextSize = 14
-	detailValue.Position = UDim2.new(0, 14, 0, 100)
-	detailValue.Size = UDim2.new(1, -28, 0, 24)
-	detailValue.TextSize = 14
-	detailSize.Visible = true
-	detailSize.Position = UDim2.new(0, 14, 0, 126)
-	detailSize.Size = UDim2.new(1, -28, 0, 22)
-	favoriteButton.Position = UDim2.new(0, 14, 1, -54)
-	favoriteButton.Size = UDim2.new(1, -28, 0, 42)
-	favoriteButton.TextSize = 12
-	if wide then
-		logGrid.Position = UDim2.new(0, 0, 0, 0)
-		logGrid.Size = UDim2.new(0.59, -7, 1, 0)
-		detailPanel.Position = UDim2.new(0.61, 0, 0, 0)
-		detailPanel.Size = UDim2.new(0.39, 0, 1, 0)
-		gridLayout.FillDirectionMaxCells = 3
-		gridLayout.CellSize = UDim2.new(0.333, -7, 0, 104)
-	else
-		local gridHeight = math.max(140, math.floor(height * 0.48))
-		logGrid.Position = UDim2.new(0, 0, 0, 0)
-		logGrid.Size = UDim2.new(1, 0, 0, gridHeight)
-		detailPanel.Position = UDim2.new(0, 0, 0, gridHeight + 8)
-		detailPanel.Size = UDim2.new(1, 0, 1, -gridHeight - 8)
-		gridLayout.FillDirectionMaxCells = 2
-		gridLayout.CellSize = UDim2.new(0.5, -6, 0, 104)
-	end
+	bagToolbar.Position = UDim2.new(0, 12, 0, 52)
+	bagToolbar.Size = UDim2.new(1, -24, 0, 30)
+	bagBody.Position = UDim2.new(0, 12, 0, 90)
+	bagBody.Size = UDim2.new(1, -24, 1, -102)
+	logGrid.Position = UDim2.new(0, 0, 0, 0)
+	logGrid.Size = UDim2.new(1, 0, 1, -50)
+	detailPanel.Position = UDim2.new(0, 0, 1, -44)
+	detailPanel.Size = UDim2.new(1, 0, 0, 44)
+	local availableWidth = math.max(0, width - 12)
+	local columns = math.clamp(math.floor((availableWidth + 5) / 77), 3, 10)
+	local cellSide = math.clamp(math.floor((availableWidth - 5 * (columns - 1)) / columns), 56, 82)
+	gridLayout.FillDirectionMaxCells = columns
+	gridLayout.CellSize = UDim2.fromOffset(cellSide, cellSide)
 end
 
 local function clearGrid()
+	gridLayout.Enabled = true
 	for _, child in ipairs(logGrid:GetChildren()) do
 		if child ~= gridLayout and not child:IsA("UIPadding") then child:Destroy() end
 	end
@@ -449,24 +434,150 @@ local function findSelectedLog(logs)
 	return nil
 end
 
+local function updateBagTabs(logCount, capacity, axeCount)
+	logsTab.BackgroundColor3 = if activeBagTab == "Logs" then COLORS.BagHeader else COLORS.BagSlot
+	logsTab.TextColor3 = if activeBagTab == "Logs" then COLORS.BagBack else COLORS.BagText
+	axesTab.BackgroundColor3 = if activeBagTab == "Axes" then COLORS.BagHeader else COLORS.BagSlot
+	axesTab.TextColor3 = if activeBagTab == "Axes" then COLORS.BagBack else COLORS.BagText
+	bagCountLabel.Text = if activeBagTab == "Logs"
+		then string.format("%d/%d LOGS", logCount or 0, capacity or 10)
+		else string.format("%d OWNED", axeCount or 0)
+	bagCountLabel.TextColor3 = COLORS.BagMuted
+	bagCountLabel.TextWrapped = false
+	local sortLabels = { "WT", "VALUE", "A-Z", "NEW" }
+	sortButton.Text = "SORT " .. sortLabels[sortIndex]
+	sortButton.Visible = activeBagTab == "Logs"
+end
+
 local function renderLogDetail(record)
 	local hasRecord = type(record) == "table"
-	detailSpecies.Text = if hasRecord then tostring(record.SpeciesId or "Unknown") else "NO LOG EQUIPPED"
-	detailWeight.Text = if hasRecord then string.format("WEIGHT   %.2f KG", tonumber(record.WeightKg) or 0) else ""
-	detailValue.Text = if hasRecord then "VALUE   " .. formatCoins(record.EstimatedSellValue or 0) .. " COINS" else ""
-	detailSize.Text = if hasRecord then string.format("Size   %.2f×", tonumber(record.SizeScale) or 1) else ""
+	detailIcon.Text = "🪵"
+	detailSpecies.Text = if hasRecord then tostring(record.SpeciesId or "Unknown") else "NO LOG SELECTED"
+	detailWeight.Text = if hasRecord then string.format("%.2f KG", tonumber(record.WeightKg) or 0) else ""
+	detailValue.Text = ""
+	detailSize.Text = ""
+	detailStatus.Text = if not hasRecord then "CHOOSE A SLOT" elseif player:GetAttribute("HeldLogUID") == record.UID then "EQUIPPED" else "TAP TO EQUIP"
+	detailStatus.TextColor3 = if hasRecord and player:GetAttribute("HeldLogUID") == record.UID then COLORS.Green else COLORS.BagMuted
 	favoriteButton.Visible = hasRecord
-	if not hasRecord then
-		detailStatus.Text = "TAP A CARD TO EQUIP"
-		detailStatus.TextColor3 = COLORS.Blue
+	if not hasRecord then return end
+	favoriteButton.Text = if record.Locked then "UNLOCK" else "LOCK"
+	favoriteButton.BackgroundColor3 = if record.Locked then COLORS.BagHeader else COLORS.BagSlot
+	favoriteButton.TextColor3 = if record.Locked then COLORS.BagBack else COLORS.BagText
+end
+
+local function renderAxeDetail(axe)
+	local hasAxe = type(axe) == "table"
+	detailIcon.Text = "🪓"
+	detailSpecies.Text = if hasAxe then tostring(axe.Name or "Axe") else "OWNED AXES"
+	detailWeight.Text = if hasAxe then "PWR " .. tostring(axe.Power or 0) else ""
+	detailStatus.Text = if not hasAxe then "NO OWNED AXES" elseif axe.Equipped then "EQUIPPED" else "TAP TO EQUIP"
+	detailStatus.TextColor3 = if hasAxe and axe.Equipped then COLORS.Green else COLORS.BagMuted
+	detailValue.Text = ""
+	detailSize.Text = ""
+	favoriteButton.Visible = false
+end
+
+local function makeItemSlot(name, order, icon, title, metadata, isEquipped, isSelected, isLocked, onActivated)
+	local slot = Instance.new("TextButton")
+	slot.Name = name
+	slot.LayoutOrder = order
+	slot.BackgroundColor3 = if isSelected then COLORS.BagSelected else COLORS.BagSlot
+	slot.Text = ""
+	slot.AutoButtonColor = true
+	slot.Parent = logGrid
+	round(slot, 4)
+	outline(slot, if isEquipped then COLORS.Green elseif isSelected then COLORS.Gold else COLORS.BagLine, if isEquipped or isSelected then 2 else 1)
+	local iconLabel = label(slot, "Icon", icon, UDim2.new(1, -8, 0, 25), UDim2.new(0, 4, 0, 2), 19, COLORS.BagText, Enum.Font.GothamBold)
+	iconLabel.TextXAlignment = Enum.TextXAlignment.Center
+	iconLabel.TextWrapped = false
+	local nameLabel = label(slot, "Name", title, UDim2.new(1, -6, 0, 16), UDim2.new(0, 3, 0, 28), 9, COLORS.BagText, Enum.Font.GothamBold)
+	nameLabel.TextXAlignment = Enum.TextXAlignment.Center
+	nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+	nameLabel.TextWrapped = false
+	local metadataLabel = label(slot, "Metadata", metadata, UDim2.new(1, -6, 0, 14), UDim2.new(0, 3, 1, -17), 8, COLORS.BagMuted, Enum.Font.GothamMedium)
+	metadataLabel.TextXAlignment = Enum.TextXAlignment.Center
+	metadataLabel.TextTruncate = Enum.TextTruncate.AtEnd
+	metadataLabel.TextWrapped = false
+	if isEquipped then
+		local equippedMark = label(slot, "Equipped", "ON", UDim2.new(0, 24, 0, 12), UDim2.new(1, -26, 0, 2), 8, COLORS.Green, Enum.Font.GothamBlack)
+		equippedMark.TextXAlignment = Enum.TextXAlignment.Right
+	elseif isLocked then
+		local lockedMark = label(slot, "Locked", "L", UDim2.new(0, 12, 0, 12), UDim2.new(0, 3, 0, 2), 8, COLORS.BagHeader, Enum.Font.GothamBlack)
+		lockedMark.TextXAlignment = Enum.TextXAlignment.Left
+	end
+	slot.Activated:Connect(onActivated)
+	return slot
+end
+
+local function ownedAxes(data)
+	local result = {}
+	for _, axe in ipairs(type(data) == "table" and data.Axes or {}) do
+		if axe.Owned == true and typeof(axe.UID) == "string" then
+			table.insert(result, axe)
+		end
+	end
+	return result
+end
+
+local function renderAxes(data)
+	local axes = ownedAxes(data)
+	if not selectedAxeUid then
+		for _, axe in ipairs(axes) do
+			if axe.Equipped then
+				selectedAxeUid = axe.UID
+				break
+			end
+		end
+	end
+	local selectedAxe
+	local selectedStillOwned = false
+	for _, axe in ipairs(axes) do
+		if axe.UID == selectedAxeUid then
+			selectedAxe = axe
+			selectedStillOwned = true
+		end
+	end
+	if not selectedStillOwned then
+		selectedAxeUid = nil
+		selectedAxe = nil
+		for _, axe in ipairs(axes) do
+			if axe.Equipped then
+				selectedAxeUid = axe.UID
+				selectedAxe = axe
+				break
+			end
+		end
+	end
+	updateBagTabs(latestLogsData and #(latestLogsData.Logs or {}) or 0, latestLogsData and latestLogsData.Capacity or 10, #axes)
+	clearGrid()
+	if not data then
+		gridLayout.Enabled = false
+		local loading = label(logGrid, "LoadingAxes", "LOADING AXES...", UDim2.new(1, -12, 1, -12), UDim2.new(0, 6, 0, 6), 12, COLORS.BagMuted, Enum.Font.GothamBold)
+		loading.TextXAlignment = Enum.TextXAlignment.Center
+		renderAxeDetail(nil)
 		return
 	end
-
-	local isHeld = player:GetAttribute("HeldLogUID") == record.UID
-	detailStatus.Text = if isHeld then "EQUIPPED  •  READY TO CHOP" else "EQUIPPING..."
-	detailStatus.TextColor3 = if isHeld then COLORS.Green else COLORS.Blue
-	favoriteButton.Text = if record.Locked then "♥  LOCKED • SAFE FROM SELLING" else "♡  LOCK FROM SELLING"
-	favoriteButton.BackgroundColor3 = if record.Locked then COLORS.Pink else COLORS.Gold
+	if #axes == 0 then
+		gridLayout.Enabled = false
+		local empty = label(logGrid, "EmptyAxes", "NO OWNED AXES YET", UDim2.new(1, -12, 1, -12), UDim2.new(0, 6, 0, 6), 12, COLORS.BagMuted, Enum.Font.GothamBold)
+		empty.TextXAlignment = Enum.TextXAlignment.Center
+		renderAxeDetail(nil)
+		return
+	end
+	for index, axe in ipairs(axes) do
+		local isEquipped = axe.Equipped == true
+		local isSelected = axe.UID == selectedAxeUid
+		makeItemSlot("AxeSlot_" .. tostring(axe.Id or index), index, "🪓", tostring(axe.Name or "Axe"), "PWR " .. tostring(axe.Power or 0), isEquipped, isSelected, false, function()
+			if typeof(axe.UID) ~= "string" then return end
+			selectedAxeUid = axe.UID
+			equipAxe:FireServer(axe.UID)
+			renderAxes(latestShopData)
+			task.delay(0.35, function()
+				if bagOverlay.Visible and activeBagTab == "Axes" then refreshShop() end
+			end)
+		end)
+	end
+	renderAxeDetail(selectedAxe)
 end
 
 local function renderLogs(data)
@@ -477,7 +588,6 @@ local function renderLogs(data)
 	local coins = typeof(data.Coins) == "number" and data.Coins or 0
 	hudCoins.Text = "🪙 " .. formatCoins(coins)
 	hudLogs.Text = string.format("🪵  BAG  %d / %d", #logs, capacity)
-	bagCountLabel.Text = string.format("%d / %d LOGS", #logs, capacity)
 	local isFull = #logs >= capacity
 	bagButton.Text = if isFull then "BAG FULL  •  M" else "OPEN BAG  •  M"
 	bagButton.BackgroundColor3 = if isFull then COLORS.Orange else COLORS.Green
@@ -487,7 +597,6 @@ local function renderLogs(data)
 		end
 		saleCoinsBefore = nil
 	end
-	sortButton.Text = "SORT  •  " .. string.upper(sortModes[sortIndex])
 	if not findSelectedLog(logs) then
 		selectedLogUid = nil
 		local heldUid = player:GetAttribute("HeldLogUID")
@@ -498,65 +607,23 @@ local function renderLogs(data)
 			end
 		end
 	end
-
+	updateBagTabs(#logs, capacity, #ownedAxes(latestShopData))
+	if activeBagTab == "Axes" then
+		renderAxes(latestShopData)
+		return
+	end
 	clearGrid()
 	if #logs == 0 then
-		local empty = label(logGrid, "EmptyBag", "NO LOGS YET  •  CHOP A TREE TO FILL YOUR BAG", UDim2.new(1, -24, 0, 54), UDim2.new(), 14, COLORS.Muted, Enum.Font.GothamBold)
-		empty.LayoutOrder = 1
+		gridLayout.Enabled = false
+		local empty = label(logGrid, "EmptyBag", "NO LOGS YET • CHOP A TREE TO FILL YOUR BAG", UDim2.new(1, -12, 1, -12), UDim2.new(0, 6, 0, 6), 12, COLORS.BagMuted, Enum.Font.GothamBold)
 		empty.TextXAlignment = Enum.TextXAlignment.Center
 		renderLogDetail(nil)
 		return
 	end
-
 	for index, record in ipairs(logs) do
-		local heldUid = player:GetAttribute("HeldLogUID")
-		local isHeld = record.UID == heldUid
+		local isHeld = record.UID == player:GetAttribute("HeldLogUID")
 		local isSelected = record.UID == selectedLogUid
-		local card = Instance.new("TextButton")
-		card.Name = "LogCard_" .. tostring(record.UID or index)
-		card.LayoutOrder = index
-		card.BackgroundColor3 = if isHeld then Color3.fromRGB(62, 51, 31) elseif isSelected then Color3.fromRGB(31, 61, 67) else COLORS.SurfaceAlt
-		card.Text = ""
-		card.AutoButtonColor = true
-		card.Parent = logGrid
-		round(card, 16)
-		outline(card, if isHeld then COLORS.Orange elseif isSelected then COLORS.Blue else COLORS.Stroke, if isHeld then 3 else 1.5)
-		local woodColor = if record.SpeciesId == "Ironwood" then Color3.fromRGB(105, 66, 48) else Color3.fromRGB(174, 105, 55)
-		local compactCard = compactBagLayout
-		local iconBlock = Instance.new("Frame")
-		iconBlock.Name = "LogPreview"
-		iconBlock.Position = UDim2.new(0, 8, 0, if compactCard then 6 else 9)
-		iconBlock.Size = UDim2.new(0, if compactCard then 30 else 34, 0, if compactCard then 30 else 34)
-		iconBlock.BackgroundColor3 = Color3.fromRGB(77, 48, 36)
-		iconBlock.Parent = card
-		round(iconBlock, 17)
-		local outerRing = Instance.new("Frame")
-		outerRing.Name = "Bark"
-		outerRing.AnchorPoint = Vector2.new(0.5, 0.5)
-		outerRing.Position = UDim2.fromScale(0.5, 0.5)
-		outerRing.Size = UDim2.fromScale(0.78, 0.78)
-		outerRing.BackgroundColor3 = woodColor
-		outerRing.Parent = iconBlock
-		round(outerRing, 17)
-		local innerRing = Instance.new("Frame")
-		innerRing.Name = "GrowthRing"
-		innerRing.AnchorPoint = Vector2.new(0.5, 0.5)
-		innerRing.Position = UDim2.fromScale(0.5, 0.5)
-		innerRing.Size = UDim2.fromScale(0.46, 0.46)
-		innerRing.BackgroundColor3 = if record.SpeciesId == "Ironwood" then Color3.fromRGB(174, 123, 78) else Color3.fromRGB(233, 174, 102)
-		innerRing.Parent = iconBlock
-		round(innerRing, 17)
-		local textLeft = if compactCard then 44 else 48
-		local species = label(card, "Species", tostring(record.SpeciesId or "Log"), UDim2.new(1, -66, 0, 20), UDim2.new(0, textLeft, 0, 6), 11, COLORS.Ink, Enum.Font.GothamBlack)
-		species.TextTruncate = Enum.TextTruncate.AtEnd
-		local weight = label(card, "Weight", string.format("%.2f KG", tonumber(record.WeightKg) or 0), UDim2.new(1, -58, 0, 17), UDim2.new(0, textLeft, 0, 27), 10, COLORS.Muted, Enum.Font.GothamBold)
-		weight.TextTruncate = Enum.TextTruncate.AtEnd
-		label(card, "Value", "🪙 " .. formatCoins(record.EstimatedSellValue or 0), UDim2.new(1, -40, 0, 18), UDim2.new(0, 9, 0, if compactCard then 39 else 69), 12, COLORS.Green, Enum.Font.GothamBlack)
-		local stateMark = label(card, "State", if isHeld then "✓" elseif isSelected then "…" else "", UDim2.new(0, 20, 0, 20), UDim2.new(1, -25, 0, 6), 14, if isHeld then COLORS.Green else COLORS.Blue, Enum.Font.GothamBlack)
-		stateMark.TextXAlignment = Enum.TextXAlignment.Center
-		local lockMark = label(card, "Lock", if record.Locked then "♥" else "♡", UDim2.new(0, 20, 0, 20), UDim2.new(1, -26, 1, -25), 14, if record.Locked then COLORS.Pink else COLORS.Muted, Enum.Font.GothamBold)
-		lockMark.TextXAlignment = Enum.TextXAlignment.Center
-		card.Activated:Connect(function()
+		makeItemSlot("LogSlot_" .. tostring(record.UID or index), index, "🪵", tostring(record.SpeciesId or "Log"), string.format("%.2f KG", tonumber(record.WeightKg) or 0), isHeld, isSelected, record.Locked == true, function()
 			if typeof(record.UID) ~= "string" then return end
 			if player:GetAttribute("HeldLogUID") == record.UID then
 				selectedLogUid = nil
@@ -586,6 +653,7 @@ end
 local function renderShop(data)
 	if type(data) ~= "table" then return end
 	latestShopData = data
+	updateBagTabs(latestLogsData and #(latestLogsData.Logs or {}) or 0, latestLogsData and latestLogsData.Capacity or 10, #ownedAxes(data))
 	clearShopRows()
 	hudCoins.Text = "🪙 " .. formatCoins(data.Coins or 0)
 	local layoutOrder = 0
@@ -675,6 +743,7 @@ local function renderShop(data)
 			end)
 		end
 	end
+	if bagOverlay.Visible and activeBagTab == "Axes" then renderAxes(data) end
 end
 
 local function refreshLogs()
@@ -694,7 +763,7 @@ local function refreshLogs()
 	end)
 end
 
-local function refreshShop()
+refreshShop = function()
 	task.spawn(function()
 		local ok, data = pcall(function() return getShopData:InvokeServer() end)
 		if ok then renderShop(data) end
@@ -720,6 +789,7 @@ local function openBag()
 	showPanel(bagOverlay)
 	setBagLayout()
 	refreshLogs()
+	refreshShop()
 end
 
 local function openAxeShop()
@@ -733,9 +803,18 @@ local function openLumberDepot()
 end
 
 bagButton.Activated:Connect(openBag)
+logsTab.Activated:Connect(function()
+	activeBagTab = "Logs"
+	if latestLogsData then renderLogs(latestLogsData) else refreshLogs() end
+end)
+axesTab.Activated:Connect(function()
+	activeBagTab = "Axes"
+	if latestShopData then renderAxes(latestShopData) else renderAxes(nil) end
+	if not latestShopData then refreshShop() end
+end)
 sortButton.Activated:Connect(function()
 	sortIndex = sortIndex % #sortModes + 1
-	if latestLogsData then renderLogs(latestLogsData) end
+	if latestLogsData and activeBagTab == "Logs" then renderLogs(latestLogsData) end
 end)
 
 favoriteButton.Activated:Connect(function()
@@ -765,6 +844,7 @@ economyStateUpdated.OnClientEvent:Connect(function(snapshot)
 	if type(snapshot) == "table" then renderLogs(snapshot) else refreshLogs() end
 	if sellOverlay.Visible then refreshSellSummary() end
 	if shopOverlay.Visible then refreshShop() end
+	if bagOverlay.Visible and activeBagTab == "Axes" then refreshShop() end
 end)
 
 local legacyEconomyUpdated = economy:FindFirstChild("EconomyUpdated")
@@ -860,5 +940,6 @@ profileLoadEvent.OnClientEvent:Connect(function()
 	refreshLogs()
 	if sellOverlay.Visible then refreshSellSummary() end
 	if shopOverlay.Visible then refreshShop() end
+	if bagOverlay.Visible then refreshShop() end
 end)
 if player:GetAttribute("ProfileReady") then refreshLogs() end

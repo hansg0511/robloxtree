@@ -120,7 +120,7 @@ local function destroyInventory(player: Player)
 	playerInventories[player] = nil
 end
 
-local function EquipItem(player, item)
+local function EquipItem(player, item, clearHeldLogBeforeEquip)
 	local inv = playerInventories[player]
 	local playerProfile = playerProfileCache.GetProfile(player)
 	if not inv or not playerProfile then return false end
@@ -133,9 +133,19 @@ local function EquipItem(player, item)
 	if not toolTemplate or not toolTemplate:IsA("Tool") then return false end
 	local character = player.Character
 	local playerHumanoid = character and character:FindFirstChildOfClass("Humanoid")
-	if not playerHumanoid then return false end
+	if not playerHumanoid or playerHumanoid.Health <= 0 then return false end
 	local backpack = player:FindFirstChildOfClass("Backpack")
 	if not backpack then return false end
+
+	local tool = toolTemplate:Clone()
+	if not prepareToolAssembly(tool) then
+		tool:Destroy()
+		return false
+	end
+
+	if clearHeldLogBeforeEquip then
+		LogService.ClearHeldLog(player)
+	end
 
 	player:SetAttribute("EquipUID", item.ItemUID)
 	playerProfile.Data.Equipped.Weapon = item.ItemUID
@@ -143,11 +153,6 @@ local function EquipItem(player, item)
 		for _, child in ipairs(container:GetChildren()) do
 			if child:IsA("Tool") and child:GetAttribute("EquippedAxe") then child:Destroy() end
 		end
-	end
-	local tool = toolTemplate:Clone()
-	if not prepareToolAssembly(tool) then
-		tool:Destroy()
-		return false
 	end
 	tool:SetAttribute("EquippedAxe", true)
 	tool:SetAttribute("AxeItemUID", item.ItemUID)
@@ -167,7 +172,7 @@ local function EquipOwnedAxe(player, uid)
 
 	for slotIndex, item in ipairs(inv:Items()) do
 		if item and item.ItemUID == uid and item.ItemType == "Weapon" and item == weapon then
-			if not EquipItem(player, item) then return false end
+			if not EquipItem(player, item, true) then return false end
 			inv:SetEquippedItem(slotIndex)
 			return true
 		end
@@ -267,7 +272,6 @@ end)
 EquipAxeRE.OnServerEvent:Connect(function(player, uid, ...)
 	if select("#", ...) ~= 0 then return end
 	if not consumeRemoteBudget(player, "EquipAxe") then return end
-	if not BaseStationAccess.CanUseAxeShop(player) then return end
 	if EquipOwnedAxe(player, uid) then
 		IMRemotes.SpawnEquippedItemRE:FireClient(player)
 		LogService.NotifyState(player)
