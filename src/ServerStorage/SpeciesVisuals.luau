@@ -112,15 +112,19 @@ local function addBarkStrips(handle, length, diameter, sizeScale, palette)
 	end
 end
 
--- Creates the exact same server-built wood assembly for inventory tools and
--- world pickups. The caller chooses the parent and whether it is anchored.
+-- Creates the same server-built wood assembly for held tools and world pickups.
+-- visualMultiplier changes presentation size only and defaults to 1.
 -- Returns a direct-child Handle plus the direct-child decorative end caps.
-function SpeciesVisuals.CreateLogParts(logRecord, handleName)
+function SpeciesVisuals.CreateLogParts(logRecord, handleName, visualMultiplier)
 	assert(type(logRecord) == "table", "A server-owned log record is required")
 	local palette = SpeciesVisuals.GetPalette(logRecord.SpeciesId)
 	local sizeScale = getSizeScale(logRecord)
-	local length = 2.15 * sizeScale
-	local diameter = 0.7 * sizeScale
+	local geometryScale = sizeScale
+	if type(visualMultiplier) == "number" and visualMultiplier == visualMultiplier and visualMultiplier ~= math.huge then
+		geometryScale *= math.clamp(visualMultiplier, 1, 1.6)
+	end
+	local length = 2.15 * geometryScale
+	local diameter = 0.7 * geometryScale
 
 	local handle = configurePart(Instance.new("Part"))
 	handle.Name = handleName or "Handle"
@@ -139,10 +143,10 @@ function SpeciesVisuals.CreateLogParts(logRecord, handleName)
 	handle:SetAttribute("ItemType", "Log")
 	handle:SetAttribute("SpeciesId", logRecord.SpeciesId)
 	handle:SetAttribute("SizeScale", sizeScale)
-	addBarkStrips(handle, length, diameter, sizeScale, palette)
+	addBarkStrips(handle, length, diameter, geometryScale, palette)
 
 	local caps = {}
-	local capThickness = 0.07 * sizeScale
+	local capThickness = 0.07 * geometryScale
 	for index, direction in ipairs({ -1, 1 }) do
 		local cap = configurePart(Instance.new("Part"))
 		cap.Name = "CutEnd" .. index
@@ -159,7 +163,7 @@ function SpeciesVisuals.CreateLogParts(logRecord, handleName)
 		weld.Part0 = handle
 		weld.Part1 = cap
 		weld.Parent = cap
-		addEndGrain(cap, direction, length, diameter, sizeScale, palette)
+		addEndGrain(cap, direction, length, diameter, geometryScale, palette)
 		table.insert(caps, cap)
 	end
 

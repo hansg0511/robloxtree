@@ -33,6 +33,7 @@ local GetSellSummaryRF = economyRemotes:WaitForChild("GetSellSummaryRF")
 local SellUnlockedLogsRE = economyRemotes:WaitForChild("SellUnlockedLogsRE")
 local SetLogLockedRE = economyRemotes:WaitForChild("SetLogLockedRE")
 local SetHeldLogRE = economyRemotes:WaitForChild("SetHeldLogRE")
+local HELD_LOG_VISUAL_SCALE = 1.45
 local EconomyStateUpdated = economyRemotes:WaitForChild("EconomyStateUpdated")
 
 local profileLoaded = game.ServerScriptService.PlayerProfile.ProfileInit.ProfileLoadedEvent
@@ -221,7 +222,7 @@ local function buildLogTool(logRecord, ownerUserId)
 	tool:SetAttribute("SpeciesId", logRecord.SpeciesId)
 	tool:SetAttribute("WeightKg", logRecord.WeightKg)
 
-	local handle, caps = SpeciesVisuals.CreateLogParts(logRecord, "Handle")
+	local handle, caps = SpeciesVisuals.CreateLogParts(logRecord, "Handle", HELD_LOG_VISUAL_SCALE)
 	handle.Parent = tool
 	for _, cap in ipairs(caps) do
 		cap.Parent = tool
