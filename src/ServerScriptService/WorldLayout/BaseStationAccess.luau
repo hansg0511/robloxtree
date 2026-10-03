@@ -2,10 +2,9 @@
 -- base station. A client-side prompt only opens the matching interface; remotes
 -- still call these checks before making a state change.
 local Workspace = game:GetService("Workspace")
+local Configuration = require(script.Parent.WorldLayoutConfiguration)
 
 local BaseStationAccess = {}
-
-local MAX_DISTANCE = 14
 
 local function getStationInteraction(stationName)
 	local sourceWorld = Workspace:FindFirstChild("SourceWorld")
@@ -17,14 +16,13 @@ local function getStationInteraction(stationName)
 		or interaction:GetAttribute("WorldLayoutOwned") ~= true then
 		return nil
 	end
-	-- The default is deliberately server-side. Individual source-built stations
-	-- may tighten or widen it through their configuration without trusting a
-	-- client prompt's activation distance.
-	local useDistance = station:GetAttribute("UseDistance") or station:GetAttribute("SellDistance") or MAX_DISTANCE
-	if type(useDistance) ~= "number" or useDistance ~= useDistance or useDistance <= 0 then
-		useDistance = MAX_DISTANCE
+	-- Use the exported source configuration rather than trusting a client prompt
+	-- attribute or imposing a second, potentially divergent distance limit.
+	local useDistance = Configuration.STATION_USE_DISTANCES[stationName]
+	if type(useDistance) ~= "number" or useDistance ~= useDistance or useDistance <= 0 or useDistance == math.huge then
+		return nil
 	end
-	return interaction, math.min(useDistance, MAX_DISTANCE)
+	return interaction, useDistance
 end
 
 local function canUseStation(player, stationName)

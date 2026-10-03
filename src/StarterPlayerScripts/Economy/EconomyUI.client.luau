@@ -743,9 +743,15 @@ local function bindStationPrompt(stationName, promptName, callback)
 		if not station then return end
 		local interaction = station:WaitForChild("Interaction", 30)
 		if not interaction then return end
-		stationInteractions[stationName] = interaction
 		local prompt = interaction:WaitForChild(promptName, 30)
 		if prompt and prompt:IsA("ProximityPrompt") then
+			-- The prompt range is source-built server configuration replicated by
+			-- Roblox. Prefer the explicit Interaction attribute when present, but
+			-- retain this prompt value during a live world rebuild.
+			stationInteractions[stationName] = {
+				Interaction = interaction,
+				UseDistance = prompt.MaxActivationDistance,
+			}
 			prompt.Triggered:Connect(callback)
 		end
 	end)
@@ -755,8 +761,14 @@ bindStationPrompt("AxeShopStation", "AxeShopPrompt", openAxeShop)
 bindStationPrompt("HomeEconomyStation", "EconomyPrompt", openLumberDepot)
 
 local function isNearStation(stationName)
-	local interaction = stationInteractions[stationName]
+	local binding = stationInteractions[stationName]
+	local interaction = binding and binding.Interaction
 	if not interaction or not interaction:IsDescendantOf(workspace) then return true end
+	local useDistance = interaction:GetAttribute("UseDistance")
+	if type(useDistance) ~= "number" or useDistance ~= useDistance or useDistance <= 0 then
+		useDistance = binding.UseDistance
+	end
+	if type(useDistance) ~= "number" or useDistance ~= useDistance or useDistance <= 0 then return false end
 	local character = player.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	if not root then return true end
@@ -767,7 +779,7 @@ local function isNearStation(stationName)
 		math.clamp(localPosition.Y, -halfSize.Y, halfSize.Y),
 		math.clamp(localPosition.Z, -halfSize.Z, halfSize.Z)
 	)
-	return (root.Position - interaction.CFrame:PointToWorldSpace(nearestPoint)).Magnitude <= 17
+	return (root.Position - interaction.CFrame:PointToWorldSpace(nearestPoint)).Magnitude <= useDistance
 end
 
 -- The server independently validates all station mutations. Closing a station

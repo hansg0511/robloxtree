@@ -13,9 +13,15 @@ local function makeTreeRecords(definitionId, rowZ)
 	return records
 end
 
+local STATION_USE_DISTANCES = {
+	AxeShopStation = 14,
+	HomeEconomyStation = 14,
+}
+
 local WorldLayoutConfiguration = {
 	ROOT_NAME = "SourceWorld",
-	VERSION = 3,
+	VERSION = 4,
+	STATION_USE_DISTANCES = STATION_USE_DISTANCES,
 
 	-- The narrow section follows the six-stud opening between the two rear plots.
 	-- It widens once it clears the plots and stays centered on the same route.
@@ -44,12 +50,10 @@ local WorldLayoutConfiguration = {
 	-- before executing a sale. It is intentionally part of the base rather than
 	-- a generic UI action usable from a forest.
 	HOME_ECONOMY_STATION = {
-		Position = Vector3.new(14, -0.4, -82),
-		SellDistance = 14,
+		Position = Vector3.new(24, -0.4, 108),
 	},
 	AXE_SHOP_STATION = {
-		Position = Vector3.new(-17, -0.4, -82),
-		UseDistance = 14,
+		Position = Vector3.new(-24, -0.4, 108),
 	},
 	FORESTS = {
 		{

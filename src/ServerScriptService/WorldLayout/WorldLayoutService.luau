@@ -105,11 +105,49 @@ local function createSign(parent, signConfiguration)
 	end
 end
 
+local function createStationSign(parent, name, text, position, boardColor, textColor)
+	local board = createPart(
+		name .. "SignBoard",
+		Vector3.new(7, 1.8, 0.5),
+		CFrame.new(position),
+		boardColor,
+		Enum.Material.WoodPlanks,
+		parent
+	)
+	board:SetAttribute("WorldLayoutOwned", true)
+
+	-- Physical, two-sided boards stay world-scaled: they read at the station
+	-- from either travel direction and naturally shrink out of view at range.
+	for _, face in ipairs({ Enum.NormalId.Front, Enum.NormalId.Back }) do
+		local signFace = Instance.new("SurfaceGui")
+		signFace.Name = "SignFace" .. face.Name
+		signFace.Face = face
+		signFace.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
+		signFace.CanvasSize = Vector2.new(560, 144)
+		signFace.LightInfluence = 0
+		signFace.AlwaysOnTop = false
+		signFace.Parent = board
+
+		local label = Instance.new("TextLabel")
+		label.Name = "Text"
+		label.BackgroundTransparency = 1
+		label.Size = UDim2.fromScale(1, 1)
+		label.Font = Enum.Font.GothamBold
+		label.Text = text
+		label.TextColor3 = textColor
+		label.TextScaled = true
+		label.TextStrokeTransparency = 0.5
+		label.Parent = signFace
+	end
+
+	return board
+end
+
 local function createHomeEconomyStation(parent)
 	local station = Instance.new("Model")
 	station.Name = "HomeEconomyStation"
 	station:SetAttribute("WorldLayoutOwned", true)
-	station:SetAttribute("SellDistance", Configuration.HOME_ECONOMY_STATION.SellDistance)
+	station:SetAttribute("UseDistance", Configuration.STATION_USE_DISTANCES.HomeEconomyStation)
 	station.Parent = parent
 
 	local position = Configuration.HOME_ECONOMY_STATION.Position
@@ -136,31 +174,34 @@ local function createHomeEconomyStation(parent)
 	interaction.CanTouch = false
 	interaction.CanQuery = false
 	interaction:SetAttribute("WorldLayoutOwned", true)
+	interaction:SetAttribute("UseDistance", Configuration.STATION_USE_DISTANCES.HomeEconomyStation)
 
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = "EconomyPrompt"
-	prompt.ActionText = "Open Economy"
+	prompt.ActionText = "Sell logs"
 	prompt.ObjectText = "Lumber Depot"
-	prompt.MaxActivationDistance = Configuration.HOME_ECONOMY_STATION.SellDistance
+	prompt.MaxActivationDistance = Configuration.STATION_USE_DISTANCES.HomeEconomyStation
 	prompt.RequiresLineOfSight = false
 	prompt.HoldDuration = 0
 	prompt.Parent = interaction
 
-	local sign = Instance.new("BillboardGui")
-	sign.Name = "StationSign"
-	sign.Size = UDim2.fromOffset(260, 70)
-	sign.StudsOffsetWorldSpace = Vector3.new(0, 4.2, 0)
-	sign.AlwaysOnTop = true
-	sign.Parent = counter
-	local text = Instance.new("TextLabel")
-	text.BackgroundTransparency = 1
-	text.Size = UDim2.fromScale(1, 1)
-	text.Font = Enum.Font.GothamBold
-	text.Text = "LUMBER DEPOT"
-	text.TextColor3 = Color3.fromRGB(255, 234, 181)
-	text.TextStrokeTransparency = 0.35
-	text.TextScaled = true
-	text.Parent = sign
+	local signPost = createPart(
+		"SignPost",
+		Vector3.new(0.45, 2.8, 0.45),
+		CFrame.new(position + Vector3.new(0, 5.0, 0)),
+		Color3.fromRGB(95, 62, 38),
+		Enum.Material.Wood,
+		station
+	)
+	signPost:SetAttribute("WorldLayoutOwned", true)
+	createStationSign(
+		station,
+		"LumberDepot",
+		"LUMBER DEPOT",
+		position + Vector3.new(0, 6.1, 0),
+		Color3.fromRGB(113, 72, 44),
+		Color3.fromRGB(255, 234, 181)
+	)
 
 	return station
 end
@@ -169,7 +210,7 @@ local function createAxeShopStation(parent)
 	local station = Instance.new("Model")
 	station.Name = "AxeShopStation"
 	station:SetAttribute("WorldLayoutOwned", true)
-	station:SetAttribute("UseDistance", Configuration.AXE_SHOP_STATION.UseDistance)
+	station:SetAttribute("UseDistance", Configuration.STATION_USE_DISTANCES.AxeShopStation)
 	station.Parent = parent
 
 	local position = Configuration.AXE_SHOP_STATION.Position
@@ -204,22 +245,14 @@ local function createAxeShopStation(parent)
 	)
 	signPost:SetAttribute("WorldLayoutOwned", true)
 
-	local sign = Instance.new("BillboardGui")
-	sign.Name = "StationSign"
-	sign.Size = UDim2.fromOffset(260, 70)
-	sign.StudsOffsetWorldSpace = Vector3.new(0, 2.2, 0)
-	sign.AlwaysOnTop = true
-	sign.Parent = signPost
-	local signText = Instance.new("TextLabel")
-	signText.BackgroundColor3 = Color3.fromRGB(81, 179, 107)
-	signText.BackgroundTransparency = 0
-	signText.Size = UDim2.fromScale(1, 1)
-	signText.Font = Enum.Font.GothamBold
-	signText.Text = "AXE SHOP"
-	signText.TextColor3 = Color3.fromRGB(255, 249, 219)
-	signText.TextStrokeTransparency = 0.5
-	signText.TextScaled = true
-	signText.Parent = sign
+	createStationSign(
+		station,
+		"AxeShop",
+		"AXE SHOP",
+		position + Vector3.new(0, 6.2, 0),
+		Color3.fromRGB(81, 179, 107),
+		Color3.fromRGB(255, 249, 219)
+	)
 
 	local interaction = createPart(
 		"Interaction",
@@ -234,12 +267,13 @@ local function createAxeShopStation(parent)
 	interaction.CanTouch = false
 	interaction.CanQuery = false
 	interaction:SetAttribute("WorldLayoutOwned", true)
+	interaction:SetAttribute("UseDistance", Configuration.STATION_USE_DISTANCES.AxeShopStation)
 
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = "AxeShopPrompt"
 	prompt.ActionText = "Browse axes"
 	prompt.ObjectText = "Axe Shop"
-	prompt.MaxActivationDistance = Configuration.AXE_SHOP_STATION.UseDistance
+	prompt.MaxActivationDistance = Configuration.STATION_USE_DISTANCES.AxeShopStation
 	prompt.RequiresLineOfSight = false
 	prompt.HoldDuration = 0
 	prompt.Parent = interaction
