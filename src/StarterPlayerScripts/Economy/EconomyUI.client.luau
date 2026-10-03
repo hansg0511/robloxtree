@@ -852,10 +852,10 @@ local function renderAxeDetail(axe)
 	detailStatus.TextColor3 = if hasAxe and axe.Equipped then COLORS.BagAction else COLORS.BagMuted
 	detailValue.Text = ""
 	detailSize.Text = ""
-	detailExtraLabel.Text = "OTHER STATS"
-	detailExtraValue.Text = "Not configured yet"
-	detailExtraLabel.Visible = true
-	detailExtraValue.Visible = true
+	-- Keep the details panel deliberately spacious for real future axe stats;
+	-- do not display invented or placeholder progression information.
+	detailExtraLabel.Visible = false
+	detailExtraValue.Visible = false
 	favoriteButton.Visible = false
 end
 
