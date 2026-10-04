@@ -24,7 +24,8 @@ if not spawn then
 end
 
 spawn.Size = Vector3.new(8, 1, 8)
-spawn.CFrame = CFrame.new(0, 0.1, -96)
+-- Keep the playtest start at the clear path entrance to Starter Forest.
+spawn.CFrame = CFrame.new(0, 0.1, 112)
 spawn.Anchored = true
 spawn.Neutral = true
 spawn.Color = Color3.fromRGB(255, 214, 75)
