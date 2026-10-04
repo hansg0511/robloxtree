@@ -359,12 +359,14 @@ local function tweenModelPivot(model, destination, duration, easingStyle, easing
 	return model.Parent ~= nil
 end
 
-local function tweenModelPivotToTarget(model, getDestination, duration)
+local function tweenModelPivotAlongArc(model, getDestination, duration, liftHeight)
 	if not model.Parent then return false end
 	local initialDestination = getDestination()
 	if not initialDestination then return false end
 
 	local start = model:GetPivot()
+	local startPosition = start.Position
+	local liftPosition = startPosition + Vector3.new(0, liftHeight, 0)
 	local lastDestination = initialDestination
 	local progress = Instance.new("NumberValue")
 	progress.Value = 0
@@ -374,12 +376,33 @@ local function tweenModelPivotToTarget(model, getDestination, duration)
 			if destination then
 				lastDestination = destination
 			end
-			model:PivotTo(start:Lerp(lastDestination, progress.Value))
+
+			local alpha = progress.Value
+			local position
+			if alpha < 0.36 then
+				-- Lift clear of the fallen trunk before moving toward the player.
+				local liftAlpha = alpha / 0.36
+				local easedLiftAlpha = 1 - (1 - liftAlpha) * (1 - liftAlpha)
+				position = startPosition:Lerp(liftPosition, easedLiftAlpha)
+			else
+				local flightAlpha = (alpha - 0.36) / 0.64
+				local destinationPosition = lastDestination.Position
+				local controlOne = liftPosition:Lerp(destinationPosition, 0.24) + Vector3.new(0, 1.8, 0)
+				local controlTwo = destinationPosition + Vector3.new(0, 1.6, 0)
+				local inverse = 1 - flightAlpha
+				position = liftPosition * (inverse ^ 3)
+					+ controlOne * (3 * inverse * inverse * flightAlpha)
+					+ controlTwo * (3 * inverse * flightAlpha * flightAlpha)
+					+ destinationPosition * (flightAlpha ^ 3)
+			end
+
+			local rotation = start - startPosition
+			model:PivotTo(CFrame.new(position) * rotation)
 		end
 	end)
 	local tween = TweenService:Create(
 		progress,
-		TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+		TweenInfo.new(duration, Enum.EasingStyle.Linear),
 		{ Value = 1 }
 	)
 	tween:Play()
@@ -399,7 +422,7 @@ local function playHarvestArrival(player, logRecord, origin, arrivalIndex)
 	local ok, err = xpcall(function()
 		local model, handle = createLogVisualModel("HarvestLog", logRecord)
 		local angle = (arrivalIndex - 1) * 2.399963229728653
-		local radius = 0.65 + ((arrivalIndex - 1) % 3) * 0.3
+		local radius = 1.2 + ((arrivalIndex - 1) % 3) * 0.35
 		local horizontalOffset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
 		local landingPosition = Vector3.new(
 			origin.X + horizontalOffset.X,
@@ -422,7 +445,7 @@ local function playHarvestArrival(player, logRecord, origin, arrivalIndex)
 		end
 
 		if model.Parent and getArrivalCFrame() then
-			tweenModelPivotToTarget(model, getArrivalCFrame, 0.3)
+			tweenModelPivotAlongArc(model, getArrivalCFrame, 1.2, 6)
 		end
 		if model.Parent then
 			model:Destroy()
