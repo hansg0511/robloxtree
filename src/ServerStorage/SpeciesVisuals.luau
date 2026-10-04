@@ -141,14 +141,14 @@ local function addBarkStrips(handle, length, diameter, sizeScale, palette)
 	end
 end
 
--- Creates a fixed-size server-built wood assembly for an ordinary world drop.
--- Inventory records deliberately have no presentation-scale field: tree scale
--- belongs to the living world tree, never to its resulting cargo record.
+-- Creates a server-built wood assembly for an ordinary world drop. The optional
+-- visualScale affects only this disposable model; inventory records deliberately
+-- have no presentation-scale field.
 -- Returns a direct-child Handle plus the direct-child decorative end caps.
-function SpeciesVisuals.CreateLogParts(logRecord, handleName)
+function SpeciesVisuals.CreateLogParts(logRecord, handleName, visualScale)
 	assert(type(logRecord) == "table", "A server-owned log record is required")
 	local palette = SpeciesVisuals.GetPalette(logRecord.SpeciesId)
-	local geometryScale = 1
+	local geometryScale = if type(visualScale) == "number" and visualScale > 0 then visualScale else 1
 	local length = 2.15 * geometryScale
 	local diameter = 0.7 * geometryScale
 

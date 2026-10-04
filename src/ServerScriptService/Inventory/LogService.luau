@@ -25,13 +25,14 @@ local OWNER_RESERVATION_SECONDS = 60
 -- free a slot and recover the exact UID; it is not converted into a public
 -- loot race after the reservation expires.
 local GROUND_LOG_LIFETIME_SECONDS = 60
-local MAX_PICKUP_DISTANCE = 12
+local MAX_PICKUP_DISTANCE = 15
 local PICKUP_FLIGHT_DURATION = 1.0
 local PICKUP_ARC_HEIGHT = 20
+local GROUND_DROP_VISUAL_SCALE = 1.2
 local REMOTE_INTERVALS = {
 	Sell = 1,
 	Lock = 0.15,
-	Pickup = 0.25,
+	Pickup = 0.08,
 }
 
 local economyRemotes = ReplicatedStorage:WaitForChild("Economy")
@@ -391,10 +392,10 @@ local function getFallPathPosition(fallPlacement, index, totalCount)
 		+ fallPlacement.Perpendicular * sideOffset
 end
 
-local function createLogVisualModel(name, logRecord)
+local function createLogVisualModel(name, logRecord, visualScale)
 	local model = Instance.new("Model")
 	model.Name = name
-	local handle, caps = SpeciesVisuals.CreateLogParts(logRecord, "LogHandle")
+	local handle, caps = SpeciesVisuals.CreateLogParts(logRecord, "LogHandle", visualScale)
 	handle.Parent = model
 	for _, cap in ipairs(caps) do
 		cap.Parent = model
@@ -615,13 +616,19 @@ local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, firstInd
 	end
 
 	for index, logRecord in ipairs(logRecords) do
-		local model, handle = createLogVisualModel("DroppedLog", logRecord)
+		local model, handle = createLogVisualModel("DroppedLog", logRecord, GROUND_DROP_VISUAL_SCALE)
 		local landingPosition = getFallPathPosition(fallPlacement, (firstIndex or 1) + index - 1, batchCount or #logRecords)
-		model:PivotTo(CFrame.new(
+		local groundCFrame = CFrame.fromMatrix(
+			Vector3.new(
 			landingPosition.X,
 			getGroundHeight(landingPosition) + handle.Size.Y * 0.5 + 0.08,
 			landingPosition.Z
-		))
+			),
+			fallPlacement.Perpendicular,
+			Vector3.yAxis,
+			fallPlacement.Perpendicular:Cross(Vector3.yAxis)
+		)
+		model:PivotTo(groundCFrame)
 		model:SetAttribute("UID", logRecord.UID)
 		model:SetAttribute("ItemType", "Log")
 		model:SetAttribute("SpeciesId", logRecord.SpeciesId)

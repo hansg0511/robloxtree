@@ -10,9 +10,9 @@ local pickupRemote = ReplicatedStorage:WaitForChild("Economy"):WaitForChild("Pic
 
 -- Keep these client scan values aligned with the server's pickup distance and
 -- rate limit. Server validation remains authoritative.
-local MAX_PICKUP_DISTANCE = 12
-local SCAN_INTERVAL = 0.12
-local REQUEST_INTERVAL = 0.25
+local MAX_PICKUP_DISTANCE = 15
+local SCAN_INTERVAL = 0.05
+local REQUEST_INTERVAL = 0.08
 local PER_MODEL_RETRY_INTERVAL = 0.75
 
 local scanElapsed = 0
