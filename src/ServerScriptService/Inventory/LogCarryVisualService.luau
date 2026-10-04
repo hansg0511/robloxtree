@@ -190,6 +190,56 @@ local function findTorso(character)
 	return nil
 end
 
+-- Returns the exact server-side cargo slot for an arriving UID using the same
+-- bounded ordering and spacing as the persistent back-stack projection.
+function LogCarryVisualService.GetArrivalCFrame(player, stagedRecords, targetUID)
+	if not isPlayer(player)
+		or type(stagedRecords) ~= "table"
+		or not isNonemptyString(targetUID, 80) then
+		return nil
+	end
+
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local torso = character and findTorso(character)
+	if not humanoid or humanoid.Health <= 0 or not torso then
+		return nil
+	end
+
+	local normalLogs, rareLogs = snapshotRecords(stagedRecords)
+	local stackName
+	local stackIndex
+	for index, logRecord in ipairs(normalLogs) do
+		if logRecord.UID == targetUID then
+			stackName = "Normal"
+			stackIndex = index
+			break
+		end
+	end
+	if not stackIndex then
+		for index, logRecord in ipairs(rareLogs) do
+			if logRecord.UID == targetUID then
+				stackName = "Rare"
+				stackIndex = index
+				break
+			end
+		end
+	end
+	if not stackIndex then
+		return nil
+	end
+
+	local stackCenterX = stackName == "Rare" and RARE_STACK_CENTER_X or NORMAL_STACK_CENTER_X
+	local layerIndex = math.floor((stackIndex - 1) / COLUMNS_PER_STACK)
+	local localPosition = Vector3.new(
+		stackCenterX,
+		CARGO_BASE_HEIGHT + layerIndex * LOG_LAYER_HEIGHT,
+		0
+	)
+	local anchorCFrame = torso.CFrame * CFrame.new(0, 0.42, CARGO_BACK_OFFSET)
+	return anchorCFrame * CFrame.new(localPosition)
+end
+
 local function buildForCharacter(player, character, categorizedRecords)
 	if player.Character ~= character or not character:IsDescendantOf(workspace) then
 		return false

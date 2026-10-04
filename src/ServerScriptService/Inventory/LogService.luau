@@ -18,6 +18,8 @@ LogService.LogsChanged = logsChangedEvent.Event
 
 local DEFAULT_CAPACITY = 10
 local MAX_CAPACITY = 40
+local MAX_HARVEST_LOGS = 3
+local MAX_GROUND_LOG_DROPS_PER_PLAYER = MAX_CAPACITY
 local OWNER_RESERVATION_SECONDS = 60
 -- Overflow is deliberately short-lived. The owner has the full lifetime to
 -- free a slot and recover the exact UID; it is not converted into a public
@@ -43,7 +45,9 @@ local pendingGroundDropByUserId = {}
 local remoteBudgetByPlayer = {}
 local logValueBySpecies = {}
 local conflictingLogValues = {}
-local pendingCarryArrivals = {}
+local pendingCarryArrivalUids = {}
+local carryArrivalQueueByPlayer = {}
+local carryArrivalRunnerByPlayer = {}
 local deferredCarryRecords = {}
 
 local function isFinitePositive(number)
@@ -232,26 +236,25 @@ local function rebuildCarryVisuals(player, records)
 	end
 end
 
-local function beginCarryArrival(player)
-	pendingCarryArrivals[player] = (pendingCarryArrivals[player] or 0) + 1
-end
+local function getVisibleCarryRecords(player, includePendingUid)
+	local records = LogService.GetOwnedLogs(player)
+	if not records then return nil end
 
-local function finishCarryArrival(player)
-	local remaining = math.max(0, (pendingCarryArrivals[player] or 1) - 1)
-	if remaining > 0 then
-		pendingCarryArrivals[player] = remaining
-		return
+	local pendingUids = pendingCarryArrivalUids[player]
+	if not pendingUids then return records end
+
+	local visibleRecords = {}
+	for _, logRecord in ipairs(records) do
+		if not pendingUids[logRecord.UID] or logRecord.UID == includePendingUid then
+			table.insert(visibleRecords, logRecord)
+		end
 	end
-	pendingCarryArrivals[player] = nil
-	local records = deferredCarryRecords[player] or LogService.GetOwnedLogs(player)
-	deferredCarryRecords[player] = nil
-	if records then
-		rebuildCarryVisuals(player, records)
-	end
+	return visibleRecords
 end
 
 LogService.LogsChanged:Connect(function(player, records)
-	if (pendingCarryArrivals[player] or 0) > 0 then
+	local pendingUids = pendingCarryArrivalUids[player]
+	if pendingUids and next(pendingUids) ~= nil then
 		deferredCarryRecords[player] = records
 		return
 	end
@@ -356,56 +359,204 @@ local function tweenModelPivot(model, destination, duration, easingStyle, easing
 	return model.Parent ~= nil
 end
 
-local function getCarryArrivalCFrame(player)
-	local character = player.Character
-	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-	local torso = character and (character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso"))
-	if not humanoid or humanoid.Health <= 0 or not torso or not torso:IsA("BasePart") then
-		return nil
+local function tweenModelPivotToTarget(model, getDestination, duration)
+	if not model.Parent then return false end
+	local initialDestination = getDestination()
+	if not initialDestination then return false end
+
+	local start = model:GetPivot()
+	local lastDestination = initialDestination
+	local progress = Instance.new("NumberValue")
+	progress.Value = 0
+	local connection = progress:GetPropertyChangedSignal("Value"):Connect(function()
+		if model.Parent then
+			local destination = getDestination()
+			if destination then
+				lastDestination = destination
+			end
+			model:PivotTo(start:Lerp(lastDestination, progress.Value))
+		end
+	end)
+	local tween = TweenService:Create(
+		progress,
+		TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+		{ Value = 1 }
+	)
+	tween:Play()
+	tween.Completed:Wait()
+	connection:Disconnect()
+	local finalDestination = getDestination()
+	if model.Parent and finalDestination then
+		model:PivotTo(finalDestination)
 	end
-	return torso.CFrame * CFrame.new(0, 0.5, 0.7)
+	progress:Destroy()
+	return model.Parent ~= nil
 end
 
 -- The inventory record is already committed before this runs. This is a
 -- replicated, disposable presentation of a real reward, never its authority.
-local function playHarvestArrival(player, logRecord, origin)
-	task.spawn(function()
-		local ok, err = xpcall(function()
-			local model, handle = createLogVisualModel("HarvestLog", logRecord)
-			local horizontalOffset = Vector3.new(math.random(-18, 18) / 10, 0, math.random(-18, 18) / 10)
-			local landingPosition = Vector3.new(
-				origin.X + horizontalOffset.X,
-				getGroundHeight(origin) + handle.Size.Y * 0.5 + 0.08,
-				origin.Z + horizontalOffset.Z
-			)
-			local landing = CFrame.new(landingPosition) * CFrame.Angles(0, math.rad(math.random(0, 359)), 0)
-			model:PivotTo(landing * CFrame.new(0, 3.4, 0))
-			model.Parent = getHarvestVisualFolder()
+local function playHarvestArrival(player, logRecord, origin, arrivalIndex)
+	local ok, err = xpcall(function()
+		local model, handle = createLogVisualModel("HarvestLog", logRecord)
+		local angle = (arrivalIndex - 1) * 2.399963229728653
+		local radius = 0.65 + ((arrivalIndex - 1) % 3) * 0.3
+		local horizontalOffset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
+		local landingPosition = Vector3.new(
+			origin.X + horizontalOffset.X,
+			getGroundHeight(origin) + handle.Size.Y * 0.5 + 0.08,
+			origin.Z + horizontalOffset.Z
+		)
+		local landing = CFrame.new(landingPosition)
+		model:PivotTo(landing * CFrame.new(0, 3.4, 0))
+		model.Parent = getHarvestVisualFolder()
 
-			tweenModelPivot(model, landing, 0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
-			tweenModelPivot(model, landing * CFrame.new(0, 0.28, 0), 0.09, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-			tweenModelPivot(model, landing, 0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
-			task.wait(0.28)
+		tweenModelPivot(model, landing, 0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		tweenModelPivot(model, landing * CFrame.new(0, 0.28, 0), 0.09, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		tweenModelPivot(model, landing, 0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		task.wait(0.28)
 
-			local arrival = getCarryArrivalCFrame(player)
-			if arrival and model.Parent then
-				tweenModelPivot(model, arrival, 0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
-			end
-			if model.Parent then
-				model:Destroy()
-			end
-		end, debug.traceback)
-		if not ok then
-			warn("Harvest log visual failed", err)
+		local stagedRecords = getVisibleCarryRecords(player, logRecord.UID)
+		local function getArrivalCFrame()
+			if not stagedRecords then return nil end
+			return LogCarryVisualService.GetArrivalCFrame(player, stagedRecords, logRecord.UID)
 		end
-		finishCarryArrival(player)
+
+		if model.Parent and getArrivalCFrame() then
+			tweenModelPivotToTarget(model, getArrivalCFrame, 0.3)
+		end
+		if model.Parent then
+			model:Destroy()
+		end
+	end, debug.traceback)
+	if not ok then
+		warn("Harvest log visual failed", err)
+	end
+end
+
+local function processCarryArrivalQueue(player)
+	if carryArrivalRunnerByPlayer[player] then return end
+	carryArrivalRunnerByPlayer[player] = true
+
+	task.spawn(function()
+		local queue = carryArrivalQueueByPlayer[player]
+		while queue and #queue > 0 and player:IsDescendantOf(Players) do
+			local arrival = table.remove(queue, 1)
+			playHarvestArrival(player, arrival.LogRecord, arrival.Origin, arrival.Index)
+
+			local pendingUids = pendingCarryArrivalUids[player]
+			if pendingUids then
+				pendingUids[arrival.LogRecord.UID] = nil
+				if next(pendingUids) == nil then
+					pendingCarryArrivalUids[player] = nil
+				end
+			end
+			local visibleRecords = getVisibleCarryRecords(player)
+			if visibleRecords then
+				rebuildCarryVisuals(player, visibleRecords)
+			end
+			queue = carryArrivalQueueByPlayer[player]
+		end
+
+		carryArrivalRunnerByPlayer[player] = nil
+		if not player:IsDescendantOf(Players) then
+			carryArrivalQueueByPlayer[player] = nil
+			pendingCarryArrivalUids[player] = nil
+			deferredCarryRecords[player] = nil
+			return
+		end
+
+		queue = carryArrivalQueueByPlayer[player]
+		if queue and #queue > 0 then
+			processCarryArrivalQueue(player)
+			return
+		end
+		carryArrivalQueueByPlayer[player] = nil
+		pendingCarryArrivalUids[player] = nil
+
+		local records = LogService.GetOwnedLogs(player) or deferredCarryRecords[player]
+		deferredCarryRecords[player] = nil
+		if records then
+			rebuildCarryVisuals(player, records)
+		end
 	end)
 end
 
-local function tryPickupGroundLog(player, model)
-	local drop = activeGroundDrops[model]
+local function enqueueCarryArrivals(player, logRecords, origin)
+	if #logRecords == 0 then return end
+	local queue = carryArrivalQueueByPlayer[player]
+	if not queue then
+		queue = {}
+		carryArrivalQueueByPlayer[player] = queue
+	end
+	local pendingUids = pendingCarryArrivalUids[player]
+	if not pendingUids then
+		pendingUids = {}
+		pendingCarryArrivalUids[player] = pendingUids
+	end
+	for index, logRecord in ipairs(logRecords) do
+		pendingUids[logRecord.UID] = true
+		table.insert(queue, {
+			LogRecord = logRecord,
+			Origin = origin,
+			Index = index,
+		})
+	end
+	processCarryArrivalQueue(player)
+end
+
+local function getPendingGroundDrop(ownerUserId)
+	local bundle = pendingGroundDropByUserId[ownerUserId]
+	if not bundle then return nil, nil end
+	local drop = activeGroundDrops[bundle]
+	if not drop or not bundle:IsDescendantOf(Workspace) then
+		activeGroundDrops[bundle] = nil
+		pendingGroundDropByUserId[ownerUserId] = nil
+		if bundle.Parent then bundle:Destroy() end
+		return nil, nil
+	end
+	return bundle, drop
+end
+
+local function canSpawnGroundDrops(ownerUserId, incomingCount)
+	if type(incomingCount) ~= "number" or incomingCount < 1 then return false end
+	local _, drop = getPendingGroundDrop(ownerUserId)
+	local existingCount = drop and drop.Count or 0
+	return existingCount + incomingCount <= MAX_GROUND_LOG_DROPS_PER_PLAYER
+end
+
+local function clearGroundDropBundle(bundle, drop)
+	activeGroundDrops[bundle] = nil
+	if pendingGroundDropByUserId[drop.OwnerUserId] == bundle then
+		pendingGroundDropByUserId[drop.OwnerUserId] = nil
+	end
+	if bundle.Parent then bundle:Destroy() end
+end
+
+local function removeGroundDropLog(bundle, uid, expectedEntry)
+	local drop = activeGroundDrops[bundle]
+	local entry = drop and drop.LogRecordsByUid[uid]
+	if not drop or not entry or (expectedEntry and entry ~= expectedEntry) then return false end
+
+	-- Clear the UID before destroying its prompt/visual so repeated trigger or
+	-- expiry callbacks cannot award the same record twice.
+	drop.LogRecordsByUid[uid] = nil
+	drop.Count -= 1
+	if entry.Model.Parent then entry.Model:Destroy() end
+	if drop.Count <= 0 then
+		clearGroundDropBundle(bundle, drop)
+	end
+	return true
+end
+
+local function tryPickupGroundLog(player, bundle, uid, visualModel)
+	local drop = activeGroundDrops[bundle]
+	local entry = drop and drop.LogRecordsByUid[uid]
+	local model = entry and entry.Model
 	local handle = model and model.PrimaryPart
-	if not drop or not model.Parent or not model:IsDescendantOf(Workspace) or not handle then return false end
+	if not drop or not entry or model ~= visualModel or not bundle:IsDescendantOf(Workspace)
+		or not model:IsDescendantOf(bundle) or not handle then
+		return false
+	end
 	if not consumeRemoteBudget(player, "Pickup") then return false end
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -416,66 +567,81 @@ local function tryPickupGroundLog(player, model)
 
 	local data = getPlayerData(player)
 	if not data or logCount(data) >= data.LogCapacity then return false end
-	if findLog(data, drop.LogRecord.UID) then return false end
+	if findLog(data, uid) then return false end
 
 	-- Remove the server registry entry before mutating the profile or destroying
 	-- the physical pickup. Prompt spam cannot award the same UID twice.
-	activeGroundDrops[model] = nil
-	if pendingGroundDropByUserId[drop.OwnerUserId] == model then
-		pendingGroundDropByUserId[drop.OwnerUserId] = nil
+	drop.LogRecordsByUid[uid] = nil
+	drop.Count -= 1
+	table.insert(data.Logs, entry.LogRecord)
+	if drop.Count <= 0 then
+		clearGroundDropBundle(bundle, drop)
+	elseif model.Parent then
+		model:Destroy()
 	end
-	table.insert(data.Logs, drop.LogRecord)
-	model:Destroy()
 	LogService.NotifyState(player)
 	return true
 end
 
-local function spawnGroundDrop(logRecord, ownerUserId, position)
-	if pendingGroundDropByUserId[ownerUserId] then
-		return false
+local function spawnGroundDrops(logRecords, ownerUserId, position)
+	if #logRecords == 0 then return true end
+	if not canSpawnGroundDrops(ownerUserId, #logRecords) then return false end
+
+	local bundle, drop = getPendingGroundDrop(ownerUserId)
+	if not bundle then
+		bundle = Instance.new("Folder")
+		bundle.Name = "OwnerGroundLogDrops"
+		bundle:SetAttribute("OwnerUserId", ownerUserId)
+		bundle.Parent = getGroundDropFolder()
+		drop = {
+			OwnerUserId = ownerUserId,
+			LogRecordsByUid = {},
+			Count = 0,
+		}
+		activeGroundDrops[bundle] = drop
+		pendingGroundDropByUserId[ownerUserId] = bundle
 	end
-	local model, handle = createLogVisualModel("DroppedLog", logRecord)
-	model:PivotTo(CFrame.new(
-		position.X,
-		getGroundHeight(position) + handle.Size.Y * 0.5 + 0.08,
-		position.Z
-	))
-	model:SetAttribute("UID", logRecord.UID)
-	model:SetAttribute("ItemType", "Log")
-	model:SetAttribute("SpeciesId", logRecord.SpeciesId)
-	model:SetAttribute("OwnerUserId", ownerUserId)
-	model:SetAttribute("OwnerReservationSeconds", OWNER_RESERVATION_SECONDS)
-	model.Parent = getGroundDropFolder()
 
-	local prompt = Instance.new("ProximityPrompt")
-	prompt.Name = "PickupPrompt"
-	prompt.ActionText = "Pick up"
-	prompt.ObjectText = tostring(logRecord.SpeciesId) .. " log"
-	prompt.HoldDuration = 0.15
-	prompt.MaxActivationDistance = MAX_PICKUP_DISTANCE
-	prompt.RequiresLineOfSight = false
-	prompt.Parent = handle
+	for index, logRecord in ipairs(logRecords) do
+		local model, handle = createLogVisualModel("DroppedLog", logRecord)
+		local horizontalOffset = Vector3.new(0, 0, (index - (#logRecords + 1) * 0.5) * 0.9)
+		local landingPosition = position + horizontalOffset
+		model:PivotTo(CFrame.new(
+			landingPosition.X,
+			getGroundHeight(landingPosition) + handle.Size.Y * 0.5 + 0.08,
+			landingPosition.Z
+		))
+		model:SetAttribute("UID", logRecord.UID)
+		model:SetAttribute("ItemType", "Log")
+		model:SetAttribute("SpeciesId", logRecord.SpeciesId)
+		model:SetAttribute("OwnerUserId", ownerUserId)
+		model:SetAttribute("OwnerReservationSeconds", OWNER_RESERVATION_SECONDS)
+		model.Parent = bundle
 
-	activeGroundDrops[model] = {
-		LogRecord = logRecord,
-		OwnerUserId = ownerUserId,
-		ReservedUntil = os.clock() + OWNER_RESERVATION_SECONDS,
-	}
-	pendingGroundDropByUserId[ownerUserId] = model
-	prompt.Triggered:Connect(function(player)
-		tryPickupGroundLog(player, model)
-	end)
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.Name = "PickupPrompt"
+		prompt.ActionText = "Pick up"
+		prompt.ObjectText = tostring(logRecord.SpeciesId) .. " log"
+		prompt.HoldDuration = 0.15
+		prompt.MaxActivationDistance = MAX_PICKUP_DISTANCE
+		prompt.RequiresLineOfSight = false
+		prompt.Parent = handle
 
-	task.delay(GROUND_LOG_LIFETIME_SECONDS, function()
-		if activeGroundDrops[model] then
-			local dropped = activeGroundDrops[model]
-			activeGroundDrops[model] = nil
-			if pendingGroundDropByUserId[dropped.OwnerUserId] == model then
-				pendingGroundDropByUserId[dropped.OwnerUserId] = nil
-			end
-			if model.Parent then model:Destroy() end
-		end
-	end)
+		local entry = {
+			LogRecord = logRecord,
+			Model = model,
+			ReservedUntil = os.clock() + OWNER_RESERVATION_SECONDS,
+		}
+		drop.LogRecordsByUid[logRecord.UID] = entry
+		drop.Count += 1
+		prompt.Triggered:Connect(function(player)
+			tryPickupGroundLog(player, bundle, logRecord.UID, model)
+		end)
+
+		task.delay(GROUND_LOG_LIFETIME_SECONDS, function()
+			removeGroundDropLog(bundle, logRecord.UID, entry)
+		end)
+	end
 	return true
 end
 
@@ -490,6 +656,20 @@ local function createLogRecord(tree)
 	}
 end
 
+local function getTreeLogYieldCount(tree)
+	local sizeScale = tree and tree.SizeScale
+	if not isFinitePositive(sizeScale) then return nil end
+
+	-- These thresholds match the server-owned rollTreeScale bands: small trees
+	-- yield one log, ordinary trees two, and the largest trees three.
+	if sizeScale < 0.7 then
+		return 1
+	elseif sizeScale < 1.3 then
+		return 2
+	end
+	return MAX_HARVEST_LOGS
+end
+
 function LogService.AwardTreeLog(tree, contributions)
 	if not tree or tree.YieldsLog ~= true then return false end
 	if type(tree.SpeciesId) ~= "string"
@@ -498,6 +678,8 @@ function LogService.AwardTreeLog(tree, contributions)
 		or math.floor(tree.LogValue + 0.5) ~= logValueBySpecies[tree.SpeciesId] then
 		return false
 	end
+	local rewardCount = getTreeLogYieldCount(tree)
+	if not rewardCount or rewardCount > MAX_HARVEST_LOGS then return false end
 
 	local winner
 	local winnerUserId
@@ -516,21 +698,45 @@ function LogService.AwardTreeLog(tree, contributions)
 
 	local data = getPlayerData(winner)
 	if not data then return false end
-	local logRecord = createLogRecord(tree)
-	local origin = tree.InteractionPart and tree.InteractionPart.Position or tree.CFrame.Position
-	if logCount(data) < data.LogCapacity then
-		table.insert(data.Logs, logRecord)
-		beginCarryArrival(winner)
-		LogService.NotifyState(winner)
-		-- This starts after the persistent commit and leaves the just-earned
-		-- record out of the back stack until the visible flight completes.
-		playHarvestArrival(winner, logRecord, origin)
-	else
-		if not spawnGroundDrop(logRecord, winner.UserId, origin) then
-			return false
+	local inventorySpace = math.max(0, data.LogCapacity - logCount(data))
+	local inventoryRecords = {}
+	local overflowRecords = {}
+	for index = 1, rewardCount do
+		local logRecord = createLogRecord(tree)
+		if index <= inventorySpace then
+			table.insert(inventoryRecords, logRecord)
+		else
+			table.insert(overflowRecords, logRecord)
 		end
-		LogService.NotifyState(winner)
 	end
+
+	local origin
+	if tree.InteractionPart and tree.InteractionPart:IsA("BasePart") then
+		origin = tree.InteractionPart.Position
+	elseif typeof(tree.CFrame) == "CFrame" then
+		origin = tree.CFrame.Position
+	else
+		origin = Vector3.zero
+	end
+
+	-- Preflight the bounded owner-only overflow before adding any records so a
+	-- full inventory never receives only part of a size-tier reward.
+	if #overflowRecords > 0 and not canSpawnGroundDrops(winner.UserId, #overflowRecords) then
+		return false
+	end
+	if #overflowRecords > 0 and not spawnGroundDrops(overflowRecords, winner.UserId, origin) then
+		return false
+	end
+
+	for _, logRecord in ipairs(inventoryRecords) do
+		table.insert(data.Logs, logRecord)
+	end
+	if #inventoryRecords > 0 then
+		-- UIDs are committed before any presentation runs. Arrivals are serialized
+		-- per player and each settled UID is added to the back stack individually.
+		enqueueCarryArrivals(winner, inventoryRecords, origin)
+	end
+	LogService.NotifyState(winner)
 	return true
 end
 
@@ -591,7 +797,9 @@ end)
 
 Players.PlayerRemoving:Connect(function(player)
 	remoteBudgetByPlayer[player] = nil
-	pendingCarryArrivals[player] = nil
+	pendingCarryArrivalUids[player] = nil
+	carryArrivalQueueByPlayer[player] = nil
+	carryArrivalRunnerByPlayer[player] = nil
 	deferredCarryRecords[player] = nil
 end)
 
