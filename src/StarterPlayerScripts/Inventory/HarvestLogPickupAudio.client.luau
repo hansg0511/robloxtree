@@ -10,7 +10,7 @@ local localPlayer = Players.LocalPlayer
 local HARVEST_FOLDER_NAME = "HarvestLogVisuals"
 local HARVEST_MODEL_NAME = "HarvestLog"
 local PICKUP_SOUND_ID = "rbxassetid://9114576220"
-local PICKUP_VOLUME = 0.28
+local PICKUP_VOLUME = 0.85
 local SOUND_FALLBACK_LIFETIME = 4
 
 local watchedModels = setmetatable({}, { __mode = "k" })
