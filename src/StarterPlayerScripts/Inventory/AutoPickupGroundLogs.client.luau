@@ -1,4 +1,4 @@
--- Requests registered overflow-log pickups when the owner walks close enough.
+-- Requests owner-reserved ground-log pickups when the owner walks close enough.
 -- The server resolves and validates every candidate before changing inventory.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
