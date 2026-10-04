@@ -10,13 +10,14 @@ local LogCarryVisualService = {}
 
 local MAX_CARRIED_LOGS = 40
 local MAX_RECORDS_SCANNED = 160
-local COLUMNS_PER_STACK = 2
+local COLUMNS_PER_STACK = 1
 local LOG_LAYER_HEIGHT = 0.5
-local COLUMN_SPACING = 0.52
-local NORMAL_STACK_CENTER_X = -0.55
-local RARE_STACK_CENTER_X = 0.55
-local CARGO_BACK_OFFSET = 0.55
-local CARGO_BASE_HEIGHT = 0.36
+local NORMAL_STACK_CENTER_X = -1.15
+local RARE_STACK_CENTER_X = 1.15
+-- Leave a deliberate clear gap behind the body for the future bag model.
+-- Cargo floats outside that future volume instead of clipping through a torso.
+local CARGO_BACK_OFFSET = 1.75
+local CARGO_BASE_HEIGHT = 0.68
 local LOG_LENGTH = 2.15
 
 local latestRecordsByPlayer = {}
@@ -146,19 +147,16 @@ end
 
 local function addLogVisual(model, anchor, logRecord, stackName, stackIndex)
 	local stackCenterX = stackName == "Rare" and RARE_STACK_CENTER_X or NORMAL_STACK_CENTER_X
-	local columnIndex = (stackIndex - 1) % COLUMNS_PER_STACK
 	local layerIndex = math.floor((stackIndex - 1) / COLUMNS_PER_STACK)
-	local columnOffset = (columnIndex == 0 and -0.5 or 0.5) * COLUMN_SPACING
 	local localPosition = Vector3.new(
-		stackCenterX + columnOffset,
+		stackCenterX,
 		CARGO_BASE_HEIGHT + layerIndex * LOG_LAYER_HEIGHT,
-		CARGO_BACK_OFFSET
+		0
 	)
-	-- Rotate the log's long axis toward the character's back. Two columns fit
-	-- across the shoulders, allowing forty logs to remain legible at full stack.
+	-- Keep each log horizontally across the character's back rather than pointed
+	-- into their body. The anchor already supplies the deliberate rear gap.
 	local logCFrame = anchor.CFrame
 		* CFrame.new(localPosition)
-		* CFrame.Angles(0, math.rad(90), 0)
 
 	local body, caps = SpeciesVisuals.CreateCarryLogParts(logRecord)
 	body.CFrame = logCFrame

@@ -24,7 +24,9 @@ local COLORS = {
 	Surface = Color3.fromRGB(18, 37, 43),
 	SurfaceAlt = Color3.fromRGB(28, 54, 60),
 	Ink = Color3.fromRGB(250, 249, 226),
-	DarkInk = Color3.fromRGB(13, 32, 31),
+	-- Text should stay readable over bright action surfaces. Dark is reserved for
+	-- outlines; no interactive label relies on low-contrast black lettering.
+	DarkInk = Color3.fromRGB(250, 249, 226),
 	Muted = Color3.fromRGB(173, 204, 190),
 	Green = Color3.fromRGB(129, 240, 82),
 	GreenDark = Color3.fromRGB(90, 226, 98),
@@ -88,12 +90,14 @@ local function button(parent, name, text, size, position, color)
 	item.AutoButtonColor = true
 	item.Font = Enum.Font.GothamBold
 	item.Text = text
-	item.TextColor3 = COLORS.DarkInk
+	item.TextColor3 = COLORS.Ink
 	item.TextSize = 14
 	item.TextWrapped = true
 	item.Parent = parent
 	round(item, 10)
 	outline(item, Color3.fromRGB(255, 255, 255), 1)
+	item.TextStrokeColor3 = COLORS.BagLine
+	item.TextStrokeTransparency = 0
 	return item
 end
 
@@ -195,8 +199,12 @@ local function makeModal(screen, name, titleText, subtitleText)
 	header.Position = UDim2.fromOffset(20, 10)
 	header.Size = UDim2.new(1, -40, 0, 62)
 	header.Parent = panel
-	label(header, "Title", titleText, UDim2.new(1, -54, 0, 32), UDim2.new(0, 0, 0, 0), 26, COLORS.DarkInk, Enum.Font.GothamBlack)
-	label(header, "Subtitle", subtitleText, UDim2.new(1, -54, 0, 24), UDim2.new(0, 0, 0, 34), 12, COLORS.DarkInk, Enum.Font.GothamBold)
+	local title = label(header, "Title", titleText, UDim2.new(1, -54, 0, 32), UDim2.new(0, 0, 0, 0), 26, COLORS.Ink, Enum.Font.GothamBlack)
+	title.TextStrokeColor3 = COLORS.BagLine
+	title.TextStrokeTransparency = 0
+	local subtitle = label(header, "Subtitle", subtitleText, UDim2.new(1, -54, 0, 24), UDim2.new(0, 0, 0, 34), 12, COLORS.Ink, Enum.Font.GothamBold)
+	subtitle.TextStrokeColor3 = COLORS.BagLine
+	subtitle.TextStrokeTransparency = 0
 	local close = button(header, "CloseButton", "×", UDim2.fromOffset(40, 40), UDim2.new(1, -40, 0, 5), COLORS.Gold)
 	close.TextSize = 25
 	close.TextColor3 = COLORS.Ink
@@ -238,7 +246,9 @@ coinsPill.BackgroundColor3 = COLORS.Gold
 coinsPill.Parent = hud
 round(coinsPill, 16)
 outline(coinsPill, Color3.fromRGB(255, 244, 190), 2)
-local hudCoins = label(coinsPill, "Coins", "🪙  0", UDim2.new(1, -18, 1, 0), UDim2.new(0, 10, 0, 0), 17, COLORS.DarkInk, Enum.Font.GothamBlack)
+local hudCoins = label(coinsPill, "Coins", "🪙  0", UDim2.new(1, -18, 1, 0), UDim2.new(0, 10, 0, 0), 17, COLORS.Ink, Enum.Font.GothamBlack)
+hudCoins.TextStrokeColor3 = COLORS.BagLine
+hudCoins.TextStrokeTransparency = 0
 
 local logsPill = Instance.new("Frame")
 logsPill.Name = "LogsPill"
@@ -494,7 +504,9 @@ local function styleStationModal(panel, titleText, subtitleText)
 	header.Subtitle.Size = UDim2.new(1, -96, 0, 22)
 	header.Subtitle.Font = Enum.Font.GothamBold
 	header.Subtitle.TextSize = 15
-	header.Subtitle.TextColor3 = COLORS.DarkInk
+	header.Subtitle.TextColor3 = COLORS.Ink
+	header.Subtitle.TextStrokeColor3 = COLORS.BagLine
+	header.Subtitle.TextStrokeTransparency = 0
 
 	header.CloseButton.Position = UDim2.new(1, -58, 0, 10)
 	header.CloseButton.Size = UDim2.fromOffset(48, 48)
@@ -571,7 +583,9 @@ local sellHint = label(sellCard, "LockHint", "LOCKED LOGS STAY SAFE IN YOUR BAG.
 sellHint.TextXAlignment = Enum.TextXAlignment.Center
 local sellButton = button(sellCard, "SellUnlockedButton", "SELL ALL", UDim2.new(1, -36, 0, 70), UDim2.new(0, 18, 1, -86), COLORS.BagAction)
 sellButton.TextSize = 26
-sellButton.TextColor3 = COLORS.DarkInk
+	sellButton.TextColor3 = COLORS.Ink
+	sellButton.TextStrokeColor3 = COLORS.BagLine
+	sellButton.TextStrokeTransparency = 0
 round(sellButton, 14)
 local sellStroke = sellButton:FindFirstChildOfClass("UIStroke")
 if sellStroke then
@@ -855,7 +869,9 @@ local function renderLogDetail(record)
 	if not hasRecord then return end
 	favoriteButton.Text = if record.Locked then "UNLOCK" else "LOCK"
 	favoriteButton.BackgroundColor3 = COLORS.BagAction
-	favoriteButton.TextColor3 = COLORS.DarkInk
+	favoriteButton.TextColor3 = COLORS.Ink
+	favoriteButton.TextStrokeColor3 = COLORS.BagLine
+	favoriteButton.TextStrokeTransparency = 0
 end
 
 local function renderAxeDetail(axe)
