@@ -26,9 +26,17 @@ local OWNER_RESERVATION_SECONDS = 60
 -- loot race after the reservation expires.
 local GROUND_LOG_LIFETIME_SECONDS = 60
 local MAX_PICKUP_DISTANCE = 15
+-- A single legitimate proximity request may collect a whole nearby tree reward.
+-- This stays bounded by both capacity and this fixed server-side ceiling.
+local MAX_PICKUP_BATCH = MAX_CAPACITY
 local PICKUP_FLIGHT_DURATION = 1.0
 local PICKUP_ARC_HEIGHT = 20
-local GROUND_DROP_VISUAL_SCALE = 1.2
+-- A batch launches together, but its arrivals fan out just enough for each
+-- pickup cue to read separately instead of becoming one noisy instant.
+local MAX_BATCH_ARRIVAL_SPREAD = 0.36
+-- World drops deliberately read larger than carried cargo so they remain visible
+-- alongside a fallen trunk. Inventory/carry presentation stays at its own scale.
+local GROUND_DROP_VISUAL_SCALE = 2
 local REMOTE_INTERVALS = {
 	Sell = 1,
 	Lock = 0.15,
@@ -374,11 +382,16 @@ local function getFallPlacement(tree, fallRotation)
 	end
 	trunkLength = math.clamp(trunkLength, 8, 48)
 
+	local trunkRadius = primary and math.max(primary.Size.X, primary.Size.Z) * 0.5 or 0
+
 	return {
 		Origin = origin,
 		Direction = direction,
 		Perpendicular = Vector3.new(-direction.Z, 0, direction.X),
 		TrunkLength = trunkLength,
+		-- Keep visible drops beside the fallen trunk instead of burying them under
+		-- its body. The small per-log variation is only for legibility.
+		DropSideOffset = math.max(2.2, trunkRadius + 1.8),
 	}
 end
 
@@ -386,7 +399,7 @@ local function getFallPathPosition(fallPlacement, index, totalCount)
 	local count = math.max(1, math.floor(tonumber(totalCount) or 1))
 	local rank = math.clamp(math.floor(tonumber(index) or 1), 1, count)
 	local fraction = if count == 1 then 0.5 else 0.3 + 0.4 * ((rank - 1) / (count - 1))
-	local sideOffset = (rank - (count + 1) * 0.5) * 0.55
+	local sideOffset = fallPlacement.DropSideOffset + (rank - (count + 1) * 0.5) * 1.3
 	return fallPlacement.Origin
 		+ fallPlacement.Direction * (fallPlacement.TrunkLength * fraction)
 		+ fallPlacement.Perpendicular * sideOffset
@@ -475,7 +488,7 @@ end
 -- The profile record is already committed before this runs. The existing
 -- server-created ground model is moved into a disposable visual folder and
 -- animated into its exact authoritative cargo slot.
-local function playPickupArrival(player, model, uid)
+local function playPickupArrival(player, model, uid, flightDuration)
 	local ok, err = xpcall(function()
 		-- A single server snapshot avoids normalizing/snapshotting the full profile
 		-- on every animation frame. Slot position still follows the live character.
@@ -486,7 +499,12 @@ local function playPickupArrival(player, model, uid)
 		end
 
 		if model.Parent and getArrivalCFrame() then
-			local arrived = tweenModelPivotAlongArc(model, getArrivalCFrame, PICKUP_FLIGHT_DURATION, PICKUP_ARC_HEIGHT)
+			local arrived = tweenModelPivotAlongArc(
+				model,
+				getArrivalCFrame,
+				flightDuration or PICKUP_FLIGHT_DURATION,
+				PICKUP_ARC_HEIGHT
+			)
 			if arrived and model.Parent then
 				-- The local sound is keyed to this replicated arrival marker, so it
 				-- plays when the wood reaches its server-calculated cargo slot. Keep
@@ -571,28 +589,75 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 	if findLog(data, uid) then return false end
 	if not consumeRemoteBudget(player, "Pickup") then return false end
 
-	-- Atomically claim this UID before any visual delay or profile mutation. This
-	-- prevents concurrent remote requests from awarding or animating it twice.
-	drop.LogRecordsByUid[uid] = nil
-	drop.Count -= 1
+	-- The client nominated only this first model. The server independently finds
+	-- the rest of the owner-reserved, in-range batch, so huge-tree pickups feel
+	-- simultaneous without allowing a client to choose extra rewards or amounts.
+	local availableSlots = math.min(data.LogCapacity - logCount(data), MAX_PICKUP_BATCH)
+	local nearby = {}
+	for candidateUid, candidateEntry in pairs(drop.LogRecordsByUid) do
+		local candidateModel = candidateEntry.Model
+		local candidateHandle = candidateModel and candidateModel.PrimaryPart
+		if candidateUid ~= uid
+			and candidateModel
+			and candidateModel.Parent == bundle
+			and candidateHandle
+			and os.clock() <= candidateEntry.ReservedUntil
+			and (root.Position - candidateHandle.Position).Magnitude <= MAX_PICKUP_DISTANCE
+			and not findLog(data, candidateUid) then
+			table.insert(nearby, {
+			UID = candidateUid,
+			Entry = candidateEntry,
+			Distance = (root.Position - candidateHandle.Position).Magnitude,
+		})
+		end
+	end
+	table.sort(nearby, function(left, right)
+		if math.abs(left.Distance - right.Distance) <= 0.001 then
+			return left.UID < right.UID
+		end
+		return left.Distance < right.Distance
+	end)
+
+	local claims = {
+		{ UID = uid, Entry = entry, Model = model },
+	}
+	for _, candidate in ipairs(nearby) do
+		if #claims >= availableSlots then break end
+		table.insert(claims, {
+			UID = candidate.UID,
+			Entry = candidate.Entry,
+			Model = candidate.Entry.Model,
+		})
+	end
+
+	-- Atomically claim every selected UID before any visual delay or profile
+	-- mutation. Repeated remotes cannot award or animate the same record twice.
 	local pendingUids = pendingCarryArrivalUids[player]
 	if not pendingUids then
 		pendingUids = {}
 		pendingCarryArrivalUids[player] = pendingUids
 	end
-	pendingUids[uid] = true
-	table.insert(data.Logs, entry.LogRecord)
+	local harvestVisuals = getHarvestVisualFolder()
+	for _, claim in ipairs(claims) do
+		drop.LogRecordsByUid[claim.UID] = nil
+		drop.Count -= 1
+		pendingUids[claim.UID] = true
+		table.insert(data.Logs, claim.Entry.LogRecord)
 
-	-- Keep the same server-created model that was lying on the ground; reparenting
-	-- it makes the pickup disappear from the scanner without a visual pop.
-	model.Name = "HarvestLog"
-	model.Parent = getHarvestVisualFolder()
+		-- Reuse each exact server-created ground model so collection never pops.
+		claim.Model.Name = "HarvestLog"
+		claim.Model.Parent = harvestVisuals
+	end
 
 	if drop.Count <= 0 then
 		clearGroundDropBundle(bundle, drop)
 	end
 	LogService.NotifyState(player)
-	task.spawn(playPickupArrival, player, model, uid)
+	for index, claim in ipairs(claims) do
+		local progress = if #claims > 1 then (index - 1) / (#claims - 1) else 0
+		local duration = PICKUP_FLIGHT_DURATION + MAX_BATCH_ARRIVAL_SPREAD * progress
+		task.spawn(playPickupArrival, player, claim.Model, claim.UID, duration)
+	end
 	return true
 end
 
@@ -620,13 +685,15 @@ local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, firstInd
 		local landingPosition = getFallPathPosition(fallPlacement, (firstIndex or 1) + index - 1, batchCount or #logRecords)
 		local groundCFrame = CFrame.fromMatrix(
 			Vector3.new(
-			landingPosition.X,
-			getGroundHeight(landingPosition) + handle.Size.Y * 0.5 + 0.08,
-			landingPosition.Z
+				landingPosition.X,
+				getGroundHeight(landingPosition) + handle.Size.Y * 0.5 + 0.08,
+				landingPosition.Z
 			),
-			fallPlacement.Perpendicular,
+			-- Log geometry's long local X axis follows the fallen trunk, not its
+			-- crosswise perpendicular. Drops remain flat on the ground.
+			fallPlacement.Direction,
 			Vector3.yAxis,
-			fallPlacement.Perpendicular:Cross(Vector3.yAxis)
+			fallPlacement.Direction:Cross(Vector3.yAxis)
 		)
 		model:PivotTo(groundCFrame)
 		model:SetAttribute("UID", logRecord.UID)

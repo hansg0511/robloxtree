@@ -108,6 +108,11 @@ function FXService:TreeFall(model, player, fallRotation)
 	)
 	fallTween:Play()
 	fallTween.Completed:Wait()
+	for _, descendant in ipairs(treeModel:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.CanCollide = false
+		end
+	end
 	task.delay(0.5 + 0.2, function()
 		TweenService:Create(
 			primary,
