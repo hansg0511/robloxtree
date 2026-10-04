@@ -409,6 +409,7 @@ end
 local function playHarvestArrival(player, logRecord, origin, arrivalIndex)
 	local ok, err = xpcall(function()
 		local model, handle = createLogVisualModel("HarvestLog", logRecord)
+		model:SetAttribute("OwnerUserId", player.UserId)
 		local angle = (arrivalIndex - 1) * 2.399963229728653
 		local radius = 1.2 + ((arrivalIndex - 1) % 3) * 0.35
 		local horizontalOffset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
@@ -426,14 +427,22 @@ local function playHarvestArrival(player, logRecord, origin, arrivalIndex)
 		tweenModelPivot(model, landing, 0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 		task.wait(0.28)
 
-		local stagedRecords = getVisibleCarryRecords(player, logRecord.UID)
+		-- Take one full authoritative snapshot for the batch. It includes sibling
+		-- arrivals, so the arcs have distinct final slots without normalizing the
+		-- player profile every frame during the flight.
+		local stagedRecords = LogService.GetOwnedLogs(player)
 		local function getArrivalCFrame()
 			if not stagedRecords then return nil end
 			return LogCarryVisualService.GetArrivalCFrame(player, stagedRecords, logRecord.UID)
 		end
 
 		if model.Parent and getArrivalCFrame() then
-			tweenModelPivotAlongArc(model, getArrivalCFrame, 1.0, 20)
+			model:SetAttribute("PickupFlightStarted", true)
+			-- Every log in the harvest batch launches together. Tiny per-index
+			-- arrival offsets preserve the inventory's append order while keeping
+			-- the stack integrations visually simultaneous.
+			local flightDuration = 1.0 + (arrivalIndex - 1) * 0.08
+			tweenModelPivotAlongArc(model, getArrivalCFrame, flightDuration, 20)
 		end
 		if model.Parent then
 			model:Destroy()
@@ -451,20 +460,37 @@ local function processCarryArrivalQueue(player)
 	task.spawn(function()
 		local queue = carryArrivalQueueByPlayer[player]
 		while queue and #queue > 0 and player:IsDescendantOf(Players) do
-			local arrival = table.remove(queue, 1)
-			playHarvestArrival(player, arrival.LogRecord, arrival.Origin, arrival.Index)
+			local batch = table.remove(queue, 1)
+			local completedSignal = Instance.new("BindableEvent")
+			local completedCount = 0
 
-			local pendingUids = pendingCarryArrivalUids[player]
-			if pendingUids then
-				pendingUids[arrival.LogRecord.UID] = nil
-				if next(pendingUids) == nil then
-					pendingCarryArrivalUids[player] = nil
-				end
+			for _, arrival in ipairs(batch) do
+				local currentArrival = arrival
+				task.spawn(function()
+					playHarvestArrival(player, currentArrival.LogRecord, currentArrival.Origin, currentArrival.Index)
+
+					local pendingUids = pendingCarryArrivalUids[player]
+					if pendingUids then
+						pendingUids[currentArrival.LogRecord.UID] = nil
+						if next(pendingUids) == nil then
+							pendingCarryArrivalUids[player] = nil
+						end
+					end
+
+					local visibleRecords = getVisibleCarryRecords(player)
+					if visibleRecords then
+						rebuildCarryVisuals(player, visibleRecords)
+					end
+
+					completedCount += 1
+					completedSignal:Fire()
+				end)
 			end
-			local visibleRecords = getVisibleCarryRecords(player)
-			if visibleRecords then
-				rebuildCarryVisuals(player, visibleRecords)
+
+			while completedCount < #batch do
+				completedSignal.Event:Wait()
 			end
+			completedSignal:Destroy()
 			queue = carryArrivalQueueByPlayer[player]
 		end
 
@@ -504,14 +530,16 @@ local function enqueueCarryArrivals(player, logRecords, origin)
 		pendingUids = {}
 		pendingCarryArrivalUids[player] = pendingUids
 	end
+	local batch = {}
 	for index, logRecord in ipairs(logRecords) do
 		pendingUids[logRecord.UID] = true
-		table.insert(queue, {
+		table.insert(batch, {
 			LogRecord = logRecord,
 			Origin = origin,
 			Index = index,
 		})
 	end
+	table.insert(queue, batch)
 	processCarryArrivalQueue(player)
 end
 
