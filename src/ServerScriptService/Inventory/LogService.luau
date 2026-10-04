@@ -37,6 +37,7 @@ local GetLogsDataRF = economyRemotes:WaitForChild("GetLogsDataRF")
 local GetSellSummaryRF = economyRemotes:WaitForChild("GetSellSummaryRF")
 local SellUnlockedLogsRE = economyRemotes:WaitForChild("SellUnlockedLogsRE")
 local SetLogLockedRE = economyRemotes:WaitForChild("SetLogLockedRE")
+local PickupGroundLogRE = economyRemotes:WaitForChild("PickupGroundLogRE")
 local EconomyStateUpdated = economyRemotes:WaitForChild("EconomyStateUpdated")
 
 local profileLoaded = game.ServerScriptService.PlayerProfile.ProfileInit.ProfileLoadedEvent
@@ -593,24 +594,25 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 	local entry = drop and drop.LogRecordsByUid[uid]
 	local model = entry and entry.Model
 	local handle = model and model.PrimaryPart
-	if not drop or not entry or model ~= visualModel or not bundle:IsDescendantOf(Workspace)
-		or not model:IsDescendantOf(bundle) or not handle then
+	local groundDropFolder = Workspace:FindFirstChild("WorldLogDrops")
+	if not drop or not entry or model ~= visualModel or bundle.Parent ~= groundDropFolder
+		or model.Parent ~= bundle or not handle then
 		return false
 	end
-	if not consumeRemoteBudget(player, "Pickup") then return false end
+	if player.UserId ~= drop.OwnerUserId or os.clock() > entry.ReservedUntil then return false end
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	if not humanoid or humanoid.Health <= 0 or not root then return false end
 	if (root.Position - handle.Position).Magnitude > MAX_PICKUP_DISTANCE then return false end
-	if player.UserId ~= drop.OwnerUserId then return false end
 
 	local data = getPlayerData(player)
 	if not data or logCount(data) >= data.LogCapacity then return false end
 	if findLog(data, uid) then return false end
+	if not consumeRemoteBudget(player, "Pickup") then return false end
 
 	-- Remove the server registry entry before mutating the profile or destroying
-	-- the physical pickup. Prompt spam cannot award the same UID twice.
+	-- the physical pickup. Repeated client requests cannot award the same UID twice.
 	drop.LogRecordsByUid[uid] = nil
 	drop.Count -= 1
 	table.insert(data.Logs, entry.LogRecord)
@@ -658,15 +660,6 @@ local function spawnGroundDrops(logRecords, ownerUserId, position)
 		model:SetAttribute("OwnerReservationSeconds", OWNER_RESERVATION_SECONDS)
 		model.Parent = bundle
 
-		local prompt = Instance.new("ProximityPrompt")
-		prompt.Name = "PickupPrompt"
-		prompt.ActionText = "Pick up"
-		prompt.ObjectText = tostring(logRecord.SpeciesId) .. " log"
-		prompt.HoldDuration = 0.15
-		prompt.MaxActivationDistance = MAX_PICKUP_DISTANCE
-		prompt.RequiresLineOfSight = false
-		prompt.Parent = handle
-
 		local entry = {
 			LogRecord = logRecord,
 			Model = model,
@@ -674,9 +667,6 @@ local function spawnGroundDrops(logRecords, ownerUserId, position)
 		}
 		drop.LogRecordsByUid[logRecord.UID] = entry
 		drop.Count += 1
-		prompt.Triggered:Connect(function(player)
-			tryPickupGroundLog(player, bundle, logRecord.UID, model)
-		end)
 
 		task.delay(GROUND_LOG_LIFETIME_SECONDS, function()
 			removeGroundDropLog(bundle, logRecord.UID, entry)
@@ -828,6 +818,17 @@ SetLogLockedRE.OnServerEvent:Connect(function(player, uid, locked, ...)
 	if not logRecord then return end
 	logRecord.Locked = locked
 	LogService.NotifyState(player)
+end)
+
+PickupGroundLogRE.OnServerEvent:Connect(function(player, visualModel, uid, ...)
+	if select("#", ...) ~= 0 or typeof(visualModel) ~= "Instance"
+		or not visualModel:IsA("Model") or not isValidUid(uid) then
+		return
+	end
+
+	local bundle = visualModel.Parent
+	if not bundle or not bundle:IsA("Folder") then return end
+	tryPickupGroundLog(player, bundle, uid, visualModel)
 end)
 
 profileLoaded.Event:Connect(function(player)
