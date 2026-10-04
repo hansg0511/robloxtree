@@ -445,7 +445,7 @@ local function playHarvestArrival(player, logRecord, origin, arrivalIndex)
 		end
 
 		if model.Parent and getArrivalCFrame() then
-			tweenModelPivotAlongArc(model, getArrivalCFrame, 1.2, 6)
+			tweenModelPivotAlongArc(model, getArrivalCFrame, 1.0, 9)
 		end
 		if model.Parent then
 			model:Destroy()
