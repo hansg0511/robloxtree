@@ -410,6 +410,7 @@ local function playHarvestArrival(player, logRecord, origin, arrivalIndex)
 	local ok, err = xpcall(function()
 		local model, handle = createLogVisualModel("HarvestLog", logRecord)
 		model:SetAttribute("OwnerUserId", player.UserId)
+		model:SetAttribute("PickupAudioSequence", arrivalIndex)
 		local angle = (arrivalIndex - 1) * 2.399963229728653
 		local radius = 1.2 + ((arrivalIndex - 1) % 3) * 0.35
 		local horizontalOffset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)

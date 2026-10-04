@@ -13,6 +13,8 @@ local PICKUP_SOUND_ID = "rbxassetid://140303363726378"
 local PICKUP_VOLUME = 0.85
 local PICKUP_SOUND_START = 0
 local PICKUP_SOUND_END = 0.45
+local PICKUP_CUE_GAP = 0.24
+local MAX_PICKUP_CUE_DELAY = 2
 local SOUND_FALLBACK_LIFETIME = 2
 
 local watchedModels = setmetatable({}, { __mode = "k" })
@@ -51,7 +53,17 @@ local function watchHarvestModel(instance)
 		end
 
 		played = true
-		playPickupSound()
+		local sequence = instance:GetAttribute("PickupAudioSequence")
+		local delaySeconds = 0
+		if type(sequence) == "number" and sequence == sequence and sequence >= 1 and sequence < math.huge then
+			delaySeconds = math.min((sequence - 1) * PICKUP_CUE_GAP, MAX_PICKUP_CUE_DELAY)
+		end
+
+		if delaySeconds > 0 then
+			task.delay(delaySeconds, playPickupSound)
+		else
+			playPickupSound()
+		end
 	end
 
 	watchedModels[instance] = true
