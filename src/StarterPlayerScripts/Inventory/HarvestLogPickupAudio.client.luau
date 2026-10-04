@@ -9,9 +9,11 @@ local localPlayer = Players.LocalPlayer
 
 local HARVEST_FOLDER_NAME = "HarvestLogVisuals"
 local HARVEST_MODEL_NAME = "HarvestLog"
-local PICKUP_SOUND_ID = "rbxassetid://9114576220"
+local PICKUP_SOUND_ID = "rbxassetid://140303363726378"
 local PICKUP_VOLUME = 0.85
-local SOUND_FALLBACK_LIFETIME = 4
+local PICKUP_SOUND_START = 0
+local PICKUP_SOUND_END = 0.45
+local SOUND_FALLBACK_LIFETIME = 2
 
 local watchedModels = setmetatable({}, { __mode = "k" })
 local boundFolders = setmetatable({}, { __mode = "k" })
@@ -21,6 +23,8 @@ local function playPickupSound()
 	sound.Name = "HarvestLogPickupSound"
 	sound.SoundId = PICKUP_SOUND_ID
 	sound.Volume = PICKUP_VOLUME
+	sound.PlaybackRegionsEnabled = true
+	sound.PlaybackRegion = NumberRange.new(PICKUP_SOUND_START, PICKUP_SOUND_END)
 	sound.Parent = SoundService
 	sound.Ended:Connect(function()
 		sound:Destroy()
