@@ -300,7 +300,8 @@ bagPanel.Header.Title.TextStrokeColor3 = COLORS.BagLine
 bagPanel.Header.Title.TextStrokeTransparency = 0
 bagPanel.Header.Subtitle.Text = "YOUR LOGS AND TOOLS"
 bagPanel.Header.Subtitle.Visible = false
-bagPanel.Header.CloseButton.Position = UDim2.new(1, -42, 0, 7)
+bagPanel.Header.CloseButton.AnchorPoint = Vector2.new(0, 0.5)
+bagPanel.Header.CloseButton.Position = UDim2.new(1, -58, 0.5, 0)
 bagPanel.Header.CloseButton.Size = UDim2.fromOffset(48, 48)
 bagPanel.Header.CloseButton.BackgroundColor3 = COLORS.BagClose
 bagPanel.Header.CloseButton.TextColor3 = COLORS.BagText
@@ -331,6 +332,7 @@ axesTab.TextSize = 20
 local sortButton = button(bagToolbar, "SortButton", "SORT: WT", UDim2.new(1, -20, 0, 54), UDim2.new(0, 10, 0, 164), COLORS.BagSlot)
 sortButton.TextSize = 16
 sortButton.TextColor3 = COLORS.BagText
+sortButton.Parent = bagPanel.Header
 local bagCountLabel = label(bagToolbar, "Capacity", "0 / 10 LOGS", UDim2.new(1, -20, 0, 60), UDim2.new(0, 10, 0, 230), 16, COLORS.BagText, Enum.Font.GothamBlack)
 bagCountLabel.TextXAlignment = Enum.TextXAlignment.Center
 bagCountLabel.TextYAlignment = Enum.TextYAlignment.Center
@@ -345,6 +347,8 @@ for _, control in ipairs({ logsTab, axesTab, sortButton }) do
 		controlStroke.Color = COLORS.BagLine
 		controlStroke.Thickness = 2
 	end
+	control.TextStrokeColor3 = COLORS.BagLine
+	control.TextStrokeTransparency = 0
 end
 
 local bagBody = Instance.new("Frame")
@@ -630,13 +634,14 @@ local function setBagLayout()
 	axesTab.Size = UDim2.new(1, -20, 0, if railWidth < 110 then 54 else 64)
 	axesTab.TextSize = logsTab.TextSize
 	local sortTop = if railWidth < 110 then 142 else 164
-	sortButton.Position = UDim2.new(0, 10, 0, sortTop)
-	sortButton.Size = UDim2.new(1, -20, 0, if railWidth < 110 then 46 else 54)
-	sortButton.TextSize = if railWidth < 110 then 14 else 16
-	bagCountLabel.Position = UDim2.new(0, 10, 0, sortTop + 58)
+	sortButton.Position = UDim2.new(1, -202, 0.5, 0)
+	sortButton.AnchorPoint = Vector2.new(0, 0.5)
+	sortButton.Size = UDim2.fromOffset(132, 44)
+	sortButton.TextSize = 16
+	bagCountLabel.Position = UDim2.new(0, 10, 0, sortTop)
 	bagCountLabel.Size = UDim2.new(1, -20, 0, 56)
 	bagCountLabel.TextSize = if railWidth < 110 then 14 else 16
-	infoButton.Position = UDim2.new(0, 10, 0, sortTop + 122)
+	infoButton.Position = UDim2.new(0, 10, 0, sortTop + 66)
 	infoButton.Size = UDim2.new(1, -20, 0, if railWidth < 110 then 44 else 50)
 	infoButton.TextSize = if railWidth < 110 then 14 else 16
 	bagBody.Position = UDim2.new(0, railWidth + 24, 0, 86)
@@ -805,17 +810,16 @@ end
 local function updateBagTabs(logCount, capacity, axeCount)
 	local logsActive = activeBagTab == "Logs"
 	logsTab.BackgroundColor3 = if logsActive then COLORS.BagAction else COLORS.BagSlot
-	logsTab.TextColor3 = if logsActive then COLORS.DarkInk else COLORS.BagText
+	logsTab.TextColor3 = COLORS.BagText
 	axesTab.BackgroundColor3 = if not logsActive then COLORS.BagAction else COLORS.BagSlot
-	axesTab.TextColor3 = if not logsActive then COLORS.DarkInk else COLORS.BagText
-	bagCountLabel.Text = if logsActive
-		then string.format("%d / %d", logCount or 0, capacity or 10)
-		else string.format("%d OWNED", axeCount or 0)
+	axesTab.TextColor3 = COLORS.BagText
+	bagCountLabel.Visible = logsActive
+	bagCountLabel.Text = string.format("%d / %d", logCount or 0, capacity or 10)
 	bagCountLabel.TextColor3 = COLORS.BagMuted
 	bagCountLabel.TextWrapped = false
 	local sortLabels = { "WEIGHT", "VALUE", "A-Z", "NEWEST" }
 	sortButton.Text = "SORT  " .. sortLabels[sortIndex]
-	sortButton.Visible = activeBagTab == "Logs"
+	sortButton.Visible = logsActive and bagPanel.AbsoluteSize.X >= 680
 end
 
 local function renderLogDetail(record)
