@@ -8,12 +8,12 @@ local Workspace = game:GetService("Workspace")
 local localPlayer = Players.LocalPlayer
 local pickupRemote = ReplicatedStorage:WaitForChild("Economy"):WaitForChild("PickupGroundLogRE")
 
--- Keep these client scan values aligned with the server's pickup distance and
--- rate limit. Server validation remains authoritative.
+-- Keep the client cadence slower than the server's 0.08s minimum arrival gap,
+-- with margin for timing jitter. Server validation remains authoritative.
 local MAX_PICKUP_DISTANCE = 15
 local SCAN_INTERVAL = 0.05
-local REQUEST_INTERVAL = 0.08
-local PER_MODEL_RETRY_INTERVAL = 0.75
+local REQUEST_INTERVAL = 0.12
+local PER_MODEL_RETRY_INTERVAL = 0.25
 
 local scanElapsed = 0
 local nextRequestAt = 0
