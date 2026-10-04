@@ -359,14 +359,13 @@ local function tweenModelPivot(model, destination, duration, easingStyle, easing
 	return model.Parent ~= nil
 end
 
-local function tweenModelPivotAlongArc(model, getDestination, duration, liftHeight)
+local function tweenModelPivotAlongArc(model, getDestination, duration, arcHeight)
 	if not model.Parent then return false end
 	local initialDestination = getDestination()
 	if not initialDestination then return false end
 
 	local start = model:GetPivot()
 	local startPosition = start.Position
-	local liftPosition = startPosition + Vector3.new(0, liftHeight, 0)
 	local lastDestination = initialDestination
 	local progress = Instance.new("NumberValue")
 	progress.Value = 0
@@ -378,23 +377,12 @@ local function tweenModelPivotAlongArc(model, getDestination, duration, liftHeig
 			end
 
 			local alpha = progress.Value
-			local position
-			if alpha < 0.36 then
-				-- Lift clear of the fallen trunk before moving toward the player.
-				local liftAlpha = alpha / 0.36
-				local easedLiftAlpha = 1 - (1 - liftAlpha) * (1 - liftAlpha)
-				position = startPosition:Lerp(liftPosition, easedLiftAlpha)
-			else
-				local flightAlpha = (alpha - 0.36) / 0.64
-				local destinationPosition = lastDestination.Position
-				local controlOne = liftPosition:Lerp(destinationPosition, 0.24) + Vector3.new(0, 1.8, 0)
-				local controlTwo = destinationPosition + Vector3.new(0, 1.6, 0)
-				local inverse = 1 - flightAlpha
-				position = liftPosition * (inverse ^ 3)
-					+ controlOne * (3 * inverse * inverse * flightAlpha)
-					+ controlTwo * (3 * inverse * flightAlpha * flightAlpha)
-					+ destinationPosition * (flightAlpha ^ 3)
-			end
+			local destinationPosition = lastDestination.Position
+			-- A quadratic arc adds 4h*t*(1-t) to the straight start-to-target
+			-- path. That puts the log about arcHeight studs above the path at
+			-- mid-flight, with a natural upward launch and downward arrival.
+			local position = startPosition:Lerp(destinationPosition, alpha)
+				+ Vector3.new(0, 4 * arcHeight * alpha * (1 - alpha), 0)
 
 			local rotation = start - startPosition
 			model:PivotTo(CFrame.new(position) * rotation)
@@ -445,7 +433,7 @@ local function playHarvestArrival(player, logRecord, origin, arrivalIndex)
 		end
 
 		if model.Parent and getArrivalCFrame() then
-			tweenModelPivotAlongArc(model, getArrivalCFrame, 1.0, 9)
+			tweenModelPivotAlongArc(model, getArrivalCFrame, 1.0, 20)
 		end
 		if model.Parent then
 			model:Destroy()
