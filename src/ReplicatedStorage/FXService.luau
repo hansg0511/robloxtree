@@ -56,23 +56,38 @@ function FXService:playHit(tree, intensityDegrees, totalDuration, shakes)
 	primary.CFrame = originalCFrame
 end
 
-function FXService:TreeFall(model, player)
+function FXService.GetTreeFallRotation(model, player)
+	if not model or not model.Parent then return CFrame.identity end
+	local primary = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
+	if not primary then return CFrame.identity end
+
+	-- Compute the same server-observed fall direction used by TreeFall. Keeping
+	-- the resulting rotation lets harvest visuals share the actual fall path.
+	local character = player and player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local offsetFromPlayer = root and (primary.Position - root.Position) or Vector3.new(1, 0, 0)
+	local dir = offsetFromPlayer.Magnitude > 0 and -offsetFromPlayer.Unit or Vector3.new(1, 0, 0)
+	local fallAxis = Vector3.new(-dir.Z, 0, dir.X)
+	if fallAxis.Magnitude <= 1e-4 then
+		local modelFrame = model:GetPivot()
+		local fallback = Vector3.new(modelFrame.LookVector.X, 0, modelFrame.LookVector.Z)
+		if fallback.Magnitude <= 1e-4 then
+			fallback = Vector3.new(modelFrame.RightVector.X, 0, modelFrame.RightVector.Z)
+		end
+		if fallback.Magnitude <= 1e-4 then fallback = Vector3.xAxis end
+		fallback = fallback.Unit
+		fallAxis = Vector3.new(-fallback.Z, 0, fallback.X)
+	end
+	return CFrame.fromAxisAngle(fallAxis.Unit, math.rad(75))
+end
+
+function FXService:TreeFall(model, player, fallRotation)
 	if not model or not model.Parent then return end
 	local treeModel = model
 	local primary = treeModel.PrimaryPart or treeModel:FindFirstChildWhichIsA("BasePart")
 	if not primary then treeModel:Destroy() return end
 	local pivotCF = treeModel:GetPivot().Position + Vector3.new(0,primary.Size.Y/8,0)
-
-
-
-	---- Compute fall direction
-	local character = player and player.Character
-	local root = character and character:FindFirstChild("HumanoidRootPart")
-	local offsetFromPlayer = root and (primary.Position - root.Position) or Vector3.new(1, 0, 0)
-	local dir = offsetFromPlayer.Magnitude > 0 and -offsetFromPlayer.Unit or Vector3.new(1, 0, 0)
-	local fallAxis = Vector3.new(-dir.Z, 0, dir.X).Unit
-	local angle = math.rad(75) -- tree falls over
-	local rotation = CFrame.fromAxisAngle(fallAxis, angle)
+	local rotation = fallRotation or FXService.GetTreeFallRotation(treeModel, player)
 	--local offset = rotatedPivot:ToObjectSpace(pivotCF)
 	local offset = primary.Position - pivotCF
 

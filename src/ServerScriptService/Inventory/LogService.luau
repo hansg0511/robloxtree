@@ -319,6 +319,78 @@ local function getGroundHeight(position)
 	return position.Y
 end
 
+local function normalizeHorizontal(vector)
+	if typeof(vector) ~= "Vector3" then return nil end
+	if vector.X ~= vector.X or vector.Z ~= vector.Z
+		or math.abs(vector.X) == math.huge or math.abs(vector.Z) == math.huge then
+		return nil
+	end
+	local horizontal = Vector3.new(vector.X, 0, vector.Z)
+	if horizontal.Magnitude <= 1e-4 then return nil end
+	return horizontal.Unit
+end
+
+local function getFallPlacement(tree, fallRotation)
+	local model = tree and tree.model
+	local primary = model and model:IsA("Model") and model.PrimaryPart
+	local pivot
+	if model and model:IsA("Model") then
+		pivot = model:GetPivot()
+	elseif tree and typeof(tree.CFrame) == "CFrame" then
+		pivot = tree.CFrame
+	end
+
+	local origin
+	if pivot then
+		origin = pivot.Position
+	elseif tree and tree.InteractionPart and tree.InteractionPart:IsA("BasePart") then
+		origin = tree.InteractionPart.Position
+	else
+		origin = Vector3.zero
+	end
+
+	-- The fall rotation is generated once by Tree:Die and is also used to rotate
+	-- the tree. Rotating its up axis gives the direction the crown travels.
+	local direction
+	if typeof(fallRotation) == "CFrame" then
+		direction = normalizeHorizontal(fallRotation:VectorToWorldSpace(Vector3.yAxis))
+	end
+	if not direction and pivot then
+		direction = normalizeHorizontal(pivot.LookVector)
+	end
+	if not direction and primary then
+		direction = normalizeHorizontal(primary.CFrame.LookVector)
+	end
+	if not direction then direction = Vector3.xAxis end
+
+	-- PrimaryPart.Size.Y already includes the server-applied tree scale. The
+	-- main trunk is assembled from roughly two vertical sections in current tree
+	-- models, so use twice that height as the ground-projected fall path.
+	local trunkLength = primary and primary:IsA("BasePart") and primary.Size.Y * 2 or 0
+	if not isFinitePositive(trunkLength) or trunkLength < 6 then
+		local modelHeight = model and model:IsA("Model") and model:GetExtentsSize().Y
+		trunkLength = if isFinitePositive(modelHeight) and modelHeight >= 6 then modelHeight * 0.55 else 18
+	end
+	trunkLength = math.clamp(trunkLength, 8, 48)
+
+	return {
+		Origin = origin,
+		Direction = direction,
+		Perpendicular = Vector3.new(-direction.Z, 0, direction.X),
+		TrunkLength = trunkLength,
+	}
+end
+
+local function getFallPathPosition(fallPlacement, index, totalCount)
+	local count = math.max(1, math.floor(tonumber(totalCount) or 1))
+	local rank = math.clamp(math.floor(tonumber(index) or 1), 1, count)
+	local fraction = if count == 1 then 0.5 else 0.3 + 0.4 * ((rank - 1) / (count - 1))
+	local sideOffset = (rank - (count + 1) * 0.5) * 0.55
+	return fallPlacement.Origin
+		+ fallPlacement.Direction * (fallPlacement.TrunkLength * fraction)
+		+ fallPlacement.Perpendicular * sideOffset
+end
+
 local function createLogVisualModel(name, logRecord)
 	local model = Instance.new("Model")
 	model.Name = name
@@ -407,18 +479,16 @@ end
 
 -- The inventory record is already committed before this runs. This is a
 -- replicated, disposable presentation of a real reward, never its authority.
-local function playHarvestArrival(player, logRecord, origin, arrivalIndex)
+local function playHarvestArrival(player, logRecord, fallPlacement, arrivalIndex, batchCount)
 	local ok, err = xpcall(function()
 		local model, handle = createLogVisualModel("HarvestLog", logRecord)
 		model:SetAttribute("OwnerUserId", player.UserId)
 		model:SetAttribute("PickupAudioSequence", arrivalIndex)
-		local angle = (arrivalIndex - 1) * 2.399963229728653
-		local radius = 1.2 + ((arrivalIndex - 1) % 3) * 0.35
-		local horizontalOffset = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
+		local fallPathPosition = getFallPathPosition(fallPlacement, arrivalIndex, batchCount)
 		local landingPosition = Vector3.new(
-			origin.X + horizontalOffset.X,
-			getGroundHeight(origin) + handle.Size.Y * 0.5 + 0.08,
-			origin.Z + horizontalOffset.Z
+			fallPathPosition.X,
+			getGroundHeight(fallPathPosition) + handle.Size.Y * 0.5 + 0.08,
+			fallPathPosition.Z
 		)
 		local landing = CFrame.new(landingPosition)
 		model:PivotTo(landing * CFrame.new(0, 3.4, 0))
@@ -469,7 +539,13 @@ local function processCarryArrivalQueue(player)
 			for _, arrival in ipairs(batch) do
 				local currentArrival = arrival
 				task.spawn(function()
-					playHarvestArrival(player, currentArrival.LogRecord, currentArrival.Origin, currentArrival.Index)
+					playHarvestArrival(
+						player,
+						currentArrival.LogRecord,
+						currentArrival.FallPlacement,
+						currentArrival.Index,
+						currentArrival.BatchCount
+					)
 
 					local pendingUids = pendingCarryArrivalUids[player]
 					if pendingUids then
@@ -520,7 +596,7 @@ local function processCarryArrivalQueue(player)
 	end)
 end
 
-local function enqueueCarryArrivals(player, logRecords, origin)
+local function enqueueCarryArrivals(player, logRecords, fallPlacement, batchCount)
 	if #logRecords == 0 then return end
 	local queue = carryArrivalQueueByPlayer[player]
 	if not queue then
@@ -537,8 +613,9 @@ local function enqueueCarryArrivals(player, logRecords, origin)
 		pendingUids[logRecord.UID] = true
 		table.insert(batch, {
 			LogRecord = logRecord,
-			Origin = origin,
+			FallPlacement = fallPlacement,
 			Index = index,
+			BatchCount = batchCount,
 		})
 	end
 	table.insert(queue, batch)
@@ -625,7 +702,7 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 	return true
 end
 
-local function spawnGroundDrops(logRecords, ownerUserId, position)
+local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, firstIndex, batchCount)
 	if #logRecords == 0 then return true end
 	if not canSpawnGroundDrops(ownerUserId, #logRecords) then return false end
 
@@ -646,8 +723,7 @@ local function spawnGroundDrops(logRecords, ownerUserId, position)
 
 	for index, logRecord in ipairs(logRecords) do
 		local model, handle = createLogVisualModel("DroppedLog", logRecord)
-		local horizontalOffset = Vector3.new(0, 0, (index - (#logRecords + 1) * 0.5) * 0.9)
-		local landingPosition = position + horizontalOffset
+		local landingPosition = getFallPathPosition(fallPlacement, (firstIndex or 1) + index - 1, batchCount or #logRecords)
 		model:PivotTo(CFrame.new(
 			landingPosition.X,
 			getGroundHeight(landingPosition) + handle.Size.Y * 0.5 + 0.08,
@@ -700,7 +776,7 @@ local function getTreeLogYieldCount(tree)
 	return MAX_HARVEST_LOGS
 end
 
-function LogService.AwardTreeLog(tree, contributions)
+function LogService.AwardTreeLog(tree, contributions, fallRotation)
 	if not tree or tree.YieldsLog ~= true then return false end
 	if type(tree.SpeciesId) ~= "string"
 		or not logValueBySpecies[tree.SpeciesId]
@@ -740,21 +816,20 @@ function LogService.AwardTreeLog(tree, contributions)
 		end
 	end
 
-	local origin
-	if tree.InteractionPart and tree.InteractionPart:IsA("BasePart") then
-		origin = tree.InteractionPart.Position
-	elseif typeof(tree.CFrame) == "CFrame" then
-		origin = tree.CFrame.Position
-	else
-		origin = Vector3.zero
-	end
+	local fallPlacement = getFallPlacement(tree, fallRotation)
 
 	-- Preflight the bounded owner-only overflow before adding any records so a
 	-- full inventory never receives only part of a size-tier reward.
 	if #overflowRecords > 0 and not canSpawnGroundDrops(winner.UserId, #overflowRecords) then
 		return false
 	end
-	if #overflowRecords > 0 and not spawnGroundDrops(overflowRecords, winner.UserId, origin) then
+	if #overflowRecords > 0 and not spawnGroundDrops(
+		overflowRecords,
+		winner.UserId,
+		fallPlacement,
+		#inventoryRecords + 1,
+		rewardCount
+	) then
 		return false
 	end
 
@@ -764,7 +839,7 @@ function LogService.AwardTreeLog(tree, contributions)
 	if #inventoryRecords > 0 then
 		-- UIDs are committed before any presentation runs. Arrivals are serialized
 		-- per player and each settled UID is added to the back stack individually.
-		enqueueCarryArrivals(winner, inventoryRecords, origin)
+		enqueueCarryArrivals(winner, inventoryRecords, fallPlacement, rewardCount)
 	end
 	LogService.NotifyState(winner)
 	return true

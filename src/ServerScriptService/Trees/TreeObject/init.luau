@@ -483,15 +483,16 @@ end
 function Tree:Die(player)
 	if self.isDead or self.destroyed then return end
 	self.isDead = true
+	local fallenModel = self.model
+	local fallRotation = FXService.GetTreeFallRotation(fallenModel, player)
 	if self.YieldsLog then
-		LogService.AwardTreeLog(self, self.DamageContributions)
+		LogService.AwardTreeLog(self, self.DamageContributions, fallRotation)
 	end
 	if self.UnlockForestId then
 		WorldProgressService.UnlockForest(player, self.UnlockForestId)
 	end
-	local fallenModel = self.model
 	task.spawn(function()
-		FXService:TreeFall(fallenModel, player)
+		FXService:TreeFall(fallenModel, player, fallRotation)
 	end)
 	if self.RespawnSeconds then
 		task.delay(self.RespawnSeconds, function()
