@@ -6,8 +6,9 @@ local TreeDefinitions = {
 		ModelName = "BrickPlaceholder",
 		MaxHP = 100,
 		SpeciesId = "Oak",
-		BaseWeightKg = 8,
-		ValuePerKg = 2,
+		-- Personal-grove trees do not yield cargo, but retain the same species
+		-- identity as the starter forest for visuals.
+		LogValue = 16,
 		-- This temporary plot smoke-test tree must never become a free base farm.
 		YieldsLog = false,
 		RespawnSeconds = 3,
@@ -22,8 +23,7 @@ local TreeDefinitions = {
 		ModelName = "StarterForestTree",
 		MaxHP = 60,
 		SpeciesId = "Oak",
-		BaseWeightKg = 8,
-		ValuePerKg = 2,
+		LogValue = 16,
 		YieldsLog = true,
 		RespawnSeconds = 3,
 		OwnerOnly = false,
@@ -37,8 +37,7 @@ local TreeDefinitions = {
 		ModelName = "Forest2Tree",
 		MaxHP = 180,
 		SpeciesId = "Ironwood",
-		BaseWeightKg = 24,
-		ValuePerKg = 6,
+		LogValue = 144,
 		YieldsLog = true,
 		RespawnSeconds = 5,
 		OwnerOnly = false,

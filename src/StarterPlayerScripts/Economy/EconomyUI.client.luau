@@ -12,7 +12,6 @@ local getLogsData = economy:WaitForChild("GetLogsDataRF")
 local sellUnlockedLogs = economy:WaitForChild("SellUnlockedLogsRE")
 local getSellSummary = economy:WaitForChild("GetSellSummaryRF")
 local setLogLocked = economy:WaitForChild("SetLogLockedRE")
-local setHeldLog = economy:WaitForChild("SetHeldLogRE")
 local economyStateUpdated = economy:WaitForChild("EconomyStateUpdated")
 local getShopData = economy:WaitForChild("GetShopDataRF")
 local purchaseAxe = economy:WaitForChild("PurchaseAxeRE")
@@ -265,7 +264,7 @@ feedback.Visible = false
 round(feedback, 14)
 outline(feedback, COLORS.Gold, 2)
 
-local bagOverlay, bagPanel = makeModal(screen, "LogBag", "LOG BAG", "Tap a log to equip it. Locked logs stay safe from SELL ALL.")
+local bagOverlay, bagPanel = makeModal(screen, "LogBag", "LOG BAG", "Select a log to inspect it. Locked logs stay safe from SELL ALL.")
 bagPanel.Size = UDim2.new(0.94, 0, 0.9, 0)
 local bagSizeConstraint = bagPanel:FindFirstChildOfClass("UISizeConstraint")
 if bagSizeConstraint then
@@ -321,7 +320,7 @@ bagToolbar.Size = UDim2.new(0, 150, 1, -98)
 bagToolbar.Parent = bagPanel
 round(bagToolbar, 12)
 outline(bagToolbar, COLORS.BagLine, 3)
-local sortModes = { "Weight", "Value", "Species", "Newest" }
+local sortModes = { "Species", "Value", "Newest" }
 local sortIndex = 1
 local logsTab = button(bagToolbar, "LogsTab", "LOGS", UDim2.new(1, -20, 0, 64), UDim2.new(0, 10, 0, 12), COLORS.BagHeader)
 logsTab.TextColor3 = COLORS.BagBack
@@ -428,9 +427,9 @@ detailSpecies.TextStrokeTransparency = 0
 detailSpecies.TextStrokeColor3 = COLORS.BagLine
 detailSpecies.TextStrokeTransparency = 0
 local detailStatus = label(detailPanel, "Status", "CHOOSE A SLOT", UDim2.new(1, -36, 0, 26), UDim2.new(0, 18, 0, 46), 16, COLORS.BagMuted, Enum.Font.GothamBold)
-local detailMetricLabel = label(detailPanel, "MetricLabel", "WEIGHT", UDim2.new(1, -36, 0, 24), UDim2.new(0, 18, 0, 0), 16, COLORS.BagMuted, Enum.Font.GothamBlack)
-local detailWeight = label(detailPanel, "Weight", "", UDim2.new(1, -36, 0, 40), UDim2.new(0, 18, 0, 0), 30, COLORS.BagAction, Enum.Font.GothamBlack)
-detailWeight.TextXAlignment = Enum.TextXAlignment.Center
+local detailMetricLabel = label(detailPanel, "MetricLabel", "VALUE", UDim2.new(1, -36, 0, 24), UDim2.new(0, 18, 0, 0), 16, COLORS.BagMuted, Enum.Font.GothamBlack)
+local detailMetricValue = label(detailPanel, "MetricValue", "", UDim2.new(1, -36, 0, 40), UDim2.new(0, 18, 0, 0), 30, COLORS.BagAction, Enum.Font.GothamBlack)
+detailMetricValue.TextXAlignment = Enum.TextXAlignment.Center
 local detailValue = label(detailPanel, "Value", "", UDim2.new(), UDim2.new(), 1, COLORS.BagMuted)
 detailValue.Visible = false
 local detailSize = label(detailPanel, "Size", "", UDim2.new(), UDim2.new(), 1, COLORS.BagMuted)
@@ -686,10 +685,10 @@ local function setBagLayout()
 		detailMetricLabel.Size = UDim2.new(1, -36, 0, 24)
 		detailMetricLabel.TextXAlignment = Enum.TextXAlignment.Center
 		detailMetricLabel.TextSize = 16
-		detailWeight.Position = UDim2.new(0, 18, 0, previewTop + previewSide + 30)
-		detailWeight.Size = UDim2.new(1, -36, 0, 42)
-		detailWeight.TextSize = 30
-		detailWeight.TextXAlignment = Enum.TextXAlignment.Center
+		detailMetricValue.Position = UDim2.new(0, 18, 0, previewTop + previewSide + 30)
+		detailMetricValue.Size = UDim2.new(1, -36, 0, 42)
+		detailMetricValue.TextSize = 30
+		detailMetricValue.TextXAlignment = Enum.TextXAlignment.Center
 		detailExtraLabel.Position = UDim2.new(0, 18, 0, previewTop + previewSide + 78)
 		detailExtraLabel.Size = UDim2.new(1, -36, 0, 24)
 		detailExtraLabel.TextXAlignment = Enum.TextXAlignment.Center
@@ -735,10 +734,10 @@ local function setBagLayout()
 		detailMetricLabel.Size = UDim2.new(1, -36, 0, 22)
 		detailMetricLabel.TextSize = 14
 		detailMetricLabel.TextXAlignment = Enum.TextXAlignment.Center
-		detailWeight.Position = UDim2.new(0, 18, 0, previewTop + previewSide + 26)
-		detailWeight.Size = UDim2.new(1, -36, 0, 36)
-		detailWeight.TextSize = 26
-		detailWeight.TextXAlignment = Enum.TextXAlignment.Center
+		detailMetricValue.Position = UDim2.new(0, 18, 0, previewTop + previewSide + 26)
+		detailMetricValue.Size = UDim2.new(1, -36, 0, 36)
+		detailMetricValue.TextSize = 26
+		detailMetricValue.TextXAlignment = Enum.TextXAlignment.Center
 		detailExtraLabel.Position = UDim2.new(0, 18, 0, previewTop + previewSide + 66)
 		detailExtraLabel.Size = UDim2.new(1, -36, 0, 22)
 		detailExtraLabel.TextSize = 14
@@ -782,21 +781,34 @@ local function showEmptyState(text)
 	emptyState.Visible = true
 end
 
+local function getLogValue(record)
+	if type(record) ~= "table" then return nil end
+	local value = tonumber(record.LogValue)
+	if value == nil then value = tonumber(record.Value) end
+	if value == nil then value = tonumber(record.EstimatedSellValue) end
+	if value == nil or value ~= value or value == math.huge or value == -math.huge then return nil end
+	return math.max(0, math.floor(value + 0.5))
+end
+
 local function sortedLogs(data)
 	local logs = type(data.Logs) == "table" and table.clone(data.Logs) or {}
 	local mode = sortModes[sortIndex]
 	table.sort(logs, function(a, b)
-			if mode == "Value" then
-				if a.EstimatedSellValue ~= b.EstimatedSellValue then return (a.EstimatedSellValue or 0) > (b.EstimatedSellValue or 0) end
-			elseif mode == "Species" then
-				if a.SpeciesId ~= b.SpeciesId then return tostring(a.SpeciesId or "") < tostring(b.SpeciesId or "") end
-			elseif mode == "Newest" then
-				if a.CreatedAt ~= b.CreatedAt then return (a.CreatedAt or 0) > (b.CreatedAt or 0) end
-			else
-				if a.WeightKg ~= b.WeightKg then return (a.WeightKg or 0) > (b.WeightKg or 0) end
+		if mode == "Value" then
+			local valueA = getLogValue(a)
+			local valueB = getLogValue(b)
+			if valueA ~= valueB then
+				if valueA == nil then return false end
+				if valueB == nil then return true end
+				return valueA > valueB
 			end
-			return tostring(a.UID or "") < tostring(b.UID or "")
-		end)
+		elseif mode == "Species" then
+			if a.SpeciesId ~= b.SpeciesId then return tostring(a.SpeciesId or "") < tostring(b.SpeciesId or "") end
+		elseif mode == "Newest" then
+			if a.CreatedAt ~= b.CreatedAt then return (a.CreatedAt or 0) > (b.CreatedAt or 0) end
+		end
+		return tostring(a.UID or "") < tostring(b.UID or "")
+	end)
 	return logs
 end
 
@@ -817,25 +829,28 @@ local function updateBagTabs(logCount, capacity, axeCount)
 	bagCountLabel.Text = string.format("%d / %d", logCount or 0, capacity or 10)
 	bagCountLabel.TextColor3 = COLORS.BagMuted
 	bagCountLabel.TextWrapped = false
-	local sortLabels = { "WEIGHT", "VALUE", "A-Z", "NEWEST" }
+	local sortLabels = { "A-Z", "VALUE", "NEWEST" }
 	sortButton.Text = "SORT  " .. sortLabels[sortIndex]
 	sortButton.Visible = logsActive and bagPanel.AbsoluteSize.X >= 680
 end
 
 local function renderLogDetail(record)
 	local hasRecord = type(record) == "table"
+	local value = if hasRecord then getLogValue(record) else nil
 	detailIcon.Visible = false
 	detailLogVisual.Visible = hasRecord
 	detailSpecies.Text = if hasRecord then tostring(record.SpeciesId or "Unknown") else "NO LOG SELECTED"
-	detailMetricLabel.Text = "WEIGHT"
-	detailWeight.Text = if hasRecord then string.format("%.2f KG", tonumber(record.WeightKg) or 0) else ""
-	detailWeight.TextColor3 = if hasRecord then COLORS.BagAction else COLORS.BagMuted
+	detailMetricLabel.Text = "VALUE"
+	detailMetricLabel.Visible = value ~= nil
+	detailMetricValue.Text = if value ~= nil then formatCoins(value) .. " COINS" else ""
+	detailMetricValue.Visible = value ~= nil
+	detailMetricValue.TextColor3 = if value ~= nil then COLORS.BagAction else COLORS.BagMuted
 	detailValue.Text = ""
 	detailSize.Text = ""
 	detailExtraLabel.Visible = false
 	detailExtraValue.Visible = false
-	detailStatus.Text = if not hasRecord then "CHOOSE A SLOT" elseif player:GetAttribute("HeldLogUID") == record.UID then "EQUIPPED" else "TAP TO EQUIP"
-	detailStatus.TextColor3 = if hasRecord and player:GetAttribute("HeldLogUID") == record.UID then COLORS.BagAction else COLORS.BagMuted
+	detailStatus.Text = if not hasRecord then "CHOOSE A LOG" elseif record.Locked == true then "LOCKED • SAFE FROM SELL ALL" else "SELECTED"
+	detailStatus.TextColor3 = if hasRecord and record.Locked == true then COLORS.Gold else COLORS.BagMuted
 	favoriteButton.Visible = hasRecord
 	if not hasRecord then return end
 	favoriteButton.Text = if record.Locked then "UNLOCK" else "LOCK"
@@ -850,8 +865,10 @@ local function renderAxeDetail(axe)
 	detailIcon.Text = "🪓"
 	detailSpecies.Text = if hasAxe then tostring(axe.Name or "Axe") else "OWNED AXES"
 	detailMetricLabel.Text = "POWER"
-	detailWeight.Text = if hasAxe then tostring(axe.Power or 0) else "—"
-	detailWeight.TextColor3 = if hasAxe then COLORS.BagAction else COLORS.BagMuted
+	detailMetricLabel.Visible = true
+	detailMetricValue.Text = if hasAxe then tostring(axe.Power or 0) else "—"
+	detailMetricValue.Visible = true
+	detailMetricValue.TextColor3 = if hasAxe then COLORS.BagAction else COLORS.BagMuted
 	detailStatus.Text = if not hasAxe then "NO OWNED AXES" elseif axe.Equipped then "EQUIPPED" else "TAP TO EQUIP"
 	detailStatus.TextColor3 = if hasAxe and axe.Equipped then COLORS.BagAction else COLORS.BagMuted
 	detailValue.Text = ""
@@ -1000,16 +1017,7 @@ local function renderLogs(data)
 		end
 		saleCoinsBefore = nil
 	end
-	if not findSelectedLog(logs) then
-		selectedLogUid = nil
-		local heldUid = player:GetAttribute("HeldLogUID")
-		for _, record in ipairs(logs) do
-			if record.UID == heldUid then
-				selectedLogUid = heldUid
-				break
-			end
-		end
-	end
+	if not findSelectedLog(logs) then selectedLogUid = nil end
 	updateBagTabs(#logs, capacity, #ownedAxes(latestShopData))
 	if activeBagTab == "Axes" then
 		renderAxes(latestShopData)
@@ -1023,17 +1031,12 @@ local function renderLogs(data)
 		return
 	end
 	for index, record in ipairs(logs) do
-		local isHeld = record.UID == player:GetAttribute("HeldLogUID")
 		local isSelected = record.UID == selectedLogUid
-		makeItemSlot("LogSlot_" .. tostring(record.UID or index), index, "LOG", tostring(record.SpeciesId or "Log"), string.format("%.2f KG", tonumber(record.WeightKg) or 0), isHeld, isSelected, record.Locked == true, function()
+		local value = getLogValue(record)
+		local valueText = if value ~= nil then formatCoins(value) .. " COINS" else ""
+		makeItemSlot("LogSlot_" .. tostring(record.UID or index), index, "LOG", tostring(record.SpeciesId or "Log"), valueText, false, isSelected, record.Locked == true, function()
 			if typeof(record.UID) ~= "string" then return end
-			if player:GetAttribute("HeldLogUID") == record.UID then
-				selectedLogUid = nil
-				setHeldLog:FireServer("")
-			else
-				selectedLogUid = record.UID
-				setHeldLog:FireServer(record.UID)
-			end
+			selectedLogUid = record.UID
 			if latestLogsData then renderLogs(latestLogsData) end
 		end)
 	end
@@ -1295,10 +1298,6 @@ if legacyEconomyUpdated then
 		end
 	end)
 end
-
-player:GetAttributeChangedSignal("HeldLogUID"):Connect(function()
-	if latestLogsData then renderLogs(latestLogsData) end
-end)
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end

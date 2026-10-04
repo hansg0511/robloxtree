@@ -120,7 +120,7 @@ local function destroyInventory(player: Player)
 	playerInventories[player] = nil
 end
 
-local function EquipItem(player, item, clearHeldLogBeforeEquip)
+local function EquipItem(player, item)
 	local inv = playerInventories[player]
 	local playerProfile = playerProfileCache.GetProfile(player)
 	if not inv or not playerProfile then return false end
@@ -141,10 +141,6 @@ local function EquipItem(player, item, clearHeldLogBeforeEquip)
 	if not prepareToolAssembly(tool) then
 		tool:Destroy()
 		return false
-	end
-
-	if clearHeldLogBeforeEquip then
-		LogService.ClearHeldLog(player)
 	end
 
 	player:SetAttribute("EquipUID", item.ItemUID)
@@ -172,7 +168,7 @@ local function EquipOwnedAxe(player, uid)
 
 	for slotIndex, item in ipairs(inv:Items()) do
 		if item and item.ItemUID == uid and item.ItemType == "Weapon" and item == weapon then
-			if not EquipItem(player, item, true) then return false end
+			if not EquipItem(player, item) then return false end
 			inv:SetEquippedItem(slotIndex)
 			return true
 		end

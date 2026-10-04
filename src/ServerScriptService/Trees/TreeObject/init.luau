@@ -297,8 +297,7 @@ function Tree.new(options)
 	self.MaxHP = definition.MaxHP
 	self.HP = definition.MaxHP
 	self.SpeciesId = definition.SpeciesId
-	self.BaseWeightKg = definition.BaseWeightKg
-	self.ValuePerKg = definition.ValuePerKg
+	self.LogValue = definition.LogValue
 	self.YieldsLog = definition.YieldsLog == true
 	self.SizeScale = 1
 	self.DamageContributions = {}
@@ -322,9 +321,10 @@ end
 
 function Tree:Spawn()
 	if self.destroyed then return nil end
-	local hasLogDrop = self.Category ~= "Barrier"
+	local hasLogDrop = self.YieldsLog
+		and self.Category ~= "Barrier"
 		and type(self.SpeciesId) == "string"
-		and type(self.BaseWeightKg) == "number"
+		and type(self.LogValue) == "number"
 	self.SizeScale = if hasLogDrop then rollTreeScale() else 1
 	-- Combat state stays integral even though the presentation size is fractional.
 	self.MaxHP = math.max(1, math.floor(self.BaseHP * (self.SizeScale ^ 1.4) + 0.5))

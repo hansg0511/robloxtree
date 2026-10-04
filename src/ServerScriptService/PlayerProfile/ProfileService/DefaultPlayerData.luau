@@ -14,8 +14,6 @@ export type LogItem = {
 	UID: string,
 	ItemType: "Log",
 	SpeciesId: string,
-	WeightKg: number,
-	SizeScale: number,
 	Mutations: { [string]: any },
 	Locked: boolean,
 	CreatedAt: number,

@@ -34,12 +34,41 @@ function SpeciesVisuals.GetPalette(speciesId)
 	return PALETTES[speciesId] or PALETTES[FALLBACK_SPECIES]
 end
 
-local function getSizeScale(logRecord)
-	local sizeScale = type(logRecord) == "table" and logRecord.SizeScale or nil
-	if type(sizeScale) ~= "number" or sizeScale ~= sizeScale or sizeScale <= 0 or sizeScale == math.huge then
-		return 1
+local function hasNonemptyText(value)
+	return type(value) == "string" and string.match(value, "%S") ~= nil
+end
+
+local function isValidMutationEntry(key, value)
+	-- Mutation records are server-owned maps keyed by a nonempty mutation name.
+	-- Empty strings, false flags, non-finite numbers, and malformed values are
+	-- ignored so corrupt profile data cannot make an ordinary log look rare.
+	if not hasNonemptyText(key) then
+		return false
 	end
-	return math.clamp(sizeScale, 0.45, 1.7)
+
+	if type(value) == "string" then
+		return hasNonemptyText(value)
+	elseif type(value) == "number" then
+		return value == value and value > -math.huge and value < math.huge
+	elseif type(value) == "boolean" then
+		return value
+	end
+
+	return false
+end
+
+function SpeciesVisuals.IsRareLog(logRecord)
+	if type(logRecord) ~= "table" or type(logRecord.Mutations) ~= "table" then
+		return false
+	end
+
+	for key, value in pairs(logRecord.Mutations) do
+		if isValidMutationEntry(key, value) then
+			return true
+		end
+	end
+
+	return false
 end
 
 local function configurePart(part)
@@ -112,17 +141,14 @@ local function addBarkStrips(handle, length, diameter, sizeScale, palette)
 	end
 end
 
--- Creates the same server-built wood assembly for held tools and world pickups.
--- visualMultiplier changes presentation size only and defaults to 1.
+-- Creates a fixed-size server-built wood assembly for an ordinary world drop.
+-- Inventory records deliberately have no presentation-scale field: tree scale
+-- belongs to the living world tree, never to its resulting cargo record.
 -- Returns a direct-child Handle plus the direct-child decorative end caps.
-function SpeciesVisuals.CreateLogParts(logRecord, handleName, visualMultiplier)
+function SpeciesVisuals.CreateLogParts(logRecord, handleName)
 	assert(type(logRecord) == "table", "A server-owned log record is required")
 	local palette = SpeciesVisuals.GetPalette(logRecord.SpeciesId)
-	local sizeScale = getSizeScale(logRecord)
-	local geometryScale = sizeScale
-	if type(visualMultiplier) == "number" and visualMultiplier == visualMultiplier and visualMultiplier ~= math.huge then
-		geometryScale *= math.clamp(visualMultiplier, 1, 1.6)
-	end
+	local geometryScale = 1
 	local length = 2.15 * geometryScale
 	local diameter = 0.7 * geometryScale
 
@@ -142,7 +168,6 @@ function SpeciesVisuals.CreateLogParts(logRecord, handleName, visualMultiplier)
 	handle.RightSurface = Enum.SurfaceType.Studs
 	handle:SetAttribute("ItemType", "Log")
 	handle:SetAttribute("SpeciesId", logRecord.SpeciesId)
-	handle:SetAttribute("SizeScale", sizeScale)
 	addBarkStrips(handle, length, diameter, geometryScale, palette)
 
 	local caps = {}
@@ -168,6 +193,51 @@ function SpeciesVisuals.CreateLogParts(logRecord, handleName, visualMultiplier)
 	end
 
 	return handle, caps
+end
+
+-- Small, standardized cosmetic log for the character's back cargo. It stays a
+-- consistent size across species and has no inventory-driven presentation
+-- scale. The caller positions and welds all three BaseParts to its character-
+-- local cargo anchor.
+function SpeciesVisuals.CreateCarryLogParts(logRecord)
+	assert(type(logRecord) == "table", "A server-owned log record is required")
+	local palette = SpeciesVisuals.GetPalette(logRecord.SpeciesId)
+	local length = 2.15
+	local diameter = 0.48
+	local capThickness = 0.07
+
+	local body = configurePart(Instance.new("Part"))
+	body.Name = "CarryLogBody"
+	body.Size = Vector3.new(length, diameter, diameter)
+	body.CFrame = CFrame.new()
+	body.Color = palette.Bark
+	body.Material = Enum.Material.Plastic
+	body.TopSurface = Enum.SurfaceType.Studs
+	body.BottomSurface = Enum.SurfaceType.Inlet
+	body.FrontSurface = Enum.SurfaceType.Studs
+	body.BackSurface = Enum.SurfaceType.Studs
+	body.LeftSurface = Enum.SurfaceType.Studs
+	body.RightSurface = Enum.SurfaceType.Studs
+	body:SetAttribute("SpeciesId", logRecord.SpeciesId)
+	body:SetAttribute("ItemType", "Log")
+
+	local caps = {}
+	for index, direction in ipairs({ -1, 1 }) do
+		local cap = configurePart(Instance.new("Part"))
+		cap.Name = "CarryLogCutEnd" .. index
+		cap.Shape = Enum.PartType.Cylinder
+		cap.Size = Vector3.new(capThickness, diameter * 0.88, diameter * 0.88)
+		cap.CFrame = CFrame.new(direction * (length * 0.5 - capThickness * 0.5), 0, 0)
+		cap.Color = palette.CutEnd
+		cap.Material = Enum.Material.Plastic
+		cap.TopSurface = Enum.SurfaceType.Smooth
+		cap.BottomSurface = Enum.SurfaceType.Smooth
+		cap:SetAttribute("SpeciesId", logRecord.SpeciesId)
+		cap:SetAttribute("ItemType", "Log")
+		table.insert(caps, cap)
+	end
+
+	return body, caps
 end
 
 return SpeciesVisuals
