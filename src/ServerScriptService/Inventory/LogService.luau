@@ -2,7 +2,6 @@
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local ProfileCache = require(game.ServerScriptService.PlayerProfile.ProfileService.ProfileDataCache)
@@ -29,11 +28,10 @@ local MAX_PICKUP_DISTANCE = 15
 -- A single legitimate proximity request may collect a whole nearby tree reward.
 -- This stays bounded by both capacity and this fixed server-side ceiling.
 local MAX_PICKUP_BATCH = MAX_CAPACITY
-local PICKUP_FLIGHT_DURATION = 1.0
-local PICKUP_ARC_HEIGHT = 20
--- A batch launches together, but its arrivals fan out just enough for each
--- pickup cue to read separately instead of becoming one noisy instant.
-local MAX_BATCH_ARRIVAL_SPREAD = 0.36
+local PICKUP_POP_DURATION = 0.10
+local PICKUP_FLIGHT_DURATION = 0.36
+local PICKUP_LAUNCH_OFFSET_PER_LOG = 0.015
+local MAX_PICKUP_LAUNCH_OFFSET = 0.08
 -- World drops deliberately read larger than carried cargo so they remain visible
 -- alongside a fallen trunk. Inventory/carry presentation stays at its own scale.
 local GROUND_DROP_VISUAL_SCALE = 2
@@ -49,6 +47,7 @@ local GetSellSummaryRF = economyRemotes:WaitForChild("GetSellSummaryRF")
 local SellUnlockedLogsRE = economyRemotes:WaitForChild("SellUnlockedLogsRE")
 local SetLogLockedRE = economyRemotes:WaitForChild("SetLogLockedRE")
 local PickupGroundLogRE = economyRemotes:WaitForChild("PickupGroundLogRE")
+local PickupLogFXRE = economyRemotes:WaitForChild("PickupLogFXRE")
 local EconomyStateUpdated = economyRemotes:WaitForChild("EconomyStateUpdated")
 
 local profileLoaded = game.ServerScriptService.PlayerProfile.ProfileInit.ProfileLoadedEvent
@@ -310,16 +309,6 @@ local function getGroundDropFolder()
 	return folder
 end
 
-local function getHarvestVisualFolder()
-	local folder = Workspace:FindFirstChild("HarvestLogVisuals")
-	if not folder then
-		folder = Instance.new("Folder")
-		folder.Name = "HarvestLogVisuals"
-		folder.Parent = Workspace
-	end
-	return folder
-end
-
 local function getGroundHeight(position)
 	local ground = Workspace:FindFirstChild("BaseGround")
 	if ground and ground:IsA("BasePart") then
@@ -425,51 +414,6 @@ local function createLogVisualModel(name, logRecord, visualScale)
 	return model, handle
 end
 
-local function tweenModelPivotAlongArc(model, getDestination, duration, arcHeight)
-	if not model.Parent then return false end
-	local initialDestination = getDestination()
-	if not initialDestination then return false end
-
-	local start = model:GetPivot()
-	local startPosition = start.Position
-	local lastDestination = initialDestination
-	local progress = Instance.new("NumberValue")
-	progress.Value = 0
-	local connection = progress:GetPropertyChangedSignal("Value"):Connect(function()
-		if model.Parent then
-			local destination = getDestination()
-			if destination then
-				lastDestination = destination
-			end
-
-			local alpha = progress.Value
-			local destinationPosition = lastDestination.Position
-			-- A quadratic arc adds 4h*t*(1-t) to the straight start-to-target
-			-- path. That puts the log about arcHeight studs above the path at
-			-- mid-flight, with a natural upward launch and downward arrival.
-			local position = startPosition:Lerp(destinationPosition, alpha)
-				+ Vector3.new(0, 4 * arcHeight * alpha * (1 - alpha), 0)
-
-			local rotation = start - startPosition
-			model:PivotTo(CFrame.new(position) * rotation)
-		end
-	end)
-	local tween = TweenService:Create(
-		progress,
-		TweenInfo.new(duration, Enum.EasingStyle.Linear),
-		{ Value = 1 }
-	)
-	tween:Play()
-	tween.Completed:Wait()
-	connection:Disconnect()
-	local finalDestination = getDestination()
-	if model.Parent and finalDestination then
-		model:PivotTo(finalDestination)
-	end
-	progress:Destroy()
-	return model.Parent ~= nil and finalDestination ~= nil
-end
-
 local function finishCarryArrival(player, uid)
 	local pendingUids = pendingCarryArrivalUids[player]
 	if pendingUids then
@@ -485,42 +429,43 @@ local function finishCarryArrival(player, uid)
 	end
 end
 
--- The profile record is already committed before this runs. The existing
--- server-created ground model is moved into a disposable visual folder and
--- animated into its exact authoritative cargo slot.
-local function playPickupArrival(player, model, uid, flightDuration)
-	local ok, err = xpcall(function()
-		-- A single server snapshot avoids normalizing/snapshotting the full profile
-		-- on every animation frame. Slot position still follows the live character.
-		local stagedRecords = LogService.GetOwnedLogs(player)
-		local function getArrivalCFrame()
-			if not stagedRecords then return nil end
-			return LogCarryVisualService.GetArrivalCFrame(player, stagedRecords, uid)
-		end
-
-		if model.Parent and getArrivalCFrame() then
-			local arrived = tweenModelPivotAlongArc(
-				model,
-				getArrivalCFrame,
-				flightDuration or PICKUP_FLIGHT_DURATION,
-				PICKUP_ARC_HEIGHT
-			)
-			if arrived and model.Parent then
-				-- The local sound is keyed to this replicated arrival marker, so it
-				-- plays when the wood reaches its server-calculated cargo slot. Keep
-				-- the model alive briefly so the marker reaches the owner client.
-				model:SetAttribute("PickupArrived", true)
-				task.wait(0.12)
+local function getCarryTargetByUid(logRecords)
+	local targets = {}
+	local normalIndex = 0
+	local rareIndex = 0
+	for _, logRecord in ipairs(logRecords) do
+		if type(logRecord) == "table" and logRecord.ItemType == "Log" and isValidUid(logRecord.UID) then
+			if SpeciesVisuals.IsRareLog(logRecord) then
+				rareIndex += 1
+				targets[logRecord.UID] = { Stack = "Rare", Index = rareIndex }
+			else
+				normalIndex += 1
+				targets[logRecord.UID] = { Stack = "Normal", Index = normalIndex }
 			end
 		end
-	end, debug.traceback)
-	if not ok then
-		warn("Picked-up log visual failed", err)
 	end
-	if model.Parent then
-		model:Destroy()
-	end
-	finishCarryArrival(player, uid)
+	return targets
+end
+
+local function makePickupFxPayload(claim, carryTarget, launchOffset)
+	if not carryTarget then return nil end
+	local logRecord = claim.Entry.LogRecord
+	local palette = SpeciesVisuals.GetPalette(logRecord.SpeciesId)
+	return {
+		OwnerUserId = claim.OwnerUserId,
+		UID = claim.UID,
+		SpeciesId = logRecord.SpeciesId,
+		Mutations = copyMutations(logRecord.Mutations),
+		StartCFrame = claim.StartCFrame,
+		BarkColor = palette.Bark,
+		CutEndColor = palette.CutEnd,
+		TargetStack = carryTarget.Stack,
+		TargetIndex = carryTarget.Index,
+		LaunchOffset = launchOffset,
+		PopDuration = PICKUP_POP_DURATION,
+		FlightDuration = PICKUP_FLIGHT_DURATION,
+		StartVisualScale = GROUND_DROP_VISUAL_SCALE,
+	}
 end
 
 local function getPendingGroundDrop(ownerUserId)
@@ -619,7 +564,7 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 	end)
 
 	local claims = {
-		{ UID = uid, Entry = entry, Model = model },
+		{ UID = uid, Entry = entry, Model = model, StartCFrame = model:GetPivot(), OwnerUserId = player.UserId },
 	}
 	for _, candidate in ipairs(nearby) do
 		if #claims >= availableSlots then break end
@@ -627,6 +572,8 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 			UID = candidate.UID,
 			Entry = candidate.Entry,
 			Model = candidate.Entry.Model,
+			StartCFrame = candidate.Entry.Model:GetPivot(),
+			OwnerUserId = player.UserId,
 		})
 	end
 
@@ -637,26 +584,35 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 		pendingUids = {}
 		pendingCarryArrivalUids[player] = pendingUids
 	end
-	local harvestVisuals = getHarvestVisualFolder()
 	for _, claim in ipairs(claims) do
 		drop.LogRecordsByUid[claim.UID] = nil
 		drop.Count -= 1
 		pendingUids[claim.UID] = true
 		table.insert(data.Logs, claim.Entry.LogRecord)
-
-		-- Reuse each exact server-created ground model so collection never pops.
-		claim.Model.Name = "HarvestLog"
-		claim.Model.Parent = harvestVisuals
 	end
 
 	if drop.Count <= 0 then
 		clearGroundDropBundle(bundle, drop)
 	end
 	LogService.NotifyState(player)
+	local carryTargets = getCarryTargetByUid(data.Logs)
 	for index, claim in ipairs(claims) do
-		local progress = if #claims > 1 then (index - 1) / (#claims - 1) else 0
-		local duration = PICKUP_FLIGHT_DURATION + MAX_BATCH_ARRIVAL_SPREAD * progress
-		task.spawn(playPickupArrival, player, claim.Model, claim.UID, duration)
+		local launchOffset = math.min((index - 1) * PICKUP_LAUNCH_OFFSET_PER_LOG, MAX_PICKUP_LAUNCH_OFFSET)
+		local payload = makePickupFxPayload(claim, carryTargets[claim.UID], launchOffset)
+		if payload then
+			-- Cosmetics are best-effort. Inventory was committed above and is never
+			-- rolled back if client rendering or remote delivery fails.
+			local fired, err = pcall(function()
+				PickupLogFXRE:FireAllClients(payload)
+			end)
+			if not fired then
+				warn("Could not broadcast picked-up log cosmetic", err)
+			end
+		end
+		claim.Model:Destroy()
+		task.delay(launchOffset + PICKUP_POP_DURATION + PICKUP_FLIGHT_DURATION, function()
+			finishCarryArrival(player, claim.UID)
+		end)
 	end
 	return true
 end

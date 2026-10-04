@@ -3,22 +3,14 @@
 -- only projects a bounded list of those records onto the character.
 local Players = game:GetService("Players")
 local ServerStorage = game:GetService("ServerStorage")
+local CarryLayout = require(game.ReplicatedStorage.Shared.CarryLayout)
 
 local SpeciesVisuals = require(ServerStorage:WaitForChild("SpeciesVisuals"))
 
 local LogCarryVisualService = {}
 
-local MAX_CARRIED_LOGS = 40
+local MAX_CARRIED_LOGS = CarryLayout.MAX_CARRIED_LOGS
 local MAX_RECORDS_SCANNED = 160
-local COLUMNS_PER_STACK = 1
-local LOG_LAYER_HEIGHT = 0.5
-local NORMAL_STACK_CENTER_X = -1.15
-local RARE_STACK_CENTER_X = 1.15
--- Leave a deliberate clear gap behind the body for the future bag model.
--- Cargo floats outside that future volume instead of clipping through a torso.
-local CARGO_BACK_OFFSET = 1.75
-local CARGO_BASE_HEIGHT = 0.68
-local LOG_LENGTH = 2.15
 
 local latestRecordsByPlayer = {}
 local buildSerialByPlayer = {}
@@ -124,10 +116,12 @@ local function makeNonPhysicalPart(part)
 end
 
 local function addWeld(part0, part1, name)
-	local weld = Instance.new("WeldConstraint")
+	local weld = Instance.new("Weld")
 	weld.Name = name
 	weld.Part0 = part0
 	weld.Part1 = part1
+	weld.C0 = part0.CFrame:ToObjectSpace(part1.CFrame)
+	weld.C1 = CFrame.identity
 	weld.Parent = part1
 	return weld
 end
@@ -139,43 +133,51 @@ local function createCargoAnchor(torso, model)
 	anchor.Transparency = 1
 	anchor.CastShadow = false
 	makeNonPhysicalPart(anchor)
-	anchor.CFrame = torso.CFrame * CFrame.new(0, 0.42, CARGO_BACK_OFFSET)
+	local anchorOffset = CarryLayout.GetAnchorRelativeCFrame()
+	anchor.CFrame = torso.CFrame * anchorOffset
 	anchor.Parent = model
-	addWeld(torso, anchor, "CargoAnchorWeld")
+	local weld = addWeld(torso, anchor, "CargoAnchorWeld")
+	weld.C0 = anchorOffset
 	return anchor
 end
 
 local function addLogVisual(model, anchor, logRecord, stackName, stackIndex)
-	local stackCenterX = stackName == "Rare" and RARE_STACK_CENTER_X or NORMAL_STACK_CENTER_X
-	local layerIndex = math.floor((stackIndex - 1) / COLUMNS_PER_STACK)
-	local localPosition = Vector3.new(
-		stackCenterX,
-		CARGO_BASE_HEIGHT + layerIndex * LOG_LAYER_HEIGHT,
-		0
-	)
-	-- Keep each log horizontally across the character's back rather than pointed
-	-- into their body. The anchor already supplies the deliberate rear gap.
-	local logCFrame = anchor.CFrame
-		* CFrame.new(localPosition)
-
+	local slotCFrame = CarryLayout.GetAnchorRelativeSlotCFrame(stackName, stackIndex)
+	if not slotCFrame then
+		return nil
+	end
+	local logCFrame = anchor.CFrame * slotCFrame
 	local body, caps = SpeciesVisuals.CreateCarryLogParts(logRecord)
 	body.CFrame = logCFrame
 	body:SetAttribute("LogUID", logRecord.UID)
 	body:SetAttribute("CarryStack", stackName)
+	body:SetAttribute("CarryIndex", stackIndex)
 	body:SetAttribute("IsRare", logRecord.IsRare == true)
 	body.Parent = model
-	addWeld(anchor, body, "CarriedLogWeld")
+	local bodyWeld = addWeld(anchor, body, "CarriedLogWeld")
+	bodyWeld.C0 = slotCFrame
 
-	local capOffset = LOG_LENGTH * 0.5 - 0.07 * 0.5
+	local capOffset = body.Size.X * 0.5 - caps[1].Size.X * 0.5
+	local capWelds = {}
 	for capIndex, cap in ipairs(caps) do
 		local direction = capIndex == 1 and -1 or 1
-		cap.CFrame = logCFrame * CFrame.new(direction * capOffset, 0, 0)
+		local capRelativeCFrame = slotCFrame * CFrame.new(direction * capOffset, 0, 0)
+		cap.CFrame = anchor.CFrame * capRelativeCFrame
 		cap:SetAttribute("LogUID", logRecord.UID)
 		cap:SetAttribute("CarryStack", stackName)
+		cap:SetAttribute("CarryIndex", stackIndex)
 		cap:SetAttribute("IsRare", logRecord.IsRare == true)
 		cap.Parent = model
-		addWeld(anchor, cap, "CarriedLogCapWeld")
+		capWelds[capIndex] = addWeld(anchor, cap, "CarriedLogCapWeld")
+		capWelds[capIndex].C0 = capRelativeCFrame
 	end
+	return {
+		Body = body,
+		Caps = caps,
+		BodyWeld = bodyWeld,
+		CapWelds = capWelds,
+		SpeciesId = logRecord.SpeciesId,
+	}
 end
 
 local function findTorso(character)
@@ -229,15 +231,127 @@ function LogCarryVisualService.GetArrivalCFrame(player, stagedRecords, targetUID
 		return nil
 	end
 
-	local stackCenterX = stackName == "Rare" and RARE_STACK_CENTER_X or NORMAL_STACK_CENTER_X
-	local layerIndex = math.floor((stackIndex - 1) / COLUMNS_PER_STACK)
-	local localPosition = Vector3.new(
-		stackCenterX,
-		CARGO_BASE_HEIGHT + layerIndex * LOG_LAYER_HEIGHT,
-		0
-	)
-	local anchorCFrame = torso.CFrame * CFrame.new(0, 0.42, CARGO_BACK_OFFSET)
-	return anchorCFrame * CFrame.new(localPosition)
+	local torsoRelativeTarget = CarryLayout.GetTorsoRelativeTargetCFrame(stackName, stackIndex)
+	return torsoRelativeTarget and (torso.CFrame * torsoRelativeTarget) or nil
+end
+
+local function collectCarryVisuals(model)
+	local visualsByUid = {}
+	for _, child in ipairs(model:GetChildren()) do
+		if child:IsA("BasePart") then
+			local uid = child:GetAttribute("LogUID")
+			if isNonemptyString(uid, 80) then
+				local visual = visualsByUid[uid]
+				if not visual then
+					visual = { Caps = {} }
+					visualsByUid[uid] = visual
+				end
+				if child.Name == "CarryLogBody" then
+					visual.Body = child
+				elseif child.Name == "CarryLogCutEnd1" then
+					visual.Caps[1] = child
+				elseif child.Name == "CarryLogCutEnd2" then
+					visual.Caps[2] = child
+				end
+			end
+		end
+	end
+	return visualsByUid
+end
+
+local function ensureWeld(anchor, part, weldName)
+	local weld = part:FindFirstChild(weldName)
+	if weld and weld:IsA("Weld") then
+		weld.Part0 = anchor
+		weld.Part1 = part
+		return weld
+	end
+
+	local relativeCFrame = anchor.CFrame:ToObjectSpace(part.CFrame)
+	if weld then
+		weld:Destroy()
+	end
+	weld = addWeld(anchor, part, weldName)
+	weld.C0 = relativeCFrame
+	return weld
+end
+
+local function destroyCarryVisual(visual)
+	if visual.Body then
+		visual.Body:Destroy()
+	end
+	for _, cap in pairs(visual.Caps) do
+		cap:Destroy()
+	end
+end
+
+local function setCarryVisualSlot(visual, anchor, logRecord, stackName, stackIndex)
+	local body = visual.Body
+	local slotCFrame = CarryLayout.GetAnchorRelativeSlotCFrame(stackName, stackIndex)
+	if not body or not slotCFrame then
+		return false
+	end
+
+	local needsReposition = body:GetAttribute("CarryStack") ~= stackName
+		or body:GetAttribute("CarryIndex") ~= stackIndex
+	local bodyWeld = ensureWeld(anchor, body, "CarriedLogWeld")
+	if needsReposition then
+		bodyWeld.C0 = slotCFrame
+	end
+	body:SetAttribute("LogUID", logRecord.UID)
+	body:SetAttribute("CarryStack", stackName)
+	body:SetAttribute("CarryIndex", stackIndex)
+	body:SetAttribute("IsRare", logRecord.IsRare == true)
+
+	local capOffset = body.Size.X * 0.5 - visual.Caps[1].Size.X * 0.5
+	for capIndex, cap in ipairs(visual.Caps) do
+		local capDirection = capIndex == 1 and -1 or 1
+		local capRelativeCFrame = slotCFrame * CFrame.new(capDirection * capOffset, 0, 0)
+		local capWeld = ensureWeld(anchor, cap, "CarriedLogCapWeld")
+		if needsReposition then
+			capWeld.C0 = capRelativeCFrame
+		end
+		cap:SetAttribute("LogUID", logRecord.UID)
+		cap:SetAttribute("CarryStack", stackName)
+		cap:SetAttribute("CarryIndex", stackIndex)
+		cap:SetAttribute("IsRare", logRecord.IsRare == true)
+	end
+	return true
+end
+
+local function findOrCreateCargoModel(player, character, torso)
+	local model = modelByPlayer[player]
+	if not model or model.Parent ~= character then
+		model = nil
+		for _, child in ipairs(character:GetChildren()) do
+			if child:IsA("Model")
+				and child.Name == "CarriedLogs"
+				and child:GetAttribute("LogCarryVisuals") == true then
+				model = child
+				break
+			end
+		end
+	end
+
+	if not model then
+		model = Instance.new("Model")
+		model.Name = "CarriedLogs"
+		model:SetAttribute("LogCarryVisuals", true)
+		local anchor = createCargoAnchor(torso, model)
+		model.PrimaryPart = anchor
+		model.Parent = character
+	end
+
+	local anchor = model.PrimaryPart
+	if not anchor or not anchor:IsA("BasePart") then
+		anchor = model:FindFirstChild("CargoAnchor")
+		if not anchor or not anchor:IsA("BasePart") then
+			anchor = createCargoAnchor(torso, model)
+		end
+		model.PrimaryPart = anchor
+	end
+	modelByPlayer[player] = model
+	return model, anchor
 end
 
 local function buildForCharacter(player, character, categorizedRecords)
@@ -250,32 +364,47 @@ local function buildForCharacter(player, character, categorizedRecords)
 		return false
 	end
 
-	clearCharacterModel(player, character)
-
 	local normalLogs = categorizedRecords.Normal
 	local rareLogs = categorizedRecords.Rare
 	if #normalLogs + #rareLogs == 0 then
+		clearCharacterModel(player, character)
 		return true
 	end
 
-	local model = Instance.new("Model")
-	model.Name = "CarriedLogs"
-	model:SetAttribute("LogCarryVisuals", true)
+	local model, anchor = findOrCreateCargoModel(player, character, torso)
+	local visualsByUid = collectCarryVisuals(model)
+	local desiredByUid = {}
+	for index, logRecord in ipairs(normalLogs) do
+		desiredByUid[logRecord.UID] = { Record = logRecord, Stack = "Normal", Index = index }
+	end
+	for index, logRecord in ipairs(rareLogs) do
+		desiredByUid[logRecord.UID] = { Record = logRecord, Stack = "Rare", Index = index }
+	end
+
+	-- Preserve parts for UIDs that remain in the inventory. Only remove visuals
+	-- for removed, malformed, or species-changed records.
+	for uid, visual in pairs(visualsByUid) do
+		local desired = desiredByUid[uid]
+		local complete = visual.Body and visual.Caps[1] and visual.Caps[2]
+		if not desired or not complete
+			or visual.Body:GetAttribute("SpeciesId") ~= desired.Record.SpeciesId then
+			destroyCarryVisual(visual)
+			visualsByUid[uid] = nil
+		end
+	end
+
+	for uid, desired in pairs(desiredByUid) do
+		local visual = visualsByUid[uid]
+		if not visual then
+			visual = addLogVisual(model, anchor, desired.Record, desired.Stack, desired.Index)
+		else
+			setCarryVisualSlot(visual, anchor, desired.Record, desired.Stack, desired.Index)
+		end
+	end
+
 	model:SetAttribute("NormalLogCount", #normalLogs)
 	model:SetAttribute("RareLogCount", #rareLogs)
 	model:SetAttribute("TotalLogCount", #normalLogs + #rareLogs)
-
-	local anchor = createCargoAnchor(torso, model)
-	model.PrimaryPart = anchor
-	for index, logRecord in ipairs(normalLogs) do
-		addLogVisual(model, anchor, logRecord, "Normal", index)
-	end
-	for index, logRecord in ipairs(rareLogs) do
-		addLogVisual(model, anchor, logRecord, "Rare", index)
-	end
-
-	model.Parent = character
-	modelByPlayer[player] = model
 	return true
 end
 
@@ -375,7 +504,6 @@ function LogCarryVisualService.RebuildCarryVisuals(player, authoritativeLogRecor
 
 	local character = player.Character
 	if character then
-		clearCurrentCharacter(player, character)
 		scheduleCharacterBuild(player, character)
 	end
 	return true

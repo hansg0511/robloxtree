@@ -17,43 +17,74 @@ table.insert(sounds, chopSound)
 
 ContentProvider:PreloadAsync(sounds)
 
-function FXService:playHit(tree, intensityDegrees, totalDuration, shakes)
+local HIT_KICK_DURATION = 0.06
+local HIT_REBOUND_DURATION = 0.13
+local activeHitByTree = setmetatable({}, { __mode = "k" })
+
+local function cancelHitTween(tree, restoreCFrame)
+	local state = activeHitByTree[tree]
+	if not state then
+		return
+	end
+	activeHitByTree[tree] = nil
+	if state.Tween then
+		state.Tween:Cancel()
+	end
+	if restoreCFrame and state.Primary and state.Primary.Parent then
+		state.Primary.CFrame = state.BaseCFrame
+	end
+end
+
+function FXService:playHit(tree)
 	if not tree then return end
 	local primary = tree.PrimaryPart or tree:FindFirstChildWhichIsA("BasePart")
 	if not primary then
 		warn("Tree has no PrimaryPart or BasePart to shake")
 		return
 	end
+	cancelHitTween(tree, true)
 	local chopAudio = chopSound:Clone()
 	chopAudio.Parent = primary
 	chopAudio:Play()
 	Debris:AddItem(chopAudio, 1)
-	intensityDegrees = intensityDegrees or 6    -- max rotation degrees per axis
-	totalDuration = totalDuration or 0.6        -- total shake duration
-	shakes = shakes or 6                        -- number of shake pulses
-	local originalCFrame = primary.CFrame
-	local step = totalDuration / (shakes * 2)
-	
-	
-	
-	for i = 1, shakes do
-		local rx = math.rad((math.random() * 2 - 1) * intensityDegrees)
-		local ry = math.rad((math.random() * 2 - 1) * intensityDegrees)
-		local rz = math.rad((math.random() * 2 - 1) * intensityDegrees)
-		local offsetY = (math.random() * 2 - 1) * 0.03 -- tiny up/down jitter
 
-		local target = originalCFrame * CFrame.Angles(rx, ry, rz) * CFrame.new(0, offsetY, 0)
+	local baseCFrame = primary.CFrame
+	local state = { Primary = primary, BaseCFrame = baseCFrame }
+	activeHitByTree[tree] = state
+	local kickCFrame = baseCFrame
+		* CFrame.new(0, 0.035, 0)
+		* CFrame.Angles(math.rad(-3.5), 0, math.rad(2.5))
+	local kickTween = TweenService:Create(
+		primary,
+		TweenInfo.new(HIT_KICK_DURATION, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{ CFrame = kickCFrame }
+	)
+	state.Tween = kickTween
+	kickTween.Completed:Connect(function(playbackState)
+		if playbackState ~= Enum.PlaybackState.Completed
+			or activeHitByTree[tree] ~= state
+			or not primary.Parent then
+			return
+		end
 
-		local t1 = TweenService:Create(primary, TweenInfo.new(step, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {CFrame = target})
-		t1:Play()
-		t1.Completed:Wait()
-
-		local t2 = TweenService:Create(primary, TweenInfo.new(step, Enum.EasingStyle.Sine, Enum.EasingDirection.In), {CFrame = originalCFrame})
-		t2:Play()
-		--t2.Completed:Wait()
-	end
-
-	primary.CFrame = originalCFrame
+		local reboundTween = TweenService:Create(
+			primary,
+			TweenInfo.new(HIT_REBOUND_DURATION, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{ CFrame = baseCFrame }
+		)
+		state.Tween = reboundTween
+		reboundTween.Completed:Connect(function(reboundState)
+			if activeHitByTree[tree] ~= state then
+				return
+			end
+			if reboundState == Enum.PlaybackState.Completed and primary.Parent then
+				primary.CFrame = baseCFrame
+			end
+			activeHitByTree[tree] = nil
+		end)
+		reboundTween:Play()
+	end)
+	kickTween:Play()
 end
 
 function FXService.GetTreeFallRotation(model, player)
