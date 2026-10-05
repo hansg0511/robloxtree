@@ -14,8 +14,12 @@ local CarryLayout = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChil
 local FX_FOLDER_NAME = "ClientPickupLogFX"
 local SOUND_ID = "rbxassetid://140303363726378"
 local SOUND_VOLUME = 0.85
-local SOUND_REGION = NumberRange.new(0, 0.45)
+local SOUND_REGION = NumberRange.new(0, 0.20)
 local SOUND_POOL_SIZE = 16
+local PICKUP_AUDIO_SPACING = 0.06
+local PICKUP_COMBO_RESET_WINDOW = 0.4
+local MAX_QUEUED_PICKUP_CUES = 64
+local PICKUP_COMBO_PITCHES = { 1.00, 1.05, 1.10, 1.15, 1.20, 1.24 }
 local MAX_OBSERVER_DISTANCE = 260
 local MAX_CONCURRENT_FLIGHTS = 16
 
@@ -33,9 +37,16 @@ local MAX_LAUNCH_OFFSET = 0.35
 local activeFlights = {}
 local soundPool = {}
 local availableSounds = {}
+local queuedPickupPitches = table.create(MAX_QUEUED_PICKUP_CUES)
 local soundReady = false
-local random = Random.new()
 local activeFlightCount = 0
+local queuedCueHead = 1
+local queuedCueTail = 0
+local queuedCueCount = 0
+local pickupAudioQueueRunning = false
+local nextPickupSoundAt = 0
+local lastPickupAudioArrivalAt = nil
+local pickupAudioComboStep = 0
 
 local function getFXFolder()
 	local folder = Workspace:FindFirstChild(FX_FOLDER_NAME)
@@ -87,14 +98,14 @@ task.spawn(function()
 	soundReady = ok
 end)
 
-local function playArrivalSound()
+local function playArrivalSound(playbackSpeed)
 	if not soundReady or #availableSounds == 0 then return end
 
 	local slot = table.remove(availableSounds)
 	if not slot or slot.Busy then return end
 	slot.Busy = true
 	local sound = slot.Sound
-	sound.PlaybackSpeed = random:NextNumber(0.96, 1.04)
+	sound.PlaybackSpeed = playbackSpeed
 	sound.TimePosition = 0
 	SoundService:PlayLocalSound(sound)
 
@@ -106,6 +117,58 @@ local function playArrivalSound()
 			releasePickupSound(slot)
 		end
 	end)
+end
+
+local function dequeuePickupPitch()
+	if queuedCueCount <= 0 then return nil end
+	local pitch = queuedPickupPitches[queuedCueHead]
+	queuedPickupPitches[queuedCueHead] = nil
+	queuedCueHead = queuedCueHead % MAX_QUEUED_PICKUP_CUES + 1
+	queuedCueCount -= 1
+	return pitch
+end
+
+local function runPickupAudioQueue()
+	if pickupAudioQueueRunning or queuedCueCount == 0 then return end
+	pickupAudioQueueRunning = true
+
+	task.spawn(function()
+		while queuedCueCount > 0 do
+			local waitDuration = nextPickupSoundAt - os.clock()
+			if waitDuration > 0 then
+				task.wait(waitDuration)
+			end
+
+			local pitch = dequeuePickupPitch()
+			if pitch then
+				playArrivalSound(pitch)
+				nextPickupSoundAt = os.clock() + PICKUP_AUDIO_SPACING
+			end
+		end
+
+		pickupAudioQueueRunning = false
+		-- No yield occurs between observing an empty queue and clearing the flag,
+		-- but retain this guard so future queue changes cannot strand a cue.
+		if queuedCueCount > 0 then
+			runPickupAudioQueue()
+		end
+	end)
+end
+
+local function queueArrivalSound()
+	if not soundReady or queuedCueCount >= MAX_QUEUED_PICKUP_CUES then return end
+
+	local now = os.clock()
+	if not lastPickupAudioArrivalAt or now - lastPickupAudioArrivalAt > PICKUP_COMBO_RESET_WINDOW then
+		pickupAudioComboStep = 0
+	end
+	lastPickupAudioArrivalAt = now
+	pickupAudioComboStep = math.min(pickupAudioComboStep + 1, #PICKUP_COMBO_PITCHES)
+
+	queuedCueTail = queuedCueTail % MAX_QUEUED_PICKUP_CUES + 1
+	queuedPickupPitches[queuedCueTail] = PICKUP_COMBO_PITCHES[pickupAudioComboStep]
+	queuedCueCount += 1
+	runPickupAudioQueue()
 end
 
 local function findTorso(character)
@@ -393,7 +456,7 @@ local function startFlight(payload)
 				CARRY_CAP_THICKNESS * flight.CarryVisualScale,
 				CARRY_LOG_DIAMETER * flight.CarryVisualScale * CARRY_CAP_DIAMETER_RATIO
 			)
-			playArrivalSound()
+			queueArrivalSound()
 			cleanupFlight(key, flight)
 		end
 	end)
