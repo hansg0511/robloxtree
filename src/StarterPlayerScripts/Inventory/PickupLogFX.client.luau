@@ -21,23 +21,24 @@ local PICKUP_COMBO_RESET_WINDOW = 0.4
 local MAX_QUEUED_PICKUP_CUES = 64
 -- Fifteen-note major-scale ladder across two octaves, including both endpoints.
 -- Semitone degrees: 0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17, 19, 21, 23, 24.
--- Notes 1-15 ascend through the scale; later pickups stay at the 4x endpoint.
+-- The 0.75x root starts lower; notes 1/8/15 are 0.75x/1.5x/3x.
+-- Notes 1-15 ascend through the scale; later pickups stay at the 3x endpoint.
 local PICKUP_COMBO_PITCHES = {
-	1.000000,
-	1.122462,
-	1.259921,
-	1.334840,
-	1.498307,
-	1.681793,
-	1.887749,
-	2.000000,
-	2.244924,
-	2.519842,
-	2.669680,
-	2.996614,
-	3.363586,
-	3.775497,
-	4.000000,
+	0.750000,
+	0.841847,
+	0.944941,
+	1.001130,
+	1.123730,
+	1.261345,
+	1.415812,
+	1.500000,
+	1.683693,
+	1.889882,
+	2.002260,
+	2.247461,
+	2.522690,
+	2.831623,
+	3.000000,
 }
 local MAX_OBSERVER_DISTANCE = 260
 local MAX_CONCURRENT_FLIGHTS = 16
@@ -51,7 +52,9 @@ local CARRY_CAP_DIAMETER_RATIO = 0.88
 local GROUND_TO_CARRY_SCALE = 4
 local DEFAULT_POP_DURATION = 0.10
 local DEFAULT_FLIGHT_DURATION = 0.37
+local DEFAULT_OVERFLOW_FLIGHT_DURATION = 0.52
 local MAX_LAUNCH_OFFSET = 0.35
+local OVERFLOW_PLAYER_APPROACH_FRACTION = 0.44
 
 local activeFlights = {}
 local soundPool = {}
@@ -303,6 +306,60 @@ local function getPayloadNumber(payload, key, fallback, minimum, maximum)
 	return math.clamp(value, minimum, maximum)
 end
 
+local function isFiniteNumber(value)
+	return type(value) == "number"
+		and value == value
+		and value ~= math.huge
+		and value ~= -math.huge
+end
+
+local function isFiniteVector3(value)
+	return typeof(value) == "Vector3"
+		and isFiniteNumber(value.X)
+		and isFiniteNumber(value.Y)
+		and isFiniteNumber(value.Z)
+end
+
+local function isFiniteCFrame(value)
+	if typeof(value) ~= "CFrame" then return false end
+	for _, component in ipairs({ value:GetComponents() }) do
+		if not isFiniteNumber(component) then
+			return false
+		end
+	end
+	return true
+end
+
+local function getOverflowTargetCFrame(payload)
+	local targetCFrame = payload.PileTargetCFrame
+	if isFiniteCFrame(targetCFrame) then
+		return targetCFrame
+	end
+
+	-- Position-only payloads are accepted as a defensive compatibility fallback.
+	-- The server remains the only source of this target; a missing/invalid target
+	-- causes the cosmetic flight to be skipped rather than guessed locally.
+	local targetPosition = payload.PileTargetPosition
+	if not isFiniteVector3(targetPosition) then
+		return nil
+	end
+
+	local targetYaw = payload.PileTargetYaw
+	if not isFiniteNumber(targetYaw) then
+		targetYaw = 0
+	end
+	return CFrame.new(targetPosition) * CFrame.Angles(0, targetYaw, 0)
+end
+
+local function getFlatYaw(cframe)
+	local _, yaw = cframe:ToOrientation()
+	return yaw
+end
+
+local function shortestAngleDelta(fromAngle, toAngle)
+	return math.atan2(math.sin(toAngle - fromAngle), math.cos(toAngle - fromAngle))
+end
+
 local function getTargetOffset(payload)
 	local offset = payload.TargetOffset
 	if type(offset) ~= "table" then return nil end
@@ -319,14 +376,24 @@ local function getTargetOffset(payload)
 end
 
 local function startFlight(payload)
-	if type(payload) ~= "table"
-		or type(payload.OwnerUserId) ~= "number"
+	if type(payload) ~= "table" then return end
+
+	local isOverflowFlight = payload.Mode == "Overflow" or payload.Mode == "OverflowPile"
+	if payload.Mode ~= nil and payload.Mode ~= "Normal" and not isOverflowFlight then
+		return
+	end
+	local overflowTargetCFrame = isOverflowFlight and getOverflowTargetCFrame(payload) or nil
+	if isOverflowFlight and not overflowTargetCFrame then
+		return
+	end
+
+	if type(payload.OwnerUserId) ~= "number"
 		or type(payload.UID) ~= "string"
 		or #payload.UID == 0
 		or typeof(payload.StartCFrame) ~= "CFrame"
-		or (payload.TargetStack ~= "Normal" and payload.TargetStack ~= "Rare")
-		or type(payload.TargetIndex) ~= "number"
-		or payload.TargetIndex < 1 then
+		or (not isOverflowFlight and (payload.TargetStack ~= "Normal" and payload.TargetStack ~= "Rare"))
+		or (not isOverflowFlight and type(payload.TargetIndex) ~= "number")
+		or (not isOverflowFlight and payload.TargetIndex < 1) then
 		return
 	end
 
@@ -353,16 +420,30 @@ local function startFlight(payload)
 	local cutEndColor = typeof(payload.CutEndColor) == "Color3" and payload.CutEndColor or Color3.fromRGB(190, 153, 105)
 	local model, body, caps = createFlightVisual(payload.StartCFrame, barkColor, cutEndColor)
 	local carryVisualScale = getPayloadNumber(payload, "CarryVisualScale", 1, 0.05, 4)
+	local flightDuration = getPayloadNumber(payload, "FlightDuration", DEFAULT_FLIGHT_DURATION, 0.22, 0.55)
+	if isOverflowFlight then
+		flightDuration = getPayloadNumber(
+			payload,
+			"OverflowFlightDuration",
+			getPayloadNumber(payload, "FlightDuration", DEFAULT_OVERFLOW_FLIGHT_DURATION, 0.22, 1.2),
+			0.22,
+			1.2
+		)
+	end
 	local flight = {
 		Model = model,
 		Body = body,
 		Caps = caps,
 		Owner = owner,
-		TargetStack = payload.TargetStack,
-		TargetIndex = math.floor(payload.TargetIndex),
+		Mode = isOverflowFlight and "Overflow" or "Normal",
+		TargetStack = not isOverflowFlight and payload.TargetStack or nil,
+		TargetIndex = not isOverflowFlight and math.floor(payload.TargetIndex) or nil,
 		StartCFrame = payload.StartCFrame,
 		StartPosition = payload.StartCFrame.Position,
 		StartRotation = payload.StartCFrame.Rotation,
+		OverflowTargetCFrame = overflowTargetCFrame,
+		StartYaw = isOverflowFlight and getFlatYaw(payload.StartCFrame) or nil,
+		TargetYaw = overflowTargetCFrame and getFlatYaw(overflowTargetCFrame) or nil,
 		-- The server authors the material-specific carry scale. The world drop is
 		-- always exactly four times this scale.
 		CarryVisualScale = carryVisualScale,
@@ -370,7 +451,7 @@ local function startFlight(payload)
 		TargetOffset = getTargetOffset(payload),
 		LaunchOffset = getPayloadNumber(payload, "LaunchOffset", 0, 0, MAX_LAUNCH_OFFSET),
 		PopDuration = getPayloadNumber(payload, "PopDuration", DEFAULT_POP_DURATION, 0.04, 0.18),
-		FlightDuration = getPayloadNumber(payload, "FlightDuration", DEFAULT_FLIGHT_DURATION, 0.22, 0.55),
+		FlightDuration = flightDuration,
 		Elapsed = 0,
 	}
 	flight.StartLength = CARRY_LOG_LENGTH * flight.StartScale
@@ -405,6 +486,89 @@ local function startFlight(payload)
 		flight.Elapsed += deltaTime
 		local localElapsed = flight.Elapsed - flight.LaunchOffset
 		if localElapsed < 0 then return end
+
+		if flight.Mode == "Overflow" then
+			local targetCFrame = flight.OverflowTargetCFrame
+			local playerRoot = getPlayerRoot(character)
+			if not targetCFrame or not playerRoot then
+				cleanupFlight(key, flight)
+				return
+			end
+
+			local visualRotation
+			if localElapsed < flight.PopDuration then
+				local popT = localElapsed / flight.PopDuration
+				local popEase = 1 - (1 - popT) ^ 3
+				local popPosition = flight.StartPosition + Vector3.new(0, 0.72 * popEase, 0)
+				visualRotation = CFrame.Angles(0, flight.StartYaw, 0)
+				setVisualTransform(
+					flight,
+					CFrame.new(popPosition) * visualRotation,
+					flight.StartLength,
+					flight.StartDiameter,
+					flight.StartCapThickness,
+					flight.StartCapDiameter
+				)
+				return
+			end
+
+			local flightT = math.clamp((localElapsed - flight.PopDuration) / flight.FlightDuration, 0, 1)
+			local popPosition = flight.StartPosition + Vector3.new(0, 0.72, 0)
+			local approachPosition = torso.Position + Vector3.new(0, 0.45, 0)
+			local targetPosition = targetCFrame.Position
+			local position
+			if flightT < OVERFLOW_PLAYER_APPROACH_FRACTION then
+				local phaseT = smoothStep(flightT / OVERFLOW_PLAYER_APPROACH_FRACTION)
+				local towardPlayer = approachPosition - popPosition
+				position = bezier(
+					popPosition,
+					popPosition + towardPlayer * 0.24 + Vector3.new(0, 1.8, 0),
+					popPosition + towardPlayer * 0.76 + Vector3.new(0, 1.6, 0),
+					approachPosition,
+					phaseT
+				)
+			else
+				local phaseT = smoothStep(
+					(flightT - OVERFLOW_PLAYER_APPROACH_FRACTION)
+						/ (1 - OVERFLOW_PLAYER_APPROACH_FRACTION)
+				)
+				local towardPile = targetPosition - approachPosition
+				position = bezier(
+					approachPosition,
+					approachPosition + towardPile * 0.30 + Vector3.new(0, 1.6, 0),
+					targetPosition + Vector3.new(0, 1.0, 0),
+					targetPosition,
+					phaseT
+				)
+			end
+
+			local yaw = flight.StartYaw
+				+ shortestAngleDelta(flight.StartYaw, flight.TargetYaw) * smoothStep(flightT)
+			visualRotation = CFrame.Angles(0, yaw, 0)
+			setVisualTransform(
+				flight,
+				CFrame.new(position) * visualRotation,
+				flight.StartLength,
+				flight.StartDiameter,
+				flight.StartCapThickness,
+				flight.StartCapDiameter
+			)
+
+			if flightT >= 1 then
+				-- The authoritative ground log takes over at the exact server-authored
+				-- pile slot. Keep its full ground scale and omit normal pickup audio.
+				setVisualTransform(
+					flight,
+					targetCFrame,
+					flight.StartLength,
+					flight.StartDiameter,
+					flight.StartCapThickness,
+					flight.StartCapDiameter
+				)
+				cleanupFlight(key, flight)
+			end
+			return
+		end
 
 		if localElapsed < flight.PopDuration then
 			local popT = localElapsed / flight.PopDuration

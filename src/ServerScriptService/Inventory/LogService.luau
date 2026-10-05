@@ -42,6 +42,18 @@ local MAX_PICKUP_LAUNCH_OFFSET = 0.08
 local GROUND_LOG_REVEAL_DURATION = 0.36
 local GROUND_LOG_REVEAL_ARC_HEIGHT = 2.5
 local GROUND_LOG_READABLE_PAUSE = 0.2
+local OVERFLOW_MERGE_RADIUS = 12
+local OVERFLOW_PLAYER_SIDE_OFFSET = 2.8
+local OVERFLOW_PLAYER_BACK_OFFSET = 2.0
+local OVERFLOW_FLIGHT_DURATION = 0.52
+local OVERFLOW_TRANSIT_DURATION = PICKUP_POP_DURATION + OVERFLOW_FLIGHT_DURATION
+local PILE_LOGS_PER_LAYER = 12
+local PILE_COLUMNS_PER_ROW = 3
+local PILE_ROW_LENGTH_FACTOR = 0.48
+local PILE_COLUMN_DIAMETER_FACTOR = 1.08
+local PILE_LAYER_HEIGHT_FACTOR = 0.70
+local PILE_SLOT_GAP = 0.08
+local PILE_SLOT_YAW_VARIATION = 0.025
 -- Keep pickup rejection diagnostics quiet in normal play. Enable temporarily
 -- when investigating why a server rejected a ground-log pickup request.
 local DEBUG_GROUND_PICKUP_DIAGNOSTICS = false
@@ -66,6 +78,9 @@ local EconomyStateUpdated = economyRemotes:WaitForChild("EconomyStateUpdated")
 local profileLoaded = game.ServerScriptService.PlayerProfile.ProfileInit.ProfileLoadedEvent
 local activeGroundDrops = {}
 local pendingGroundDropByUserId = {}
+-- Server-only ownership and layout index. Ground entries remain the source of
+-- truth; these pile maps only group their UIDs into stable species-specific slots.
+local pilesByPlayer = {}
 local remoteBudgetByPlayer = {}
 local pendingCarryArrivalUids = {}
 local deferredCarryRecords = {}
@@ -217,6 +232,43 @@ local function calculateCapacityMetrics(data)
 		RemainingKg = remainingKg,
 		HasUnknownMaterial = hasUnknownMaterial,
 	}
+end
+
+-- Piled models are considered by AutoPickup only when one item can currently
+-- fit. This replicated attribute is a request gate, never the server's final
+-- capacity decision. Refreshes run only after inventory/capacity mutations.
+local function refreshPiledLogPickupEligibility(player, data)
+	local ownerPiles = pilesByPlayer[player.UserId]
+	if not ownerPiles then return end
+	data = data or getPlayerData(player)
+	local metrics = data and calculateCapacityMetrics(data) or nil
+	for _, pile in pairs(ownerPiles) do
+		for uid, entry in pairs(pile.ItemsByUid) do
+			if entry.State ~= "Piled" then
+				continue
+			end
+			local capacityKg = getRecordCapacityKg(entry.LogRecord)
+			local active = entry.OwnerUserId == player.UserId
+				and entry.PileId == pile.PileId
+				and entry.Drop ~= nil
+				and activeGroundDrops[entry.Bundle] == entry.Drop
+				and entry.Drop.LogRecordsByUid[uid] == entry
+				and entry.Model ~= nil
+				and entry.Model.Parent == entry.Bundle
+			local enabled = active
+				and metrics ~= nil
+				and not metrics.HasUnknownMaterial
+				and #data.Logs < MAX_OWNED_LOGS
+				and capacityKg ~= nil
+				and metrics.RemainingKg + CAPACITY_TOLERANCE_KG >= capacityKg
+			if entry.PickupEnabled ~= enabled then
+				entry.PickupEnabled = enabled
+				if active then
+					entry.Model:SetAttribute("PickupEnabled", enabled)
+				end
+			end
+		end
+	end
 end
 
 local function makeClientSnapshot(player)
@@ -446,6 +498,10 @@ local function makeSellSummary(player)
 end
 
 function LogService.NotifyState(player)
+	local data = getPlayerData(player)
+	if data then
+		refreshPiledLogPickupEligibility(player, data)
+	end
 	local snapshot = makeClientSnapshot(player)
 	if snapshot and player:IsDescendantOf(Players) then
 		logsChangedEvent:Fire(player, snapshot.Logs)
@@ -541,6 +597,172 @@ local function normalizeHorizontal(vector)
 	local horizontal = Vector3.new(vector.X, 0, vector.Z)
 	if horizontal.Magnitude <= 1e-4 then return nil end
 	return horizontal.Unit
+end
+
+local function getPileSlotCFrame(pile, slotIndex, carryVisualScale)
+	if type(slotIndex) ~= "number" or slotIndex % 1 ~= 0 or slotIndex < 1 then return nil end
+	local scale = math.clamp(carryVisualScale, 0.05, 4) * GROUND_DROP_VISUAL_SCALE
+	local logLength = 2.15 * scale
+	local logDiameter = 0.48 * scale
+	local zeroBased = slotIndex - 1
+	local layerIndex = math.floor(zeroBased / PILE_LOGS_PER_LAYER)
+	local inLayer = zeroBased % PILE_LOGS_PER_LAYER
+	local rowIndex = math.floor(inLayer / PILE_COLUMNS_PER_ROW)
+	local columnIndex = inLayer % PILE_COLUMNS_PER_ROW
+	local localX = (rowIndex - 1.5) * logLength * PILE_ROW_LENGTH_FACTOR
+	local localZ = (columnIndex - 1) * (logDiameter * PILE_COLUMN_DIAMETER_FACTOR + PILE_SLOT_GAP)
+	-- A deterministic slight offset keeps the heap from reading as a perfect
+	-- warehouse grid while preserving one stable overall pile orientation.
+	local stagger = if (rowIndex + columnIndex) % 2 == 0 then 0.045 else -0.045
+	local localY = logDiameter * 0.5 + 0.08 + layerIndex * logDiameter * PILE_LAYER_HEIGHT_FACTOR
+	local yawStep = ((slotIndex * 37) % 7 - 3) * PILE_SLOT_YAW_VARIATION / 3
+	return pile.OriginCFrame
+		* CFrame.new(localX + stagger, localY, localZ)
+		* CFrame.Angles(0, yawStep, 0)
+end
+
+local function getOwnerPiles(ownerUserId)
+	local ownerPiles = pilesByPlayer[ownerUserId]
+	if not ownerPiles then
+		ownerPiles = {}
+		pilesByPlayer[ownerUserId] = ownerPiles
+	end
+	return ownerPiles
+end
+
+local function findCompatiblePile(ownerUserId, speciesId, position)
+	local ownerPiles = pilesByPlayer[ownerUserId]
+	if not ownerPiles then return nil end
+	local bestPile = nil
+	local bestDistance = math.huge
+	for _, pile in pairs(ownerPiles) do
+		if pile.SpeciesId == speciesId and pile.ItemCount > 0 then
+			local distance = (pile.OriginCFrame.Position - position).Magnitude
+			if distance <= OVERFLOW_MERGE_RADIUS
+				and (distance < bestDistance
+					or (math.abs(distance - bestDistance) <= 1e-4 and pile.PileId < bestPile.PileId)) then
+				bestPile = pile
+				bestDistance = distance
+			end
+		end
+	end
+	return bestPile
+end
+
+local function createPlayerPile(player, speciesId, root)
+	local forward = normalizeHorizontal(root.CFrame.LookVector) or Vector3.zAxis
+	local right = normalizeHorizontal(root.CFrame.RightVector) or Vector3.xAxis
+	local position = root.Position + right * OVERFLOW_PLAYER_SIDE_OFFSET - forward * OVERFLOW_PLAYER_BACK_OFFSET
+	position = Vector3.new(position.X, getGroundHeight(position), position.Z)
+	local originCFrame = CFrame.fromMatrix(position, right, Vector3.yAxis, right:Cross(Vector3.yAxis))
+	local pileId = HttpService:GenerateGUID(false)
+	local pile = {
+		PileId = pileId,
+		OwnerUserId = player.UserId,
+		SpeciesId = speciesId,
+		OriginCFrame = originCFrame,
+		ItemsByUid = {},
+		Slots = {},
+		ItemCount = 0,
+	}
+	getOwnerPiles(player.UserId)[pileId] = pile
+	return pile
+end
+
+local function getOrCreateOverflowPile(player, speciesId, root)
+	local nearest = findCompatiblePile(player.UserId, speciesId, root.Position)
+	if nearest then return nearest end
+	return createPlayerPile(player, speciesId, root)
+end
+
+local function getAvailablePileSlot(pile)
+	for slotIndex = 1, MAX_GROUND_LOG_DROPS_PER_PLAYER do
+		if not pile.Slots[slotIndex] then return slotIndex end
+	end
+	return nil
+end
+
+local function registerOverflowTransit(player, entry, root)
+	local material = getMaterialDefinition(entry.LogRecord.SpeciesId)
+	if not material then return nil end
+	local pile = getOrCreateOverflowPile(player, entry.LogRecord.SpeciesId, root)
+	local slotIndex = getAvailablePileSlot(pile)
+	local targetCFrame = slotIndex and getPileSlotCFrame(pile, slotIndex, material.CarryVisualScale)
+	if not slotIndex or typeof(targetCFrame) ~= "CFrame" then return nil end
+
+	entry.State = "OverflowTransit"
+	entry.PileId = pile.PileId
+	entry.PileSlot = slotIndex
+	entry.PileTargetCFrame = targetCFrame
+	entry.PickupEnabled = false
+	entry.TransitPartTransparencies = {}
+	for _, descendant in ipairs(entry.Model:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			entry.TransitPartTransparencies[descendant] = descendant.Transparency
+			descendant.Transparency = 1
+		end
+	end
+	entry.Model:SetAttribute("GroundLogState", entry.State)
+	entry.Model:SetAttribute("PileId", pile.PileId)
+	entry.Model:SetAttribute("PileSlot", slotIndex)
+	entry.Model:SetAttribute("PickupEnabled", false)
+	pile.ItemsByUid[entry.LogRecord.UID] = entry
+	pile.Slots[slotIndex] = entry
+	pile.ItemCount += 1
+	return pile
+end
+
+local function unregisterPileMembership(ownerUserId, uid, entry)
+	local pileId = entry and entry.PileId
+	if type(pileId) ~= "string" then return end
+	local ownerPiles = pilesByPlayer[ownerUserId]
+	local pile = ownerPiles and ownerPiles[pileId]
+	if pile and pile.ItemsByUid[uid] == entry then
+		pile.ItemsByUid[uid] = nil
+		if pile.Slots[entry.PileSlot] == entry then
+			pile.Slots[entry.PileSlot] = nil
+		end
+		pile.ItemCount = math.max(0, pile.ItemCount - 1)
+		if pile.ItemCount == 0 then
+			ownerPiles[pileId] = nil
+			if next(ownerPiles) == nil then
+				pilesByPlayer[ownerUserId] = nil
+			end
+		end
+	end
+	entry.PileId = nil
+	entry.PileSlot = nil
+	entry.PileTargetCFrame = nil
+end
+
+local function finishOverflowTransit(bundle, drop, uid, entry)
+	if entry.State ~= "OverflowTransit"
+		or activeGroundDrops[bundle] ~= drop
+		or drop.LogRecordsByUid[uid] ~= entry
+		or bundle.Parent ~= Workspace:FindFirstChild("WorldLogDrops")
+		or entry.Model.Parent ~= bundle
+		or os.clock() > entry.ReservedUntil
+		or typeof(entry.PileTargetCFrame) ~= "CFrame" then
+		return false
+	end
+	local pile = pilesByPlayer[entry.OwnerUserId] and pilesByPlayer[entry.OwnerUserId][entry.PileId]
+	if not pile or pile.ItemsByUid[uid] ~= entry or pile.Slots[entry.PileSlot] ~= entry then
+		return false
+	end
+	entry.Model:PivotTo(entry.PileTargetCFrame)
+	for part, transparency in pairs(entry.TransitPartTransparencies or {}) do
+		if part.Parent then part.Transparency = transparency end
+	end
+	entry.TransitPartTransparencies = nil
+	entry.State = "Piled"
+	entry.Model:SetAttribute("GroundLogState", entry.State)
+	entry.Model:SetAttribute("PickupEnabled", false)
+	entry.PickupEnabled = false
+	local owner = Players:GetPlayerByUserId(entry.OwnerUserId)
+	if owner then
+		refreshPiledLogPickupEligibility(owner)
+	end
+	return true
 end
 
 local function getFallPlacement(tree, fallRotation)
@@ -691,6 +913,30 @@ local function makePickupFxPayload(claim, carryTarget, targetOffset, launchOffse
 	}
 end
 
+local function makeOverflowFxPayload(claim)
+	local entry = claim.Entry
+	local logRecord = entry.LogRecord
+	local material = getMaterialDefinition(logRecord.SpeciesId)
+	if not material or typeof(entry.PileTargetCFrame) ~= "CFrame" then return nil end
+	local palette = SpeciesVisuals.GetPalette(logRecord.SpeciesId)
+	return {
+		Mode = "Overflow",
+		OwnerUserId = claim.OwnerUserId,
+		UID = claim.UID,
+		SpeciesId = logRecord.SpeciesId,
+		Mutations = copyMutations(logRecord.Mutations),
+		StartCFrame = claim.StartCFrame,
+		PileTargetCFrame = entry.PileTargetCFrame,
+		BarkColor = palette.Bark,
+		CutEndColor = palette.CutEnd,
+		CarryVisualScale = material.CarryVisualScale,
+		PopDuration = PICKUP_POP_DURATION,
+		FlightDuration = OVERFLOW_FLIGHT_DURATION,
+		StartVisualScale = GROUND_DROP_VISUAL_SCALE,
+		GroundToCarryScale = GROUND_DROP_VISUAL_SCALE,
+	}
+end
+
 local function getPendingGroundDrop(ownerUserId)
 	local bundle = pendingGroundDropByUserId[ownerUserId]
 	if not bundle then return nil, nil end
@@ -698,6 +944,7 @@ local function getPendingGroundDrop(ownerUserId)
 	if not drop or not bundle:IsDescendantOf(Workspace) then
 		activeGroundDrops[bundle] = nil
 		pendingGroundDropByUserId[ownerUserId] = nil
+		pilesByPlayer[ownerUserId] = nil
 		if bundle.Parent then bundle:Destroy() end
 		return nil, nil
 	end
@@ -716,6 +963,12 @@ local function clearGroundDropBundle(bundle, drop)
 	if pendingGroundDropByUserId[drop.OwnerUserId] == bundle then
 		pendingGroundDropByUserId[drop.OwnerUserId] = nil
 	end
+	for uid, entry in pairs(drop.LogRecordsByUid) do
+		unregisterPileMembership(drop.OwnerUserId, uid, entry)
+	end
+	table.clear(drop.LogRecordsByUid)
+	drop.Count = 0
+	pilesByPlayer[drop.OwnerUserId] = nil
 	if bundle.Parent then bundle:Destroy() end
 end
 
@@ -728,6 +981,7 @@ local function removeGroundDropLog(bundle, uid, expectedEntry)
 	-- expiry callbacks cannot award the same record twice.
 	drop.LogRecordsByUid[uid] = nil
 	drop.Count -= 1
+	unregisterPileMembership(drop.OwnerUserId, uid, entry)
 	if entry.Model.Parent then entry.Model:Destroy() end
 	if drop.Count <= 0 then
 		clearGroundDropBundle(bundle, drop)
@@ -814,12 +1068,13 @@ function LogService.EnableGroundLogBatch(harvestBatchId)
 			if drop and bundle.Parent == worldDropFolder then
 				for uid, entry in pairs(drop.LogRecordsByUid) do
 					if entry.HarvestBatchId == harvestBatchId
+						and entry.State == "Fresh"
 						and entry.PickupEnabled == false
 						and isActiveGroundDropEntry(bundle, drop, uid, entry) then
 						entry.PickupEnabled = true
 						entry.Model:SetAttribute("PickupEnabled", true)
 						entry.RevealPartTransparencies = nil
-						end
+					end
 				end
 			end
 		end
@@ -835,13 +1090,22 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 	local groundDropFolder = Workspace:FindFirstChild("WorldLogDrops")
 	if not drop or not entry or model ~= visualModel or not groundDropFolder or bundle.Parent ~= groundDropFolder
 		or model.Parent ~= bundle or not handle
-		or type(entry.LogRecord) ~= "table" or entry.LogRecord.ItemType ~= "Log" or entry.LogRecord.UID ~= uid then
+		or type(entry.LogRecord) ~= "table" or entry.LogRecord.ItemType ~= "Log" or entry.LogRecord.UID ~= uid
+		or model:GetAttribute("UID") ~= uid
+		or model:GetAttribute("OwnerUserId") ~= player.UserId
+		or model:GetAttribute("SpeciesId") ~= entry.LogRecord.SpeciesId
+		or model:GetAttribute("GroundLogState") ~= entry.State
+		or entry.Bundle ~= bundle or entry.Drop ~= drop
+		then
 		return rejectPickup(player, uid, "invalid registry/model mismatch")
 	end
-	if entry.PickupEnabled ~= true or model:GetAttribute("PickupEnabled") ~= true then
-		return rejectPickup(player, uid, "reveal pending")
+	if entry.State ~= "Fresh" and entry.State ~= "Piled" then
+		return rejectPickup(player, uid, "not pickup eligible state")
 	end
-	if player.UserId ~= drop.OwnerUserId then
+	if entry.PickupEnabled ~= true or model:GetAttribute("PickupEnabled") ~= true then
+		return rejectPickup(player, uid, "pickup disabled")
+	end
+	if player.UserId ~= drop.OwnerUserId or entry.OwnerUserId ~= player.UserId then
 		return rejectPickup(player, uid, "wrong owner")
 	end
 	if os.clock() > entry.ReservedUntil then
@@ -859,19 +1123,9 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 
 	local data = getPlayerData(player)
 	if not data then return rejectPickup(player, uid, "profile unavailable") end
-	local capacityMetrics = calculateCapacityMetrics(data)
-	if capacityMetrics.HasUnknownMaterial then
-		return rejectPickup(player, uid, "unknown material blocks capacity calculation")
-	end
 	local primaryCapacityKg = getRecordCapacityKg(entry.LogRecord)
 	if not primaryCapacityKg then
 		return rejectPickup(player, uid, "unknown material capacity")
-	end
-	if logCount(data) >= MAX_OWNED_LOGS then
-		return rejectPickup(player, uid, "physical item limit")
-	end
-	if capacityMetrics.UsedKg + primaryCapacityKg > capacityMetrics.CarryCapacityKg + CAPACITY_TOLERANCE_KG then
-		return rejectPickup(player, uid, "insufficient kg capacity")
 	end
 	if findLog(data, uid) then
 		return rejectPickup(player, uid, "duplicate UID already owned")
@@ -879,24 +1133,60 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 	if not consumeRemoteBudget(player, "Pickup") then
 		return rejectPickup(player, uid, "rate limited")
 	end
+	if logCount(data) >= MAX_OWNED_LOGS and entry.State == "Piled" then
+		refreshPiledLogPickupEligibility(player, data)
+		return rejectPickup(player, uid, "physical item limit")
+	end
+	local capacityMetrics = calculateCapacityMetrics(data)
+	if capacityMetrics.HasUnknownMaterial then
+		return rejectPickup(player, uid, "unknown material blocks capacity calculation")
+	end
 
-	-- The client nominated only this first model. The server independently finds
-	-- the rest of the owner-reserved, in-range batch, so huge-tree pickups feel
-	-- simultaneous without allowing a client to choose extra rewards or amounts.
+	local primaryState = entry.State
+	local pile
+	if primaryState == "Piled" then
+		local ownerPiles = pilesByPlayer[player.UserId]
+		pile = ownerPiles and ownerPiles[entry.PileId]
+		if not pile or pile.SpeciesId ~= entry.LogRecord.SpeciesId
+			or pile.ItemsByUid[uid] ~= entry or pile.Slots[entry.PileSlot] ~= entry then
+			return rejectPickup(player, uid, "invalid pile membership")
+		end
+	elseif entry.PileId ~= nil or entry.PileSlot ~= nil then
+		return rejectPickup(player, uid, "fresh log has pile metadata")
+	end
+
+	-- The client nominates only the first registered model. Fresh batches are
+	-- resolved from the same harvest; a piled request only batches members of
+	-- that server-owned pile. No client can nominate additional UIDs or amounts.
 	local nearby = {}
 	for candidateUid, candidateEntry in pairs(drop.LogRecordsByUid) do
 		local candidateModel = candidateEntry and candidateEntry.Model
 		local candidateHandle = candidateModel and candidateModel.PrimaryPart
 		local candidateLogRecord = candidateEntry and candidateEntry.LogRecord
 		local candidateCapacityKg = getRecordCapacityKg(candidateLogRecord)
+		local sameGroup = if primaryState == "Fresh"
+			then candidateEntry.HarvestBatchId == entry.HarvestBatchId
+			else candidateEntry.PileId == entry.PileId
+		local candidatePileMember = primaryState ~= "Piled"
+			or (pile.ItemsByUid[candidateUid] == candidateEntry
+				and pile.Slots[candidateEntry.PileSlot] == candidateEntry)
 		if candidateUid ~= uid
 			and type(candidateLogRecord) == "table"
 			and candidateLogRecord.ItemType == "Log"
 			and candidateLogRecord.UID == candidateUid
-			and candidateEntry.HarvestBatchId == entry.HarvestBatchId
+			and candidateEntry.State == primaryState
+			and candidateEntry.OwnerUserId == player.UserId
+			and candidateEntry.Bundle == bundle
+			and candidateEntry.Drop == drop
+			and sameGroup
+			and candidatePileMember
 			and candidateEntry.PickupEnabled == true
 			and candidateModel
 			and candidateModel.Parent == bundle
+			and candidateModel:GetAttribute("UID") == candidateUid
+			and candidateModel:GetAttribute("OwnerUserId") == player.UserId
+			and candidateModel:GetAttribute("SpeciesId") == candidateLogRecord.SpeciesId
+			and candidateModel:GetAttribute("GroundLogState") == primaryState
 			and candidateModel:GetAttribute("PickupEnabled") == true
 			and candidateHandle
 			and candidateCapacityKg
@@ -906,6 +1196,7 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 			table.insert(nearby, {
 				UID = candidateUid,
 				Entry = candidateEntry,
+				Model = candidateModel,
 				CapacityKg = candidateCapacityKg,
 				Distance = (root.Position - candidateHandle.Position).Magnitude,
 			})
@@ -919,34 +1210,88 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 	end)
 
 	local claims = {
-		{ UID = uid, Entry = entry, Model = model, StartCFrame = model:GetPivot(), OwnerUserId = player.UserId },
+		{
+			UID = uid,
+			Entry = entry,
+			Model = model,
+			State = primaryState,
+			CapacityKg = primaryCapacityKg,
+			StartCFrame = model:GetPivot(),
+			OwnerUserId = player.UserId,
+		},
 	}
-	local selectedCapacityKg = primaryCapacityKg
+	local overflowCandidates = {}
+	local remainingKg = capacityMetrics.RemainingKg
+	local maximumInventoryAdds = math.max(0, MAX_OWNED_LOGS - logCount(data))
+	local processedCount = 1
+	if maximumInventoryAdds > 0
+		and primaryCapacityKg <= remainingKg + CAPACITY_TOLERANCE_KG then
+		remainingKg = math.max(0, remainingKg - primaryCapacityKg)
+	elseif primaryState == "Fresh" then
+		table.insert(overflowCandidates, claims[1])
+		claims = {}
+	else
+		refreshPiledLogPickupEligibility(player, data)
+		return rejectPickup(player, uid, "insufficient kg capacity for piled log")
+	end
+
 	for _, candidate in ipairs(nearby) do
-		if #claims >= MAX_PICKUP_BATCH or logCount(data) + #claims >= MAX_OWNED_LOGS then break end
-		if capacityMetrics.UsedKg + selectedCapacityKg + candidate.CapacityKg
-			<= capacityMetrics.CarryCapacityKg + CAPACITY_TOLERANCE_KG then
+		if processedCount >= MAX_PICKUP_BATCH then break end
+		processedCount += 1
+		local candidateClaim = {
+			UID = candidate.UID,
+			Entry = candidate.Entry,
+			Model = candidate.Model,
+			State = primaryState,
+			CapacityKg = candidate.CapacityKg,
+			StartCFrame = candidate.Model:GetPivot(),
+			OwnerUserId = player.UserId,
+		}
+		if #claims < maximumInventoryAdds
+			and candidate.CapacityKg <= remainingKg + CAPACITY_TOLERANCE_KG then
 			table.insert(claims, {
-				UID = candidate.UID,
-				Entry = candidate.Entry,
-				Model = candidate.Entry.Model,
-				StartCFrame = candidate.Entry.Model:GetPivot(),
-				OwnerUserId = player.UserId,
+				UID = candidateClaim.UID,
+				Entry = candidateClaim.Entry,
+				Model = candidateClaim.Model,
+				State = candidateClaim.State,
+				CapacityKg = candidateClaim.CapacityKg,
+				StartCFrame = candidateClaim.StartCFrame,
+				OwnerUserId = candidateClaim.OwnerUserId,
 			})
-			selectedCapacityKg += candidate.CapacityKg
+			remainingKg = math.max(0, remainingKg - candidate.CapacityKg)
+		elseif primaryState == "Fresh" then
+			table.insert(overflowCandidates, candidateClaim)
 		end
+	end
+
+	local overflowClaims = {}
+	for _, overflow in ipairs(overflowCandidates) do
+		-- All entries are server-owned and the ground object limit already bounds
+		-- both available slots and total registry size to 96 per owner.
+		if registerOverflowTransit(player, overflow.Entry, root) then
+			table.insert(overflowClaims, overflow)
+		end
+	end
+	if #claims == 0 and #overflowClaims == 0 then
+		if primaryState == "Piled" then
+			refreshPiledLogPickupEligibility(player, data)
+		end
+		return rejectPickup(player, uid, "no eligible log fits or can overflow")
 	end
 
 	-- Atomically claim every selected UID before any visual delay or profile
 	-- mutation. Repeated remotes cannot award or animate the same record twice.
 	local pendingUids = pendingCarryArrivalUids[player]
-	if not pendingUids then
+	if #claims > 0 and not pendingUids then
 		pendingUids = {}
 		pendingCarryArrivalUids[player] = pendingUids
 	end
 	for _, claim in ipairs(claims) do
 		drop.LogRecordsByUid[claim.UID] = nil
 		drop.Count -= 1
+		if claim.State == "Piled" then
+			unregisterPileMembership(player.UserId, claim.UID, claim.Entry)
+		end
 		pendingUids[claim.UID] = true
 		table.insert(data.Logs, claim.Entry.LogRecord)
 	end
@@ -973,6 +1318,20 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 		claim.Model:Destroy()
 		task.delay(launchOffset + PICKUP_POP_DURATION + PICKUP_FLIGHT_DURATION, function()
 			finishCarryArrival(player, claim.UID)
+		end)
+	end
+	for _, overflow in ipairs(overflowClaims) do
+		local payload = makeOverflowFxPayload(overflow)
+		if payload then
+			local fired, err = pcall(function()
+				PickupLogFXRE:FireAllClients(payload)
+			end)
+			if not fired then
+				warn("Could not broadcast overflow-log cosmetic", err)
+			end
+		end
+		task.delay(OVERFLOW_TRANSIT_DURATION, function()
+			finishOverflowTransit(bundle, drop, overflow.UID, overflow.Entry)
 		end)
 	end
 	return true
@@ -1031,14 +1390,23 @@ local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, harvestB
 		model:SetAttribute("OwnerUserId", ownerUserId)
 		model:SetAttribute("OwnerReservationSeconds", OWNER_RESERVATION_SECONDS)
 		model:SetAttribute("HarvestBatchId", harvestBatchId)
+		model:SetAttribute("GroundLogState", "Fresh")
+		model:SetAttribute("PileId", nil)
+		model:SetAttribute("PileSlot", nil)
 		model:SetAttribute("PickupEnabled", not hiddenUntilReveal)
 		model.Parent = bundle
 
 		local entry = {
 			LogRecord = logRecord,
 			Model = model,
+			Bundle = bundle,
+			Drop = drop,
+			OwnerUserId = ownerUserId,
 			HarvestBatchId = harvestBatchId,
 			ReservedUntil = os.clock() + OWNER_RESERVATION_SECONDS,
+			State = "Fresh",
+			PileId = nil,
+			PileSlot = nil,
 			PickupEnabled = not hiddenUntilReveal,
 			RevealPartTransparencies = if hiddenUntilReveal then revealTransparencyByPart else nil,
 		}
@@ -1253,6 +1621,21 @@ profileLoaded.Event:Connect(function(player)
 end)
 
 Players.PlayerRemoving:Connect(function(player)
+	local ownerBundle = pendingGroundDropByUserId[player.UserId]
+	local ownerDrop = ownerBundle and activeGroundDrops[ownerBundle]
+	if ownerBundle and ownerDrop then
+		clearGroundDropBundle(ownerBundle, ownerDrop)
+	elseif ownerBundle then
+		pendingGroundDropByUserId[player.UserId] = nil
+		if ownerBundle.Parent then ownerBundle:Destroy() end
+	end
+	for bundle, drop in pairs(activeGroundDrops) do
+		if drop.OwnerUserId == player.UserId then
+			clearGroundDropBundle(bundle, drop)
+			break
+		end
+	end
+	pilesByPlayer[player.UserId] = nil
 	remoteBudgetByPlayer[player] = nil
 	pendingCarryArrivalUids[player] = nil
 	deferredCarryRecords[player] = nil
