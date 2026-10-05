@@ -32,6 +32,9 @@ local PICKUP_POP_DURATION = 0.10
 local PICKUP_FLIGHT_DURATION = 0.36
 local PICKUP_LAUNCH_OFFSET_PER_LOG = 0.015
 local MAX_PICKUP_LAUNCH_OFFSET = 0.08
+-- Keep pickup rejection diagnostics quiet in normal play. Enable temporarily
+-- when investigating why a server rejected a ground-log pickup request.
+local DEBUG_GROUND_PICKUP_DIAGNOSTICS = false
 -- World drops deliberately read larger than carried cargo so they remain visible
 -- alongside a fallen trunk. Inventory/carry presentation stays at its own scale.
 local GROUND_DROP_VISUAL_SCALE = 2
@@ -68,6 +71,17 @@ end
 
 local function isValidUid(uid)
 	return type(uid) == "string" and #uid > 0 and #uid <= 80
+end
+
+local function debugPickupRejection(player, uid, reason)
+	if not DEBUG_GROUND_PICKUP_DIAGNOSTICS then return end
+	local playerLabel = if player then string.format("%s (%d)", player.Name, player.UserId) else "<unknown>"
+	print(string.format(
+		"[LogService] Ground pickup rejected: %s; player=%s; uid=%s",
+		reason,
+		playerLabel,
+		tostring(uid)
+	))
 end
 
 for _, definition in pairs(TreeDefinitions) do
@@ -512,6 +526,11 @@ local function removeGroundDropLog(bundle, uid, expectedEntry)
 	return true
 end
 
+local function rejectPickup(player, uid, reason)
+	debugPickupRejection(player, uid, reason)
+	return false
+end
+
 local function tryPickupGroundLog(player, bundle, uid, visualModel)
 	local drop = activeGroundDrops[bundle]
 	local entry = drop and drop.LogRecordsByUid[uid]
@@ -520,19 +539,35 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 	local groundDropFolder = Workspace:FindFirstChild("WorldLogDrops")
 	if not drop or not entry or model ~= visualModel or bundle.Parent ~= groundDropFolder
 		or model.Parent ~= bundle or not handle then
-		return false
+		return rejectPickup(player, uid, "invalid registry/model mismatch")
 	end
-	if player.UserId ~= drop.OwnerUserId or os.clock() > entry.ReservedUntil then return false end
+	if player.UserId ~= drop.OwnerUserId then
+		return rejectPickup(player, uid, "wrong owner")
+	end
+	if os.clock() > entry.ReservedUntil then
+		return rejectPickup(player, uid, "expired reservation")
+	end
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	local root = character and character:FindFirstChild("HumanoidRootPart")
-	if not humanoid or humanoid.Health <= 0 or not root then return false end
-	if (root.Position - handle.Position).Magnitude > MAX_PICKUP_DISTANCE then return false end
+	if not humanoid or humanoid.Health <= 0 or not root then
+		return rejectPickup(player, uid, "dead/missing character")
+	end
+	if (root.Position - handle.Position).Magnitude > MAX_PICKUP_DISTANCE then
+		return rejectPickup(player, uid, "too far")
+	end
 
 	local data = getPlayerData(player)
-	if not data or logCount(data) >= data.LogCapacity then return false end
-	if findLog(data, uid) then return false end
-	if not consumeRemoteBudget(player, "Pickup") then return false end
+	if not data then return rejectPickup(player, uid, "profile unavailable") end
+	if logCount(data) >= data.LogCapacity then
+		return rejectPickup(player, uid, "bag full")
+	end
+	if findLog(data, uid) then
+		return rejectPickup(player, uid, "duplicate UID already owned")
+	end
+	if not consumeRemoteBudget(player, "Pickup") then
+		return rejectPickup(player, uid, "rate limited")
+	end
 
 	-- The client nominated only this first model. The server independently finds
 	-- the rest of the owner-reserved, in-range batch, so huge-tree pickups feel
@@ -811,11 +846,15 @@ end)
 PickupGroundLogRE.OnServerEvent:Connect(function(player, visualModel, uid, ...)
 	if select("#", ...) ~= 0 or typeof(visualModel) ~= "Instance"
 		or not visualModel:IsA("Model") or not isValidUid(uid) then
+		debugPickupRejection(player, uid, "invalid registry/model mismatch")
 		return
 	end
 
 	local bundle = visualModel.Parent
-	if not bundle or not bundle:IsA("Folder") then return end
+	if not bundle or not bundle:IsA("Folder") then
+		debugPickupRejection(player, uid, "invalid registry/model mismatch")
+		return
+	end
 	tryPickupGroundLog(player, bundle, uid, visualModel)
 end)
 
