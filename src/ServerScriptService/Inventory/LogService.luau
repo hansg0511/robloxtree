@@ -530,27 +530,24 @@ local function getFallPlacement(tree, fallRotation)
 	end
 	trunkLength = math.clamp(trunkLength, 8, 48)
 
-	local trunkRadius = primary and math.max(primary.Size.X, primary.Size.Z) * 0.5 or 0
-
 	return {
 		Origin = origin,
 		Direction = direction,
 		Perpendicular = Vector3.new(-direction.Z, 0, direction.X),
 		TrunkLength = trunkLength,
-		-- Keep visible drops beside the fallen trunk instead of burying them under
-		-- its body. The small per-log variation is only for legibility.
-		DropSideOffset = math.max(2.2, trunkRadius + 1.8),
 	}
 end
 
 local function getFallPathPosition(fallPlacement, index, totalCount)
 	local count = math.max(1, math.floor(tonumber(totalCount) or 1))
 	local rank = math.clamp(math.floor(tonumber(index) or 1), 1, count)
-	local fraction = if count == 1 then 0.5 else 0.3 + 0.4 * ((rank - 1) / (count - 1))
-	local sideOffset = fallPlacement.DropSideOffset + (rank - (count + 1) * 0.5) * 1.3
+	-- Keep the drops over the fallen trunk and distribute them along its length.
+	-- A tiny alternating offset separates chunky logs without ejecting them sideways.
+	local fraction = if count == 1 then 0.5 else 0.2 + 0.6 * ((rank - 1) / (count - 1))
+	local lateralOffset = if count == 1 then 0 else (rank % 2 == 0 and 0.2 or -0.2)
 	return fallPlacement.Origin
 		+ fallPlacement.Direction * (fallPlacement.TrunkLength * fraction)
-		+ fallPlacement.Perpendicular * sideOffset
+		+ fallPlacement.Perpendicular * lateralOffset
 end
 
 local function createLogVisualModel(name, logRecord, visualScale, hidden)
@@ -939,21 +936,10 @@ local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, harvestB
 			Vector3.yAxis,
 			fallPlacement.Direction:Cross(Vector3.yAxis)
 		)
+		-- Start at the final footprint position. The reveal animation adds only a
+		-- vertical pop, so logs settle in place along the trunk without flying sideways.
 		local startPosition = groundCFrame.Position
-		if hiddenUntilReveal then
-			local revealRank = math.clamp(revealIndex, 1, revealCount)
-			local footprintPosition = fallPlacement.Origin
-				+ fallPlacement.Direction * math.min(fallPlacement.TrunkLength * 0.12, 3)
-				+ fallPlacement.Perpendicular * ((revealRank - (revealCount + 1) * 0.5) * 0.65)
-			startPosition = Vector3.new(
-				footprintPosition.X,
-				getGroundHeight(footprintPosition) + handle.Size.Y * 0.5 + 0.08,
-				footprintPosition.Z
-			)
-			model:PivotTo(CFrame.new(startPosition) * groundCFrame.Rotation)
-		else
-			model:PivotTo(groundCFrame)
-		end
+		model:PivotTo(groundCFrame)
 		model:SetAttribute("UID", logRecord.UID)
 		model:SetAttribute("ItemType", "Log")
 		model:SetAttribute("SpeciesId", logRecord.SpeciesId)
