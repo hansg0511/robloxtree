@@ -55,6 +55,8 @@ local TreeDefinitions = {
 		OwnerOnly = false,
 		Choppable = true,
 		ForestId = "Forest1",
+		-- The barrier is a current-run milestone: a crafted Copper Axe is required.
+		RequiredStandardAxeTier = 1,
 		-- Temporary server-side progression seam; the valid final hitter gets this unlock.
 		UnlockForestId = "Forest2",
 		InteractionPartName = "ChopHitbox",

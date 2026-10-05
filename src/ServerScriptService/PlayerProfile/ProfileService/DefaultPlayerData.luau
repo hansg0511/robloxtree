@@ -19,9 +19,18 @@ export type LogItem = {
 	CreatedAt: number,
 }
 
+export type AxeHeadCounts = { [string]: number }
+
+export type RunProgress = {
+	StandardAxeTier: number,
+	UnlockedForests: { [string]: boolean },
+}
+
 export type PlayerData = {
 	Inventory: { InventoryItem },
 	Logs: { LogItem },
+	AxeHeads: AxeHeadCounts,
+	RunProgress: RunProgress,
 	LogCapacity: number,
 	LumberjackStrength: number,
 	Coins: number,

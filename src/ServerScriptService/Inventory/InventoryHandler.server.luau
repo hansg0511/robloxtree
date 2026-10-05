@@ -22,13 +22,25 @@ local REMOTE_INTERVALS = {
 	EquipAxe = 0.5,
 }
 
+local suppressShopAxeInventoryCallbacks = {}
+local deferredShopAxeAddedItems = {}
 
 local IMS_REMOTES_TO_CLIENT: IMS.RemoteCallbacks = {
 	OnAdd = function(player: Player, newItem: IMS.ITEM_TYPE, stackOnAdd: boolean, ...: any)
+		if suppressShopAxeInventoryCallbacks[player] then
+			local pendingAdds = deferredShopAxeAddedItems[player]
+			if not pendingAdds then
+				pendingAdds = {}
+				deferredShopAxeAddedItems[player] = pendingAdds
+			end
+			table.insert(pendingAdds, { Item = newItem, StackOnAdd = stackOnAdd })
+			return
+		end
 		--INVENTORIES[player]:PrintContainers()
 		IMRemotes.NewInventoryItemRE:FireClient(player, newItem, stackOnAdd)
 	end,
 	OnRemove = function(player: Player, slotIndex: number, ...: any)
+		if suppressShopAxeInventoryCallbacks[player] then return end
 		IMRemotes.RemoveRE:FireClient(player, slotIndex, ...)
 	end,
 	OnIncreaseCap = function(player: Player, buildContainerIndex: number, amount: number)
@@ -176,6 +188,35 @@ local function EquipOwnedAxe(player, uid)
 	return false
 end
 
+local function rollbackUncommittedShopAxe(player, profile, inv, runtimeItem, persistedRecord)
+	suppressShopAxeInventoryCallbacks[player] = true
+	for slotIndex, currentItem in ipairs(inv:Items()) do
+		if currentItem == runtimeItem then
+			local removed = pcall(function()
+				inv:RemoveItem(slotIndex)
+			end)
+			if not removed then
+				warn("Could not remove an uncommitted shop axe from the IMS inventory")
+			end
+			break
+		end
+	end
+	suppressShopAxeInventoryCallbacks[player] = nil
+	deferredShopAxeAddedItems[player] = nil
+	profile.Data.Runtime.Weapon[runtimeItem.ItemUID] = nil
+	-- table.insert is expected to be atomic, but remove the exact record by
+	-- identity as well so a late persistence failure cannot leave a free axe.
+	local profileInventory = profile.Data.Inventory
+	if type(profileInventory) == "table" and persistedRecord then
+		for index = #profileInventory, 1, -1 do
+			if profileInventory[index] == persistedRecord then
+				table.remove(profileInventory, index)
+				break
+			end
+		end
+	end
+end
+
 addShopAxeItem.OnInvoke = function(player, itemRecord)
 	if typeof(player) ~= "Instance" or not player:IsA("Player") or type(itemRecord) ~= "table" then
 		return false
@@ -183,6 +224,7 @@ addShopAxeItem.OnInvoke = function(player, itemRecord)
 	local profile = playerProfileCache.GetProfile(player)
 	local inv = playerInventories[player]
 	if not profile or not profile.Data.Runtime or not inv then return false end
+	if type(profile.Data.Inventory) ~= "table" then return false end
 	if typeof(itemRecord.ItemID) ~= "number" or itemRecord.ItemID % 1 ~= 0 then return false end
 	if typeof(itemRecord.UID) ~= "string" or #itemRecord.UID < 1 or #itemRecord.UID > 128 then return false end
 	if type(itemRecord.Stats) ~= "table" or type(itemRecord.Substat) ~= "table" or typeof(itemRecord.Rarity) ~= "string" then return false end
@@ -206,11 +248,34 @@ addShopAxeItem.OnInvoke = function(player, itemRecord)
 	}
 	local runtimeItem = itemDataBase.ParseItem(persistedRecord)
 	profile.Data.Runtime.Weapon[runtimeItem.ItemUID] = runtimeItem
-	if not inv:AddItem(runtimeItem, false) then
-		profile.Data.Runtime.Weapon[runtimeItem.ItemUID] = nil
+	deferredShopAxeAddedItems[player] = nil
+	suppressShopAxeInventoryCallbacks[player] = true
+	local addOk, added = pcall(function()
+		return inv:AddItem(runtimeItem, false)
+	end)
+	suppressShopAxeInventoryCallbacks[player] = nil
+	if not addOk or added ~= true then
+		-- A normal rejection is mutation-free. If an unexpected callback error
+		-- happened after insertion, remove that exact runtime item silently.
+		rollbackUncommittedShopAxe(player, profile, inv, runtimeItem, persistedRecord)
 		return false
 	end
-	table.insert(profile.Data.Inventory, persistedRecord)
+	local profileInsertOk = pcall(function()
+		table.insert(profile.Data.Inventory, persistedRecord)
+	end)
+	if not profileInsertOk then
+		rollbackUncommittedShopAxe(player, profile, inv, runtimeItem, persistedRecord)
+		return false
+	end
+	local pendingAdds = deferredShopAxeAddedItems[player]
+	deferredShopAxeAddedItems[player] = nil
+	if pendingAdds then
+		for _, pendingAdd in ipairs(pendingAdds) do
+			pcall(function()
+				IMRemotes.NewInventoryItemRE:FireClient(player, pendingAdd.Item, pendingAdd.StackOnAdd)
+			end)
+		end
+	end
 	return true
 end
 
@@ -238,6 +303,8 @@ end)
 Players.PlayerRemoving:Connect(function(player: Player)
 	destroyInventory(player)
 	nextRemoteUse[player] = nil
+	suppressShopAxeInventoryCallbacks[player] = nil
+	deferredShopAxeAddedItems[player] = nil
 end)
 
 

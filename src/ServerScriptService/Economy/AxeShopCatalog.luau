@@ -1,41 +1,50 @@
--- Prototype shop values. These are deliberately centralized and are not final balance.
+-- Prototype progression configuration. Standard axes are deterministic recipes;
+-- special/RNG crafting is intentionally outside this catalog for now.
 local AxeShopCatalog = {}
 
-AxeShopCatalog.Axes = {
+AxeShopCatalog.AxeHeads = {
 	{
-		Id = "starter_hatchet",
-		Name = "Starter Hatchet",
-		ItemID = 101,
-		Power = 10,
-		Price = 0,
+		Id = "copper_head",
+		Name = "Copper Axe Head",
+		Price = 150,
+		RequiredForestId = "Forest1",
+		Tier = 1,
 	},
+	{
+		Id = "iron_head",
+		Name = "Iron Axe Head",
+		Price = 750,
+		RequiredForestId = "Forest2",
+		Tier = 2,
+	},
+}
+
+AxeShopCatalog.StandardAxeRecipes = {
 	{
 		Id = "copper_axe",
 		Name = "Copper Axe",
-		ItemID = 102,
+		HeadId = "copper_head",
+		Wood = {
+			SpeciesId = "Oak",
+			Count = 3,
+		},
+		OutputItemID = 102,
+		Tier = 1,
 		Power = 16,
-		Price = 150,
+		RequiredForestId = "Forest1",
 	},
 	{
 		Id = "iron_axe",
 		Name = "Iron Axe",
-		ItemID = 103,
+		HeadId = "iron_head",
+		Wood = {
+			SpeciesId = "Ironwood",
+			Count = 3,
+		},
+		OutputItemID = 103,
+		Tier = 2,
 		Power = 26,
-		Price = 750,
-	},
-	{
-		Id = "steel_axe",
-		Name = "Steel Axe",
-		ItemID = 104,
-		Power = 42,
-		Price = 3000,
-	},
-	{
-		Id = "heavy_cleaver",
-		Name = "Heavy Cleaver",
-		ItemID = 105,
-		Power = 68,
-		Price = 12000,
+		RequiredForestId = "Forest2",
 	},
 }
 
@@ -46,8 +55,31 @@ AxeShopCatalog.CapacityUpgrades = {
 	{ Capacity = 40, Price = 15000 },
 }
 
--- StatsAggregator currently contributes a base Attack of 5, so fixed axe records
--- store only the additional amount needed to reach the displayed Power.
+-- StatsAggregator contributes a base Attack of 5. Crafted records store only
+-- the amount needed to reach the fixed Power configured above.
 AxeShopCatalog.BaseAttack = 5
+
+function AxeShopCatalog.FindAxeHead(headId)
+	if type(headId) ~= "string" then return nil end
+	for _, entry in ipairs(AxeShopCatalog.AxeHeads) do
+		if entry.Id == headId then return entry end
+	end
+	return nil
+end
+
+function AxeShopCatalog.FindStandardAxeRecipe(recipeId)
+	if type(recipeId) ~= "string" then return nil end
+	for _, entry in ipairs(AxeShopCatalog.StandardAxeRecipes) do
+		if entry.Id == recipeId then return entry end
+	end
+	return nil
+end
+
+function AxeShopCatalog.FindRecipeForOutput(itemId)
+	for _, entry in ipairs(AxeShopCatalog.StandardAxeRecipes) do
+		if entry.OutputItemID == itemId then return entry end
+	end
+	return nil
+end
 
 return AxeShopCatalog

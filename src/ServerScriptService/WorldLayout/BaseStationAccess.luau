@@ -53,4 +53,8 @@ function BaseStationAccess.CanUseLumberDepot(player)
 	return canUseStation(player, "HomeEconomyStation")
 end
 
+function BaseStationAccess.CanUseForge(player)
+	return canUseStation(player, "ForgeStation")
+end
+
 return BaseStationAccess

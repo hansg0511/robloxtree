@@ -306,6 +306,7 @@ function Tree.new(options)
 	self.OwnerUserId = options.OwnerUserId
 	self.Choppable = definition.Choppable
 	self.ForestId = options.ForestId or definition.ForestId or "Base"
+	self.RequiredStandardAxeTier = definition.RequiredStandardAxeTier
 	self.UnlockForestId = definition.UnlockForestId
 	self.InteractionPartName = definition.InteractionPartName
 	self.ChopRadius = definition.ChopRadius

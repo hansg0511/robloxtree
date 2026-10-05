@@ -1,5 +1,6 @@
 local profileCache = require(script.Parent.ProfileService.ProfileDataCache)
 local DevelopmentLoadouts = require(script.Parent.DevelopmentLoadouts)
+local AxeShopCatalog = require(game.ServerScriptService.Economy.AxeShopCatalog)
 local bindableLoaded = script.ProfileLoadedEvent
 local remoteLoaded = game.ReplicatedStorage.Profile.ProfileLoadEvent
 
@@ -19,6 +20,21 @@ local ProfileTemplate = {
 	},
 	-- One unique physical log per slot; capacity upgrades change this count limit.
 	Logs = {},
+	-- Axe heads are crafting materials, never equipable Tools.
+	AxeHeads = {
+		copper_head = 0,
+		iron_head = 0,
+	},
+	-- Current-run progression is stored separately so Rebirth can reset it later
+	-- without inferring it from permanently owned inventory records.
+	RunProgress = {
+		StandardAxeTier = 0,
+		UnlockedForests = {
+			Base = true,
+			Forest1 = true,
+			Forest2 = false,
+		},
+	},
 	LogCapacity = 10,
 	-- Neutral server-owned seam for future character/prestige progression.
 	-- It deliberately has no player-facing progression in this prototype.
@@ -60,7 +76,30 @@ local function PlayerAdded(player)
 	if profile ~= nil then
 		print("New Player")
 		profile:AddUserId(player.UserId) -- GDPR compliance
+		local runProgressBeforeReconcile = profile.Data.RunProgress
+		local priorTier = type(runProgressBeforeReconcile) == "table"
+			and runProgressBeforeReconcile.StandardAxeTier
+		local hadValidStandardAxeTier = type(priorTier) == "number"
+			and priorTier == priorTier
+			and math.abs(priorTier) < math.huge
+			and priorTier >= 0
+			and priorTier % 1 == 0
 		profile:Reconcile() -- Fill in missing variables from ProfileTemplate (optional)
+		if not hadValidStandardAxeTier then
+			-- One-time legacy migration: direct-purchased Copper/Iron weapons already
+			-- owned before the schema existed count as reached tiers. Axe Heads alone
+			-- never advance this current-run benchmark.
+			local highestOwnedTier = 0
+			for _, ownedItem in ipairs(type(profile.Data.Inventory) == "table" and profile.Data.Inventory or {}) do
+				if type(ownedItem) == "table" then
+					local recipe = AxeShopCatalog.FindRecipeForOutput(ownedItem.ItemID)
+					if recipe and recipe.Tier > highestOwnedTier then
+						highestOwnedTier = recipe.Tier
+					end
+				end
+			end
+			profile.Data.RunProgress.StandardAxeTier = highestOwnedTier
+		end
 		DevelopmentLoadouts.ApplyStudioPreset(player, profile.Data)
 		profile:ListenToRelease(function()
 			profileCache.Remove(player)

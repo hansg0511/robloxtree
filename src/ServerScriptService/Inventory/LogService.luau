@@ -223,6 +223,147 @@ function LogService.GetOwnedLogs(player)
 	return snapshot and snapshot.Logs or nil
 end
 
+local function isStandardCraftLog(logRecord, speciesId)
+	if type(logRecord) ~= "table"
+		or logRecord.ItemType ~= "Log"
+		or logRecord.SpeciesId ~= speciesId
+		or (logRecord.Locked ~= nil and logRecord.Locked ~= false)
+		or not isValidUid(logRecord.UID) then
+		return false
+	end
+	local mutations = logRecord.Mutations
+	return mutations == nil or (type(mutations) == "table" and next(mutations) == nil)
+end
+
+-- Server-only crafting seam. It returns only unlocked, normal wood and hides
+-- logs whose pickup-to-carry cosmetic has not completed yet.
+function LogService.GetCraftableLogUIDs(player, speciesId, count)
+	if type(speciesId) ~= "string" or #speciesId == 0
+		or type(count) ~= "number" or count % 1 ~= 0 or count < 1 then
+		return nil
+	end
+	local data = getPlayerData(player)
+	if not data then return nil end
+	local pendingUids = pendingCarryArrivalUids[player]
+	local selectedUids = {}
+	local seenUids = {}
+	for _, logRecord in ipairs(data.Logs) do
+		local uid = logRecord.UID
+		if isStandardCraftLog(logRecord, speciesId)
+			and not (pendingUids and pendingUids[uid])
+			and not seenUids[uid] then
+			seenUids[uid] = true
+			table.insert(selectedUids, uid)
+			if #selectedUids == count then
+				return selectedUids
+			end
+		end
+	end
+	return nil
+end
+
+function LogService.CountCraftableLogs(player, speciesId)
+	if type(speciesId) ~= "string" or #speciesId == 0 then return 0 end
+	local data = getPlayerData(player)
+	if not data then return 0 end
+	local pendingUids = pendingCarryArrivalUids[player]
+	local count = 0
+	local seenUids = {}
+	for _, logRecord in ipairs(data.Logs) do
+		local uid = logRecord.UID
+		if isStandardCraftLog(logRecord, speciesId)
+			and not (pendingUids and pendingUids[uid])
+			and not seenUids[uid] then
+			seenUids[uid] = true
+			count += 1
+		end
+	end
+	return count
+end
+
+-- Revalidates and removes the exact server-selected UIDs without publishing a
+-- UI update. The caller must immediately commit the output or restore this list;
+-- this small transaction intentionally contains no yielding calls.
+function LogService.TakeCraftableLogUIDs(player, speciesId, logUids)
+	if type(speciesId) ~= "string" or #speciesId == 0
+		or type(logUids) ~= "table" or #logUids == 0 then
+		return nil
+	end
+	local data = getPlayerData(player)
+	if not data then return nil end
+	local pendingUids = pendingCarryArrivalUids[player]
+	local requested = {}
+	for _, uid in ipairs(logUids) do
+		if not isValidUid(uid) or requested[uid] then return nil end
+		requested[uid] = true
+	end
+	local foundByUid = {}
+	local requestedOccurrences = {}
+	for _, logRecord in ipairs(data.Logs) do
+		local uid = logRecord.UID
+		if requested[uid] then
+			requestedOccurrences[uid] = (requestedOccurrences[uid] or 0) + 1
+			-- A malformed duplicate UID must never make one selected UID consume
+			-- multiple records or make rollback lose track of the original records.
+			if requestedOccurrences[uid] > 1 then return nil end
+			if not isStandardCraftLog(logRecord, speciesId)
+				or (pendingUids and pendingUids[uid]) then
+				return nil
+			end
+			foundByUid[uid] = logRecord
+		end
+	end
+	local removedRecords = {}
+	for _, uid in ipairs(logUids) do
+		local logRecord = foundByUid[uid]
+		if not logRecord then return nil end
+		table.insert(removedRecords, logRecord)
+	end
+
+	for index = #data.Logs, 1, -1 do
+		if requested[data.Logs[index].UID] then
+			table.remove(data.Logs, index)
+		end
+	end
+	return removedRecords
+end
+
+-- Restores the original authoritative records after an output insertion fails.
+-- It is intentionally silent; the caller publishes only the final transaction.
+function LogService.RestoreCraftableLogRecords(player, records)
+	if type(records) ~= "table" or #records == 0 then return false end
+	local data = getPlayerData(player)
+	if not data then return false end
+	local existingUids = {}
+	for _, logRecord in ipairs(data.Logs) do
+		if type(logRecord) == "table" then
+			existingUids[logRecord.UID] = true
+		end
+	end
+	local restoredUids = {}
+	for _, logRecord in ipairs(records) do
+		if type(logRecord) ~= "table"
+			or logRecord.ItemType ~= "Log"
+			or not isValidUid(logRecord.UID)
+			or existingUids[logRecord.UID]
+			or restoredUids[logRecord.UID] then
+			return false
+		end
+		restoredUids[logRecord.UID] = true
+	end
+	for _, logRecord in ipairs(records) do
+		table.insert(data.Logs, logRecord)
+	end
+	return true
+end
+
+function LogService.ConsumeCraftableLogUIDs(player, speciesId, logUids)
+	local removedRecords = LogService.TakeCraftableLogUIDs(player, speciesId, logUids)
+	if not removedRecords then return false end
+	LogService.NotifyState(player)
+	return true
+end
+
 local function makeSellSummary(player)
 	local data = getPlayerData(player)
 	if not data then return nil end
