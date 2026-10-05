@@ -495,11 +495,17 @@ function Tree:Die(player)
 		WorldProgressService.UnlockForest(player, self.UnlockForestId)
 	end
 	task.spawn(function()
-		FXService:TreeFall(fallenModel, player, fallRotation)
-		-- Spawn the physical reward only after the fallen tree is fully faded,
-		-- keeping the drops hidden until they are no longer covered by the tree.
-		if awardSnapshot then
-			LogService.AwardTreeLog(awardSnapshot)
+		local harvestBatchId
+		FXService:TreeFall(fallenModel, player, fallRotation, function()
+			-- Spawn the authoritative drops shortly after the fade starts. They
+			-- reveal during the fade but remain uncollectable until the tree has
+			-- disappeared and the ground reveal has had a readable pause.
+			if awardSnapshot then
+				harvestBatchId = LogService.AwardTreeLog(awardSnapshot, { Reveal = true })
+			end
+		end)
+		if harvestBatchId then
+			LogService.EnableGroundLogBatch(harvestBatchId)
 		end
 	end)
 	if self.RespawnSeconds then

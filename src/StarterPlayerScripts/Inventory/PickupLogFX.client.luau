@@ -22,8 +22,8 @@ local MAX_CONCURRENT_FLIGHTS = 16
 local CARRY_LOG_LENGTH = 2.15
 local CARRY_LOG_DIAMETER = 0.48
 local CARRY_CAP_THICKNESS = 0.07
-local WORLD_LOG_DIAMETER = 0.7
-local WORLD_CAP_DIAMETER_RATIO = 0.84
+local WORLD_LOG_DIAMETER = 0.48
+local WORLD_CAP_DIAMETER_RATIO = 0.88
 local CARRY_CAP_DIAMETER_RATIO = 0.88
 local DEFAULT_START_SCALE = 2
 local DEFAULT_POP_DURATION = 0.10
@@ -265,7 +265,9 @@ local function startFlight(payload)
 		StartCFrame = payload.StartCFrame,
 		StartPosition = payload.StartCFrame.Position,
 		StartRotation = payload.StartCFrame.Rotation,
-		StartScale = getPayloadNumber(payload, "StartVisualScale", DEFAULT_START_SCALE, 1, 3),
+		-- Server payload scale matches the world-drop visual. Cap at the current
+		-- 4x-carry contract so malformed payloads cannot create enormous FX.
+		StartScale = getPayloadNumber(payload, "StartVisualScale", DEFAULT_START_SCALE, 1, 4),
 		LaunchOffset = getPayloadNumber(payload, "LaunchOffset", 0, 0, MAX_LAUNCH_OFFSET),
 		PopDuration = getPayloadNumber(payload, "PopDuration", DEFAULT_POP_DURATION, 0.04, 0.18),
 		FlightDuration = getPayloadNumber(payload, "FlightDuration", DEFAULT_FLIGHT_DURATION, 0.22, 0.55),

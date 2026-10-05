@@ -69,6 +69,11 @@ local function getOwnedDropInfo(instance, folderIsCurrent)
 		or instance:GetAttribute("OwnerUserId") ~= localPlayer.UserId then
 		return nil
 	end
+	-- Drops are tracked as soon as they replicate, but cannot be requested until
+	-- the server finishes the tree-fade reveal and explicitly enables pickup.
+	if instance:GetAttribute("PickupEnabled") ~= true then
+		return nil
+	end
 
 	local uid = instance:GetAttribute("UID")
 	local handle = instance.PrimaryPart

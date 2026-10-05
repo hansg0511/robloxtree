@@ -19,7 +19,10 @@ ContentProvider:PreloadAsync(sounds)
 
 local HIT_KICK_DURATION = 0.06
 local HIT_REBOUND_DURATION = 0.13
+local TREE_FALL_DURATION = 1.0
+local POST_IMPACT_PAUSE = 0.15
 local TREE_FADE_DURATION = 0.65
+local DROP_REVEAL_FADE_OFFSET = 0.15
 local activeHitByTree = setmetatable({}, { __mode = "k" })
 
 local function cancelHitTween(tree, restoreCFrame)
@@ -113,7 +116,7 @@ function FXService.GetTreeFallRotation(model, player)
 	return CFrame.fromAxisAngle(fallAxis.Unit, math.rad(75))
 end
 
-function FXService:TreeFall(model, player, fallRotation)
+function FXService:TreeFall(model, player, fallRotation, onDropReveal)
 	if not model or not model.Parent then return end
 	local treeModel = model
 	local primary = treeModel.PrimaryPart or treeModel:FindFirstChildWhichIsA("BasePart")
@@ -135,7 +138,7 @@ function FXService:TreeFall(model, player, fallRotation)
 
 	local fallTween = TweenService:Create(
 		primary,
-		TweenInfo.new(1, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+		TweenInfo.new(TREE_FALL_DURATION, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
 		{ CFrame = newCFrame }
 	)
 	fallTween:Play()
@@ -146,7 +149,7 @@ function FXService:TreeFall(model, player, fallRotation)
 			descendant.CanCollide = false
 		end
 	end
-	task.wait(0.5 + 0.2)
+	task.wait(POST_IMPACT_PAUSE)
 	if not treeModel.Parent then return end
 
 	-- Fade the whole fallen tree and wait for that fade to finish before
@@ -176,6 +179,17 @@ function FXService:TreeFall(model, player, fallRotation)
 		{ Value = 1 }
 	)
 	fadeTween:Play()
+	-- Drops are real server-owned pickup models. Let them begin revealing while
+	-- the fallen tree is still fading, so the rewards emerge from beneath it.
+	if type(onDropReveal) == "function" then
+		task.wait(DROP_REVEAL_FADE_OFFSET)
+		if treeModel.Parent then
+			local ok, err = pcall(onDropReveal)
+			if not ok then
+				warn("Could not reveal fallen tree log rewards", err)
+			end
+		end
+	end
 	fadeTween.Completed:Wait()
 	transparencyConnection:Disconnect()
 	fadeAlpha:Destroy()

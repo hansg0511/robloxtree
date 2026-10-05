@@ -2,6 +2,7 @@
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local ProfileCache = require(game.ServerScriptService.PlayerProfile.ProfileService.ProfileDataCache)
@@ -32,12 +33,15 @@ local PICKUP_POP_DURATION = 0.10
 local PICKUP_FLIGHT_DURATION = 0.36
 local PICKUP_LAUNCH_OFFSET_PER_LOG = 0.015
 local MAX_PICKUP_LAUNCH_OFFSET = 0.08
+local GROUND_LOG_REVEAL_DURATION = 0.36
+local GROUND_LOG_REVEAL_ARC_HEIGHT = 4
+local GROUND_LOG_READABLE_PAUSE = 0.2
 -- Keep pickup rejection diagnostics quiet in normal play. Enable temporarily
 -- when investigating why a server rejected a ground-log pickup request.
 local DEBUG_GROUND_PICKUP_DIAGNOSTICS = false
--- World drops deliberately read larger than carried cargo so they remain visible
--- alongside a fallen trunk. Inventory/carry presentation stays at its own scale.
-local GROUND_DROP_VISUAL_SCALE = 2.5
+-- Ground geometry is an exact fourfold copy of the carry/back-stack geometry.
+-- This is a visual-only scale; it never affects inventory or log value.
+local GROUND_DROP_VISUAL_SCALE = 4
 local REMOTE_INTERVALS = {
 	Sell = 1,
 	Lock = 0.15,
@@ -549,10 +553,11 @@ local function getFallPathPosition(fallPlacement, index, totalCount)
 		+ fallPlacement.Perpendicular * sideOffset
 end
 
-local function createLogVisualModel(name, logRecord, visualScale)
+local function createLogVisualModel(name, logRecord, visualScale, hidden)
 	local model = Instance.new("Model")
 	model.Name = name
 	local handle, caps = SpeciesVisuals.CreateLogParts(logRecord, "LogHandle", visualScale)
+	local revealTransparencyByPart = {}
 	handle.Parent = model
 	for _, cap in ipairs(caps) do
 		cap.Parent = model
@@ -564,9 +569,13 @@ local function createLogVisualModel(name, logRecord, visualScale)
 			descendant.CanCollide = false
 			descendant.CanTouch = false
 			descendant.CanQuery = false
+			if hidden then
+				revealTransparencyByPart[descendant] = descendant.Transparency
+				descendant.Transparency = 1
+			end
 		end
 	end
-	return model, handle
+	return model, handle, revealTransparencyByPart
 end
 
 local function finishCarryArrival(player, uid)
@@ -620,6 +629,7 @@ local function makePickupFxPayload(claim, carryTarget, launchOffset)
 		PopDuration = PICKUP_POP_DURATION,
 		FlightDuration = PICKUP_FLIGHT_DURATION,
 		StartVisualScale = GROUND_DROP_VISUAL_SCALE,
+		GroundToCarryScale = GROUND_DROP_VISUAL_SCALE,
 	}
 end
 
@@ -672,15 +682,107 @@ local function rejectPickup(player, uid, reason)
 	return false
 end
 
+local function isActiveGroundDropEntry(bundle, drop, uid, entry)
+	local worldDropFolder = Workspace:FindFirstChild("WorldLogDrops")
+	local model = entry and entry.Model
+	return worldDropFolder ~= nil
+		and worldDropFolder:IsA("Folder")
+		and worldDropFolder:IsDescendantOf(Workspace)
+		and activeGroundDrops[bundle] == drop
+		and drop.LogRecordsByUid[uid] == entry
+		and bundle.Parent == worldDropFolder
+		and model ~= nil
+		and model.Parent == bundle
+		and os.clock() <= entry.ReservedUntil
+end
+
+local function animateGroundDropReveal(reveals)
+	if #reveals == 0 then return end
+	local startedAt = os.clock()
+	local connection
+	connection = RunService.Heartbeat:Connect(function()
+		local elapsed = os.clock() - startedAt
+		local alpha = math.clamp(elapsed / GROUND_LOG_REVEAL_DURATION, 0, 1)
+		local eased = 1 - (1 - alpha) ^ 3
+		for _, reveal in ipairs(reveals) do
+			local entry = reveal.Entry
+			local model = reveal.Model
+			if isActiveGroundDropEntry(reveal.Bundle, reveal.Drop, reveal.UID, entry)
+				and entry.PickupEnabled == false
+				and model:GetAttribute("PickupEnabled") == false then
+				local position = reveal.StartPosition:Lerp(reveal.FinalCFrame.Position, eased)
+				position += Vector3.yAxis * (math.sin(math.pi * alpha) * GROUND_LOG_REVEAL_ARC_HEIGHT)
+				local tumble = math.rad(360 * eased)
+				local wobble = math.sin(math.pi * eased)
+				local rotation = reveal.FinalCFrame.Rotation
+					* CFrame.Angles(tumble, math.rad(48) * wobble, math.rad(28) * wobble)
+				model:PivotTo(CFrame.new(position) * rotation)
+
+				for part, finalTransparency in pairs(entry.RevealPartTransparencies or {}) do
+					if part.Parent then
+						part.Transparency = 1 - ((1 - finalTransparency) * eased)
+					end
+				end
+			end
+		end
+
+		if alpha >= 1 then
+			connection:Disconnect()
+			for _, reveal in ipairs(reveals) do
+				local entry = reveal.Entry
+				local model = reveal.Model
+				if isActiveGroundDropEntry(reveal.Bundle, reveal.Drop, reveal.UID, entry)
+					and entry.PickupEnabled == false
+					and model:GetAttribute("PickupEnabled") == false then
+					model:PivotTo(reveal.FinalCFrame)
+					for part, finalTransparency in pairs(entry.RevealPartTransparencies or {}) do
+						if part.Parent then
+							part.Transparency = finalTransparency
+						end
+					end
+					entry.RevealPartTransparencies = nil
+				end
+			end
+		end
+	end)
+end
+
+-- Schedules one exact harvest batch for pickup after the fall fade and short
+-- readable pause. Entries removed, reparented, or expired before then stay off.
+function LogService.EnableGroundLogBatch(harvestBatchId)
+	if not isValidUid(harvestBatchId) then return false end
+	task.delay(GROUND_LOG_READABLE_PAUSE, function()
+		local worldDropFolder = Workspace:FindFirstChild("WorldLogDrops")
+		if not worldDropFolder or not worldDropFolder:IsA("Folder") then return end
+		for bundle, drop in pairs(activeGroundDrops) do
+			if drop and bundle.Parent == worldDropFolder then
+				for uid, entry in pairs(drop.LogRecordsByUid) do
+					if entry.HarvestBatchId == harvestBatchId
+						and entry.PickupEnabled == false
+						and isActiveGroundDropEntry(bundle, drop, uid, entry) then
+						entry.PickupEnabled = true
+						entry.Model:SetAttribute("PickupEnabled", true)
+						entry.RevealPartTransparencies = nil
+						end
+				end
+			end
+		end
+	end)
+	return true
+end
+
 local function tryPickupGroundLog(player, bundle, uid, visualModel)
 	local drop = activeGroundDrops[bundle]
 	local entry = drop and drop.LogRecordsByUid[uid]
 	local model = entry and entry.Model
 	local handle = model and model.PrimaryPart
 	local groundDropFolder = Workspace:FindFirstChild("WorldLogDrops")
-	if not drop or not entry or model ~= visualModel or bundle.Parent ~= groundDropFolder
+	if not drop or not entry or model ~= visualModel or not groundDropFolder or bundle.Parent ~= groundDropFolder
 		or model.Parent ~= bundle or not handle then
 		return rejectPickup(player, uid, "invalid registry/model mismatch")
+	end
+	if entry.PickupEnabled ~= true or model:GetAttribute("PickupEnabled") ~= true then
+		return rejectPickup(player, uid, "reveal pending")
 	end
 	if player.UserId ~= drop.OwnerUserId then
 		return rejectPickup(player, uid, "wrong owner")
@@ -720,8 +822,10 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 		local candidateHandle = candidateModel and candidateModel.PrimaryPart
 		if candidateUid ~= uid
 			and candidateEntry.HarvestBatchId == entry.HarvestBatchId
+			and candidateEntry.PickupEnabled == true
 			and candidateModel
 			and candidateModel.Parent == bundle
+			and candidateModel:GetAttribute("PickupEnabled") == true
 			and candidateHandle
 			and os.clock() <= candidateEntry.ReservedUntil
 			and (root.Position - candidateHandle.Position).Magnitude <= MAX_PICKUP_DISTANCE
@@ -794,7 +898,7 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 	return true
 end
 
-local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, harvestBatchId, firstIndex, batchCount)
+local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, harvestBatchId, firstIndex, batchCount, revealMode)
 	if #logRecords == 0 then return true end
 	if not canSpawnGroundDrops(ownerUserId, #logRecords) then return false end
 
@@ -813,9 +917,18 @@ local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, harvestB
 		pendingGroundDropByUserId[ownerUserId] = bundle
 	end
 
+	local reveals = {}
 	for index, logRecord in ipairs(logRecords) do
-		local model, handle = createLogVisualModel("DroppedLog", logRecord, GROUND_DROP_VISUAL_SCALE)
-		local landingPosition = getFallPathPosition(fallPlacement, (firstIndex or 1) + index - 1, batchCount or #logRecords)
+		local hiddenUntilReveal = revealMode == true
+		local model, handle, revealTransparencyByPart = createLogVisualModel(
+			"DroppedLog",
+			logRecord,
+			GROUND_DROP_VISUAL_SCALE,
+			hiddenUntilReveal
+		)
+		local revealIndex = (firstIndex or 1) + index - 1
+		local revealCount = batchCount or #logRecords
+		local landingPosition = getFallPathPosition(fallPlacement, revealIndex, revealCount)
 		local groundCFrame = CFrame.fromMatrix(
 			Vector3.new(
 				landingPosition.X,
@@ -828,13 +941,30 @@ local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, harvestB
 			Vector3.yAxis,
 			fallPlacement.Direction:Cross(Vector3.yAxis)
 		)
-		model:PivotTo(groundCFrame)
+		local startPosition = groundCFrame.Position
+		if hiddenUntilReveal then
+			local revealRank = math.clamp(revealIndex, 1, revealCount)
+			local footprintPosition = fallPlacement.Origin
+				+ fallPlacement.Direction * math.min(fallPlacement.TrunkLength * 0.12, 3)
+				+ fallPlacement.Perpendicular * ((revealRank - (revealCount + 1) * 0.5) * 0.65)
+			startPosition = Vector3.new(
+				footprintPosition.X,
+				getGroundHeight(footprintPosition) + handle.Size.Y * 0.5 + 0.08,
+				footprintPosition.Z
+			)
+			local startRotation = groundCFrame.Rotation
+				* CFrame.Angles(math.rad(82), math.rad(revealRank * 17), math.rad(revealRank * 13))
+			model:PivotTo(CFrame.new(startPosition) * startRotation)
+		else
+			model:PivotTo(groundCFrame)
+		end
 		model:SetAttribute("UID", logRecord.UID)
 		model:SetAttribute("ItemType", "Log")
 		model:SetAttribute("SpeciesId", logRecord.SpeciesId)
 		model:SetAttribute("OwnerUserId", ownerUserId)
 		model:SetAttribute("OwnerReservationSeconds", OWNER_RESERVATION_SECONDS)
 		model:SetAttribute("HarvestBatchId", harvestBatchId)
+		model:SetAttribute("PickupEnabled", not hiddenUntilReveal)
 		model.Parent = bundle
 
 		local entry = {
@@ -842,13 +972,29 @@ local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, harvestB
 			Model = model,
 			HarvestBatchId = harvestBatchId,
 			ReservedUntil = os.clock() + OWNER_RESERVATION_SECONDS,
+			PickupEnabled = not hiddenUntilReveal,
+			RevealPartTransparencies = if hiddenUntilReveal then revealTransparencyByPart else nil,
 		}
 		drop.LogRecordsByUid[logRecord.UID] = entry
 		drop.Count += 1
+		if hiddenUntilReveal then
+			table.insert(reveals, {
+				Bundle = bundle,
+				Drop = drop,
+				UID = logRecord.UID,
+				Entry = entry,
+				Model = model,
+				StartPosition = startPosition,
+				FinalCFrame = groundCFrame,
+			})
+		end
 
 		task.delay(GROUND_LOG_LIFETIME_SECONDS, function()
 			removeGroundDropLog(bundle, logRecord.UID, entry)
 		end)
+	end
+	if revealMode == true then
+		task.spawn(animateGroundDropReveal, reveals)
 	end
 	return true
 end
@@ -901,7 +1047,8 @@ function LogService.CaptureTreeLogAward(tree, contributions, fallRotation)
 	}
 end
 
-function LogService.AwardTreeLog(awardSnapshot)
+function LogService.AwardTreeLog(awardSnapshot, options)
+	local revealMode = type(options) == "table" and options.Reveal == true
 	local harvestBatchId = HttpService:GenerateGUID(false)
 	if type(harvestBatchId) ~= "string" or #harvestBatchId == 0 then return false end
 	if type(awardSnapshot) ~= "table" or awardSnapshot.YieldsLog ~= true then return false end
@@ -950,12 +1097,16 @@ function LogService.AwardTreeLog(awardSnapshot)
 		fallPlacement,
 		harvestBatchId,
 		1,
-		rewardCount
+		rewardCount,
+		revealMode
 	) then
 		return false
 	end
 
-	return true
+	-- The unique batch id is also the narrow handle used by the delayed pickup
+	-- release API. Returning it prevents a caller from releasing another tree's
+	-- drops when several trees are falling in parallel.
+	return harvestBatchId
 end
 
 LogService.DEFAULT_CAPACITY = DEFAULT_CAPACITY

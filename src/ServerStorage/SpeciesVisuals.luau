@@ -29,6 +29,10 @@ local PALETTES = {
 }
 
 local FALLBACK_SPECIES = "Oak"
+local CARRY_LOG_LENGTH = 2.15
+local CARRY_LOG_DIAMETER = 0.48
+local CARRY_CAP_THICKNESS = 0.07
+local CARRY_CAP_DIAMETER_RATIO = 0.88
 
 function SpeciesVisuals.GetPalette(speciesId)
 	return PALETTES[speciesId] or PALETTES[FALLBACK_SPECIES]
@@ -149,8 +153,11 @@ function SpeciesVisuals.CreateLogParts(logRecord, handleName, visualScale)
 	assert(type(logRecord) == "table", "A server-owned log record is required")
 	local palette = SpeciesVisuals.GetPalette(logRecord.SpeciesId)
 	local geometryScale = if type(visualScale) == "number" and visualScale > 0 then visualScale else 1
-	local length = 2.15 * geometryScale
-	local diameter = 0.7 * geometryScale
+	-- Ground drops use this same carry-log shape multiplied by the caller's
+	-- visualScale. A scale of four therefore makes the true body and cap
+	-- dimensions exactly four times the unchanged back-stack dimensions.
+	local length = CARRY_LOG_LENGTH * geometryScale
+	local diameter = CARRY_LOG_DIAMETER * geometryScale
 
 	local handle = configurePart(Instance.new("Part"))
 	handle.Name = handleName or "Handle"
@@ -171,12 +178,12 @@ function SpeciesVisuals.CreateLogParts(logRecord, handleName, visualScale)
 	addBarkStrips(handle, length, diameter, geometryScale, palette)
 
 	local caps = {}
-	local capThickness = 0.07 * geometryScale
+	local capThickness = CARRY_CAP_THICKNESS * geometryScale
 	for index, direction in ipairs({ -1, 1 }) do
 		local cap = configurePart(Instance.new("Part"))
 		cap.Name = "CutEnd" .. index
 		cap.Shape = Enum.PartType.Cylinder
-		cap.Size = Vector3.new(capThickness, diameter * 0.84, diameter * 0.84)
+		cap.Size = Vector3.new(capThickness, diameter * CARRY_CAP_DIAMETER_RATIO, diameter * CARRY_CAP_DIAMETER_RATIO)
 		cap.CFrame = CFrame.new(direction * (length * 0.5 - capThickness * 0.5), 0, 0)
 		cap.Color = palette.CutEnd
 		cap.Material = Enum.Material.Plastic
@@ -202,9 +209,9 @@ end
 function SpeciesVisuals.CreateCarryLogParts(logRecord)
 	assert(type(logRecord) == "table", "A server-owned log record is required")
 	local palette = SpeciesVisuals.GetPalette(logRecord.SpeciesId)
-	local length = 2.15
-	local diameter = 0.48
-	local capThickness = 0.07
+	local length = CARRY_LOG_LENGTH
+	local diameter = CARRY_LOG_DIAMETER
+	local capThickness = CARRY_CAP_THICKNESS
 
 	local body = configurePart(Instance.new("Part"))
 	body.Name = "CarryLogBody"
@@ -226,7 +233,7 @@ function SpeciesVisuals.CreateCarryLogParts(logRecord)
 		local cap = configurePart(Instance.new("Part"))
 		cap.Name = "CarryLogCutEnd" .. index
 		cap.Shape = Enum.PartType.Cylinder
-		cap.Size = Vector3.new(capThickness, diameter * 0.88, diameter * 0.88)
+		cap.Size = Vector3.new(capThickness, diameter * CARRY_CAP_DIAMETER_RATIO, diameter * CARRY_CAP_DIAMETER_RATIO)
 		cap.CFrame = CFrame.new(direction * (length * 0.5 - capThickness * 0.5), 0, 0)
 		cap.Color = palette.CutEnd
 		cap.Material = Enum.Material.Plastic
