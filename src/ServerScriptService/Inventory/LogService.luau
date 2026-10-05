@@ -34,7 +34,7 @@ local PICKUP_FLIGHT_DURATION = 0.36
 local PICKUP_LAUNCH_OFFSET_PER_LOG = 0.015
 local MAX_PICKUP_LAUNCH_OFFSET = 0.08
 local GROUND_LOG_REVEAL_DURATION = 0.36
-local GROUND_LOG_REVEAL_ARC_HEIGHT = 4
+local GROUND_LOG_REVEAL_ARC_HEIGHT = 2.5
 local GROUND_LOG_READABLE_PAUSE = 0.2
 -- Keep pickup rejection diagnostics quiet in normal play. Enable temporarily
 -- when investigating why a server rejected a ground-log pickup request.
@@ -712,11 +712,9 @@ local function animateGroundDropReveal(reveals)
 				and model:GetAttribute("PickupEnabled") == false then
 				local position = reveal.StartPosition:Lerp(reveal.FinalCFrame.Position, eased)
 				position += Vector3.yAxis * (math.sin(math.pi * alpha) * GROUND_LOG_REVEAL_ARC_HEIGHT)
-				local tumble = math.rad(360 * eased)
-				local wobble = math.sin(math.pi * eased)
-				local rotation = reveal.FinalCFrame.Rotation
-					* CFrame.Angles(tumble, math.rad(48) * wobble, math.rad(28) * wobble)
-				model:PivotTo(CFrame.new(position) * rotation)
+				-- Keep the log aligned with its final ground orientation throughout
+				-- the reveal. The arc supplies the motion; no spin or wobble is needed.
+				model:PivotTo(CFrame.new(position) * reveal.FinalCFrame.Rotation)
 
 				for part, finalTransparency in pairs(entry.RevealPartTransparencies or {}) do
 					if part.Parent then
@@ -952,9 +950,7 @@ local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, harvestB
 				getGroundHeight(footprintPosition) + handle.Size.Y * 0.5 + 0.08,
 				footprintPosition.Z
 			)
-			local startRotation = groundCFrame.Rotation
-				* CFrame.Angles(math.rad(82), math.rad(revealRank * 17), math.rad(revealRank * 13))
-			model:PivotTo(CFrame.new(startPosition) * startRotation)
+			model:PivotTo(CFrame.new(startPosition) * groundCFrame.Rotation)
 		else
 			model:PivotTo(groundCFrame)
 		end
