@@ -485,14 +485,21 @@ function Tree:Die(player)
 	self.isDead = true
 	local fallenModel = self.model
 	local fallRotation = FXService.GetTreeFallRotation(fallenModel, player)
-	if self.YieldsLog then
-		LogService.AwardTreeLog(self, self.DamageContributions, fallRotation)
-	end
+	local awardSnapshot = LogService.CaptureTreeLogAward(
+		self,
+		self.DamageContributions,
+		fallRotation
+	)
 	if self.UnlockForestId then
 		WorldProgressService.UnlockForest(player, self.UnlockForestId)
 	end
 	task.spawn(function()
 		FXService:TreeFall(fallenModel, player, fallRotation)
+		-- Spawn the physical reward only after the fallen tree is fully faded,
+		-- keeping the drops hidden until they are no longer covered by the tree.
+		if awardSnapshot then
+			LogService.AwardTreeLog(awardSnapshot)
+		end
 	end)
 	if self.RespawnSeconds then
 		task.delay(self.RespawnSeconds, function()

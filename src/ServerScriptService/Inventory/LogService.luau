@@ -37,7 +37,7 @@ local MAX_PICKUP_LAUNCH_OFFSET = 0.08
 local DEBUG_GROUND_PICKUP_DIAGNOSTICS = false
 -- World drops deliberately read larger than carried cargo so they remain visible
 -- alongside a fallen trunk. Inventory/carry presentation stays at its own scale.
-local GROUND_DROP_VISUAL_SCALE = 2
+local GROUND_DROP_VISUAL_SCALE = 2.5
 local REMOTE_INTERVALS = {
 	Sell = 1,
 	Lock = 0.15,
@@ -737,23 +737,46 @@ local function getTreeLogYieldCount(tree)
 	return MAX_HARVEST_LOGS
 end
 
-function LogService.AwardTreeLog(tree, contributions, fallRotation)
+function LogService.CaptureTreeLogAward(tree, contributions, fallRotation)
+	if not tree or tree.YieldsLog ~= true then return nil end
+
+	local contributionSnapshot = {}
+	for userId, contribution in pairs(contributions or {}) do
+		if type(contribution) == "table" then
+			contributionSnapshot[userId] = {
+				Player = contribution.Player,
+				Damage = contribution.Damage,
+			}
+		end
+	end
+
+	return {
+		YieldsLog = tree.YieldsLog,
+		SpeciesId = tree.SpeciesId,
+		LogValue = tree.LogValue,
+		SizeScale = tree.SizeScale,
+		Contributions = contributionSnapshot,
+		FallPlacement = getFallPlacement(tree, fallRotation),
+	}
+end
+
+function LogService.AwardTreeLog(awardSnapshot)
 	local harvestBatchId = HttpService:GenerateGUID(false)
 	if type(harvestBatchId) ~= "string" or #harvestBatchId == 0 then return false end
-	if not tree or tree.YieldsLog ~= true then return false end
-	if type(tree.SpeciesId) ~= "string"
-		or not logValueBySpecies[tree.SpeciesId]
-		or not isFinitePositive(tree.LogValue)
-		or math.floor(tree.LogValue + 0.5) ~= logValueBySpecies[tree.SpeciesId] then
+	if type(awardSnapshot) ~= "table" or awardSnapshot.YieldsLog ~= true then return false end
+	if type(awardSnapshot.SpeciesId) ~= "string"
+		or not logValueBySpecies[awardSnapshot.SpeciesId]
+		or not isFinitePositive(awardSnapshot.LogValue)
+		or math.floor(awardSnapshot.LogValue + 0.5) ~= logValueBySpecies[awardSnapshot.SpeciesId] then
 		return false
 	end
-	local rewardCount = getTreeLogYieldCount(tree)
+	local rewardCount = getTreeLogYieldCount(awardSnapshot)
 	if not rewardCount or rewardCount > MAX_HARVEST_LOGS then return false end
 
 	local winner
 	local winnerUserId
 	local winnerDamage = -1
-	for userId, contribution in pairs(contributions or {}) do
+	for userId, contribution in pairs(awardSnapshot.Contributions or {}) do
 		local player = Players:GetPlayerByUserId(userId)
 		if player and contribution.Player == player and isFinitePositive(contribution.Damage)
 			and (contribution.Damage > winnerDamage
@@ -769,10 +792,11 @@ function LogService.AwardTreeLog(tree, contributions, fallRotation)
 	if not data then return false end
 	local logRecords = {}
 	for index = 1, rewardCount do
-		table.insert(logRecords, createLogRecord(tree))
+		table.insert(logRecords, createLogRecord({ SpeciesId = awardSnapshot.SpeciesId }))
 	end
 
-	local fallPlacement = getFallPlacement(tree, fallRotation)
+	local fallPlacement = awardSnapshot.FallPlacement
+	if type(fallPlacement) ~= "table" then return false end
 
 	-- Every tree reward remains a physical, owner-reserved drop until the winner
 	-- approaches it. Preflight the bounded registry so a harvest is never partial.

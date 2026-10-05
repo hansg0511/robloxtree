@@ -19,6 +19,7 @@ ContentProvider:PreloadAsync(sounds)
 
 local HIT_KICK_DURATION = 0.06
 local HIT_REBOUND_DURATION = 0.13
+local TREE_FADE_DURATION = 0.65
 local activeHitByTree = setmetatable({}, { __mode = "k" })
 
 local function cancelHitTween(tree, restoreCFrame)
@@ -139,19 +140,46 @@ function FXService:TreeFall(model, player, fallRotation)
 	)
 	fallTween:Play()
 	fallTween.Completed:Wait()
+	if not treeModel.Parent then return end
 	for _, descendant in ipairs(treeModel:GetDescendants()) do
 		if descendant:IsA("BasePart") then
 			descendant.CanCollide = false
 		end
 	end
-	task.delay(0.5 + 0.2, function()
-		TweenService:Create(
-			primary,
-			TweenInfo.new(0.8),
-			{ Transparency = 1 }
-		):Play()
+	task.wait(0.5 + 0.2)
+	if not treeModel.Parent then return end
+
+	-- Fade the whole fallen tree and wait for that fade to finish before
+	-- returning, so callers can safely reveal its ground drops afterward.
+	local transparencyByPart = {}
+	for _, descendant in ipairs(treeModel:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			transparencyByPart[descendant] = descendant.Transparency
+		end
+	end
+
+	local fadeAlpha = Instance.new("NumberValue")
+	fadeAlpha.Value = 0
+	fadeAlpha.Parent = treeModel
+	local function updateTransparency()
+		local alpha = fadeAlpha.Value
+		for part, startTransparency in pairs(transparencyByPart) do
+			if part.Parent then
+				part.Transparency = startTransparency + (1 - startTransparency) * alpha
+			end
+		end
+	end
+	local transparencyConnection = fadeAlpha:GetPropertyChangedSignal("Value"):Connect(updateTransparency)
+	local fadeTween = TweenService:Create(
+		fadeAlpha,
+		TweenInfo.new(TREE_FADE_DURATION),
+		{ Value = 1 }
+	)
+	fadeTween:Play()
+	fadeTween.Completed:Wait()
+	transparencyConnection:Disconnect()
+	fadeAlpha:Destroy()
 	Debris:AddItem(treeModel, 1)
-	end)
 end
 
 local function PopRandomLeaf(pool)
