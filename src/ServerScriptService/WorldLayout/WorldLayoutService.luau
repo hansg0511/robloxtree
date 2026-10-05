@@ -324,6 +324,101 @@ local function createAxeShopStation(parent)
 	return station
 end
 
+local function createForgeStation(parent)
+	local station = Instance.new("Model")
+	station.Name = "ForgeStation"
+	station:SetAttribute("WorldLayoutOwned", true)
+	station:SetAttribute("UseDistance", Configuration.STATION_USE_DISTANCES.ForgeStation)
+	station.Parent = parent
+
+	local position = Configuration.FORGE_STATION.Position
+	local base = createPart(
+		"ForgeBase",
+		Vector3.new(9, 1, 7),
+		CFrame.new(position + Vector3.new(0, 0.5, 0)),
+		Color3.fromRGB(67, 67, 64),
+		Enum.Material.Slate,
+		station
+	)
+	base:SetAttribute("WorldLayoutOwned", true)
+
+	local furnace = createPart(
+		"Furnace",
+		Vector3.new(4, 3, 3),
+		CFrame.new(position + Vector3.new(0, 2.5, 1.5)),
+		Color3.fromRGB(92, 65, 53),
+		Enum.Material.Brick,
+		station
+	)
+	furnace:SetAttribute("WorldLayoutOwned", true)
+
+	local hearth = createPart(
+		"Hearth",
+		Vector3.new(2, 1.4, 0.25),
+		CFrame.new(position + Vector3.new(0, 2.5, -0.14)),
+		Color3.fromRGB(255, 112, 36),
+		Enum.Material.Neon,
+		station
+	)
+	hearth:SetAttribute("WorldLayoutOwned", true)
+
+	local anvilBody = createPart(
+		"AnvilBody",
+		Vector3.new(2.2, 1, 1.5),
+		CFrame.new(position + Vector3.new(0, 1.5, -1.9)),
+		Color3.fromRGB(87, 99, 103),
+		Enum.Material.Metal,
+		station
+	)
+	anvilBody:SetAttribute("WorldLayoutOwned", true)
+
+	local anvilTop = createPart(
+		"AnvilTop",
+		Vector3.new(2.8, 0.4, 1.8),
+		CFrame.new(position + Vector3.new(0, 1.9, -1.9)),
+		Color3.fromRGB(139, 151, 154),
+		Enum.Material.Metal,
+		station
+	)
+	anvilTop:SetAttribute("WorldLayoutOwned", true)
+
+	local interaction = createPart(
+		"Interaction",
+		Vector3.new(10, 6, 5),
+		CFrame.new(position + Vector3.new(0, 3, -3.5)),
+		Color3.fromRGB(88, 164, 92),
+		Enum.Material.Plastic,
+		station
+	)
+	interaction.Transparency = 1
+	interaction.CanCollide = false
+	interaction.CanTouch = false
+	interaction.CanQuery = false
+	interaction:SetAttribute("WorldLayoutOwned", true)
+	interaction:SetAttribute("UseDistance", Configuration.STATION_USE_DISTANCES.ForgeStation)
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "ForgePrompt"
+	prompt.ActionText = "Forge axe"
+	prompt.ObjectText = "Forge"
+	prompt.MaxActivationDistance = Configuration.STATION_USE_DISTANCES.ForgeStation
+	prompt.RequiresLineOfSight = false
+	prompt.HoldDuration = 0
+	prompt.Parent = interaction
+
+	createStationSign(
+		station,
+		"Forge",
+		"Forge",
+		"Craft Axes",
+		position + Vector3.new(0, 6.1, 1.5),
+		Color3.fromRGB(125, 73, 50),
+		Color3.fromRGB(255, 232, 201)
+	)
+
+	return station
+end
+
 local function spawnTreeRecord(forestFolder, forestId, record)
 	local definition = TreeDefinitions[record.DefinitionId]
 	if not definition then
@@ -368,6 +463,7 @@ local function buildWorld()
 	root:SetAttribute("WorldLayoutOwned", true)
 	createHomeEconomyStation(root)
 	createAxeShopStation(root)
+	createForgeStation(root)
 
 	createGround(
 		terrain,

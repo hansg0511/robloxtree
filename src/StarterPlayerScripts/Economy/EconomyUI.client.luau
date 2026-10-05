@@ -14,7 +14,8 @@ local getSellSummary = economy:WaitForChild("GetSellSummaryRF")
 local setLogLocked = economy:WaitForChild("SetLogLockedRE")
 local economyStateUpdated = economy:WaitForChild("EconomyStateUpdated")
 local getShopData = economy:WaitForChild("GetShopDataRF")
-local purchaseAxe = economy:WaitForChild("PurchaseAxeRE")
+local purchaseAxeHead = economy:WaitForChild("PurchaseAxeHeadRE")
+local craftRecipe = economy:WaitForChild("CraftRecipeRE")
 local purchaseCapacity = economy:WaitForChild("PurchaseCapacityRE")
 local equipAxe = economy:WaitForChild("EquipAxeRE")
 
@@ -522,9 +523,9 @@ local function styleStationModal(panel, titleText, subtitleText)
 	end
 end
 
-local shopOverlay, shopPanel = makeModal(screen, "AxeShop", "AXE SHOP", "Pick up more power and chop tougher trees.")
-styleStationModal(shopPanel, "AXE SHOP", "PICK A TOOL THAT FITS YOUR CHOPPING POWER")
-local shopNotice = label(shopPanel, "ShopNotice", "CHOPPING TOOLS", UDim2.new(1, -42, 0, 30), UDim2.new(0, 21, 0, 88), 18, COLORS.BagText, Enum.Font.GothamBlack)
+local shopOverlay, shopPanel = makeModal(screen, "AxeShop", "AXE SHOP", "Buy a head component, then forge the finished axe.")
+styleStationModal(shopPanel, "AXE SHOP", "BUY AN AXE HEAD • FORGE YOUR AXE SEPARATELY")
+local shopNotice = label(shopPanel, "ShopNotice", "AXE HEADS • CRAFTING COMPONENTS ONLY", UDim2.new(1, -42, 0, 30), UDim2.new(0, 21, 0, 88), 18, COLORS.BagText, Enum.Font.GothamBlack)
 shopNotice.TextStrokeColor3 = COLORS.BagLine
 shopNotice.TextStrokeTransparency = 0
 local shopList = Instance.new("ScrollingFrame")
@@ -551,6 +552,42 @@ local shopLayout = Instance.new("UIListLayout")
 shopLayout.Padding = UDim.new(0, 12)
 shopLayout.SortOrder = Enum.SortOrder.LayoutOrder
 shopLayout.Parent = shopList
+
+local forgeOverlay, forgePanel = makeModal(screen, "AxeForge", "AXE FORGE", "Combine an owned axe head with eligible logs.")
+styleStationModal(forgePanel, "AXE FORGE", "STANDARD AXES USE AN AXE HEAD AND UNLOCKED LOGS")
+forgePanel.Size = UDim2.new(0.86, 0, 0.82, 0)
+local forgeSizeConstraint = forgePanel:FindFirstChildOfClass("UISizeConstraint")
+if forgeSizeConstraint then
+	forgeSizeConstraint.MaxSize = Vector2.new(980, 700)
+end
+local forgeList = Instance.new("ScrollingFrame")
+forgeList.Name = "RecipeList"
+forgeList.Position = UDim2.new(0, 20, 0, 124)
+forgeList.Size = UDim2.new(1, -40, 1, -144)
+forgeList.BackgroundColor3 = COLORS.BagBack
+forgeList.BackgroundTransparency = 0
+forgeList.BorderSizePixel = 0
+forgeList.ScrollBarThickness = 8
+forgeList.ScrollBarImageColor3 = COLORS.BagMuted
+forgeList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+forgeList.CanvasSize = UDim2.new()
+forgeList.Parent = forgePanel
+round(forgeList, 12)
+outline(forgeList, COLORS.BagLine, 3)
+local forgePadding = Instance.new("UIPadding")
+forgePadding.PaddingTop = UDim.new(0, 12)
+forgePadding.PaddingBottom = UDim.new(0, 12)
+forgePadding.PaddingLeft = UDim.new(0, 12)
+forgePadding.PaddingRight = UDim.new(0, 12)
+forgePadding.Parent = forgeList
+local forgeLayout = Instance.new("UIListLayout")
+forgeLayout.Padding = UDim.new(0, 12)
+forgeLayout.SortOrder = Enum.SortOrder.LayoutOrder
+forgeLayout.Parent = forgeList
+local forgeEmptyState = label(forgePanel, "ForgeEmptyState", "LOADING RECIPES...", UDim2.new(1, -60, 0, 80), UDim2.new(0, 30, 0, 124), 20, COLORS.BagMuted, Enum.Font.GothamBlack)
+forgeEmptyState.TextXAlignment = Enum.TextXAlignment.Center
+forgeEmptyState.ZIndex = 3
+forgeEmptyState.Visible = true
 
 local sellOverlay, sellPanel = makeModal(screen, "SellLogs", "SELL LOGS", "Cash out your ready logs for Coins.")
 styleStationModal(sellPanel, "LUMBER DEPOT", "TURN READY LOGS INTO COINS")
@@ -622,6 +659,7 @@ end
 local function closeAllPanels()
 	bagOverlay.Visible = false
 	shopOverlay.Visible = false
+	forgeOverlay.Visible = false
 	sellOverlay.Visible = false
 	showingBagInfo = false
 	infoOverlay.Visible = false
@@ -1067,7 +1105,9 @@ end)
 
 local function clearShopRows()
 	for _, child in ipairs(shopList:GetChildren()) do
-		if child ~= shopLayout then child:Destroy() end
+		if child ~= shopLayout and child ~= shopPadding and not child:IsA("UICorner") and not child:IsA("UIStroke") then
+			child:Destroy()
+		end
 	end
 end
 
@@ -1078,43 +1118,81 @@ local function renderShop(data)
 	clearShopRows()
 	hudCoins.Text = "🪙 " .. formatCoins(data.Coins or 0)
 	local layoutOrder = 0
-	for _, axe in ipairs(data.Axes or {}) do
+	local axeHeads = if type(data.AxeHeads) == "table" then data.AxeHeads else nil
+	if not axeHeads or #axeHeads == 0 then
 		layoutOrder += 1
+		local emptyCard = Instance.new("Frame")
+		emptyCard.Name = "AxeHeadUnavailable"
+		emptyCard.LayoutOrder = layoutOrder
+		emptyCard.Size = UDim2.new(1, -8, 0, 72)
+		emptyCard.BackgroundColor3 = COLORS.BagSlot
+		emptyCard.Parent = shopList
+		round(emptyCard, 12)
+		outline(emptyCard, COLORS.BagLine, 3)
+		local emptyText = label(emptyCard, "Message", if axeHeads then "NO AXE HEADS AVAILABLE" else "AXE HEAD DATA UNAVAILABLE", UDim2.new(1, -24, 1, 0), UDim2.new(0, 12, 0, 0), 17, COLORS.BagMuted, Enum.Font.GothamBlack)
+		emptyText.TextXAlignment = Enum.TextXAlignment.Center
+	end
+	for _, head in ipairs(axeHeads or {}) do
+		if type(head) ~= "table" or typeof(head.Id) ~= "string" or #head.Id == 0 then
+			continue
+		end
+		layoutOrder += 1
+		local compactShopCards = shopList.AbsoluteSize.X < 620
 		local card = Instance.new("Frame")
-		card.Name = "AxeCard_" .. tostring(axe.Id)
+		card.Name = "AxeHeadCard_" .. head.Id
 		card.LayoutOrder = layoutOrder
-		card.Size = UDim2.new(1, -8, 0, 116)
+		card.Size = UDim2.new(1, -8, 0, compactShopCards and 166 or 118)
 		card.BackgroundColor3 = layoutOrder % 2 == 0 and COLORS.BagPreview or COLORS.BagSlot
 		card.Parent = shopList
 		round(card, 12)
 		outline(card, COLORS.BagLine, 3)
-		local axeIcon = Instance.new("Frame")
-		axeIcon.Name = "AxeIcon"
-		axeIcon.Position = UDim2.new(0, 14, 0.5, -38)
-		axeIcon.Size = UDim2.fromOffset(76, 76)
-		axeIcon.BackgroundColor3 = COLORS.BagHeader
-		axeIcon.Parent = card
-		round(axeIcon, 12)
-		outline(axeIcon, COLORS.BagLine, 3)
-		local axeEmoji = label(axeIcon, "Emoji", "🪓", UDim2.fromScale(1, 1), UDim2.new(), 38, COLORS.DarkInk, Enum.Font.GothamBlack)
-		axeEmoji.TextXAlignment = Enum.TextXAlignment.Center
-		local name = label(card, "Name", tostring(axe.Name), UDim2.new(0.54, -108, 0, 36), UDim2.new(0, 104, 0, 18), 23, COLORS.BagText, Enum.Font.GothamBlack)
+		local headIcon = Instance.new("Frame")
+		headIcon.Name = "HeadIcon"
+		headIcon.Position = if compactShopCards then UDim2.fromOffset(12, 10) else UDim2.new(0, 14, 0.5, -38)
+		headIcon.Size = if compactShopCards then UDim2.fromOffset(64, 64) else UDim2.fromOffset(76, 76)
+		headIcon.BackgroundColor3 = COLORS.BagHeader
+		headIcon.Parent = card
+		round(headIcon, 12)
+		outline(headIcon, COLORS.BagLine, 3)
+		local headIconText = label(headIcon, "ComponentLabel", "AXE\nHEAD", UDim2.fromScale(1, 1), UDim2.new(), 19, COLORS.BagText, Enum.Font.GothamBlack)
+		headIconText.TextXAlignment = Enum.TextXAlignment.Center
+		headIconText.TextStrokeColor3 = COLORS.BagLine
+		headIconText.TextStrokeTransparency = 0
+		local textLeft = if compactShopCards then 86 else 104
+		local textWidth = if compactShopCards then UDim2.new(1, -textLeft - 12, 0, 32) else UDim2.new(0.54, -108, 0, 32)
+		local name = label(card, "Name", tostring(head.Name or "Axe Head"), textWidth, UDim2.new(0, textLeft, 0, 8), 22, COLORS.BagText, Enum.Font.GothamBlack)
 		name.TextTruncate = Enum.TextTruncate.AtEnd
 		name.TextStrokeColor3 = COLORS.BagLine
 		name.TextStrokeTransparency = 0
-		local power = label(card, "Power", "POWER  " .. tostring(axe.Power), UDim2.new(0.54, -108, 0, 28), UDim2.new(0, 104, 0, 58), 18, COLORS.BagAction, Enum.Font.GothamBlack)
-		power.TextTruncate = Enum.TextTruncate.AtEnd
+		local countKnown = typeof(head.Count) == "number" and head.Count == head.Count
+		local count = if countKnown then math.max(0, math.floor(head.Count)) else 0
+		local componentNote = label(card, "ComponentNote", "COMPONENT ONLY • NO DAMAGE UNTIL FORGED", textWidth, UDim2.new(0, textLeft, 0, compactShopCards and 40 or 42), 13, COLORS.BagAction, Enum.Font.GothamBold)
+		componentNote.TextTruncate = Enum.TextTruncate.AtEnd
+		componentNote.TextWrapped = false
+		local price = if typeof(head.Price) == "number" then head.Price else 0
+		local priceLabel = label(card, "Price", "PRICE  " .. formatCoins(price) .. " COINS", textWidth, UDim2.new(0, textLeft, 0, compactShopCards and 60 or 64), 15, COLORS.BagText, Enum.Font.GothamBold)
+		priceLabel.TextTruncate = Enum.TextTruncate.AtEnd
+		local owned = label(card, "OwnedCount", "OWNED  " .. tostring(count), textWidth, UDim2.new(0, textLeft, 0, compactShopCards and 80 or 84), 14, COLORS.BagMuted, Enum.Font.GothamBlack)
+		owned.TextTruncate = Enum.TextTruncate.AtEnd
 		local actionText
 		local actionColor
-		if axe.Owned then
-			actionText = axe.Equipped and "EQUIPPED" or "EQUIP"
-			actionColor = axe.Equipped and COLORS.Blue or COLORS.Green
+		local canBuy = head.CanBuy == true and head.Available == true and countKnown and count == 0
+		if count > 0 then
+			actionText = "OWNED"
+			actionColor = COLORS.Blue
+		elseif head.Available ~= true then
+			actionText = "LOCKED"
+			actionColor = COLORS.Disabled
 		else
-			actionText = "BUY  •  " .. formatCoins(axe.Price)
-			actionColor = (data.Coins or 0) >= axe.Price and COLORS.Gold or COLORS.Disabled
+			actionText = "BUY"
+			actionColor = canBuy and COLORS.Gold or COLORS.Disabled
 		end
-		local action = button(card, "Action", actionText, UDim2.new(0.42, -16, 0, 62), UDim2.new(0.58, 0, 0.5, -31), actionColor)
-		action.TextSize = 18
+		local actionSize = if compactShopCards then UDim2.new(1, -24, 0, 48) else UDim2.new(0.42, -16, 0, 66)
+		local actionPosition = if compactShopCards then UDim2.new(0, 12, 1, -58) else UDim2.new(0.58, 0, 0.5, -33)
+		local action = button(card, "BuyHead", actionText, actionSize, actionPosition, actionColor)
+		action.TextSize = 17
+		action.Active = canBuy
+		action.AutoButtonColor = canBuy
 		action.TextStrokeColor3 = COLORS.BagLine
 		action.TextStrokeTransparency = 0
 		round(action, 12)
@@ -1124,11 +1202,8 @@ local function renderShop(data)
 			actionStroke.Thickness = 3
 		end
 		action.Activated:Connect(function()
-			if axe.Owned then
-				if not axe.Equipped and typeof(axe.UID) == "string" then equipAxe:FireServer(axe.UID) end
-			else
-				purchaseAxe:FireServer(axe.Id)
-			end
+			if not canBuy then return end
+			purchaseAxeHead:FireServer(head.Id)
 			task.delay(0.35, function()
 				if shopOverlay.Visible then
 					local ok, fresh = pcall(function() return getShopData:InvokeServer() end)
@@ -1188,6 +1263,134 @@ local function renderShop(data)
 	if bagOverlay.Visible and activeBagTab == "Axes" then renderAxes(data) end
 end
 
+local function clearForgeRows()
+	for _, child in ipairs(forgeList:GetChildren()) do
+		if child ~= forgeLayout and child ~= forgePadding and not child:IsA("UICorner") and not child:IsA("UIStroke") then
+			child:Destroy()
+		end
+	end
+end
+
+local function renderForge(data)
+	clearForgeRows()
+	if type(data) ~= "table" then
+		forgeEmptyState.Text = "FORGE DATA UNAVAILABLE"
+		forgeEmptyState.Visible = true
+		return
+	end
+
+	if type(data.Recipes) ~= "table" then
+		forgeEmptyState.Text = "RECIPE DATA UNAVAILABLE"
+		forgeEmptyState.Visible = true
+		return
+	end
+	local recipes = data.Recipes
+	local renderedCount = 0
+	for _, recipe in ipairs(recipes) do
+		if type(recipe) ~= "table" or typeof(recipe.Id) ~= "string" or #recipe.Id == 0 then
+			continue
+		end
+		renderedCount += 1
+		local card = Instance.new("Frame")
+		card.Name = "Recipe_" .. recipe.Id
+		card.LayoutOrder = renderedCount
+		card.Size = UDim2.new(1, -8, 0, 176)
+		card.BackgroundColor3 = renderedCount % 2 == 0 and COLORS.BagPreview or COLORS.BagSlot
+		card.Parent = forgeList
+		round(card, 12)
+		outline(card, COLORS.BagLine, 3)
+
+		local axeName = label(card, "AxeName", tostring(recipe.Name or "Standard Axe"), UDim2.new(0.64, -16, 0, 34), UDim2.new(0, 16, 0, 10), 24, COLORS.BagText, Enum.Font.GothamBlack)
+		axeName.TextTruncate = Enum.TextTruncate.AtEnd
+		axeName.TextStrokeColor3 = COLORS.BagLine
+		axeName.TextStrokeTransparency = 0
+
+		local headOwned = if typeof(recipe.HeadOwned) == "number" then tostring(math.max(0, math.floor(recipe.HeadOwned))) else "?"
+		local headRequired = if typeof(recipe.HeadRequired) == "number" then tostring(math.max(0, math.floor(recipe.HeadRequired))) else "?"
+		local headLine = label(card, "HeadRequirement", "HEAD  " .. tostring(recipe.HeadName or recipe.HeadId or "Axe Head") .. "  •  " .. headOwned .. " / " .. headRequired, UDim2.new(0.64, -16, 0, 26), UDim2.new(0, 16, 0, 50), 17, COLORS.BagAction, Enum.Font.GothamBold)
+		headLine.TextTruncate = Enum.TextTruncate.AtEnd
+		headLine.TextWrapped = false
+		headLine.TextStrokeColor3 = COLORS.BagLine
+		headLine.TextStrokeTransparency = 0
+
+		local woodOwned = if typeof(recipe.WoodOwned) == "number" then tostring(math.max(0, math.floor(recipe.WoodOwned))) else "?"
+		local woodRequired = if typeof(recipe.WoodRequired) == "number" then tostring(math.max(0, math.floor(recipe.WoodRequired))) else "?"
+		local woodLine = label(card, "WoodRequirement", "ELIGIBLE UNLOCKED LOGS  " .. tostring(recipe.WoodSpeciesId or "Wood") .. "  •  " .. woodOwned .. " / " .. woodRequired, UDim2.new(0.64, -16, 0, 26), UDim2.new(0, 16, 0, 80), 16, COLORS.BagText, Enum.Font.GothamBold)
+		woodLine.TextTruncate = Enum.TextTruncate.AtEnd
+		woodLine.TextWrapped = false
+		woodLine.TextStrokeColor3 = COLORS.BagLine
+		woodLine.TextStrokeTransparency = 0
+
+		local hasMaterialSnapshot = typeof(recipe.Name) == "string"
+			and #recipe.Name > 0
+			and typeof(recipe.HeadId) == "string"
+			and #recipe.HeadId > 0
+			and typeof(recipe.HeadName) == "string"
+			and #recipe.HeadName > 0
+			and typeof(recipe.HeadOwned) == "number"
+			and recipe.HeadOwned == recipe.HeadOwned
+			and typeof(recipe.HeadRequired) == "number"
+			and recipe.HeadRequired == recipe.HeadRequired
+			and typeof(recipe.WoodSpeciesId) == "string"
+			and #recipe.WoodSpeciesId > 0
+			and typeof(recipe.WoodOwned) == "number"
+			and recipe.WoodOwned == recipe.WoodOwned
+			and typeof(recipe.WoodRequired) == "number"
+			and recipe.WoodRequired == recipe.WoodRequired
+		local canCraft = recipe.CanCraft == true
+			and recipe.Unlocked == true
+			and recipe.AtNextTier == true
+			and recipe.AtForge == true
+			and recipe.OutputOwned == false
+			and hasMaterialSnapshot
+		local statusText
+		local statusColor
+		if recipe.OutputOwned == true then
+			statusText, statusColor = "ALREADY CRAFTED", COLORS.Blue
+		elseif recipe.Unlocked == false then
+			statusText, statusColor = "FOREST LOCKED", COLORS.Orange
+		elseif recipe.AtNextTier == false then
+			statusText, statusColor = "CRAFT THE PREVIOUS AXE FIRST", COLORS.Orange
+		elseif recipe.AtForge == false then
+			statusText, statusColor = "RETURN TO THE FORGE", COLORS.Orange
+		elseif canCraft then
+			statusText, statusColor = "READY TO CRAFT", COLORS.BagAction
+		else
+			statusText, statusColor = "MISSING REQUIRED HEAD OR ELIGIBLE LOGS", COLORS.BagMuted
+		end
+		local status = label(card, "Availability", statusText, UDim2.new(0.64, -16, 0, 30), UDim2.new(0, 16, 0, 112), 15, statusColor, Enum.Font.GothamBlack)
+		status.TextTruncate = Enum.TextTruncate.AtEnd
+		status.TextWrapped = false
+		status.TextStrokeColor3 = COLORS.BagLine
+		status.TextStrokeTransparency = 0
+
+		local actionText = if canCraft then "CRAFT AXE" else if recipe.OutputOwned == true then "CRAFTED" else if recipe.Unlocked == false then "LOCKED" else "NOT READY"
+		local action = button(card, "Craft", actionText, UDim2.new(0.32, -16, 0, 72), UDim2.new(0.68, 0, 0.5, -36), canCraft and COLORS.BagAction or COLORS.Disabled)
+		action.TextSize = 18
+		action.Active = canCraft
+		action.AutoButtonColor = canCraft
+		action.TextStrokeColor3 = COLORS.BagLine
+		action.TextStrokeTransparency = 0
+		local actionStroke = action:FindFirstChildOfClass("UIStroke")
+		if actionStroke then
+			actionStroke.Color = COLORS.BagLine
+			actionStroke.Thickness = 3
+		end
+		action.Activated:Connect(function()
+			if not canCraft then return end
+			craftRecipe:FireServer(recipe.Id)
+			action.Text = "CRAFTING..."
+			action.Active = false
+			action.AutoButtonColor = false
+			task.delay(0.35, function()
+				if forgeOverlay.Visible then refreshShop() end
+			end)
+		end)
+	end
+	forgeEmptyState.Text = if renderedCount > 0 then "" else "NO STANDARD RECIPES AVAILABLE"
+	forgeEmptyState.Visible = renderedCount == 0
+end
+
 local function refreshLogs()
 	if isRefreshingLogs then
 		refreshLogsQueued = true
@@ -1208,7 +1411,12 @@ end
 refreshShop = function()
 	task.spawn(function()
 		local ok, data = pcall(function() return getShopData:InvokeServer() end)
-		if ok then renderShop(data) end
+		if ok then
+			renderShop(data)
+			renderForge(data)
+		elseif forgeOverlay.Visible then
+			renderForge(nil)
+		end
 	end)
 end
 
@@ -1236,6 +1444,11 @@ end
 
 local function openAxeShop()
 	showPanel(shopOverlay)
+	refreshShop()
+end
+
+local function openForge()
+	showPanel(forgeOverlay)
 	refreshShop()
 end
 
@@ -1301,15 +1514,16 @@ economyStateUpdated.OnClientEvent:Connect(function(snapshot)
 	if type(snapshot) == "table" then renderLogs(snapshot) else refreshLogs() end
 	if sellOverlay.Visible then refreshSellSummary() end
 	if shopOverlay.Visible then refreshShop() end
+	if forgeOverlay.Visible then refreshShop() end
 	if bagOverlay.Visible and activeBagTab == "Axes" then refreshShop() end
 end)
 
 local legacyEconomyUpdated = economy:FindFirstChild("EconomyUpdated")
 if legacyEconomyUpdated then
 	legacyEconomyUpdated.OnClientEvent:Connect(function(currency)
-		if currency == "Coins" then
+		if currency == "Coins" or currency == "Progression" then
 			refreshLogs()
-			if shopOverlay.Visible then refreshShop() end
+			if shopOverlay.Visible or forgeOverlay.Visible or (bagOverlay.Visible and activeBagTab == "Axes") then refreshShop() end
 			if sellOverlay.Visible then refreshSellSummary() end
 		end
 	end)
@@ -1349,6 +1563,7 @@ local function bindStationPrompt(stationName, promptName, callback)
 end
 
 bindStationPrompt("AxeShopStation", "AxeShopPrompt", openAxeShop)
+bindStationPrompt("ForgeStation", "ForgePrompt", openForge)
 bindStationPrompt("HomeEconomyStation", "EconomyPrompt", openLumberDepot)
 
 local function isNearStation(stationName)
@@ -1381,6 +1596,9 @@ task.spawn(function()
 		if shopOverlay.Visible and not isNearStation("AxeShopStation") then
 			shopOverlay.Visible = false
 			showFeedback("RETURN TO THE AXE SHOP", COLORS.Orange)
+		elseif forgeOverlay.Visible and not isNearStation("ForgeStation") then
+			forgeOverlay.Visible = false
+			showFeedback("RETURN TO THE FORGE", COLORS.Orange)
 		elseif sellOverlay.Visible and not isNearStation("HomeEconomyStation") then
 			sellOverlay.Visible = false
 			showFeedback("RETURN TO THE SELL STATION", COLORS.Orange)
@@ -1393,6 +1611,7 @@ profileLoadEvent.OnClientEvent:Connect(function()
 	refreshLogs()
 	if sellOverlay.Visible then refreshSellSummary() end
 	if shopOverlay.Visible then refreshShop() end
+	if forgeOverlay.Visible then refreshShop() end
 	if bagOverlay.Visible then refreshShop() end
 end)
 if player:GetAttribute("ProfileReady") then refreshLogs() end

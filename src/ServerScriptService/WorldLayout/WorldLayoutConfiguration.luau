@@ -16,11 +16,12 @@ end
 local STATION_USE_DISTANCES = {
 	AxeShopStation = 14,
 	HomeEconomyStation = 14,
+	ForgeStation = 14,
 }
 
 local WorldLayoutConfiguration = {
 	ROOT_NAME = "SourceWorld",
-	VERSION = 5,
+	VERSION = 6,
 	STATION_USE_DISTANCES = STATION_USE_DISTANCES,
 
 	-- The narrow section follows the six-stud opening between the two rear plots.
@@ -54,6 +55,10 @@ local WorldLayoutConfiguration = {
 	},
 	AXE_SHOP_STATION = {
 		Position = Vector3.new(-24, -0.4, 108),
+	},
+	-- Beside the Lumber Depot, leaving the center plot lane open.
+	FORGE_STATION = {
+		Position = Vector3.new(40, -0.4, 108),
 	},
 	FORESTS = {
 		{
