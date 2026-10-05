@@ -7,7 +7,8 @@ local Workspace = game:GetService("Workspace")
 
 local ProfileCache = require(game.ServerScriptService.PlayerProfile.ProfileService.ProfileDataCache)
 local EconomyManager = require(game.ServerScriptService.Economy.EconomyManager)
-local TreeDefinitions = require(game.ServerScriptService.Trees.TreeDefinitions)
+local AxeShopCatalog = require(game.ServerScriptService.Economy.AxeShopCatalog)
+local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
 local SpeciesVisuals = require(game.ServerStorage:WaitForChild("SpeciesVisuals"))
 local BaseStationAccess = require(game.ServerScriptService.WorldLayout.BaseStationAccess)
 local LogCarryVisualService = require(game.ServerScriptService.Inventory.LogCarryVisualService)
@@ -16,19 +17,24 @@ local LogService = {}
 local logsChangedEvent = Instance.new("BindableEvent")
 LogService.LogsChanged = logsChangedEvent.Event
 
-local DEFAULT_CAPACITY = 10
-local MAX_CAPACITY = 40
-local MAX_HARVEST_LOGS = 3
-local MAX_GROUND_LOG_DROPS_PER_PLAYER = MAX_CAPACITY
+local DEFAULT_CAPACITY_KG = AxeShopCatalog.DEFAULT_CAPACITY_KG
+local MAX_CAPACITY_KG = AxeShopCatalog.MAX_CAPACITY_KG
+-- This physical-record ceiling is independent of weight. 40 kg supports up to
+-- 80 Bamboo records at 0.5 kg each; spare room keeps the limit forward-safe.
+local MAX_OWNED_LOGS = 96
+local MAX_HARVEST_LOGS = 6
+local MAX_STANDARD_TREE_LOGS = 3
+-- Uncollected rewards are bounded by model count, not the player's kg bag.
+local MAX_GROUND_LOG_DROPS_PER_PLAYER = 96
 local OWNER_RESERVATION_SECONDS = 60
 -- Overflow is deliberately short-lived. The owner has the full lifetime to
 -- free a slot and recover the exact UID; it is not converted into a public
 -- loot race after the reservation expires.
 local GROUND_LOG_LIFETIME_SECONDS = 60
 local MAX_PICKUP_DISTANCE = 15
--- A single legitimate proximity request may collect a whole nearby tree reward.
--- This stays bounded by both capacity and this fixed server-side ceiling.
-local MAX_PICKUP_BATCH = MAX_CAPACITY
+-- Maximum physical records processed per request, independent of kg capacity.
+local MAX_PICKUP_BATCH = 24
+local CAPACITY_TOLERANCE_KG = 1e-5
 local PICKUP_POP_DURATION = 0.10
 local PICKUP_FLIGHT_DURATION = 0.36
 local PICKUP_LAUNCH_OFFSET_PER_LOG = 0.015
@@ -61,8 +67,6 @@ local profileLoaded = game.ServerScriptService.PlayerProfile.ProfileInit.Profile
 local activeGroundDrops = {}
 local pendingGroundDropByUserId = {}
 local remoteBudgetByPlayer = {}
-local logValueBySpecies = {}
-local conflictingLogValues = {}
 local pendingCarryArrivalUids = {}
 local deferredCarryRecords = {}
 
@@ -86,25 +90,6 @@ local function debugPickupRejection(player, uid, reason)
 		playerLabel,
 		tostring(uid)
 	))
-end
-
-for _, definition in pairs(TreeDefinitions) do
-	if type(definition) == "table"
-		and type(definition.SpeciesId) == "string"
-		and isFinitePositive(definition.LogValue) then
-		local baselineLogValue = math.floor(definition.LogValue + 0.5)
-		local existingValue = logValueBySpecies[definition.SpeciesId]
-		if existingValue and existingValue ~= baselineLogValue then
-			conflictingLogValues[definition.SpeciesId] = true
-		else
-			logValueBySpecies[definition.SpeciesId] = baselineLogValue
-		end
-	end
-end
-
-for speciesId in pairs(conflictingLogValues) do
-	logValueBySpecies[speciesId] = nil
-	warn(string.format("Conflicting baseline log values found for species %q; logs of this species will not be awarded or sold", speciesId))
 end
 
 local function copyMutations(mutations)
@@ -172,12 +157,7 @@ local function getPlayerData(player)
 	local profile = ProfileCache.GetProfile(player)
 	if not profile or type(profile.Data) ~= "table" then return nil end
 	normalizeLogs(profile.Data)
-	if type(profile.Data.LogCapacity) ~= "number"
-		or profile.Data.LogCapacity ~= profile.Data.LogCapacity
-		or profile.Data.LogCapacity < 1 then
-		profile.Data.LogCapacity = DEFAULT_CAPACITY
-	end
-	profile.Data.LogCapacity = math.clamp(math.floor(profile.Data.LogCapacity), 1, MAX_CAPACITY)
+	ProfileCache.NormalizeCarryCapacity(profile.Data)
 	if type(profile.Data.Coins) ~= "number"
 		or profile.Data.Coins ~= profile.Data.Coins
 		or profile.Data.Coins < 0
@@ -187,9 +167,56 @@ local function getPlayerData(player)
 	return profile.Data
 end
 
+local function getMaterialDefinition(speciesId)
+	local definition = MaterialDefinitions.Get(speciesId)
+	if not definition
+		or not isFinitePositive(definition.CapacityKg)
+		or not isFinitePositive(definition.SellValue)
+		or not isFinitePositive(definition.CarryVisualScale) then
+		return nil
+	end
+	return definition
+end
+
 local function getLogValue(logRecord)
 	if type(logRecord) ~= "table" or logRecord.ItemType ~= "Log" then return nil end
-	return logValueBySpecies[logRecord.SpeciesId]
+	local definition = getMaterialDefinition(logRecord.SpeciesId)
+	return definition and definition.SellValue or nil
+end
+
+local function getRecordCapacityKg(logRecord)
+	if type(logRecord) ~= "table" or logRecord.ItemType ~= "Log" then return nil end
+	local definition = getMaterialDefinition(logRecord.SpeciesId)
+	local capacityKg = definition and definition.CapacityKg
+	if not isFinitePositive(capacityKg) then return nil end
+	return capacityKg
+end
+
+-- Unknown species make the bag full until the server knows their fixed cost.
+-- This lets old/corrupt records remain visible without ever becoming free.
+local function calculateCapacityMetrics(data)
+	local capacityKg = ProfileCache.NormalizeCarryCapacity(data)
+	local usedKg = 0
+	local hasUnknownMaterial = false
+	for _, logRecord in ipairs(data.Logs) do
+		local logCapacityKg = getRecordCapacityKg(logRecord)
+		if logCapacityKg then
+			usedKg += logCapacityKg
+		else
+			hasUnknownMaterial = true
+		end
+	end
+	if hasUnknownMaterial then
+		usedKg = math.max(capacityKg, usedKg)
+	end
+	local remainingKg = if hasUnknownMaterial then 0 else math.max(0, capacityKg - usedKg)
+	return {
+		ItemCount = #data.Logs,
+		UsedKg = usedKg,
+		CarryCapacityKg = capacityKg,
+		RemainingKg = remainingKg,
+		HasUnknownMaterial = hasUnknownMaterial,
+	}
 end
 
 local function makeClientSnapshot(player)
@@ -200,6 +227,7 @@ local function makeClientSnapshot(player)
 	for _, logRecord in ipairs(data.Logs) do
 		if isValidUid(logRecord.UID) then
 			local value = getLogValue(logRecord) or 0
+			local materialCapacityKg = getRecordCapacityKg(logRecord)
 			table.insert(logs, {
 				UID = logRecord.UID,
 				ItemType = "Log",
@@ -209,13 +237,35 @@ local function makeClientSnapshot(player)
 				CreatedAt = type(logRecord.CreatedAt) == "number" and logRecord.CreatedAt or 0,
 				LogValue = value,
 				EstimatedSellValue = value,
+				-- Derived from server-owned species config for display only; never read
+				-- back as an authoritative per-record weight.
+				CapacityKg = materialCapacityKg,
 			})
 		end
 	end
 
+	local capacityMetrics = calculateCapacityMetrics(data)
 	return {
 		Logs = logs,
-		Capacity = data.LogCapacity,
+		ItemCount = capacityMetrics.ItemCount,
+		UsedKg = capacityMetrics.UsedKg,
+		CarryCapacityKg = capacityMetrics.CarryCapacityKg,
+		RemainingKg = capacityMetrics.RemainingKg,
+		HasUnknownMaterial = capacityMetrics.HasUnknownMaterial,
+		Coins = data.Coins,
+	}
+end
+
+function LogService.GetCapacitySnapshot(player)
+	local data = getPlayerData(player)
+	if not data then return nil end
+	local metrics = calculateCapacityMetrics(data)
+	return {
+		ItemCount = metrics.ItemCount,
+		UsedKg = metrics.UsedKg,
+		CarryCapacityKg = metrics.CarryCapacityKg,
+		RemainingKg = metrics.RemainingKg,
+		HasUnknownMaterial = metrics.HasUnknownMaterial,
 		Coins = data.Coins,
 	}
 end
@@ -382,10 +432,16 @@ local function makeSellSummary(player)
 		end
 	end
 
+	local capacityMetrics = calculateCapacityMetrics(data)
 	return {
 		EligibleCount = eligibleCount,
 		TotalValue = totalValue,
 		Coins = data.Coins,
+		ItemCount = capacityMetrics.ItemCount,
+		UsedKg = capacityMetrics.UsedKg,
+		CarryCapacityKg = capacityMetrics.CarryCapacityKg,
+		RemainingKg = capacityMetrics.RemainingKg,
+		HasUnknownMaterial = capacityMetrics.HasUnknownMaterial,
 	}
 end
 
@@ -608,9 +664,11 @@ local function getCarryTargetByUid(logRecords)
 	return targets
 end
 
-local function makePickupFxPayload(claim, carryTarget, launchOffset)
-	if not carryTarget then return nil end
+local function makePickupFxPayload(claim, carryTarget, targetOffset, launchOffset)
+	if not carryTarget or type(targetOffset) ~= "table" then return nil end
 	local logRecord = claim.Entry.LogRecord
+	local material = getMaterialDefinition(logRecord.SpeciesId)
+	if not material then return nil end
 	local palette = SpeciesVisuals.GetPalette(logRecord.SpeciesId)
 	return {
 		OwnerUserId = claim.OwnerUserId,
@@ -620,8 +678,11 @@ local function makePickupFxPayload(claim, carryTarget, launchOffset)
 		StartCFrame = claim.StartCFrame,
 		BarkColor = palette.Bark,
 		CutEndColor = palette.CutEnd,
+		CarryVisualScale = material.CarryVisualScale,
 		TargetStack = carryTarget.Stack,
 		TargetIndex = carryTarget.Index,
+		TargetOffset = targetOffset,
+		TargetOffsetY = targetOffset.Y,
 		LaunchOffset = launchOffset,
 		PopDuration = PICKUP_POP_DURATION,
 		FlightDuration = PICKUP_FLIGHT_DURATION,
@@ -773,7 +834,8 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 	local handle = model and model.PrimaryPart
 	local groundDropFolder = Workspace:FindFirstChild("WorldLogDrops")
 	if not drop or not entry or model ~= visualModel or not groundDropFolder or bundle.Parent ~= groundDropFolder
-		or model.Parent ~= bundle or not handle then
+		or model.Parent ~= bundle or not handle
+		or type(entry.LogRecord) ~= "table" or entry.LogRecord.ItemType ~= "Log" or entry.LogRecord.UID ~= uid then
 		return rejectPickup(player, uid, "invalid registry/model mismatch")
 	end
 	if entry.PickupEnabled ~= true or model:GetAttribute("PickupEnabled") ~= true then
@@ -797,8 +859,19 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 
 	local data = getPlayerData(player)
 	if not data then return rejectPickup(player, uid, "profile unavailable") end
-	if logCount(data) >= data.LogCapacity then
-		return rejectPickup(player, uid, "bag full")
+	local capacityMetrics = calculateCapacityMetrics(data)
+	if capacityMetrics.HasUnknownMaterial then
+		return rejectPickup(player, uid, "unknown material blocks capacity calculation")
+	end
+	local primaryCapacityKg = getRecordCapacityKg(entry.LogRecord)
+	if not primaryCapacityKg then
+		return rejectPickup(player, uid, "unknown material capacity")
+	end
+	if logCount(data) >= MAX_OWNED_LOGS then
+		return rejectPickup(player, uid, "physical item limit")
+	end
+	if capacityMetrics.UsedKg + primaryCapacityKg > capacityMetrics.CarryCapacityKg + CAPACITY_TOLERANCE_KG then
+		return rejectPickup(player, uid, "insufficient kg capacity")
 	end
 	if findLog(data, uid) then
 		return rejectPickup(player, uid, "duplicate UID already owned")
@@ -810,26 +883,32 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 	-- The client nominated only this first model. The server independently finds
 	-- the rest of the owner-reserved, in-range batch, so huge-tree pickups feel
 	-- simultaneous without allowing a client to choose extra rewards or amounts.
-	local availableSlots = math.min(data.LogCapacity - logCount(data), MAX_PICKUP_BATCH)
 	local nearby = {}
 	for candidateUid, candidateEntry in pairs(drop.LogRecordsByUid) do
-		local candidateModel = candidateEntry.Model
+		local candidateModel = candidateEntry and candidateEntry.Model
 		local candidateHandle = candidateModel and candidateModel.PrimaryPart
+		local candidateLogRecord = candidateEntry and candidateEntry.LogRecord
+		local candidateCapacityKg = getRecordCapacityKg(candidateLogRecord)
 		if candidateUid ~= uid
+			and type(candidateLogRecord) == "table"
+			and candidateLogRecord.ItemType == "Log"
+			and candidateLogRecord.UID == candidateUid
 			and candidateEntry.HarvestBatchId == entry.HarvestBatchId
 			and candidateEntry.PickupEnabled == true
 			and candidateModel
 			and candidateModel.Parent == bundle
 			and candidateModel:GetAttribute("PickupEnabled") == true
 			and candidateHandle
+			and candidateCapacityKg
 			and os.clock() <= candidateEntry.ReservedUntil
 			and (root.Position - candidateHandle.Position).Magnitude <= MAX_PICKUP_DISTANCE
 			and not findLog(data, candidateUid) then
 			table.insert(nearby, {
-			UID = candidateUid,
-			Entry = candidateEntry,
-			Distance = (root.Position - candidateHandle.Position).Magnitude,
-		})
+				UID = candidateUid,
+				Entry = candidateEntry,
+				CapacityKg = candidateCapacityKg,
+				Distance = (root.Position - candidateHandle.Position).Magnitude,
+			})
 		end
 	end
 	table.sort(nearby, function(left, right)
@@ -842,15 +921,20 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 	local claims = {
 		{ UID = uid, Entry = entry, Model = model, StartCFrame = model:GetPivot(), OwnerUserId = player.UserId },
 	}
+	local selectedCapacityKg = primaryCapacityKg
 	for _, candidate in ipairs(nearby) do
-		if #claims >= availableSlots then break end
-		table.insert(claims, {
-			UID = candidate.UID,
-			Entry = candidate.Entry,
-			Model = candidate.Entry.Model,
-			StartCFrame = candidate.Entry.Model:GetPivot(),
-			OwnerUserId = player.UserId,
-		})
+		if #claims >= MAX_PICKUP_BATCH or logCount(data) + #claims >= MAX_OWNED_LOGS then break end
+		if capacityMetrics.UsedKg + selectedCapacityKg + candidate.CapacityKg
+			<= capacityMetrics.CarryCapacityKg + CAPACITY_TOLERANCE_KG then
+			table.insert(claims, {
+				UID = candidate.UID,
+				Entry = candidate.Entry,
+				Model = candidate.Entry.Model,
+				StartCFrame = candidate.Entry.Model:GetPivot(),
+				OwnerUserId = player.UserId,
+			})
+			selectedCapacityKg += candidate.CapacityKg
+		end
 	end
 
 	-- Atomically claim every selected UID before any visual delay or profile
@@ -874,7 +958,8 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 	local carryTargets = getCarryTargetByUid(data.Logs)
 	for index, claim in ipairs(claims) do
 		local launchOffset = math.min((index - 1) * PICKUP_LAUNCH_OFFSET_PER_LOG, MAX_PICKUP_LAUNCH_OFFSET)
-		local payload = makePickupFxPayload(claim, carryTargets[claim.UID], launchOffset)
+		local targetOffset = LogCarryVisualService.GetTargetOffset(data.Logs, claim.UID)
+		local payload = makePickupFxPayload(claim, carryTargets[claim.UID], targetOffset, launchOffset)
 		if payload then
 			-- Cosmetics are best-effort. Inventory was committed above and is never
 			-- rolled back if client rendering or remote delivery fails.
@@ -993,6 +1078,14 @@ local function createLogRecord(tree)
 end
 
 local function getTreeLogYieldCount(tree)
+	local configuredYield = tree and tree.LogYield
+	if configuredYield ~= nil then
+		if not isFinitePositive(configuredYield) or configuredYield % 1 ~= 0
+			or configuredYield > MAX_HARVEST_LOGS then
+			return nil
+		end
+		return configuredYield
+	end
 	local sizeScale = tree and tree.SizeScale
 	if not isFinitePositive(sizeScale) then return nil end
 
@@ -1003,11 +1096,11 @@ local function getTreeLogYieldCount(tree)
 	elseif sizeScale < 1.3 then
 		return 2
 	end
-	return MAX_HARVEST_LOGS
+	return MAX_STANDARD_TREE_LOGS
 end
 
 function LogService.CaptureTreeLogAward(tree, contributions, fallRotation)
-	if not tree or tree.YieldsLog ~= true then return nil end
+	if not tree or tree.YieldsLog ~= true or not getMaterialDefinition(tree.SpeciesId) then return nil end
 
 	local contributionSnapshot = {}
 	for userId, contribution in pairs(contributions or {}) do
@@ -1022,7 +1115,7 @@ function LogService.CaptureTreeLogAward(tree, contributions, fallRotation)
 	return {
 		YieldsLog = tree.YieldsLog,
 		SpeciesId = tree.SpeciesId,
-		LogValue = tree.LogValue,
+		LogYield = tree.LogYield,
 		SizeScale = tree.SizeScale,
 		Contributions = contributionSnapshot,
 		FallPlacement = getFallPlacement(tree, fallRotation),
@@ -1034,12 +1127,7 @@ function LogService.AwardTreeLog(awardSnapshot, options)
 	local harvestBatchId = HttpService:GenerateGUID(false)
 	if type(harvestBatchId) ~= "string" or #harvestBatchId == 0 then return false end
 	if type(awardSnapshot) ~= "table" or awardSnapshot.YieldsLog ~= true then return false end
-	if type(awardSnapshot.SpeciesId) ~= "string"
-		or not logValueBySpecies[awardSnapshot.SpeciesId]
-		or not isFinitePositive(awardSnapshot.LogValue)
-		or math.floor(awardSnapshot.LogValue + 0.5) ~= logValueBySpecies[awardSnapshot.SpeciesId] then
-		return false
-	end
+	if type(awardSnapshot.SpeciesId) ~= "string" or not getMaterialDefinition(awardSnapshot.SpeciesId) then return false end
 	local rewardCount = getTreeLogYieldCount(awardSnapshot)
 	if not rewardCount or rewardCount > MAX_HARVEST_LOGS then return false end
 
@@ -1091,9 +1179,12 @@ function LogService.AwardTreeLog(awardSnapshot, options)
 	return harvestBatchId
 end
 
-LogService.DEFAULT_CAPACITY = DEFAULT_CAPACITY
-LogService.MAX_CAPACITY = MAX_CAPACITY
-LogService.CAPACITY_STEPS = { 10, 15, 20, 30, 40 }
+LogService.DEFAULT_CAPACITY_KG = DEFAULT_CAPACITY_KG
+LogService.MAX_CAPACITY_KG = MAX_CAPACITY_KG
+LogService.MAX_OWNED_LOGS = MAX_OWNED_LOGS
+LogService.MAX_PICKUP_BATCH = MAX_PICKUP_BATCH
+LogService.MAX_GROUND_LOG_DROPS_PER_PLAYER = MAX_GROUND_LOG_DROPS_PER_PLAYER
+LogService.CAPACITY_TIERS_KG = AxeShopCatalog.CAPACITY_TIERS_KG
 
 GetLogsDataRF.OnServerInvoke = function(player, ...)
 	if select("#", ...) ~= 0 then return nil end

@@ -25,7 +25,7 @@ local CARRY_CAP_THICKNESS = 0.07
 local WORLD_LOG_DIAMETER = 0.48
 local WORLD_CAP_DIAMETER_RATIO = 0.88
 local CARRY_CAP_DIAMETER_RATIO = 0.88
-local DEFAULT_START_SCALE = 2
+local GROUND_TO_CARRY_SCALE = 4
 local DEFAULT_POP_DURATION = 0.10
 local DEFAULT_FLIGHT_DURATION = 0.37
 local MAX_LAUNCH_OFFSET = 0.35
@@ -221,6 +221,21 @@ local function getPayloadNumber(payload, key, fallback, minimum, maximum)
 	return math.clamp(value, minimum, maximum)
 end
 
+local function getTargetOffset(payload)
+	local offset = payload.TargetOffset
+	if type(offset) ~= "table" then return nil end
+	for _, key in ipairs({ "X", "Y", "Z" }) do
+		local value = offset[key]
+		if type(value) ~= "number" or value ~= value or value == math.huge or value == -math.huge then
+			return nil
+		end
+	end
+	if math.abs(offset.X) > 8 or offset.Y < 0 or offset.Y > 32 or math.abs(offset.Z) > 8 then
+		return nil
+	end
+	return Vector3.new(offset.X, offset.Y, offset.Z)
+end
+
 local function startFlight(payload)
 	if type(payload) ~= "table"
 		or type(payload.OwnerUserId) ~= "number"
@@ -255,6 +270,7 @@ local function startFlight(payload)
 	local barkColor = typeof(payload.BarkColor) == "Color3" and payload.BarkColor or Color3.fromRGB(115, 72, 42)
 	local cutEndColor = typeof(payload.CutEndColor) == "Color3" and payload.CutEndColor or Color3.fromRGB(190, 153, 105)
 	local model, body, caps = createFlightVisual(payload.StartCFrame, barkColor, cutEndColor)
+	local carryVisualScale = getPayloadNumber(payload, "CarryVisualScale", 1, 0.05, 4)
 	local flight = {
 		Model = model,
 		Body = body,
@@ -265,9 +281,11 @@ local function startFlight(payload)
 		StartCFrame = payload.StartCFrame,
 		StartPosition = payload.StartCFrame.Position,
 		StartRotation = payload.StartCFrame.Rotation,
-		-- Server payload scale matches the world-drop visual. Cap at the current
-		-- 4x-carry contract so malformed payloads cannot create enormous FX.
-		StartScale = getPayloadNumber(payload, "StartVisualScale", DEFAULT_START_SCALE, 1, 4),
+		-- The server authors the material-specific carry scale. The world drop is
+		-- always exactly four times this scale.
+		CarryVisualScale = carryVisualScale,
+		StartScale = carryVisualScale * GROUND_TO_CARRY_SCALE,
+		TargetOffset = getTargetOffset(payload),
 		LaunchOffset = getPayloadNumber(payload, "LaunchOffset", 0, 0, MAX_LAUNCH_OFFSET),
 		PopDuration = getPayloadNumber(payload, "PopDuration", DEFAULT_POP_DURATION, 0.04, 0.18),
 		FlightDuration = getPayloadNumber(payload, "FlightDuration", DEFAULT_FLIGHT_DURATION, 0.22, 0.55),
@@ -323,12 +341,22 @@ local function startFlight(payload)
 		end
 
 		local flightT = math.clamp((localElapsed - flight.PopDuration) / flight.FlightDuration, 0, 1)
-		local targetOffset = CarryLayout.GetTorsoRelativeTargetCFrame(flight.TargetStack, flight.TargetIndex)
-		if typeof(targetOffset) ~= "CFrame" then
+		local anchorRelativeTarget
+		if flight.TargetOffset then
+			anchorRelativeTarget = CarryLayout.GetAnchorRelativeCFrame() * CFrame.new(flight.TargetOffset)
+		else
+			local fallbackScales = table.create(flight.TargetIndex, flight.CarryVisualScale)
+			anchorRelativeTarget = CarryLayout.GetTorsoRelativeTargetCFrame(
+				flight.TargetStack,
+				flight.TargetIndex,
+				fallbackScales
+			)
+		end
+		if typeof(anchorRelativeTarget) ~= "CFrame" then
 			cleanupFlight(key, flight)
 			return
 		end
-		local targetCFrame = torso.CFrame * targetOffset
+		local targetCFrame = torso.CFrame * anchorRelativeTarget
 		local endPosition = targetCFrame.Position
 		local curveT = flightT ^ 2.1
 		local popPosition = flight.StartPosition + Vector3.new(0, 0.72, 0)
@@ -344,11 +372,14 @@ local function startFlight(payload)
 		local visualCFrame = CFrame.new(position) * baseRotation * CFrame.Angles(tilt, yaw, spin)
 		local shrinkT = smoothStep((flightT - 0.04) / 0.96)
 		local remaining = 1 - shrinkT
-		local bodyLength = CARRY_LOG_LENGTH + (flight.StartLength - CARRY_LOG_LENGTH) * remaining
-		local bodyDiameter = CARRY_LOG_DIAMETER + (flight.StartDiameter - CARRY_LOG_DIAMETER) * remaining
-		local capThickness = CARRY_CAP_THICKNESS + (flight.StartCapThickness - CARRY_CAP_THICKNESS) * remaining
-		local capDiameter = CARRY_LOG_DIAMETER * CARRY_CAP_DIAMETER_RATIO
-			+ (flight.StartCapDiameter - CARRY_LOG_DIAMETER * CARRY_CAP_DIAMETER_RATIO) * remaining
+		local carryLength = CARRY_LOG_LENGTH * flight.CarryVisualScale
+		local carryDiameter = CARRY_LOG_DIAMETER * flight.CarryVisualScale
+		local carryCapThickness = CARRY_CAP_THICKNESS * flight.CarryVisualScale
+		local carryCapDiameter = carryDiameter * CARRY_CAP_DIAMETER_RATIO
+		local bodyLength = carryLength + (flight.StartLength - carryLength) * remaining
+		local bodyDiameter = carryDiameter + (flight.StartDiameter - carryDiameter) * remaining
+		local capThickness = carryCapThickness + (flight.StartCapThickness - carryCapThickness) * remaining
+		local capDiameter = carryCapDiameter + (flight.StartCapDiameter - carryCapDiameter) * remaining
 		setVisualTransform(flight, visualCFrame, bodyLength, bodyDiameter, capThickness, capDiameter)
 
 		if flightT >= 1 then
@@ -357,10 +388,10 @@ local function startFlight(payload)
 			setVisualTransform(
 				flight,
 				targetCFrame,
-				CARRY_LOG_LENGTH,
-				CARRY_LOG_DIAMETER,
-				CARRY_CAP_THICKNESS,
-				CARRY_LOG_DIAMETER * CARRY_CAP_DIAMETER_RATIO
+				CARRY_LOG_LENGTH * flight.CarryVisualScale,
+				CARRY_LOG_DIAMETER * flight.CarryVisualScale,
+				CARRY_CAP_THICKNESS * flight.CarryVisualScale,
+				CARRY_LOG_DIAMETER * flight.CarryVisualScale * CARRY_CAP_DIAMETER_RATIO
 			)
 			playArrivalSound()
 			cleanupFlight(key, flight)

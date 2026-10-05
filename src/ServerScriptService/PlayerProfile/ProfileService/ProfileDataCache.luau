@@ -60,6 +60,7 @@ export type PlayerProfileCache = {
 	Set: (player: Player, profile: profileType.PlayerData) -> (),
 	Get: (player: Player) -> (profileType.PlayerData),
 	Remove: (player: Player) -> (),
+	NormalizeCarryCapacity: (data: { [string]: any }) -> number,
 	FireLoaded: (profile: profileType.PlayerData) -> ()
 }
 
@@ -73,8 +74,24 @@ local function BuildRuntime(profile)
 	profile.Data.Runtime = runtime
 end
 
+-- CarryCapacityKg has the same prototype numeric tiers as the old LogCapacity
+-- field, but now denotes kilograms. This runs before Profile:Reconcile so an
+-- injected default cannot mask a legacy value.
+function PlayerProfileCache.NormalizeCarryCapacity(data)
+	if type(data) ~= "table" then return AxeShopCatalog.DEFAULT_CAPACITY_KG end
+	-- Only profiles without the new field migrate from LogCapacity. If the new
+	-- field exists but contains an unofficial value, normalization safely falls
+	-- back to the starter tier instead of trusting stale/conflicting old data.
+	local sourceCapacityKg = if data.CarryCapacityKg == nil then data.LogCapacity else data.CarryCapacityKg
+	local capacityKg = AxeShopCatalog.NormalizeCarryCapacityKg(sourceCapacityKg)
+	data.CarryCapacityKg = capacityKg
+	data.LogCapacity = nil
+	return capacityKg
+end
+
 function PlayerProfileCache.Set(player: Player, profile)
 	if profile and type(profile.Data) == "table" then
+		PlayerProfileCache.NormalizeCarryCapacity(profile.Data)
 		normalizeProgressionData(profile.Data)
 	end
 	BuildRuntime(profile)

@@ -48,12 +48,41 @@ AxeShopCatalog.StandardAxeRecipes = {
 	},
 }
 
+AxeShopCatalog.DEFAULT_CAPACITY_KG = 10
+AxeShopCatalog.MAX_CAPACITY_KG = 40
+AxeShopCatalog.CAPACITY_TIERS_KG = { 10, 15, 20, 30, 40 }
+
 AxeShopCatalog.CapacityUpgrades = {
-	{ Capacity = 15, Price = 250 },
-	{ Capacity = 20, Price = 1000 },
-	{ Capacity = 30, Price = 4000 },
-	{ Capacity = 40, Price = 15000 },
+	{ CapacityKg = 15, Price = 250 },
+	{ CapacityKg = 20, Price = 1000 },
+	{ CapacityKg = 30, Price = 4000 },
+	{ CapacityKg = 40, Price = 15000 },
 }
+
+function AxeShopCatalog.NormalizeCarryCapacityKg(value)
+	if type(value) ~= "number" or value ~= value or math.abs(value) == math.huge then
+		return AxeShopCatalog.DEFAULT_CAPACITY_KG
+	end
+	for _, capacityTierKg in ipairs(AxeShopCatalog.CAPACITY_TIERS_KG) do
+		if value == capacityTierKg then
+			return capacityTierKg
+		end
+	end
+	return AxeShopCatalog.DEFAULT_CAPACITY_KG
+end
+
+function AxeShopCatalog.FindNextCapacityUpgrade(currentCapacityKg)
+	if type(currentCapacityKg) ~= "number" or currentCapacityKg ~= currentCapacityKg
+		or math.abs(currentCapacityKg) == math.huge then
+		return nil
+	end
+	for _, entry in ipairs(AxeShopCatalog.CapacityUpgrades) do
+		if entry.CapacityKg > currentCapacityKg then
+			return entry
+		end
+	end
+	return nil
+end
 
 -- StatsAggregator contributes a base Attack of 5. Crafted records store only
 -- the amount needed to reach the fixed Power configured above.

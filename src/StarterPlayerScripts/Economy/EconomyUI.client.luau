@@ -170,6 +170,54 @@ local function formatCoins(value)
 	return string.format("%.0f", value)
 end
 
+local function validNonNegativeNumber(value)
+	if typeof(value) ~= "number" or value ~= value or value == math.huge or value == -math.huge or value < 0 then
+		return nil
+	end
+	return value
+end
+
+local validKg = validNonNegativeNumber
+
+local function formatKgNumber(value)
+	value = validKg(value)
+	if value == nil then return nil end
+	local rounded = math.floor(value * 10 + 0.5) / 10
+	if rounded % 1 == 0 then return string.format("%.0f", rounded) end
+	return string.format("%.1f", rounded)
+end
+
+local function formatKg(value)
+	local amount = formatKgNumber(value)
+	return if amount then amount .. " KG" else nil
+end
+
+local function getCapacitySnapshot(data, fallbackCarryCapacityKg)
+	if type(data) ~= "table" then data = {} end
+	local usedKg = validKg(data.UsedKg)
+	local carryCapacityKg = validKg(data.CarryCapacityKg) or validKg(fallbackCarryCapacityKg)
+	local remainingKg = validKg(data.RemainingKg)
+	if typeof(data.RemainingKg) == "number" and data.RemainingKg == data.RemainingKg
+		and data.RemainingKg ~= math.huge and data.RemainingKg ~= -math.huge then
+		-- A slightly negative remainder can occur when the final item exactly
+		-- fills the bag. Present it as zero for display and full-state checks.
+		remainingKg = math.max(0, data.RemainingKg)
+	end
+	if usedKg == nil and carryCapacityKg ~= nil and remainingKg ~= nil then
+		usedKg = math.max(0, carryCapacityKg - remainingKg)
+	end
+	if remainingKg == nil and carryCapacityKg ~= nil and usedKg ~= nil then
+		remainingKg = math.max(0, carryCapacityKg - usedKg)
+	end
+	return usedKg, carryCapacityKg, remainingKg
+end
+
+local function formatCapacitySummary(usedKg, carryCapacityKg)
+	local usedText = formatKgNumber(usedKg) or "—"
+	local capacityText = formatKg(carryCapacityKg) or "— KG"
+	return usedText .. " / " .. capacityText
+end
+
 local function makeModal(screen, name, titleText, subtitleText)
 	local overlay = Instance.new("Frame")
 	overlay.Name = name .. "Overlay"
@@ -259,7 +307,7 @@ logsPill.BackgroundColor3 = COLORS.Surface
 logsPill.Parent = hud
 round(logsPill, 16)
 outline(logsPill, COLORS.Blue, 2)
-local hudLogs = label(logsPill, "LogCount", "🪵  BAG  0 / 10", UDim2.new(1, -14, 1, 0), UDim2.new(0, 8, 0, 0), 15, COLORS.Ink, Enum.Font.GothamBlack)
+local hudLogs = label(logsPill, "LogCount", "🪵  BAG  — / — KG", UDim2.new(1, -14, 1, 0), UDim2.new(0, 8, 0, 0), 15, COLORS.Ink, Enum.Font.GothamBlack)
 
 local bagButton = button(hud, "OpenBagButton", "OPEN BAG  •  M", UDim2.new(0.39, -4, 1, 0), UDim2.new(), COLORS.Green)
 bagButton.LayoutOrder = 3
@@ -343,7 +391,7 @@ local sortButton = button(bagToolbar, "SortButton", "SORT: WT", UDim2.new(1, -20
 sortButton.TextSize = 16
 sortButton.TextColor3 = COLORS.BagText
 sortButton.Parent = bagPanel.Header
-local bagCountLabel = label(bagToolbar, "Capacity", "0 / 10 LOGS", UDim2.new(1, -20, 0, 60), UDim2.new(0, 10, 0, 230), 16, COLORS.BagText, Enum.Font.GothamBlack)
+local bagCountLabel = label(bagToolbar, "Capacity", "— / — KG", UDim2.new(1, -20, 0, 60), UDim2.new(0, 10, 0, 230), 16, COLORS.BagText, Enum.Font.GothamBlack)
 bagCountLabel.TextXAlignment = Enum.TextXAlignment.Center
 bagCountLabel.TextYAlignment = Enum.TextYAlignment.Center
 local infoButton = button(bagToolbar, "InfoButton", "INFO", UDim2.new(1, -20, 0, 50), UDim2.new(0, 10, 0, 298), COLORS.BagAction)
@@ -645,6 +693,22 @@ local refreshLogsQueued = false
 local saleCoinsBefore
 local feedbackSequence = 0
 
+local function getBagUiCapacity()
+	local logsData = if type(latestLogsData) == "table" then latestLogsData else {}
+	local shopData = if type(latestShopData) == "table" then latestShopData else {}
+	local usedKg = validKg(shopData.UsedKg) or validKg(logsData.UsedKg)
+	local carryCapacityKg = validKg(shopData.CarryCapacityKg) or validKg(logsData.CarryCapacityKg)
+	local remainingKg = validKg(logsData.RemainingKg)
+	if typeof(logsData.RemainingKg) == "number" and logsData.RemainingKg == logsData.RemainingKg
+		and logsData.RemainingKg ~= math.huge and logsData.RemainingKg ~= -math.huge then
+		remainingKg = math.max(0, logsData.RemainingKg)
+	end
+	if usedKg == nil and carryCapacityKg ~= nil and remainingKg ~= nil then
+		usedKg = math.max(0, carryCapacityKg - remainingKg)
+	end
+	return usedKg, carryCapacityKg
+end
+
 local function showFeedback(message, color)
 	feedbackSequence += 1
 	local sequence = feedbackSequence
@@ -871,14 +935,14 @@ local function findSelectedLog(logs)
 	return nil
 end
 
-local function updateBagTabs(logCount, capacity, axeCount)
+local function updateBagTabs(usedKg, carryCapacityKg, axeCount)
 	local logsActive = activeBagTab == "Logs"
 	logsTab.BackgroundColor3 = if logsActive then COLORS.BagAction else COLORS.BagSlot
 	logsTab.TextColor3 = COLORS.BagText
 	axesTab.BackgroundColor3 = if not logsActive then COLORS.BagAction else COLORS.BagSlot
 	axesTab.TextColor3 = COLORS.BagText
 	bagCountLabel.Visible = logsActive
-	bagCountLabel.Text = string.format("%d / %d", logCount or 0, capacity or 10)
+	bagCountLabel.Text = formatCapacitySummary(usedKg, carryCapacityKg)
 	bagCountLabel.TextColor3 = COLORS.BagMuted
 	bagCountLabel.TextWrapped = false
 	local sortLabels = { "A-Z", "VALUE", "NEWEST" }
@@ -889,6 +953,7 @@ end
 local function renderLogDetail(record)
 	local hasRecord = type(record) == "table"
 	local value = if hasRecord then getLogValue(record) else nil
+	local weightText = if hasRecord then formatKg(record.CapacityKg) else nil
 	detailIcon.Visible = false
 	detailLogVisual.Visible = hasRecord
 	detailSpecies.Text = if hasRecord then tostring(record.SpeciesId or "Unknown") else "NO LOG SELECTED"
@@ -899,8 +964,10 @@ local function renderLogDetail(record)
 	detailMetricValue.TextColor3 = if value ~= nil then COLORS.BagAction else COLORS.BagMuted
 	detailValue.Text = ""
 	detailSize.Text = ""
-	detailExtraLabel.Visible = false
-	detailExtraValue.Visible = false
+	detailExtraLabel.Text = "WEIGHT"
+	detailExtraValue.Text = weightText or ""
+	detailExtraLabel.Visible = weightText ~= nil
+	detailExtraValue.Visible = weightText ~= nil
 	detailStatus.Text = if not hasRecord then "CHOOSE A LOG" elseif record.Locked == true then "LOCKED • SAFE FROM SELL ALL" else "SELECTED"
 	detailStatus.TextColor3 = if hasRecord and record.Locked == true then COLORS.Gold else COLORS.BagMuted
 	favoriteButton.Visible = hasRecord
@@ -1025,7 +1092,8 @@ local function renderAxes(data)
 			end
 		end
 	end
-	updateBagTabs(latestLogsData and #(latestLogsData.Logs or {}) or 0, latestLogsData and latestLogsData.Capacity or 10, #axes)
+	local usedKg, carryCapacityKg = getBagUiCapacity()
+	updateBagTabs(usedKg, carryCapacityKg, #axes)
 	clearGrid()
 	showGrid()
 	if not data then
@@ -1058,12 +1126,14 @@ local function renderLogs(data)
 	if type(data) ~= "table" then return end
 	latestLogsData = data
 	local logs = sortedLogs(data)
-	local capacity = typeof(data.Capacity) == "number" and data.Capacity or 10
+	local usedKg, carryCapacityKg, remainingKg = getCapacitySnapshot(data, latestShopData and latestShopData.CarryCapacityKg)
 	local coins = typeof(data.Coins) == "number" and data.Coins or 0
 	hudCoins.Text = "🪙 " .. formatCoins(coins)
-	hudLogs.Text = string.format("🪵  BAG  %d / %d", #logs, capacity)
-	local isFull = #logs >= capacity
-	bagButton.Text = if isFull then "BAG FULL  •  M" else "OPEN BAG  •  M"
+	hudLogs.Text = "🪵  BAG " .. formatCapacitySummary(usedKg, carryCapacityKg)
+	local isFull = carryCapacityKg ~= nil and ((remainingKg ~= nil and remainingKg <= 0.0001)
+		or (usedKg ~= nil and usedKg >= carryCapacityKg - 0.0001))
+	local fullCapacityText = formatKg(carryCapacityKg)
+	bagButton.Text = if isFull and fullCapacityText then "BAG FULL  •  " .. fullCapacityText else if isFull then "BAG FULL  •  M" else "OPEN BAG  •  M"
 	bagButton.BackgroundColor3 = if isFull then COLORS.Orange else COLORS.Green
 	if saleCoinsBefore then
 		if coins > saleCoinsBefore then
@@ -1072,7 +1142,7 @@ local function renderLogs(data)
 		saleCoinsBefore = nil
 	end
 	if not findSelectedLog(logs) then selectedLogUid = nil end
-	updateBagTabs(#logs, capacity, #ownedAxes(latestShopData))
+	updateBagTabs(usedKg, carryCapacityKg, #ownedAxes(latestShopData))
 	if activeBagTab == "Axes" then
 		renderAxes(latestShopData)
 		return
@@ -1114,7 +1184,8 @@ end
 local function renderShop(data)
 	if type(data) ~= "table" then return end
 	latestShopData = data
-	updateBagTabs(latestLogsData and #(latestLogsData.Logs or {}) or 0, latestLogsData and latestLogsData.Capacity or 10, #ownedAxes(data))
+	local usedKg, carryCapacityKg = getBagUiCapacity()
+	updateBagTabs(usedKg, carryCapacityKg, #ownedAxes(data))
 	clearShopRows()
 	hudCoins.Text = "🪙 " .. formatCoins(data.Coins or 0)
 	local layoutOrder = 0
@@ -1214,50 +1285,59 @@ local function renderShop(data)
 	end
 
 	layoutOrder += 1
-	local capacity = typeof(data.Capacity) == "number" and data.Capacity or 10
 	local heading = Instance.new("Frame")
 	heading.Name = "CapacityHeading"
 	heading.LayoutOrder = layoutOrder
 	heading.Size = UDim2.new(1, -8, 0, 50)
 	heading.BackgroundTransparency = 1
 	heading.Parent = shopList
-	local headingText = label(heading, "Text", "BAG CAPACITY  •  " .. tostring(capacity) .. " LOGS", UDim2.new(1, 0, 1, 0), UDim2.new(), 20, COLORS.BagText, Enum.Font.GothamBlack)
+	local headingText = label(heading, "Text", "BAG CAPACITY  •  " .. (formatKg(carryCapacityKg) or "DATA UPDATING"), UDim2.new(1, 0, 1, 0), UDim2.new(), 20, COLORS.BagText, Enum.Font.GothamBlack)
 	headingText.TextStrokeColor3 = COLORS.BagLine
 	headingText.TextStrokeTransparency = 0
 
-	for _, upgrade in ipairs(data.CapacityUpgrades or {}) do
-		if upgrade.Capacity > capacity then
-			layoutOrder += 1
-			local card = Instance.new("Frame")
-			card.Name = "CapacityCard_" .. tostring(upgrade.Capacity)
-			card.LayoutOrder = layoutOrder
-			card.Size = UDim2.new(1, -8, 0, 100)
-			card.BackgroundColor3 = COLORS.BagSlot
-			card.Parent = shopList
-			round(card, 12)
-			outline(card, COLORS.BagLine, 3)
-			local upgradeText = label(card, "Upgrade", "CARRY " .. tostring(upgrade.Capacity) .. " LOGS", UDim2.new(0.52, -20, 1, 0), UDim2.new(0, 16, 0, 0), 20, COLORS.BagText, Enum.Font.GothamBlack)
-			upgradeText.TextStrokeColor3 = COLORS.BagLine
-			upgradeText.TextStrokeTransparency = 0
-			local action = button(card, "BuyCapacity", "UPGRADE  •  " .. formatCoins(upgrade.Price), UDim2.new(0.45, -16, 0, 60), UDim2.new(0.55, 0, 0.5, -30), (data.Coins or 0) >= upgrade.Price and COLORS.BagAction or COLORS.Disabled)
-			action.TextSize = 16
-			action.TextStrokeColor3 = COLORS.BagLine
-			action.TextStrokeTransparency = 0
-			round(action, 12)
-			local actionStroke = action:FindFirstChildOfClass("UIStroke")
-			if actionStroke then
-				actionStroke.Color = COLORS.BagLine
-				actionStroke.Thickness = 3
-			end
-			action.Activated:Connect(function()
-				purchaseCapacity:FireServer(upgrade.Capacity)
-				task.delay(0.35, function()
-					if shopOverlay.Visible then
-						local ok, fresh = pcall(function() return getShopData:InvokeServer() end)
-						if ok then renderShop(fresh) end
-					end
+	local capacityUpgrades = if type(data.CapacityUpgrades) == "table" then data.CapacityUpgrades else {}
+	local coins = validNonNegativeNumber(data.Coins) or 0
+	for _, upgrade in ipairs(capacityUpgrades) do
+		if type(upgrade) == "table" then
+			local targetCapacityKg = validKg(upgrade.CapacityKg)
+			if carryCapacityKg ~= nil and targetCapacityKg ~= nil and targetCapacityKg > carryCapacityKg then
+				layoutOrder += 1
+				local card = Instance.new("Frame")
+				card.Name = "CapacityCard_" .. (formatKgNumber(targetCapacityKg) or "Unknown")
+				card.LayoutOrder = layoutOrder
+				card.Size = UDim2.new(1, -8, 0, 100)
+				card.BackgroundColor3 = COLORS.BagSlot
+				card.Parent = shopList
+				round(card, 12)
+				outline(card, COLORS.BagLine, 3)
+				local upgradeText = label(card, "Upgrade", "CARRY " .. (formatKg(targetCapacityKg) or "— KG"), UDim2.new(0.52, -20, 1, 0), UDim2.new(0, 16, 0, 0), 20, COLORS.BagText, Enum.Font.GothamBlack)
+				upgradeText.TextStrokeColor3 = COLORS.BagLine
+				upgradeText.TextStrokeTransparency = 0
+				local price = validNonNegativeNumber(upgrade.Price)
+				local canPurchase = price ~= nil and coins >= price
+				local action = button(card, "BuyCapacity", "UPGRADE  •  " .. formatCoins(price or 0), UDim2.new(0.45, -16, 0, 60), UDim2.new(0.55, 0, 0.5, -30), canPurchase and COLORS.BagAction or COLORS.Disabled)
+				action.TextSize = 16
+				action.Active = canPurchase
+				action.AutoButtonColor = canPurchase
+				action.TextStrokeColor3 = COLORS.BagLine
+				action.TextStrokeTransparency = 0
+				round(action, 12)
+				local actionStroke = action:FindFirstChildOfClass("UIStroke")
+				if actionStroke then
+					actionStroke.Color = COLORS.BagLine
+					actionStroke.Thickness = 3
+				end
+				action.Activated:Connect(function()
+					if not canPurchase then return end
+					purchaseCapacity:FireServer(targetCapacityKg)
+					task.delay(0.35, function()
+						if shopOverlay.Visible then
+							local ok, fresh = pcall(function() return getShopData:InvokeServer() end)
+							if ok then renderShop(fresh) end
+						end
+					end)
 				end)
-			end)
+			end
 		end
 	end
 	if bagOverlay.Visible and activeBagTab == "Axes" then renderAxes(data) end

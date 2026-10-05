@@ -13,6 +13,14 @@ local function makeTreeRecords(definitionId, rowZ)
 	return records
 end
 
+local starterForestTrees = makeTreeRecords("StarterForestTree", { 136, 170, 204 })
+table.insert(starterForestTrees, {
+	DefinitionId = "BambooClump",
+	-- The narrow starter clump sits beside the Forest 1 trail entrance, close to
+	-- the base route without narrowing the walkable center of the path.
+	Position = Vector3.new(14, -0.5, 132),
+})
+
 local STATION_USE_DISTANCES = {
 	AxeShopStation = 14,
 	HomeEconomyStation = 14,
@@ -21,7 +29,7 @@ local STATION_USE_DISTANCES = {
 
 local WorldLayoutConfiguration = {
 	ROOT_NAME = "SourceWorld",
-	VERSION = 6,
+	VERSION = 7,
 	STATION_USE_DISTANCES = STATION_USE_DISTANCES,
 
 	-- The narrow section follows the six-stud opening between the two rear plots.
@@ -70,7 +78,7 @@ local WorldLayoutConfiguration = {
 				Text = "STARTER FOREST",
 				Position = Vector3.new(-13, 0, 126),
 			},
-			Trees = makeTreeRecords("StarterForestTree", { 136, 170, 204 }),
+			Trees = starterForestTrees,
 		},
 		{
 			Name = "Forest2",

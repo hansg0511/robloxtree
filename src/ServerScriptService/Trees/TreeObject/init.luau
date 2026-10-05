@@ -9,6 +9,7 @@ local FXService = require(game.ReplicatedStorage.FXService)
 local Definitions = require(script.Parent.TreeDefinitions)
 local WorldProgressService = require(game.ServerScriptService.WorldProgressService)
 local LogService = require(game.ServerScriptService.Inventory.LogService)
+local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
 
 local treeRandom = Random.new()
 
@@ -239,6 +240,81 @@ local function makeForest2Tree()
 	return model
 end
 
+local function makeBambooClump()
+	local palette = SpeciesVisuals.GetPalette("Bamboo")
+	local model = Instance.new("Model")
+	model.Name = "BambooClump"
+	local root = makeBrickPart(
+		"BambooCore",
+		Vector3.new(1.1, 8.4, 1.1),
+		Vector3.new(0, 4.2, 0),
+		palette.Bark,
+		model
+	)
+	root.Name = "BambooCore"
+	root.PivotOffset = CFrame.new(0, -4.2, 0)
+	model.PrimaryPart = root
+	local leaves = Instance.new("Folder")
+	leaves.Name = "Leaves"
+	leaves.Parent = model
+
+	local stalks = {
+		{ Height = 8.4, Diameter = 1.1, Position = Vector3.new(0, 4.2, 0), IsRoot = true },
+		{ Height = 7.6, Diameter = 0.86, Position = Vector3.new(-1.45, 3.8, -1.1) },
+		{ Height = 7.0, Diameter = 0.84, Position = Vector3.new(1.35, 3.5, -1.05) },
+		{ Height = 8.0, Diameter = 0.9, Position = Vector3.new(-1.35, 4.0, 1.15) },
+		{ Height = 7.3, Diameter = 0.86, Position = Vector3.new(1.4, 3.65, 1.05) },
+	}
+
+	for index, stalk in ipairs(stalks) do
+		if not stalk.IsRoot then
+			makeBrickPart(
+				"BambooStalk" .. index,
+				Vector3.new(stalk.Diameter, stalk.Height, stalk.Diameter),
+				stalk.Position,
+				palette.Bark,
+				model,
+				root,
+				false
+			)
+		end
+
+		for nodeIndex = 1, 3 do
+			local nodeY = stalk.Position.Y - stalk.Height * 0.5 + stalk.Height * nodeIndex * 0.25
+			makeBrickPart(
+				"BambooNode" .. index .. "_" .. nodeIndex,
+				Vector3.new(stalk.Diameter * 1.14, 0.16, stalk.Diameter * 1.14),
+				Vector3.new(stalk.Position.X, nodeY, stalk.Position.Z),
+				palette.BarkShadow,
+				model,
+				root,
+				false
+			)
+		end
+
+		local leafY = stalk.Position.Y + stalk.Height * 0.5 + 0.3
+		for leafIndex, leafDefinition in ipairs({
+			{ Size = Vector3.new(2.8, 0.2, 0.42), Position = Vector3.new(stalk.Position.X - 0.7, leafY, stalk.Position.Z), Color = palette.Leaf },
+			{ Size = Vector3.new(2.5, 0.2, 0.4), Position = Vector3.new(stalk.Position.X + 0.8, leafY + 0.25, stalk.Position.Z + 0.1), Color = palette.LeafHighlight },
+			{ Size = Vector3.new(2.2, 0.2, 0.4), Position = Vector3.new(stalk.Position.X, leafY + 0.45, stalk.Position.Z - 0.5), Color = palette.LeafShadow },
+		}) do
+			local leaf = makeBrickPart(
+				"BambooLeaf" .. index .. "_" .. leafIndex,
+				leafDefinition.Size,
+				leafDefinition.Position,
+				leafDefinition.Color,
+				leaves,
+				root,
+				false
+			)
+			leaf.CanCollide = false
+		end
+	end
+
+	addChopHitbox(model, root, Vector3.new(7, 11, 7), Vector3.new(0, 5.1, 0))
+	return model
+end
+
 local function makeBarrierTree()
 	local barkColor = Color3.fromRGB(105, 61, 39)
 	local barrierPalette = {
@@ -274,6 +350,7 @@ local SOURCE_BUILT_MODELS = {
 	BrickPlaceholder = makeBrickPlaceholder,
 	StarterForestTree = makeStarterForestTree,
 	Forest2Tree = makeForest2Tree,
+	BambooClump = makeBambooClump,
 	BarrierTree = makeBarrierTree,
 }
 
@@ -297,7 +374,8 @@ function Tree.new(options)
 	self.MaxHP = definition.MaxHP
 	self.HP = definition.MaxHP
 	self.SpeciesId = definition.SpeciesId
-	self.LogValue = definition.LogValue
+	self.LogYield = definition.LogYield
+	self.FixedSizeScale = definition.FixedSizeScale
 	self.YieldsLog = definition.YieldsLog == true
 	self.SizeScale = 1
 	self.DamageContributions = {}
@@ -322,11 +400,16 @@ end
 
 function Tree:Spawn()
 	if self.destroyed then return nil end
+	local hasKnownMaterial = type(self.SpeciesId) == "string"
+		and MaterialDefinitions.Get(self.SpeciesId) ~= nil
 	local hasLogDrop = self.YieldsLog
 		and self.Category ~= "Barrier"
-		and type(self.SpeciesId) == "string"
-		and type(self.LogValue) == "number"
-	self.SizeScale = if hasLogDrop then rollTreeScale() else 1
+		and hasKnownMaterial
+	self.SizeScale = if type(self.FixedSizeScale) == "number" and self.FixedSizeScale > 0
+		then self.FixedSizeScale
+		elseif hasLogDrop
+		then rollTreeScale()
+		else 1
 	-- Combat state stays integral even though the presentation size is fractional.
 	self.MaxHP = math.max(1, math.floor(self.BaseHP * (self.SizeScale ^ 1.4) + 0.5))
 	self.HP = self.MaxHP

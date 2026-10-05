@@ -48,6 +48,7 @@ local function getProfileData(player)
 	if not profile or type(profile.Data) ~= "table" or type(profile.Data.Runtime) ~= "table" then
 		return nil, nil
 	end
+	profileCache.NormalizeCarryCapacity(profile.Data)
 	return profile, profile.Data
 end
 
@@ -170,10 +171,11 @@ local function buildShopSnapshot(player, profile)
 	local upgrades = {}
 	for _, entry in ipairs(catalog.CapacityUpgrades) do
 		upgrades[#upgrades + 1] = {
-			Capacity = entry.Capacity,
+			CapacityKg = entry.CapacityKg,
 			Price = entry.Price,
 		}
 	end
+	local capacityState = LogService.GetCapacitySnapshot(player)
 
 	local unlockedForests = {}
 	if progression and type(progression.UnlockedForests) == "table" then
@@ -186,7 +188,10 @@ local function buildShopSnapshot(player, profile)
 
 	return {
 		Coins = coins,
-		Capacity = isFiniteNumber(data.LogCapacity) and data.LogCapacity or 10,
+		ItemCount = capacityState and capacityState.ItemCount or 0,
+		UsedKg = capacityState and capacityState.UsedKg or 0,
+		CarryCapacityKg = capacityState and capacityState.CarryCapacityKg or catalog.DEFAULT_CAPACITY_KG,
+		RemainingKg = capacityState and capacityState.RemainingKg or catalog.DEFAULT_CAPACITY_KG,
 		AxeHeads = axeHeads,
 		Recipes = recipes,
 		-- Axes are now owned inventory only. The Axe Shop no longer exposes a
@@ -293,35 +298,23 @@ craftRecipe.OnServerEvent:Connect(function(player, recipeId, ...)
 	economyUpdated:FireClient(player, "Progression")
 end)
 
-purchaseCapacity.OnServerEvent:Connect(function(player, requestedCapacity, ...)
+purchaseCapacity.OnServerEvent:Connect(function(player, requestedCapacityKg, ...)
 	if select("#", ...) ~= 0 then return end
 	if not takeBudget(player, "PurchaseCapacity") then return end
 	if not BaseStationAccess.CanUseAxeShop(player) then return end
 	local profile, data = getProfileData(player)
 	if not profile then return end
-	if not isFiniteNumber(requestedCapacity) or requestedCapacity % 1 ~= 0 then return end
+	if not isFiniteNumber(requestedCapacityKg) or requestedCapacityKg % 1 ~= 0 then return end
 
-	local currentCapacity = data.LogCapacity
-	if not isFiniteNumber(currentCapacity) then currentCapacity = 10 end
-	local upgrade
-	for _, entry in ipairs(catalog.CapacityUpgrades) do
-		if entry.Capacity == requestedCapacity and entry.Capacity > currentCapacity then
-			local previousCapacity = 10
-			for _, priorEntry in ipairs(catalog.CapacityUpgrades) do
-				if priorEntry.Capacity < entry.Capacity then
-					previousCapacity = priorEntry.Capacity
-				end
-			end
-			if previousCapacity == currentCapacity then upgrade = entry end
-			break
-		end
-	end
-	if not upgrade then return end
+	profileCache.NormalizeCarryCapacity(data)
+	local currentCapacityKg = data.CarryCapacityKg
+	local upgrade = catalog.FindNextCapacityUpgrade(currentCapacityKg)
+	if not upgrade or upgrade.CapacityKg ~= requestedCapacityKg then return end
 
 	local coins = data.Coins
 	if not isFiniteNumber(coins) or coins < upgrade.Price then return end
 	data.Coins = coins - upgrade.Price
-	data.LogCapacity = upgrade.Capacity
+	data.CarryCapacityKg = upgrade.CapacityKg
 	economyUpdated:FireClient(player, "Coins", data.Coins)
 	LogService.NotifyState(player)
 end)

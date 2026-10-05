@@ -18,7 +18,7 @@ local ProfileTemplate = {
 			Rarity = "Common",
 		},
 	},
-	-- One unique physical log per slot; capacity upgrades change this count limit.
+	-- One unique physical log per record; material kg cost is resolved server-side.
 	Logs = {},
 	-- Axe heads are crafting materials, never equipable Tools.
 	AxeHeads = {
@@ -35,7 +35,7 @@ local ProfileTemplate = {
 			Forest2 = false,
 		},
 	},
-	LogCapacity = 10,
+	CarryCapacityKg = AxeShopCatalog.DEFAULT_CAPACITY_KG,
 	-- Neutral server-owned seam for future character/prestige progression.
 	-- It deliberately has no player-facing progression in this prototype.
 	LumberjackStrength = 1,
@@ -76,6 +76,10 @@ local function PlayerAdded(player)
 	if profile ~= nil then
 		print("New Player")
 		profile:AddUserId(player.UserId) -- GDPR compliance
+		-- Migrate the old count-named field before Reconcile injects the new
+		-- default. Existing configured values (10/15/20/30/40) retain their number
+		-- and become kilograms; malformed values fall back safely in the cache.
+		profileCache.NormalizeCarryCapacity(profile.Data)
 		local runProgressBeforeReconcile = profile.Data.RunProgress
 		local priorTier = type(runProgressBeforeReconcile) == "table"
 			and runProgressBeforeReconcile.StandardAxeTier

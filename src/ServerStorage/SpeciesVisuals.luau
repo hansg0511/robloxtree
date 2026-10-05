@@ -2,6 +2,7 @@
 -- This module contains presentation data only; item identity and size are
 -- always supplied by server-owned tree/log records.
 local SpeciesVisuals = {}
+local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
 
 local PALETTES = {
 	Oak = {
@@ -26,6 +27,17 @@ local PALETTES = {
 		LeafHighlight = Color3.fromRGB(48, 141, 91),
 		LeafShadow = Color3.fromRGB(23, 77, 63),
 	},
+	Bamboo = {
+		Bark = Color3.fromRGB(127, 179, 80),
+		BarkHighlight = Color3.fromRGB(170, 207, 105),
+		BarkShadow = Color3.fromRGB(78, 132, 60),
+		CutEnd = Color3.fromRGB(224, 219, 145),
+		CutRing = Color3.fromRGB(153, 177, 91),
+		CutRingShadow = Color3.fromRGB(97, 135, 61),
+		Leaf = Color3.fromRGB(63, 151, 68),
+		LeafHighlight = Color3.fromRGB(121, 194, 75),
+		LeafShadow = Color3.fromRGB(42, 111, 60),
+	},
 }
 
 local FALLBACK_SPECIES = "Oak"
@@ -36,6 +48,15 @@ local CARRY_CAP_DIAMETER_RATIO = 0.88
 
 function SpeciesVisuals.GetPalette(speciesId)
 	return PALETTES[speciesId] or PALETTES[FALLBACK_SPECIES]
+end
+
+function SpeciesVisuals.GetCarryVisualScale(speciesId)
+	local definition = MaterialDefinitions.Get(speciesId)
+	local scale = definition and definition.CarryVisualScale
+	if type(scale) ~= "number" or scale ~= scale or scale <= 0 or scale == math.huge then
+		return 1
+	end
+	return math.clamp(scale, 0.05, 4)
 end
 
 local function hasNonemptyText(value)
@@ -152,7 +173,8 @@ end
 function SpeciesVisuals.CreateLogParts(logRecord, handleName, visualScale)
 	assert(type(logRecord) == "table", "A server-owned log record is required")
 	local palette = SpeciesVisuals.GetPalette(logRecord.SpeciesId)
-	local geometryScale = if type(visualScale) == "number" and visualScale > 0 then visualScale else 1
+	local modelMultiplier = if type(visualScale) == "number" and visualScale > 0 then visualScale else 1
+	local geometryScale = SpeciesVisuals.GetCarryVisualScale(logRecord.SpeciesId) * modelMultiplier
 	-- Ground drops use this same carry-log shape multiplied by the caller's
 	-- visualScale. A scale of four therefore makes the true body and cap
 	-- dimensions exactly four times the unchanged back-stack dimensions.
@@ -209,9 +231,10 @@ end
 function SpeciesVisuals.CreateCarryLogParts(logRecord)
 	assert(type(logRecord) == "table", "A server-owned log record is required")
 	local palette = SpeciesVisuals.GetPalette(logRecord.SpeciesId)
-	local length = CARRY_LOG_LENGTH
-	local diameter = CARRY_LOG_DIAMETER
-	local capThickness = CARRY_CAP_THICKNESS
+	local carryScale = SpeciesVisuals.GetCarryVisualScale(logRecord.SpeciesId)
+	local length = CARRY_LOG_LENGTH * carryScale
+	local diameter = CARRY_LOG_DIAMETER * carryScale
+	local capThickness = CARRY_CAP_THICKNESS * carryScale
 
 	local body = configurePart(Instance.new("Part"))
 	body.Name = "CarryLogBody"
@@ -227,6 +250,7 @@ function SpeciesVisuals.CreateCarryLogParts(logRecord)
 	body.RightSurface = Enum.SurfaceType.Studs
 	body:SetAttribute("SpeciesId", logRecord.SpeciesId)
 	body:SetAttribute("ItemType", "Log")
+	body:SetAttribute("CarryVisualScale", carryScale)
 
 	local caps = {}
 	for index, direction in ipairs({ -1, 1 }) do

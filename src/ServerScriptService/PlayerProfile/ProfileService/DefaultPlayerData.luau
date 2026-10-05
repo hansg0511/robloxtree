@@ -31,7 +31,7 @@ export type PlayerData = {
 	Logs: { LogItem },
 	AxeHeads: AxeHeadCounts,
 	RunProgress: RunProgress,
-	LogCapacity: number,
+	CarryCapacityKg: number,
 	LumberjackStrength: number,
 	Coins: number,
 	Wood: number,

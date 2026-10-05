@@ -92,6 +92,7 @@ local function snapshotRecords(logRecords)
 				UID = logRecord.UID,
 				ItemType = "Log",
 				SpeciesId = logRecord.SpeciesId,
+				CarryVisualScale = SpeciesVisuals.GetCarryVisualScale(logRecord.SpeciesId),
 				IsRare = SpeciesVisuals.IsRareLog(logRecord),
 			}
 			seenUids[logRecord.UID] = true
@@ -104,6 +105,14 @@ local function snapshotRecords(logRecords)
 	end
 
 	return normalLogs, rareLogs
+end
+
+local function getVisualScales(records)
+	local scales = table.create(#records)
+	for index, logRecord in ipairs(records) do
+		scales[index] = logRecord.CarryVisualScale
+	end
+	return scales
 end
 
 local function makeNonPhysicalPart(part)
@@ -141,8 +150,8 @@ local function createCargoAnchor(torso, model)
 	return anchor
 end
 
-local function addLogVisual(model, anchor, logRecord, stackName, stackIndex)
-	local slotCFrame = CarryLayout.GetAnchorRelativeSlotCFrame(stackName, stackIndex)
+local function addLogVisual(model, anchor, logRecord, stackName, stackIndex, stackVisualScales)
+	local slotCFrame = CarryLayout.GetAnchorRelativeSlotCFrame(stackName, stackIndex, stackVisualScales)
 	if not slotCFrame then
 		return nil
 	end
@@ -231,8 +240,53 @@ function LogCarryVisualService.GetArrivalCFrame(player, stagedRecords, targetUID
 		return nil
 	end
 
-	local torsoRelativeTarget = CarryLayout.GetTorsoRelativeTargetCFrame(stackName, stackIndex)
+	local stackRecords = stackName == "Rare" and rareLogs or normalLogs
+	local torsoRelativeTarget = CarryLayout.GetTorsoRelativeTargetCFrame(
+		stackName,
+		stackIndex,
+		getVisualScales(stackRecords)
+	)
 	return torsoRelativeTarget and (torso.CFrame * torsoRelativeTarget) or nil
+end
+
+-- Returns the exact CFrame offset relative to CargoAnchor for pickup FX. Values
+-- are derived from server-owned records and the same ordered species geometry
+-- used by the persistent carry projection.
+function LogCarryVisualService.GetTargetOffset(stagedRecords, targetUID)
+	if type(stagedRecords) ~= "table" or not isNonemptyString(targetUID, 80) then
+		return nil
+	end
+
+	local normalLogs, rareLogs = snapshotRecords(stagedRecords)
+	local stackName
+	local stackIndex
+	for index, logRecord in ipairs(normalLogs) do
+		if logRecord.UID == targetUID then
+			stackName = "Normal"
+			stackIndex = index
+			break
+		end
+	end
+	if not stackIndex then
+		for index, logRecord in ipairs(rareLogs) do
+			if logRecord.UID == targetUID then
+				stackName = "Rare"
+				stackIndex = index
+				break
+			end
+		end
+	end
+	if not stackIndex then return nil end
+
+	local stackRecords = stackName == "Rare" and rareLogs or normalLogs
+	local slotCFrame = CarryLayout.GetAnchorRelativeSlotCFrame(
+		stackName,
+		stackIndex,
+		getVisualScales(stackRecords)
+	)
+	if not slotCFrame then return nil end
+	local offset = slotCFrame.Position
+	return { X = offset.X, Y = offset.Y, Z = offset.Z }
 end
 
 local function collectCarryVisuals(model)
@@ -285,19 +339,15 @@ local function destroyCarryVisual(visual)
 	end
 end
 
-local function setCarryVisualSlot(visual, anchor, logRecord, stackName, stackIndex)
+local function setCarryVisualSlot(visual, anchor, logRecord, stackName, stackIndex, stackVisualScales)
 	local body = visual.Body
-	local slotCFrame = CarryLayout.GetAnchorRelativeSlotCFrame(stackName, stackIndex)
+	local slotCFrame = CarryLayout.GetAnchorRelativeSlotCFrame(stackName, stackIndex, stackVisualScales)
 	if not body or not slotCFrame then
 		return false
 	end
 
-	local needsReposition = body:GetAttribute("CarryStack") ~= stackName
-		or body:GetAttribute("CarryIndex") ~= stackIndex
 	local bodyWeld = ensureWeld(anchor, body, "CarriedLogWeld")
-	if needsReposition then
-		bodyWeld.C0 = slotCFrame
-	end
+	bodyWeld.C0 = slotCFrame
 	body:SetAttribute("LogUID", logRecord.UID)
 	body:SetAttribute("CarryStack", stackName)
 	body:SetAttribute("CarryIndex", stackIndex)
@@ -308,9 +358,7 @@ local function setCarryVisualSlot(visual, anchor, logRecord, stackName, stackInd
 		local capDirection = capIndex == 1 and -1 or 1
 		local capRelativeCFrame = slotCFrame * CFrame.new(capDirection * capOffset, 0, 0)
 		local capWeld = ensureWeld(anchor, cap, "CarriedLogCapWeld")
-		if needsReposition then
-			capWeld.C0 = capRelativeCFrame
-		end
+		capWeld.C0 = capRelativeCFrame
 		cap:SetAttribute("LogUID", logRecord.UID)
 		cap:SetAttribute("CarryStack", stackName)
 		cap:SetAttribute("CarryIndex", stackIndex)
@@ -374,11 +422,23 @@ local function buildForCharacter(player, character, categorizedRecords)
 	local model, anchor = findOrCreateCargoModel(player, character, torso)
 	local visualsByUid = collectCarryVisuals(model)
 	local desiredByUid = {}
+	local normalVisualScales = getVisualScales(normalLogs)
+	local rareVisualScales = getVisualScales(rareLogs)
 	for index, logRecord in ipairs(normalLogs) do
-		desiredByUid[logRecord.UID] = { Record = logRecord, Stack = "Normal", Index = index }
+		desiredByUid[logRecord.UID] = {
+			Record = logRecord,
+			Stack = "Normal",
+			Index = index,
+			VisualScales = normalVisualScales,
+		}
 	end
 	for index, logRecord in ipairs(rareLogs) do
-		desiredByUid[logRecord.UID] = { Record = logRecord, Stack = "Rare", Index = index }
+		desiredByUid[logRecord.UID] = {
+			Record = logRecord,
+			Stack = "Rare",
+			Index = index,
+			VisualScales = rareVisualScales,
+		}
 	end
 
 	-- Preserve parts for UIDs that remain in the inventory. Only remove visuals
@@ -387,7 +447,8 @@ local function buildForCharacter(player, character, categorizedRecords)
 		local desired = desiredByUid[uid]
 		local complete = visual.Body and visual.Caps[1] and visual.Caps[2]
 		if not desired or not complete
-			or visual.Body:GetAttribute("SpeciesId") ~= desired.Record.SpeciesId then
+			or visual.Body:GetAttribute("SpeciesId") ~= desired.Record.SpeciesId
+			or visual.Body:GetAttribute("CarryVisualScale") ~= desired.Record.CarryVisualScale then
 			destroyCarryVisual(visual)
 			visualsByUid[uid] = nil
 		end
@@ -396,9 +457,23 @@ local function buildForCharacter(player, character, categorizedRecords)
 	for uid, desired in pairs(desiredByUid) do
 		local visual = visualsByUid[uid]
 		if not visual then
-			visual = addLogVisual(model, anchor, desired.Record, desired.Stack, desired.Index)
+			visual = addLogVisual(
+				model,
+				anchor,
+				desired.Record,
+				desired.Stack,
+				desired.Index,
+				desired.VisualScales
+			)
 		else
-			setCarryVisualSlot(visual, anchor, desired.Record, desired.Stack, desired.Index)
+			setCarryVisualSlot(
+				visual,
+				anchor,
+				desired.Record,
+				desired.Stack,
+				desired.Index,
+				desired.VisualScales
+			)
 		end
 	end
 

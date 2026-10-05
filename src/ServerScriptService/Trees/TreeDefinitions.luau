@@ -8,7 +8,6 @@ local TreeDefinitions = {
 		SpeciesId = "Oak",
 		-- Personal-grove trees do not yield cargo, but retain the same species
 		-- identity as the starter forest for visuals.
-		LogValue = 16,
 		-- This temporary plot smoke-test tree must never become a free base farm.
 		YieldsLog = false,
 		RespawnSeconds = 3,
@@ -23,7 +22,6 @@ local TreeDefinitions = {
 		ModelName = "StarterForestTree",
 		MaxHP = 60,
 		SpeciesId = "Oak",
-		LogValue = 16,
 		YieldsLog = true,
 		RespawnSeconds = 3,
 		OwnerOnly = false,
@@ -37,7 +35,6 @@ local TreeDefinitions = {
 		ModelName = "Forest2Tree",
 		MaxHP = 180,
 		SpeciesId = "Ironwood",
-		LogValue = 144,
 		YieldsLog = true,
 		RespawnSeconds = 5,
 		OwnerOnly = false,
@@ -45,6 +42,21 @@ local TreeDefinitions = {
 		ForestId = "Forest2",
 		InteractionPartName = "ChopHitbox",
 		ChopRadius = 8,
+	},
+	BambooClump = {
+		Category = "Grove",
+		ModelName = "BambooClump",
+		MaxHP = 18,
+		SpeciesId = "Bamboo",
+		LogYield = 5,
+		FixedSizeScale = 1,
+		YieldsLog = true,
+		RespawnSeconds = 3,
+		OwnerOnly = false,
+		Choppable = true,
+		ForestId = "Forest1",
+		InteractionPartName = "ChopHitbox",
+		ChopRadius = 5,
 	},
 	BarrierTree = {
 		Category = "Barrier",
