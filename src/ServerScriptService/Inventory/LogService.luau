@@ -543,6 +543,7 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 		local candidateModel = candidateEntry.Model
 		local candidateHandle = candidateModel and candidateModel.PrimaryPart
 		if candidateUid ~= uid
+			and candidateEntry.HarvestBatchId == entry.HarvestBatchId
 			and candidateModel
 			and candidateModel.Parent == bundle
 			and candidateHandle
@@ -617,7 +618,7 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 	return true
 end
 
-local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, firstIndex, batchCount)
+local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, harvestBatchId, firstIndex, batchCount)
 	if #logRecords == 0 then return true end
 	if not canSpawnGroundDrops(ownerUserId, #logRecords) then return false end
 
@@ -657,11 +658,13 @@ local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, firstInd
 		model:SetAttribute("SpeciesId", logRecord.SpeciesId)
 		model:SetAttribute("OwnerUserId", ownerUserId)
 		model:SetAttribute("OwnerReservationSeconds", OWNER_RESERVATION_SECONDS)
+		model:SetAttribute("HarvestBatchId", harvestBatchId)
 		model.Parent = bundle
 
 		local entry = {
 			LogRecord = logRecord,
 			Model = model,
+			HarvestBatchId = harvestBatchId,
 			ReservedUntil = os.clock() + OWNER_RESERVATION_SECONDS,
 		}
 		drop.LogRecordsByUid[logRecord.UID] = entry
@@ -700,6 +703,8 @@ local function getTreeLogYieldCount(tree)
 end
 
 function LogService.AwardTreeLog(tree, contributions, fallRotation)
+	local harvestBatchId = HttpService:GenerateGUID(false)
+	if type(harvestBatchId) ~= "string" or #harvestBatchId == 0 then return false end
 	if not tree or tree.YieldsLog ~= true then return false end
 	if type(tree.SpeciesId) ~= "string"
 		or not logValueBySpecies[tree.SpeciesId]
@@ -743,6 +748,7 @@ function LogService.AwardTreeLog(tree, contributions, fallRotation)
 		logRecords,
 		winner.UserId,
 		fallPlacement,
+		harvestBatchId,
 		1,
 		rewardCount
 	) then
