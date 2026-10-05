@@ -19,7 +19,26 @@ local SOUND_POOL_SIZE = 16
 local PICKUP_AUDIO_SPACING = 0.06
 local PICKUP_COMBO_RESET_WINDOW = 0.4
 local MAX_QUEUED_PICKUP_CUES = 64
-local PICKUP_COMBO_PITCHES = { 1.00, 1.05, 1.10, 1.15, 1.20, 1.24 }
+-- Fifteen-note major-scale ladder across two octaves, including both endpoints.
+-- Semitone degrees: 0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17, 19, 21, 23, 24.
+-- Notes 1-15 ascend through the scale; later pickups stay at the 4x endpoint.
+local PICKUP_COMBO_PITCHES = {
+	1.000000,
+	1.122462,
+	1.259921,
+	1.334840,
+	1.498307,
+	1.681793,
+	1.887749,
+	2.000000,
+	2.244924,
+	2.519842,
+	2.669680,
+	2.996614,
+	3.363586,
+	3.775497,
+	4.000000,
+}
 local MAX_OBSERVER_DISTANCE = 260
 local MAX_CONCURRENT_FLIGHTS = 16
 
