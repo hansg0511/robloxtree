@@ -20,6 +20,11 @@ local SOUND_POOL_SIZE = 16
 local PICKUP_AUDIO_SPACING = 0.06
 local PICKUP_COMBO_RESET_WINDOW = 1.5
 local MAX_QUEUED_PICKUP_CUES = 64
+local OVERFLOW_SETTLE_VOLUME = 0.55
+local OVERFLOW_SETTLE_PLAYBACK_SPEED = 0.9
+local OVERFLOW_SETTLE_STAGGER_STEP = 0.04
+local OVERFLOW_SETTLE_STAGGER_MAX = 0.16
+local OVERFLOW_SETTLE_STAGGER_RESET_GAP = 0.2
 -- Fifteen-note major-scale ladder across two octaves, including both endpoints.
 -- Semitone degrees: 0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17, 19, 21, 23, 24.
 -- The 0.75x root starts lower; notes 1/8/15 are 0.75x/1.5x/3x.
@@ -60,6 +65,7 @@ local LOCAL_PLAYER_HOLD_RADIUS = 1.5
 local LOCAL_HOLD_OFFSET_RADIUS = 1.7
 local DEFAULT_CARRY_SETTLE_DURATION = 0.16
 local DEFAULT_OVERFLOW_SETTLE_DURATION = 0.28
+local FOLLOW_ORIENTATION_RESPONSE = 10
 local MAX_CLIENT_HOMING_LIFETIME = 45
 local DEBUG_PICKUP_HOMING = false
 
@@ -76,6 +82,11 @@ local pickupAudioQueueRunning = false
 local nextPickupSoundAt = 0
 local lastPickupAudioArrivalAt = nil
 local pickupAudioComboStep = 0
+local overflowSettleBursts = {}
+
+Players.PlayerRemoving:Connect(function(player)
+	overflowSettleBursts[player.UserId] = nil
+end)
 
 local function getFXFolder()
 	local folder = Workspace:FindFirstChild(FX_FOLDER_NAME)
@@ -127,14 +138,19 @@ task.spawn(function()
 	soundReady = ok
 end)
 
-local function playArrivalSound(playbackSpeed)
+local function playArrivalSound(playbackSpeed, volume)
 	if not soundReady or #availableSounds == 0 then return end
 
 	local slot = table.remove(availableSounds)
 	if not slot or slot.Busy then return end
 	slot.Busy = true
 	local sound = slot.Sound
+	sound.SoundId = SOUND_ID
+	sound.Volume = volume
 	sound.PlaybackSpeed = playbackSpeed
+	sound.PlaybackRegionsEnabled = true
+	sound.PlaybackRegion = SOUND_REGION
+	sound.Looped = false
 	sound.TimePosition = 0
 	SoundService:PlayLocalSound(sound)
 
@@ -170,7 +186,7 @@ local function runPickupAudioQueue()
 
 			local pitch = dequeuePickupPitch()
 			if pitch then
-				playArrivalSound(pitch)
+				playArrivalSound(pitch, SOUND_VOLUME)
 				nextPickupSoundAt = os.clock() + PICKUP_AUDIO_SPACING
 			end
 		end
@@ -211,6 +227,38 @@ end
 local function getPlayerRoot(character)
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	return root and root:IsA("BasePart") and root or nil
+end
+
+local function getFollowRotation(root)
+	local right = root.CFrame.RightVector
+	local longitudinalAxis = Vector3.new(right.X, 0, right.Z)
+	if longitudinalAxis.Magnitude <= 1e-4 then
+		longitudinalAxis = Vector3.xAxis
+	else
+		longitudinalAxis = longitudinalAxis.Unit
+	end
+	local upAxis = Vector3.yAxis
+	local depthAxis = longitudinalAxis:Cross(upAxis).Unit
+	return CFrame.fromMatrix(Vector3.zero, longitudinalAxis, upAxis, depthAxis).Rotation
+end
+
+local function smoothFollowRotation(currentRotation, root, deltaTime)
+	local alpha = 1 - math.exp(-FOLLOW_ORIENTATION_RESPONSE * deltaTime)
+	return currentRotation:Lerp(getFollowRotation(root), alpha)
+end
+
+local function getOverflowSettleStagger(ownerUserId)
+	local now = os.clock()
+	local burst = overflowSettleBursts[ownerUserId]
+	if not burst or now - burst.LastResolveAt > OVERFLOW_SETTLE_STAGGER_RESET_GAP then
+		burst = { Count = 0, LastResolveAt = now }
+		overflowSettleBursts[ownerUserId] = burst
+	end
+
+	local delay = math.min(burst.Count * OVERFLOW_SETTLE_STAGGER_STEP, OVERFLOW_SETTLE_STAGGER_MAX)
+	burst.Count += 1
+	burst.LastResolveAt = now
+	return delay
 end
 
 local function configurePart(part, name)
@@ -399,6 +447,11 @@ end
 local function beginFinalSettle(flight)
 	if flight.State == "CarrySettle" or flight.State == "OverflowSettle" then return end
 	if not flight.LocalReached or not flight.Resolution then return end
+	if flight.Resolution.Kind == "Overflow"
+		and flight.OverflowSettleNotBefore
+		and os.clock() < flight.OverflowSettleNotBefore then
+		return
+	end
 
 	flight.SettleStartCFrame = CFrame.new(flight.CurrentPosition) * flight.Rotation
 	flight.SettleElapsed = 0
@@ -511,6 +564,9 @@ local function startHomingFlight(payload)
 			flight.State = "Homing"
 			flight.CurrentPosition = sourceCFrame.Position + Vector3.new(0, 0.72, 0)
 		end
+		if flight.State == "Homing" or flight.State == "Hold" then
+			flight.Rotation = smoothFollowRotation(flight.Rotation, root, deltaTime)
+		end
 
 		if flight.State == "Homing" then
 			local homingTarget = root.Position + Vector3.new(0, 0.35, 0)
@@ -579,6 +635,8 @@ local function startHomingFlight(payload)
 				debugHomingTransition("SETTLE_COMPLETE", flight)
 				if flight.State == "CarrySettle" then
 					queueArrivalSound()
+				else
+					playArrivalSound(OVERFLOW_SETTLE_PLAYBACK_SPEED, OVERFLOW_SETTLE_VOLUME)
 				end
 				cleanupFlight(key, flight)
 				return
@@ -648,6 +706,7 @@ local function resolveHomingFlight(payload)
 			PileTargetCFrame = targetCFrame,
 			Duration = getPayloadNumber(payload, "FinalSettleDuration", DEFAULT_OVERFLOW_SETTLE_DURATION, 0.05, 1),
 		}
+		flight.OverflowSettleNotBefore = os.clock() + getOverflowSettleStagger(flight.OwnerUserId)
 	else
 		debugHomingTransition("MALFORMED_RESOLUTION", flight)
 		cleanupFlight(key, flight)

@@ -46,8 +46,7 @@ local PICKUP_HOMING_UPDATE_RATE = 15
 local PICKUP_HOMING_UPDATE_INTERVAL = 1 / PICKUP_HOMING_UPDATE_RATE
 local PICKUP_HOMING_ARRIVAL_RADIUS = 2.5
 local PICKUP_HOMING_TIMEOUT = 20
-local OVERFLOW_PILE_STABLE_TIME = 0.25
-local OVERFLOW_PILE_STABLE_RADIUS = 0.5
+local OVERFLOW_PILE_COMMIT_DELAY = 0.35
 local CARRY_FINAL_SETTLE_DURATION = 0.16
 local OVERFLOW_FINAL_SETTLE_DURATION = 0.28
 local GROUND_LOG_REVEAL_DURATION = 0.36
@@ -1008,8 +1007,8 @@ local function assignOverflowPileAtArrival(player, entry, root)
 	if not slotIndex or typeof(targetCFrame) ~= "CFrame" then return nil end
 	local isFirstMembership = pile.ItemCount == 0
 
-	-- Pile membership starts only after logical arrival and server-observed
-	-- player stabilization.
+	-- Pile membership starts at the server-authoritative post-arrival commit
+	-- time, after the fixed commit grace.
 	entry.State = "OverflowSettling"
 	entry.PileId = pile.PileId
 	entry.PileSlot = slotIndex
@@ -1234,6 +1233,7 @@ local function broadcastPickupFx(payload)
 end
 
 local function clearPickupHoming(pickup)
+	pickup.PileCommitAt = nil
 	if pickupHomingsByUid[pickup.UID] == pickup then
 		pickupHomingsByUid[pickup.UID] = nil
 	end
@@ -1914,19 +1914,14 @@ local function refreshAwaitingPileCommitLifetime(pickup, now)
 	entry.ReservedUntil = math.max(entry.ReservedUntil or 0, holdUntil)
 end
 
-local function resetPileStability(pickup, position, now)
-	pickup.PileStableAnchorPosition = position
-	pickup.PileStableSince = now
-	pickup.PileStableLogged = false
-	debugPickupHoming("PILE_STABILITY_RESET", pickup.UID)
-end
-
 local function resolveOverflowHoming(pickup, now)
 	if pickupHomingsByUid[pickup.UID] ~= pickup
 		or pickup.Outcome ~= "Overflow"
 		or pickup.Status ~= "AwaitingPileCommit"
 		or pickup.Resolved == true or pickup.Cancelled == true
-		or pickup.ServerArrived ~= true then
+		or pickup.ServerArrived ~= true
+		or type(pickup.PileCommitAt) ~= "number"
+		or now < pickup.PileCommitAt then
 		return false
 	end
 
@@ -1947,20 +1942,9 @@ local function resolveOverflowHoming(pickup, now)
 		recoverOverflowHoming(pickup, "player-or-entry-invalid-at-pile-commit")
 		return false
 	end
-	local anchor = pickup.PileStableAnchorPosition
-	local stableSince = pickup.PileStableSince
-	if not isFiniteVector3(anchor) or type(stableSince) ~= "number" then
-		resetPileStability(pickup, root.Position, now)
-		return false
-	end
-	local delta = root.Position - anchor
-	local horizontalDistance = Vector3.new(delta.X, 0, delta.Z).Magnitude
-	if horizontalDistance > OVERFLOW_PILE_STABLE_RADIUS then
-		resetPileStability(pickup, root.Position, now)
-		return false
-	end
-	if now - stableSince < OVERFLOW_PILE_STABLE_TIME then return false end
 
+	pickup.PileCommitAt = nil
+	debugPickupHoming("PILE_COMMIT", pickup.UID)
 	local pile = assignOverflowPileAtArrival(player, entry, root)
 	if not pile then
 		recoverOverflowHoming(pickup, "pile-assignment-failed")
@@ -1988,9 +1972,7 @@ local function markServerOverflowArrival(pickup, now, root)
 	pickup.ServerArrived = true
 	pickup.ServerArrivedAt = now
 	pickup.Status = "AwaitingPileCommit"
-	pickup.PileStableSince = now
-	pickup.PileStableAnchorPosition = root.Position
-	pickup.PileStableLogged = false
+	pickup.PileCommitAt = now + OVERFLOW_PILE_COMMIT_DELAY
 	local entry = pickup.Entry
 	refreshAwaitingPileCommitLifetime(pickup, now)
 	debugPickupHoming("SERVER_REACHED_PLAYER", pickup.UID)
@@ -2080,21 +2062,9 @@ local function updatePickupHomings(maxDeltaTime)
 			end
 
 			if pickup.Status == "AwaitingPileCommit" then
-				local anchor = pickup.PileStableAnchorPosition
-				local stableSince = pickup.PileStableSince
-				if not isFiniteVector3(anchor) or type(stableSince) ~= "number" then
-					resetPileStability(pickup, root.Position, now)
-					continue
-				end
-				local delta = root.Position - anchor
-				local horizontalDistance = Vector3.new(delta.X, 0, delta.Z).Magnitude
-				if horizontalDistance > OVERFLOW_PILE_STABLE_RADIUS then
-					resetPileStability(pickup, root.Position, now)
-				elseif now - stableSince >= OVERFLOW_PILE_STABLE_TIME then
-					if not pickup.PileStableLogged then
-						pickup.PileStableLogged = true
-						debugPickupHoming("PILE_STABLE", pickup.UID)
-					end
+				if type(pickup.PileCommitAt) ~= "number" then
+					recoverOverflowHoming(pickup, "pile-commit-time-missing")
+				elseif now >= pickup.PileCommitAt then
 					resolveOverflowHoming(pickup, now)
 				end
 				continue
