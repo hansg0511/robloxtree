@@ -46,7 +46,8 @@ local PICKUP_HOMING_UPDATE_RATE = 15
 local PICKUP_HOMING_UPDATE_INTERVAL = 1 / PICKUP_HOMING_UPDATE_RATE
 local PICKUP_HOMING_ARRIVAL_RADIUS = 2.5
 local PICKUP_HOMING_TIMEOUT = 20
-local OVERFLOW_VISUAL_ACK_GRACE = 1.25
+local OVERFLOW_PILE_STABLE_TIME = 0.25
+local OVERFLOW_PILE_STABLE_RADIUS = 0.5
 local CARRY_FINAL_SETTLE_DURATION = 0.16
 local OVERFLOW_FINAL_SETTLE_DURATION = 0.28
 local GROUND_LOG_REVEAL_DURATION = 0.36
@@ -84,7 +85,6 @@ local SellUnlockedLogsRE = economyRemotes:WaitForChild("SellUnlockedLogsRE")
 local SetLogLockedRE = economyRemotes:WaitForChild("SetLogLockedRE")
 local PickupGroundLogRE = economyRemotes:WaitForChild("PickupGroundLogRE")
 local PickupLogFXRE = economyRemotes:WaitForChild("PickupLogFXRE")
-local PickupLogHomingReachedRE = economyRemotes:WaitForChild("PickupLogHomingReachedRE")
 local EconomyStateUpdated = economyRemotes:WaitForChild("EconomyStateUpdated")
 
 local profileLoaded = game.ServerScriptService.PlayerProfile.ProfileInit.ProfileLoadedEvent
@@ -1008,8 +1008,8 @@ local function assignOverflowPileAtArrival(player, entry, root)
 	if not slotIndex or typeof(targetCFrame) ~= "CFrame" then return nil end
 	local isFirstMembership = pile.ItemCount == 0
 
-	-- Pile membership starts only after logical arrival and the owner's visible
-	-- homing acknowledgement (or its bounded timeout fallback).
+	-- Pile membership starts only after logical arrival and server-observed
+	-- player stabilization.
 	entry.State = "OverflowSettling"
 	entry.PileId = pile.PileId
 	entry.PileSlot = slotIndex
@@ -1794,12 +1794,19 @@ local function removeGroundDropLog(bundle, uid, expectedEntry)
 	local now = os.clock()
 	local pickup = pickupHomingsByUid[uid]
 	if pickup and pickup.Entry == entry
-		and (pickup.Status == "Homing"
-			or pickup.Status == "AwaitingVisualArrival"
-			or pickup.Status == "OverflowSettling") then
+		and pickup.Status == "AwaitingPileCommit" then
+		-- An overflow log held around a moving player remains registered. Refresh
+		-- its finite ground lifetime and reservation, and keep one generation-safe
+		-- expiry callback waiting beyond that window.
+		local holdUntil = math.max(entry.ExpiresAt or 0, now + GROUND_LOG_LIFETIME_SECONDS)
+		entry.ExpiresAt = holdUntil
+		entry.ReservedUntil = math.max(entry.ReservedUntil or 0, holdUntil)
+		scheduleGroundDropExpiry(bundle, uid, entry, holdUntil)
+		return false
+	elseif pickup and pickup.Entry == entry and pickup.Status == "Homing" then
 		-- The ground lifetime callback must never consume a UID mid-flight. Extend
-		-- by the remaining bounded homing/settle time while preserving whatever
-		-- ground lifetime remained when the request began.
+		-- by the remaining bounded homing time while preserving whatever ground
+		-- lifetime remained when the request began.
 		local safeAfter = pickup.SettleUntil or pickup.Deadline
 		local lifetimeRemaining = math.max(0, (pickup.OriginalExpiresAt or pickup.StartedAt) - pickup.StartedAt)
 		scheduleGroundDropExpiry(bundle, uid, entry, safeAfter + lifetimeRemaining)
@@ -1871,7 +1878,7 @@ local function isValidOverflowHomingEntry(pickup, player)
 	if not pickup or not player or pickupHomingsByUid[pickup.UID] ~= pickup
 		or pickup.Player ~= player
 		or pickup.Outcome ~= "Overflow"
-		or (pickup.Status ~= "Homing" and pickup.Status ~= "AwaitingVisualArrival")
+		or (pickup.Status ~= "Homing" and pickup.Status ~= "AwaitingPileCommit")
 		or pickup.Resolved == true or pickup.Cancelled == true
 		or not isValidUid(pickup.UID) then
 		return false
@@ -1900,37 +1907,59 @@ local function isValidOverflowHomingEntry(pickup, player)
 		and isActiveGroundDropEntry(bundle, drop, pickup.UID, entry)
 end
 
+local function refreshAwaitingPileCommitLifetime(pickup, now)
+	local entry = pickup.Entry
+	local holdUntil = math.max(entry.ExpiresAt or 0, now + GROUND_LOG_LIFETIME_SECONDS)
+	entry.ExpiresAt = holdUntil
+	entry.ReservedUntil = math.max(entry.ReservedUntil or 0, holdUntil)
+end
+
+local function resetPileStability(pickup, position, now)
+	pickup.PileStableAnchorPosition = position
+	pickup.PileStableSince = now
+	pickup.PileStableLogged = false
+	debugPickupHoming("PILE_STABILITY_RESET", pickup.UID)
+end
+
 local function resolveOverflowHoming(pickup, now)
 	if pickupHomingsByUid[pickup.UID] ~= pickup
 		or pickup.Outcome ~= "Overflow"
-		or pickup.Status ~= "AwaitingVisualArrival"
+		or pickup.Status ~= "AwaitingPileCommit"
 		or pickup.Resolved == true or pickup.Cancelled == true
 		or pickup.ServerArrived ~= true then
 		return false
 	end
 
-	local visualAckTimedOut = pickup.ClientArrived ~= true
-	local graceElapsed = type(pickup.ServerArrivedAt) == "number"
-		and now >= pickup.ServerArrivedAt + OVERFLOW_VISUAL_ACK_GRACE
-	if visualAckTimedOut and not graceElapsed then return false end
-
 	local player = pickup.Player
 	local entry = pickup.Entry
 	if not isValidOverflowHomingEntry(pickup, player) then
-		recoverOverflowHoming(pickup, "entry-invalid-at-arrival")
+		recoverOverflowHoming(pickup, "entry-invalid-at-pile-commit")
 		return false
 	end
 	if not ensureOverflowGroundModel(pickup, "HomingOverflow", pickup.SourceCFrame, false) then
-		recoverOverflowHoming(pickup, "model-missing-at-arrival")
+		recoverOverflowHoming(pickup, "model-missing-at-pile-commit")
 		return false
 	end
-	-- Capture the authoritative root only after the state and ground ownership
-	-- have been revalidated. No client-supplied position participates here.
+	-- Sample the current authoritative root after revalidating the owned ground
+	-- entry. No client-supplied position participates in the pile decision.
 	local root = getLivePlayerRoot(player)
 	if not root or not isValidOverflowHomingEntry(pickup, player) then
-		recoverOverflowHoming(pickup, "player-or-entry-invalid-at-arrival")
+		recoverOverflowHoming(pickup, "player-or-entry-invalid-at-pile-commit")
 		return false
 	end
+	local anchor = pickup.PileStableAnchorPosition
+	local stableSince = pickup.PileStableSince
+	if not isFiniteVector3(anchor) or type(stableSince) ~= "number" then
+		resetPileStability(pickup, root.Position, now)
+		return false
+	end
+	local delta = root.Position - anchor
+	local horizontalDistance = Vector3.new(delta.X, 0, delta.Z).Magnitude
+	if horizontalDistance > OVERFLOW_PILE_STABLE_RADIUS then
+		resetPileStability(pickup, root.Position, now)
+		return false
+	end
+	if now - stableSince < OVERFLOW_PILE_STABLE_TIME then return false end
 
 	local pile = assignOverflowPileAtArrival(player, entry, root)
 	if not pile then
@@ -1941,35 +1970,31 @@ local function resolveOverflowHoming(pickup, now)
 	pickup.Resolved = true
 	pickup.Status = "OverflowSettling"
 	pickup.SettleUntil = now + OVERFLOW_FINAL_SETTLE_DURATION
-	if visualAckTimedOut then
-		debugPickupHoming("VISUAL_ACK_TIMEOUT_FALLBACK", pickup.UID)
-	end
 	debugPickupHoming("RESOLVE_PILE", pickup.UID, "pile=" .. tostring(pile.PileId))
 	broadcastPickupFx(makeOverflowResolutionPayload(pickup))
 	return true
 end
 
-local function markServerOverflowArrival(pickup, now)
+local function markServerOverflowArrival(pickup, now, root)
 	if pickupHomingsByUid[pickup.UID] ~= pickup
 		or pickup.Outcome ~= "Overflow"
 		or pickup.Status ~= "Homing"
 		or pickup.ServerArrived == true
-		or pickup.Cancelled == true then
+		or pickup.Cancelled == true
+		or not root or not root:IsA("BasePart") or not isFiniteVector3(root.Position) then
 		return false
 	end
 
 	pickup.ServerArrived = true
 	pickup.ServerArrivedAt = now
-	pickup.Status = "AwaitingVisualArrival"
-	-- Preserve the original 20s motion bound while allowing the full visual-ack
-	-- grace if logical arrival occurs just before that deadline.
-	pickup.Deadline = math.max(pickup.Deadline, now + OVERFLOW_VISUAL_ACK_GRACE)
+	pickup.Status = "AwaitingPileCommit"
+	pickup.PileStableSince = now
+	pickup.PileStableAnchorPosition = root.Position
+	pickup.PileStableLogged = false
 	local entry = pickup.Entry
-	entry.ReservedUntil = math.max(entry.ReservedUntil, pickup.Deadline + OVERFLOW_FINAL_SETTLE_DURATION)
+	refreshAwaitingPileCommitLifetime(pickup, now)
 	debugPickupHoming("SERVER_REACHED_PLAYER", pickup.UID)
-	if pickup.ClientArrived == true then
-		return resolveOverflowHoming(pickup, now)
-	end
+	debugPickupHoming("AWAITING_PILE_COMMIT", pickup.UID)
 	return true
 end
 
@@ -1994,16 +2019,7 @@ local function updatePickupHomings(maxDeltaTime)
 			continue
 		end
 
-		-- Run a due ACK fallback before the homing deadline check so arrival just
-		-- before the 20s bound still receives its full grace window.
-		if pickup.Outcome == "Overflow" and pickup.ServerArrived == true
-			and (pickup.ClientArrived == true
-				or now >= pickup.ServerArrivedAt + OVERFLOW_VISUAL_ACK_GRACE) then
-			resolveOverflowHoming(pickup, now)
-			continue
-		end
-
-		if now >= pickup.Deadline then
+		if pickup.Status == "Homing" and now >= pickup.Deadline then
 			cancelPickupHoming(pickup, "timeout", false)
 			continue
 		end
@@ -2023,8 +2039,18 @@ local function updatePickupHomings(maxDeltaTime)
 
 		if pickup.Outcome == "Overflow" then
 			local entry = pickup.Entry
-			local active = activeGroundDrops[pickup.Bundle] == pickup.Drop
-				and pickup.Drop.LogRecordsByUid[pickup.UID] == entry
+			local record = entry and entry.LogRecord
+			local drop = pickup.Drop
+			local active = entry ~= nil
+				and type(record) == "table"
+				and record.ItemType == "Log"
+				and record.UID == pickup.UID
+				and entry.OwnerUserId == player.UserId
+				and pickup.Bundle ~= nil
+				and type(drop) == "table"
+				and type(drop.LogRecordsByUid) == "table"
+				and activeGroundDrops[pickup.Bundle] == drop
+				and drop.LogRecordsByUid[pickup.UID] == entry
 				and entry.State == "HomingOverflow"
 				and entry.PileId == nil and entry.PileSlot == nil and entry.PileTargetCFrame == nil
 			if not active then
@@ -2034,19 +2060,45 @@ local function updatePickupHomings(maxDeltaTime)
 			local model = entry.Model
 			if not model or not model:IsDescendantOf(game) or model.Parent ~= pickup.Bundle
 				or pickup.Bundle.Parent ~= Workspace:FindFirstChild("WorldLogDrops")
+				or model:GetAttribute("UID") ~= pickup.UID
+				or model:GetAttribute("OwnerUserId") ~= player.UserId
+				or model:GetAttribute("SpeciesId") ~= record.SpeciesId
 				or model:GetAttribute("GroundLogState") ~= "HomingOverflow"
+				or model:GetAttribute("PileId") ~= nil or model:GetAttribute("PileSlot") ~= nil
 				or model:GetAttribute("PickupEnabled") ~= false then
 				if not ensureOverflowGroundModel(pickup, "HomingOverflow", pickup.SourceCFrame, false) then
 					recoverOverflowHoming(pickup, "model-cleanup")
 					continue
 				end
 			end
-		end
+			if pickup.Status == "AwaitingPileCommit" then
+				refreshAwaitingPileCommitLifetime(pickup, now)
+			end
+			if not isValidOverflowHomingEntry(pickup, player) then
+				recoverOverflowHoming(pickup, "entry-invalid-during-homing")
+				continue
+			end
 
-		if pickup.Outcome == "Overflow" and pickup.ServerArrived == true then
-			-- The logical path has reached the owner. Keep validating timeout,
-			-- character, and ground-entry safety above, but do not keep advancing it.
-			continue
+			if pickup.Status == "AwaitingPileCommit" then
+				local anchor = pickup.PileStableAnchorPosition
+				local stableSince = pickup.PileStableSince
+				if not isFiniteVector3(anchor) or type(stableSince) ~= "number" then
+					resetPileStability(pickup, root.Position, now)
+					continue
+				end
+				local delta = root.Position - anchor
+				local horizontalDistance = Vector3.new(delta.X, 0, delta.Z).Magnitude
+				if horizontalDistance > OVERFLOW_PILE_STABLE_RADIUS then
+					resetPileStability(pickup, root.Position, now)
+				elseif now - stableSince >= OVERFLOW_PILE_STABLE_TIME then
+					if not pickup.PileStableLogged then
+						pickup.PileStableLogged = true
+						debugPickupHoming("PILE_STABLE", pickup.UID)
+					end
+					resolveOverflowHoming(pickup, now)
+				end
+				continue
+			end
 		end
 
 		if now < pickup.MotionStartsAt then continue end
@@ -2066,7 +2118,7 @@ local function updatePickupHomings(maxDeltaTime)
 			if pickup.Outcome == "Carry" then
 				finishCarryHoming(pickup)
 			else
-				markServerOverflowArrival(pickup, now)
+				markServerOverflowArrival(pickup, now, root)
 			end
 			continue
 		end
@@ -2077,7 +2129,7 @@ local function updatePickupHomings(maxDeltaTime)
 			if pickup.Outcome == "Carry" then
 				finishCarryHoming(pickup)
 			else
-				markServerOverflowArrival(pickup, now)
+				markServerOverflowArrival(pickup, now, root)
 			end
 		end
 	end
@@ -2704,31 +2756,6 @@ PickupGroundLogRE.OnServerEvent:Connect(function(player, visualModel, uid, ...)
 		return
 	end
 	tryPickupGroundLog(player, bundle, uid, visualModel)
-end)
-
-PickupLogHomingReachedRE.OnServerEvent:Connect(function(player, ...)
-	if select("#", ...) ~= 1 then return end
-	local uid = ...
-	if not isValidUid(uid) then return end
-
-	local pickup = pickupHomingsByUid[uid]
-	local now = os.clock()
-	if not pickup or pickup.Player ~= player or pickup.Outcome ~= "Overflow"
-		or (pickup.Status ~= "Homing" and pickup.Status ~= "AwaitingVisualArrival")
-		or pickup.Resolved == true or pickup.Cancelled == true
-		or pickup.ClientArrived == true or now >= pickup.Deadline
-		or (pickup.ServerArrived == true
-			and now >= pickup.ServerArrivedAt + OVERFLOW_VISUAL_ACK_GRACE)
-		or not getLivePlayerRoot(player)
-		or not isValidOverflowHomingEntry(pickup, player) then
-		return
-	end
-
-	pickup.ClientArrived = true
-	debugPickupHoming("CLIENT_ACK_RECEIVED", uid)
-	if pickup.ServerArrived == true then
-		resolveOverflowHoming(pickup, now)
-	end
 end)
 
 profileLoaded.Event:Connect(function(player)

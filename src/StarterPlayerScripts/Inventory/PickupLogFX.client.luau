@@ -10,20 +10,6 @@ local Workspace = game:GetService("Workspace")
 local localPlayer = Players.LocalPlayer
 local economyFolder = ReplicatedStorage:WaitForChild("Economy")
 local pickupFXRemote = economyFolder:WaitForChild("PickupLogFXRE")
-local pickupHomingReachedRemote = economyFolder:FindFirstChild("PickupLogHomingReachedRE")
-if pickupHomingReachedRemote and not pickupHomingReachedRemote:IsA("RemoteEvent") then
-	pickupHomingReachedRemote = nil
-end
-economyFolder.ChildAdded:Connect(function(child)
-	if child.Name == "PickupLogHomingReachedRE" and child:IsA("RemoteEvent") then
-		pickupHomingReachedRemote = child
-	end
-end)
-economyFolder.ChildRemoved:Connect(function(child)
-	if child == pickupHomingReachedRemote then
-		pickupHomingReachedRemote = nil
-	end
-end)
 local CarryLayout = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CarryLayout"))
 
 local FX_FOLDER_NAME = "ClientPickupLogFX"
@@ -358,26 +344,6 @@ local function debugHomingTransition(transition, flight)
 	print(("[PickupHoming] %s uid=%s outcome=%s"):format(transition, tostring(uid), tostring(outcome)))
 end
 
-local function acknowledgeVisualArrival(flight)
-	if flight.VisualArrivalAckSent
-		or flight.Outcome ~= "Overflow"
-		or flight.Owner ~= localPlayer then
-		return
-	end
-
-	flight.VisualArrivalAckSent = true
-	debugHomingTransition("CLIENT_REACHED_PLAYER", flight)
-
-	local remote = pickupHomingReachedRemote
-	if not remote or remote.Parent ~= economyFolder or not remote:IsA("RemoteEvent") then
-		return
-	end
-
-	pcall(function()
-		remote:FireServer(flight.UID)
-	end)
-end
-
 local function moveToward(currentPosition, targetPosition, maxDistance)
 	local delta = targetPosition - currentPosition
 	local distance = delta.Magnitude
@@ -501,7 +467,6 @@ local function startHomingFlight(payload)
 		Lifetime = 0,
 		State = "Pop",
 		LocalReached = false,
-		VisualArrivalAckSent = false,
 		Resolution = nil,
 	}
 	activeFlights[key] = flight
@@ -515,7 +480,8 @@ local function startHomingFlight(payload)
 			return
 		end
 		flight.Lifetime += deltaTime
-		if flight.Lifetime > MAX_CLIENT_HOMING_LIFETIME then
+		local overflowInHold = flight.Outcome == "Overflow" and flight.State == "Hold"
+		if flight.Lifetime > MAX_CLIENT_HOMING_LIFETIME and not overflowInHold then
 			debugHomingTransition("MISSING_RESOLUTION_TIMEOUT", flight)
 			cleanupFlight(key, flight)
 			return
@@ -558,7 +524,6 @@ local function startHomingFlight(payload)
 				flight.HoldOffset = getHoldOffset(root, flight.CurrentPosition)
 				flight.State = "Hold"
 				debugHomingTransition("LOCAL_REACHED_PLAYER", flight)
-				acknowledgeVisualArrival(flight)
 			end
 		end
 
