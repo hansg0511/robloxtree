@@ -36,17 +36,19 @@ local MAX_PICKUP_DISTANCE = 15
 local MAX_PICKUP_BATCH = 24
 local CAPACITY_TOLERANCE_KG = 1e-5
 local PICKUP_POP_DURATION = 0.10
-local PICKUP_FLIGHT_DURATION = 0.36
-local PICKUP_LAUNCH_OFFSET_PER_LOG = 0.015
-local MAX_PICKUP_LAUNCH_OFFSET = 0.08
+local PICKUP_HOMING_SPEED = 24
+local PICKUP_HOMING_UPDATE_RATE = 15
+local PICKUP_HOMING_UPDATE_INTERVAL = 1 / PICKUP_HOMING_UPDATE_RATE
+local PICKUP_HOMING_ARRIVAL_RADIUS = 2.5
+local PICKUP_HOMING_TIMEOUT = 20
+local CARRY_FINAL_SETTLE_DURATION = 0.16
+local OVERFLOW_FINAL_SETTLE_DURATION = 0.28
 local GROUND_LOG_REVEAL_DURATION = 0.36
 local GROUND_LOG_REVEAL_ARC_HEIGHT = 2.5
 local GROUND_LOG_READABLE_PAUSE = 0.2
-local OVERFLOW_MERGE_RADIUS = 12
+local OVERFLOW_MERGE_RADIUS = 24
 local OVERFLOW_PLAYER_SIDE_OFFSET = 2.8
 local OVERFLOW_PLAYER_BACK_OFFSET = 2.0
-local OVERFLOW_FLIGHT_DURATION = 0.52
-local OVERFLOW_TRANSIT_DURATION = PICKUP_POP_DURATION + OVERFLOW_FLIGHT_DURATION
 local PILE_LOGS_PER_LAYER = 12
 local PILE_COLUMNS_PER_ROW = 3
 local PILE_ROW_LENGTH_FACTOR = 0.48
@@ -57,6 +59,7 @@ local PILE_SLOT_YAW_VARIATION = 0.025
 -- Keep pickup rejection diagnostics quiet in normal play. Enable temporarily
 -- when investigating why a server rejected a ground-log pickup request.
 local DEBUG_GROUND_PICKUP_DIAGNOSTICS = false
+local DEBUG_PICKUP_HOMING = false
 -- Ground geometry is an exact fourfold copy of the carry/back-stack geometry.
 -- This is a visual-only scale; it never affects inventory or log value.
 local GROUND_DROP_VISUAL_SCALE = 4
@@ -84,6 +87,14 @@ local pilesByPlayer = {}
 local remoteBudgetByPlayer = {}
 local pendingCarryArrivalUids = {}
 local deferredCarryRecords = {}
+-- One bounded registry owns server-side logical motion and resolution state.
+-- Client cosmetics follow the same speed but never choose an outcome or target.
+local pickupHomingsByUid = {}
+local homingUpdateAccumulator = 0
+local MAX_HOMING_PICKUPS_PER_PLAYER = MAX_OWNED_LOGS + MAX_GROUND_LOG_DROPS_PER_PLAYER
+local recoverOverflowHoming
+local cancelPickupHoming
+local scheduleGroundDropExpiry
 
 local function isFinitePositive(number)
 	return type(number) == "number"
@@ -105,6 +116,28 @@ local function debugPickupRejection(player, uid, reason)
 		playerLabel,
 		tostring(uid)
 	))
+end
+
+local function debugPickupHoming(action, uid, detail)
+	if not DEBUG_PICKUP_HOMING then return end
+	local suffix = if detail and detail ~= "" then " " .. detail else ""
+	print(string.format("[PickupHoming] %s uid=%s%s", action, tostring(uid), suffix))
+end
+
+local function isFiniteVector3(value)
+	return typeof(value) == "Vector3"
+		and value.X == value.X and value.Y == value.Y and value.Z == value.Z
+		and math.abs(value.X) < math.huge
+		and math.abs(value.Y) < math.huge
+		and math.abs(value.Z) < math.huge
+end
+
+local function countPlayerHomingPickups(player)
+	local count = 0
+	for _, pickup in pairs(pickupHomingsByUid) do
+		if pickup.Player == player then count += 1 end
+	end
+	return count
 end
 
 local function copyMutations(mutations)
@@ -682,26 +715,23 @@ local function getAvailablePileSlot(pile)
 	return nil
 end
 
-local function registerOverflowTransit(player, entry, root)
+local function assignOverflowPileAtArrival(player, entry, root)
 	local material = getMaterialDefinition(entry.LogRecord.SpeciesId)
 	if not material then return nil end
+	if not root or not root:IsA("BasePart") or not isFiniteVector3(root.Position) then return nil end
 	local pile = getOrCreateOverflowPile(player, entry.LogRecord.SpeciesId, root)
 	local slotIndex = getAvailablePileSlot(pile)
 	local targetCFrame = slotIndex and getPileSlotCFrame(pile, slotIndex, material.CarryVisualScale)
 	if not slotIndex or typeof(targetCFrame) ~= "CFrame" then return nil end
 
-	entry.State = "OverflowTransit"
+	-- Pile membership starts only after server-side homing reaches the player's
+	-- current position. The homing state itself carries no pile metadata.
+	entry.State = "OverflowSettling"
 	entry.PileId = pile.PileId
 	entry.PileSlot = slotIndex
 	entry.PileTargetCFrame = targetCFrame
+	entry.GroundCFrame = targetCFrame
 	entry.PickupEnabled = false
-	entry.TransitPartTransparencies = {}
-	for _, descendant in ipairs(entry.Model:GetDescendants()) do
-		if descendant:IsA("BasePart") then
-			entry.TransitPartTransparencies[descendant] = descendant.Transparency
-			descendant.Transparency = 1
-		end
-	end
 	entry.Model:SetAttribute("GroundLogState", entry.State)
 	entry.Model:SetAttribute("PileId", pile.PileId)
 	entry.Model:SetAttribute("PileSlot", slotIndex)
@@ -733,36 +763,6 @@ local function unregisterPileMembership(ownerUserId, uid, entry)
 	entry.PileId = nil
 	entry.PileSlot = nil
 	entry.PileTargetCFrame = nil
-end
-
-local function finishOverflowTransit(bundle, drop, uid, entry)
-	if entry.State ~= "OverflowTransit"
-		or activeGroundDrops[bundle] ~= drop
-		or drop.LogRecordsByUid[uid] ~= entry
-		or bundle.Parent ~= Workspace:FindFirstChild("WorldLogDrops")
-		or entry.Model.Parent ~= bundle
-		or os.clock() > entry.ReservedUntil
-		or typeof(entry.PileTargetCFrame) ~= "CFrame" then
-		return false
-	end
-	local pile = pilesByPlayer[entry.OwnerUserId] and pilesByPlayer[entry.OwnerUserId][entry.PileId]
-	if not pile or pile.ItemsByUid[uid] ~= entry or pile.Slots[entry.PileSlot] ~= entry then
-		return false
-	end
-	entry.Model:PivotTo(entry.PileTargetCFrame)
-	for part, transparency in pairs(entry.TransitPartTransparencies or {}) do
-		if part.Parent then part.Transparency = transparency end
-	end
-	entry.TransitPartTransparencies = nil
-	entry.State = "Piled"
-	entry.Model:SetAttribute("GroundLogState", entry.State)
-	entry.Model:SetAttribute("PickupEnabled", false)
-	entry.PickupEnabled = false
-	local owner = Players:GetPlayerByUserId(entry.OwnerUserId)
-	if owner then
-		refreshPiledLogPickupEligibility(owner)
-	end
-	return true
 end
 
 local function getFallPlacement(tree, fallRotation)
@@ -868,86 +868,485 @@ local function finishCarryArrival(player, uid)
 	end
 end
 
-local function getCarryTargetByUid(logRecords)
-	local targets = {}
-	local normalIndex = 0
-	local rareIndex = 0
-	for _, logRecord in ipairs(logRecords) do
-		if type(logRecord) == "table" and logRecord.ItemType == "Log" and isValidUid(logRecord.UID) then
-			if SpeciesVisuals.IsRareLog(logRecord) then
-				rareIndex += 1
-				targets[logRecord.UID] = { Stack = "Rare", Index = rareIndex }
-			else
-				normalIndex += 1
-				targets[logRecord.UID] = { Stack = "Normal", Index = normalIndex }
-			end
-		end
-	end
-	return targets
-end
-
-local function makePickupFxPayload(claim, carryTarget, targetOffset, launchOffset)
-	if not carryTarget or type(targetOffset) ~= "table" then return nil end
+local function makePickupHomingPayload(claim, outcome)
 	local logRecord = claim.Entry.LogRecord
 	local material = getMaterialDefinition(logRecord.SpeciesId)
 	if not material then return nil end
 	local palette = SpeciesVisuals.GetPalette(logRecord.SpeciesId)
 	return {
+		Mode = "Homing",
+		Outcome = outcome,
 		OwnerUserId = claim.OwnerUserId,
 		UID = claim.UID,
 		SpeciesId = logRecord.SpeciesId,
 		Mutations = copyMutations(logRecord.Mutations),
-		StartCFrame = claim.StartCFrame,
+		SourceCFrame = claim.StartCFrame,
 		BarkColor = palette.Bark,
 		CutEndColor = palette.CutEnd,
 		CarryVisualScale = material.CarryVisualScale,
-		TargetStack = carryTarget.Stack,
-		TargetIndex = carryTarget.Index,
-		TargetOffset = targetOffset,
-		TargetOffsetY = targetOffset.Y,
-		LaunchOffset = launchOffset,
 		PopDuration = PICKUP_POP_DURATION,
-		FlightDuration = PICKUP_FLIGHT_DURATION,
-		StartVisualScale = GROUND_DROP_VISUAL_SCALE,
+		LaunchDelay = 0,
+		HomingSpeed = PICKUP_HOMING_SPEED,
+		ArrivalRadius = PICKUP_HOMING_ARRIVAL_RADIUS,
+		StartVisualScale = material.CarryVisualScale * GROUND_DROP_VISUAL_SCALE,
 		GroundToCarryScale = GROUND_DROP_VISUAL_SCALE,
 	}
 end
 
-local function makeOverflowFxPayload(claim)
-	local entry = claim.Entry
-	local logRecord = entry.LogRecord
-	local material = getMaterialDefinition(logRecord.SpeciesId)
-	if not material or typeof(entry.PileTargetCFrame) ~= "CFrame" then return nil end
-	local palette = SpeciesVisuals.GetPalette(logRecord.SpeciesId)
+local function makeCarryResolutionPayload(pickup, finalTargetOffset)
+	if type(finalTargetOffset) ~= "table" then return nil end
 	return {
-		Mode = "Overflow",
-		OwnerUserId = claim.OwnerUserId,
-		UID = claim.UID,
-		SpeciesId = logRecord.SpeciesId,
-		Mutations = copyMutations(logRecord.Mutations),
-		StartCFrame = claim.StartCFrame,
-		PileTargetCFrame = entry.PileTargetCFrame,
-		BarkColor = palette.Bark,
-		CutEndColor = palette.CutEnd,
-		CarryVisualScale = material.CarryVisualScale,
-		PopDuration = PICKUP_POP_DURATION,
-		FlightDuration = OVERFLOW_FLIGHT_DURATION,
-		StartVisualScale = GROUND_DROP_VISUAL_SCALE,
-		GroundToCarryScale = GROUND_DROP_VISUAL_SCALE,
+		Mode = "CarryResolve",
+		Outcome = "Carry",
+		OwnerUserId = pickup.Player.UserId,
+		UID = pickup.UID,
+		FinalTargetOffset = finalTargetOffset,
+		FinalSettleDuration = CARRY_FINAL_SETTLE_DURATION,
 	}
+end
+
+local function makeOverflowResolutionPayload(pickup)
+	if typeof(pickup.Entry.PileTargetCFrame) ~= "CFrame" then return nil end
+	return {
+		Mode = "OverflowResolve",
+		Outcome = "Overflow",
+		OwnerUserId = pickup.Player.UserId,
+		UID = pickup.UID,
+		PileTargetCFrame = pickup.Entry.PileTargetCFrame,
+		FinalSettleDuration = OVERFLOW_FINAL_SETTLE_DURATION,
+	}
+end
+
+local function broadcastPickupFx(payload)
+	if not payload then return false end
+	local fired, err = pcall(function()
+		PickupLogFXRE:FireAllClients(payload)
+	end)
+	if not fired then
+		warn("Could not broadcast picked-up log cosmetic", err)
+	end
+	return fired
+end
+
+local function clearPickupHoming(pickup)
+	if pickupHomingsByUid[pickup.UID] == pickup then
+		pickupHomingsByUid[pickup.UID] = nil
+	end
+end
+
+local function sendPickupHomingCancel(pickup)
+	broadcastPickupFx({
+		Mode = "Cancel",
+		Outcome = pickup.Outcome,
+		OwnerUserId = pickup.Player.UserId,
+		UID = pickup.UID,
+	})
+end
+
+local function restoreOverflowPartTransparencies(entry)
+	for part, transparency in pairs(entry.TransitPartTransparencies or {}) do
+		if part.Parent then part.Transparency = transparency end
+	end
+	entry.TransitPartTransparencies = nil
+end
+
+local function ensureOverflowGroundRegistration(pickup)
+	local entry = pickup.Entry
+	local uid = pickup.UID
+	local bundle = pickup.Bundle
+	local drop = pickup.Drop
+	local registeredBundle
+	local registeredDrop
+	local duplicates = {}
+	for candidateBundle, candidateDrop in pairs(activeGroundDrops) do
+		local records = type(candidateDrop) == "table" and candidateDrop.LogRecordsByUid
+		local candidateEntry = type(records) == "table" and records[uid]
+		if candidateEntry == entry then
+			registeredBundle = candidateBundle
+			registeredDrop = candidateDrop
+		elseif candidateEntry then
+			table.insert(duplicates, {
+				Bundle = candidateBundle,
+				Drop = candidateDrop,
+				Entry = candidateEntry,
+			})
+		end
+	end
+	for _, duplicate in ipairs(duplicates) do
+		local duplicateDrop = duplicate.Drop
+		if duplicateDrop.LogRecordsByUid[uid] == duplicate.Entry then
+			duplicateDrop.LogRecordsByUid[uid] = nil
+			duplicateDrop.Count = math.max(0, duplicateDrop.Count - 1)
+			unregisterPileMembership(duplicateDrop.OwnerUserId, uid, duplicate.Entry)
+			if duplicate.Entry.Model and duplicate.Entry.Model.Parent then
+				duplicate.Entry.Model:Destroy()
+			end
+			if duplicateDrop.Count == 0 and next(duplicateDrop.LogRecordsByUid) == nil then
+				activeGroundDrops[duplicate.Bundle] = nil
+				if pendingGroundDropByUserId[duplicateDrop.OwnerUserId] == duplicate.Bundle then
+					pendingGroundDropByUserId[duplicateDrop.OwnerUserId] = nil
+				end
+				if duplicate.Bundle.Parent then duplicate.Bundle:Destroy() end
+			end
+		end
+	end
+
+	if registeredBundle and registeredDrop then
+		bundle = registeredBundle
+		drop = registeredDrop
+	end
+	if type(drop) ~= "table" or type(drop.LogRecordsByUid) ~= "table" then
+		drop = {
+			OwnerUserId = entry.OwnerUserId,
+			LogRecordsByUid = {},
+			Count = 0,
+		}
+	end
+	local bundleDrop = bundle and activeGroundDrops[bundle]
+	if bundleDrop and bundleDrop ~= drop then
+		-- Do not overwrite another live bundle's registry entry if the original
+		-- per-UID mapping was removed. Reconnect this retained drop table under
+		-- a fresh bundle instead.
+		bundle = nil
+	end
+	if not bundle or not bundle:IsDescendantOf(game) then
+		local replacement = Instance.new("Folder")
+		replacement.Name = "OwnerGroundLogDrops"
+		replacement:SetAttribute("OwnerUserId", entry.OwnerUserId)
+		replacement.Parent = getGroundDropFolder()
+		if bundle and activeGroundDrops[bundle] == drop then
+			activeGroundDrops[bundle] = nil
+		end
+		if pendingGroundDropByUserId[entry.OwnerUserId] == bundle then
+			pendingGroundDropByUserId[entry.OwnerUserId] = replacement
+		end
+		bundle = replacement
+	elseif bundle.Parent ~= getGroundDropFolder() then
+		bundle.Parent = getGroundDropFolder()
+	end
+
+	drop.OwnerUserId = entry.OwnerUserId
+	if drop.LogRecordsByUid[uid] ~= entry then
+		drop.LogRecordsByUid[uid] = entry
+	end
+	local count = 0
+	for _, registeredEntry in pairs(drop.LogRecordsByUid) do
+		count += 1
+		registeredEntry.Bundle = bundle
+		registeredEntry.Drop = drop
+		local model = registeredEntry.Model
+		if model and model:IsDescendantOf(game) then
+			registeredEntry.GroundCFrame = model:GetPivot()
+		end
+		if not model or not model:IsDescendantOf(game) then
+			local hidden = registeredEntry.State == "HomingOverflow"
+				or registeredEntry.State == "OverflowSettling"
+			local newModel, _, transparencies = createLogVisualModel(
+				"DroppedLog",
+				registeredEntry.LogRecord,
+				GROUND_DROP_VISUAL_SCALE,
+				hidden
+			)
+			registeredEntry.Model = newModel
+			registeredEntry.TransitPartTransparencies = if hidden then transparencies else nil
+			model = newModel
+		end
+		if model.Parent ~= bundle then model.Parent = bundle end
+		local targetCFrame = registeredEntry.PileTargetCFrame
+			or registeredEntry.HomingStartCFrame
+			or registeredEntry.GroundCFrame
+			or (registeredEntry == entry and pickup.SourceCFrame)
+		if typeof(targetCFrame) == "CFrame" then model:PivotTo(targetCFrame) end
+		model:SetAttribute("UID", registeredEntry.LogRecord.UID)
+		model:SetAttribute("ItemType", "Log")
+		model:SetAttribute("SpeciesId", registeredEntry.LogRecord.SpeciesId)
+		model:SetAttribute("OwnerUserId", registeredEntry.OwnerUserId)
+		model:SetAttribute("OwnerReservationSeconds", OWNER_RESERVATION_SECONDS)
+		model:SetAttribute("HarvestBatchId", registeredEntry.HarvestBatchId)
+		model:SetAttribute("GroundLogState", registeredEntry.State)
+		model:SetAttribute("PileId", registeredEntry.PileId)
+		model:SetAttribute("PileSlot", registeredEntry.PileSlot)
+		model:SetAttribute("PickupEnabled", registeredEntry.PickupEnabled == true)
+	end
+	drop.Count = count
+	activeGroundDrops[bundle] = drop
+	pickup.Bundle = bundle
+	pickup.Drop = drop
+	entry.Bundle = bundle
+	entry.Drop = drop
+	local pendingBundle = pendingGroundDropByUserId[entry.OwnerUserId]
+	if not pendingBundle or activeGroundDrops[pendingBundle] == nil then
+		pendingGroundDropByUserId[entry.OwnerUserId] = bundle
+	end
+	return true
+end
+
+local function ensureOverflowGroundModel(pickup, state, targetCFrame, pickupEnabled)
+	local entry = pickup.Entry
+	local bundle = pickup.Bundle
+	local drop = pickup.Drop
+	local uid = pickup.UID
+	if not entry or not ensureOverflowGroundRegistration(pickup) then return false end
+	bundle = pickup.Bundle
+	drop = pickup.Drop
+
+	local worldDropFolder = getGroundDropFolder()
+	if bundle.Parent ~= worldDropFolder then
+		bundle.Parent = worldDropFolder
+	end
+
+	local model = entry.Model
+	local modelAlive = model ~= nil and model:IsDescendantOf(game)
+	if not modelAlive then
+		local newModel, _, originalTransparencies = createLogVisualModel(
+			"DroppedLog",
+			entry.LogRecord,
+			GROUND_DROP_VISUAL_SCALE,
+			true
+		)
+		entry.Model = newModel
+		entry.TransitPartTransparencies = originalTransparencies
+		model = newModel
+		model.Parent = bundle
+	elseif model.Parent ~= bundle then
+		model.Parent = bundle
+	end
+	if typeof(targetCFrame) == "CFrame" then
+		model:PivotTo(targetCFrame)
+	end
+	model:SetAttribute("UID", uid)
+	model:SetAttribute("ItemType", "Log")
+	model:SetAttribute("SpeciesId", entry.LogRecord.SpeciesId)
+	model:SetAttribute("OwnerUserId", entry.OwnerUserId)
+	model:SetAttribute("OwnerReservationSeconds", OWNER_RESERVATION_SECONDS)
+	model:SetAttribute("HarvestBatchId", entry.HarvestBatchId)
+	model:SetAttribute("GroundLogState", state)
+	model:SetAttribute("PileId", entry.PileId)
+	model:SetAttribute("PileSlot", entry.PileSlot)
+	model:SetAttribute("PickupEnabled", pickupEnabled == true)
+	entry.PickupEnabled = pickupEnabled == true
+	entry.State = state
+	return true
+end
+
+local function finishCarryHoming(pickup)
+	if pickupHomingsByUid[pickup.UID] ~= pickup or pickup.Status ~= "Homing" then return false end
+	local player = pickup.Player
+	local data = getPlayerData(player)
+	local logRecord = data and findLog(data, pickup.UID)
+	local finalTargetOffset = data and logRecord
+		and LogCarryVisualService.GetTargetOffset(data.Logs, pickup.UID) or nil
+	if not logRecord or type(finalTargetOffset) ~= "table" then
+		debugPickupHoming("CLEANUP", pickup.UID, "reason=carry-record-missing")
+		sendPickupHomingCancel(pickup)
+		clearPickupHoming(pickup)
+		finishCarryArrival(player, pickup.UID)
+		return false
+	end
+
+	pickup.Status = "CarrySettling"
+	pickup.SettleUntil = os.clock() + CARRY_FINAL_SETTLE_DURATION
+	debugPickupHoming("ARRIVED", pickup.UID)
+	debugPickupHoming("RESOLVE_CARRY", pickup.UID)
+	broadcastPickupFx(makeCarryResolutionPayload(pickup, finalTargetOffset))
+	return true
+end
+
+local function finishOverflowPileSettle(pickup)
+	if pickupHomingsByUid[pickup.UID] ~= pickup or pickup.Status ~= "OverflowSettling" then return false end
+	local entry = pickup.Entry
+	local pile = pilesByPlayer[entry.OwnerUserId] and pilesByPlayer[entry.OwnerUserId][entry.PileId]
+	if not pile or pile.ItemsByUid[pickup.UID] ~= entry or pile.Slots[entry.PileSlot] ~= entry
+		or typeof(entry.PileTargetCFrame) ~= "CFrame"
+		or not ensureOverflowGroundModel(pickup, "Piled", entry.PileTargetCFrame, false) then
+		unregisterPileMembership(entry.OwnerUserId, pickup.UID, entry)
+		pickup.Status = "Homing"
+		recoverOverflowHoming(pickup, "pile-finalize-failed")
+		return false
+	end
+
+	restoreOverflowPartTransparencies(entry)
+	entry.Model:PivotTo(entry.PileTargetCFrame)
+	entry.GroundCFrame = entry.PileTargetCFrame
+	entry.Model:SetAttribute("GroundLogState", "Piled")
+	entry.Model:SetAttribute("PickupEnabled", false)
+	entry.PickupEnabled = false
+	entry.HomingStartCFrame = nil
+	local homingDuration = math.max(0, os.clock() - pickup.StartedAt)
+	entry.ExpiresAt = (pickup.OriginalExpiresAt or pickup.StartedAt) + homingDuration
+	entry.ReservedUntil = (pickup.OriginalReservedUntil or pickup.StartedAt) + homingDuration
+	clearPickupHoming(pickup)
+	debugPickupHoming("SETTLE_COMPLETE", pickup.UID, "mode=Overflow")
+	scheduleGroundDropExpiry(pickup.Bundle, pickup.UID, entry)
+	local owner = Players:GetPlayerByUserId(entry.OwnerUserId)
+	if owner then refreshPiledLogPickupEligibility(owner) end
+	return true
+end
+
+recoverOverflowHoming = function(pickup, reason)
+	if pickupHomingsByUid[pickup.UID] ~= pickup then return false end
+	if pickup.Status == "OverflowSettling" then
+		-- Once pile membership has been assigned, finish that authoritative
+		-- ground-owned state immediately if the player disappears or dies.
+		sendPickupHomingCancel(pickup)
+		return finishOverflowPileSettle(pickup)
+	end
+
+	local entry = pickup.Entry
+	if entry.PileId ~= nil or entry.PileSlot ~= nil then
+		unregisterPileMembership(entry.OwnerUserId, pickup.UID, entry)
+	end
+	if not ensureOverflowGroundModel(
+		pickup,
+		"Fresh",
+		pickup.SourceCFrame,
+		os.clock() <= entry.ReservedUntil
+	) then
+		-- The registered entry is still the UID owner even if its model was
+		-- externally removed. Leave it recoverable in the registry and make one
+		-- best-effort attempt to restore the replicated visual on its source.
+		entry.State = "Fresh"
+		entry.PileId = nil
+		entry.PileSlot = nil
+		entry.PileTargetCFrame = nil
+		entry.PickupEnabled = false
+		entry.Model = nil
+	end
+	entry.PileId = nil
+	entry.PileSlot = nil
+	entry.PileTargetCFrame = nil
+	entry.GroundCFrame = pickup.SourceCFrame
+	entry.HomingStartCFrame = nil
+	restoreOverflowPartTransparencies(entry)
+	if entry.Model then
+		entry.Model:SetAttribute("GroundLogState", "Fresh")
+		entry.Model:SetAttribute("PileId", nil)
+		entry.Model:SetAttribute("PileSlot", nil)
+		entry.Model:SetAttribute("PickupEnabled", entry.PickupEnabled == true)
+	end
+	entry.State = "Fresh"
+	local homingDuration = math.max(0, os.clock() - pickup.StartedAt)
+	entry.ExpiresAt = (pickup.OriginalExpiresAt or pickup.StartedAt) + homingDuration
+	entry.ReservedUntil = (pickup.OriginalReservedUntil or pickup.StartedAt) + homingDuration
+	clearPickupHoming(pickup)
+	sendPickupHomingCancel(pickup)
+	if reason == "timeout" then
+		debugPickupHoming("TIMEOUT", pickup.UID)
+	else
+		debugPickupHoming("CLEANUP", pickup.UID, "reason=" .. tostring(reason))
+	end
+	scheduleGroundDropExpiry(pickup.Bundle, pickup.UID, entry)
+	local owner = Players:GetPlayerByUserId(entry.OwnerUserId)
+	if owner then refreshPiledLogPickupEligibility(owner) end
+	return true
+end
+
+local function cancelCarryHoming(pickup, reason, leaving)
+	if pickupHomingsByUid[pickup.UID] ~= pickup then return false end
+	clearPickupHoming(pickup)
+	sendPickupHomingCancel(pickup)
+	debugPickupHoming("CLEANUP", pickup.UID, "reason=" .. tostring(reason))
+	if not leaving then
+		-- The UID is already in the profile. Releasing its pending-visual marker
+		-- makes the existing carried-stack renderer the safe recovery path.
+		finishCarryArrival(pickup.Player, pickup.UID)
+	end
+	return true
+end
+
+cancelPickupHoming = function(pickup, reason, leaving)
+	if pickup.Outcome == "Overflow" then
+		if pickup.Status == "OverflowSettling" then
+			sendPickupHomingCancel(pickup)
+			return finishOverflowPileSettle(pickup)
+		end
+		return recoverOverflowHoming(pickup, reason)
+	end
+	return cancelCarryHoming(pickup, reason, leaving)
+end
+
+local function beginCarryHoming(player, claim, now)
+	if pickupHomingsByUid[claim.UID] then return nil end
+	local pickup = {
+		UID = claim.UID,
+		Player = player,
+		Outcome = "Carry",
+		Status = "Homing",
+		Entry = claim.Entry,
+		SourceCFrame = claim.StartCFrame,
+		LogicalPosition = claim.StartCFrame.Position,
+		StartedAt = now,
+		MotionStartsAt = now + PICKUP_POP_DURATION,
+		LastUpdateAt = now,
+		Deadline = now + PICKUP_HOMING_TIMEOUT,
+	}
+	claim.Entry.State = "HomingCarry"
+	pickupHomingsByUid[claim.UID] = pickup
+	debugPickupHoming("START", claim.UID, "mode=Carry")
+	return pickup
+end
+
+local function beginOverflowHoming(player, claim, now)
+	if pickupHomingsByUid[claim.UID] then return nil end
+	local entry = claim.Entry
+	if entry.State ~= "Fresh" or entry.PileId ~= nil or entry.PileSlot ~= nil
+		or entry.PileTargetCFrame ~= nil then
+		return nil
+	end
+	local pickup = {
+		UID = claim.UID,
+		Player = player,
+		Outcome = "Overflow",
+		Status = "Homing",
+		Entry = entry,
+		Bundle = entry.Bundle,
+		Drop = entry.Drop,
+		SourceCFrame = claim.StartCFrame,
+		LogicalPosition = claim.StartCFrame.Position,
+		StartedAt = now,
+		MotionStartsAt = now + PICKUP_POP_DURATION,
+		LastUpdateAt = now,
+		Deadline = now + PICKUP_HOMING_TIMEOUT,
+		OriginalExpiresAt = entry.ExpiresAt or (now + GROUND_LOG_LIFETIME_SECONDS),
+		OriginalReservedUntil = entry.ReservedUntil or (now + OWNER_RESERVATION_SECONDS),
+	}
+	entry.HomingStartCFrame = claim.StartCFrame
+	entry.State = "HomingOverflow"
+	entry.PickupEnabled = false
+	entry.PileId = nil
+	entry.PileSlot = nil
+	entry.PileTargetCFrame = nil
+	entry.TransitPartTransparencies = {}
+	for _, descendant in ipairs(entry.Model:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			entry.TransitPartTransparencies[descendant] = descendant.Transparency
+			descendant.Transparency = 1
+		end
+	end
+	entry.Model:SetAttribute("GroundLogState", entry.State)
+	entry.Model:SetAttribute("PileId", nil)
+	entry.Model:SetAttribute("PileSlot", nil)
+	entry.Model:SetAttribute("PickupEnabled", false)
+	-- A request accepted before the 60s ground expiry gets enough time to finish
+	-- its bounded authoritative flight and final settle.
+	entry.ReservedUntil = math.max(entry.ReservedUntil, pickup.Deadline + OVERFLOW_FINAL_SETTLE_DURATION)
+	pickupHomingsByUid[claim.UID] = pickup
+	debugPickupHoming("START", claim.UID, "mode=Overflow")
+	return pickup
 end
 
 local function getPendingGroundDrop(ownerUserId)
 	local bundle = pendingGroundDropByUserId[ownerUserId]
 	if not bundle then return nil, nil end
 	local drop = activeGroundDrops[bundle]
-	if not drop or not bundle:IsDescendantOf(Workspace) then
-		activeGroundDrops[bundle] = nil
+	if not drop then
 		pendingGroundDropByUserId[ownerUserId] = nil
-		pilesByPlayer[ownerUserId] = nil
-		if bundle.Parent then bundle:Destroy() end
 		return nil, nil
 	end
+	-- Reparent a server-owned registry bundle if an instance cleanup removed it
+	-- from Workspace; do not discard its authoritative UID records.
+	local worldDropFolder = getGroundDropFolder()
+	if bundle.Parent ~= worldDropFolder then bundle.Parent = worldDropFolder end
 	return bundle, drop
 end
 
@@ -976,17 +1375,44 @@ local function removeGroundDropLog(bundle, uid, expectedEntry)
 	local drop = activeGroundDrops[bundle]
 	local entry = drop and drop.LogRecordsByUid[uid]
 	if not drop or not entry or (expectedEntry and entry ~= expectedEntry) then return false end
+	local now = os.clock()
+	local pickup = pickupHomingsByUid[uid]
+	if pickup and pickup.Entry == entry
+		and (pickup.Status == "Homing" or pickup.Status == "OverflowSettling") then
+		-- The ground lifetime callback must never consume a UID mid-flight. Extend
+		-- by the remaining bounded homing/settle time while preserving whatever
+		-- ground lifetime remained when the request began.
+		local safeAfter = pickup.SettleUntil or pickup.Deadline
+		local lifetimeRemaining = math.max(0, (pickup.OriginalExpiresAt or pickup.StartedAt) - pickup.StartedAt)
+		scheduleGroundDropExpiry(bundle, uid, entry, safeAfter + lifetimeRemaining)
+		return false
+	end
+	if entry.ExpiresAt and now < entry.ExpiresAt then
+		scheduleGroundDropExpiry(bundle, uid, entry, entry.ExpiresAt)
+		return false
+	end
 
 	-- Clear the UID before destroying its prompt/visual so repeated trigger or
 	-- expiry callbacks cannot award the same record twice.
 	drop.LogRecordsByUid[uid] = nil
 	drop.Count -= 1
 	unregisterPileMembership(drop.OwnerUserId, uid, entry)
-	if entry.Model.Parent then entry.Model:Destroy() end
+	if entry.Model and entry.Model.Parent then entry.Model:Destroy() end
 	if drop.Count <= 0 then
 		clearGroundDropBundle(bundle, drop)
 	end
 	return true
+end
+
+scheduleGroundDropExpiry = function(bundle, uid, entry, expiryAt)
+	if not entry then return end
+	entry.ExpiryGeneration = (entry.ExpiryGeneration or 0) + 1
+	local generation = entry.ExpiryGeneration
+	local dueAt = expiryAt or entry.ExpiresAt or (os.clock() + GROUND_LOG_LIFETIME_SECONDS)
+	task.delay(math.max(0, dueAt - os.clock()), function()
+		if entry.ExpiryGeneration ~= generation then return end
+		removeGroundDropLog(bundle, uid, entry)
+	end)
 end
 
 local function rejectPickup(player, uid, reason)
@@ -1007,6 +1433,140 @@ local function isActiveGroundDropEntry(bundle, drop, uid, entry)
 		and model.Parent == bundle
 		and os.clock() <= entry.ReservedUntil
 end
+
+local function resolveOverflowHoming(pickup, root, now)
+	local entry = pickup.Entry
+	if pickupHomingsByUid[pickup.UID] ~= pickup
+		or entry.State ~= "HomingOverflow"
+		or entry.PileId ~= nil or entry.PileSlot ~= nil or entry.PileTargetCFrame ~= nil
+		or activeGroundDrops[pickup.Bundle] ~= pickup.Drop
+		or pickup.Drop.LogRecordsByUid[pickup.UID] ~= entry then
+		recoverOverflowHoming(pickup, "entry-invalid-at-arrival")
+		return false
+	end
+	if not ensureOverflowGroundModel(pickup, "HomingOverflow", pickup.SourceCFrame, false) then
+		recoverOverflowHoming(pickup, "model-missing-at-arrival")
+		return false
+	end
+
+	local pile = assignOverflowPileAtArrival(pickup.Player, entry, root)
+	if not pile then
+		recoverOverflowHoming(pickup, "pile-assignment-failed")
+		return false
+	end
+
+	pickup.Status = "OverflowSettling"
+	pickup.SettleUntil = now + OVERFLOW_FINAL_SETTLE_DURATION
+	debugPickupHoming("ARRIVED", pickup.UID)
+	debugPickupHoming("RESOLVE_PILE", pickup.UID, "pile=" .. tostring(pile.PileId))
+	broadcastPickupFx(makeOverflowResolutionPayload(pickup))
+	return true
+end
+
+local function updatePickupHomings(maxDeltaTime)
+	local now = os.clock()
+	for uid, pickup in pairs(pickupHomingsByUid) do
+		if pickupHomingsByUid[uid] ~= pickup then
+			continue
+		end
+
+		if pickup.Status == "CarrySettling" then
+			if now >= pickup.SettleUntil then
+				clearPickupHoming(pickup)
+				finishCarryArrival(pickup.Player, pickup.UID)
+				debugPickupHoming("SETTLE_COMPLETE", pickup.UID, "mode=Carry")
+			end
+			continue
+		elseif pickup.Status == "OverflowSettling" then
+			if now >= pickup.SettleUntil then
+				finishOverflowPileSettle(pickup)
+			end
+			continue
+		end
+
+		if now >= pickup.Deadline then
+			cancelPickupHoming(pickup, "timeout", false)
+			continue
+		end
+		local player = pickup.Player
+		if not player:IsDescendantOf(Players) then
+			cancelPickupHoming(pickup, "player-left", true)
+			continue
+		end
+		local character = player.Character
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		if not humanoid or humanoid.Health <= 0 or not root or not root:IsA("BasePart")
+			or not isFiniteVector3(root.Position) then
+			cancelPickupHoming(pickup, "character-missing-or-dead", false)
+			continue
+		end
+
+		if pickup.Outcome == "Overflow" then
+			local entry = pickup.Entry
+			local active = activeGroundDrops[pickup.Bundle] == pickup.Drop
+				and pickup.Drop.LogRecordsByUid[pickup.UID] == entry
+				and entry.State == "HomingOverflow"
+				and entry.PileId == nil and entry.PileSlot == nil and entry.PileTargetCFrame == nil
+			if not active then
+				recoverOverflowHoming(pickup, "entry-cleanup")
+				continue
+			end
+			local model = entry.Model
+			if not model or not model:IsDescendantOf(game) or model.Parent ~= pickup.Bundle
+				or pickup.Bundle.Parent ~= Workspace:FindFirstChild("WorldLogDrops")
+				or model:GetAttribute("GroundLogState") ~= "HomingOverflow"
+				or model:GetAttribute("PickupEnabled") ~= false then
+				if not ensureOverflowGroundModel(pickup, "HomingOverflow", pickup.SourceCFrame, false) then
+					recoverOverflowHoming(pickup, "model-cleanup")
+					continue
+				end
+			end
+		end
+
+		if now < pickup.MotionStartsAt then continue end
+		local movementStart = math.max(pickup.LastUpdateAt, pickup.MotionStartsAt)
+		local deltaTime = math.min(math.max(0, now - movementStart), maxDeltaTime)
+		pickup.LastUpdateAt = now
+		if deltaTime <= 0 then continue end
+
+		local target = root.Position
+		local offset = target - pickup.LogicalPosition
+		local distance = offset.Magnitude
+		if distance ~= distance or math.abs(distance) == math.huge then
+			cancelPickupHoming(pickup, "invalid-homing-distance", false)
+			continue
+		end
+		if distance <= PICKUP_HOMING_ARRIVAL_RADIUS then
+			if pickup.Outcome == "Carry" then
+				finishCarryHoming(pickup)
+			else
+				resolveOverflowHoming(pickup, root, now)
+			end
+			continue
+		end
+
+		local stepDistance = math.min(PICKUP_HOMING_SPEED * deltaTime, distance)
+		pickup.LogicalPosition += offset.Unit * stepDistance
+		if (target - pickup.LogicalPosition).Magnitude <= PICKUP_HOMING_ARRIVAL_RADIUS then
+			if pickup.Outcome == "Carry" then
+				finishCarryHoming(pickup)
+			else
+				resolveOverflowHoming(pickup, root, now)
+			end
+		end
+	end
+end
+
+RunService.Heartbeat:Connect(function(deltaTime)
+	homingUpdateAccumulator += deltaTime
+	if homingUpdateAccumulator < PICKUP_HOMING_UPDATE_INTERVAL then return end
+	local elapsed = homingUpdateAccumulator
+	homingUpdateAccumulator = 0
+	-- A long server frame may advance the simulation, but must not produce an
+	-- implausible single-step catch-up after a hitch.
+	updatePickupHomings(math.min(elapsed, 0.5))
+end)
 
 local function animateGroundDropReveal(reveals)
 	if #reveals == 0 then return end
@@ -1154,6 +1714,10 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 	elseif entry.PileId ~= nil or entry.PileSlot ~= nil then
 		return rejectPickup(player, uid, "fresh log has pile metadata")
 	end
+	local availableHomingSlots = MAX_HOMING_PICKUPS_PER_PLAYER - countPlayerHomingPickups(player)
+	if availableHomingSlots <= 0 then
+		return rejectPickup(player, uid, "homing registry limit")
+	end
 
 	-- The client nominates only the first registered model. Fresh batches are
 	-- resolved from the same harvest; a piled request only batches members of
@@ -1223,6 +1787,7 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 	local overflowCandidates = {}
 	local remainingKg = capacityMetrics.RemainingKg
 	local maximumInventoryAdds = math.max(0, MAX_OWNED_LOGS - logCount(data))
+	local maximumSelectedLogs = math.min(MAX_PICKUP_BATCH, availableHomingSlots)
 	local processedCount = 1
 	if maximumInventoryAdds > 0
 		and primaryCapacityKg <= remainingKg + CAPACITY_TOLERANCE_KG then
@@ -1236,7 +1801,7 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 	end
 
 	for _, candidate in ipairs(nearby) do
-		if processedCount >= MAX_PICKUP_BATCH then break end
+		if processedCount >= maximumSelectedLogs then break end
 		processedCount += 1
 		local candidateClaim = {
 			UID = candidate.UID,
@@ -1264,11 +1829,10 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 		end
 	end
 
+	local now = os.clock()
 	local overflowClaims = {}
 	for _, overflow in ipairs(overflowCandidates) do
-		-- All entries are server-owned and the ground object limit already bounds
-		-- both available slots and total registry size to 96 per owner.
-		if registerOverflowTransit(player, overflow.Entry, root) then
+		if beginOverflowHoming(player, overflow, now) then
 			table.insert(overflowClaims, overflow)
 		end
 	end
@@ -1294,45 +1858,19 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 		end
 		pendingUids[claim.UID] = true
 		table.insert(data.Logs, claim.Entry.LogRecord)
+		claim.Homing = beginCarryHoming(player, claim, now)
 	end
 
 	if drop.Count <= 0 then
 		clearGroundDropBundle(bundle, drop)
 	end
 	LogService.NotifyState(player)
-	local carryTargets = getCarryTargetByUid(data.Logs)
-	for index, claim in ipairs(claims) do
-		local launchOffset = math.min((index - 1) * PICKUP_LAUNCH_OFFSET_PER_LOG, MAX_PICKUP_LAUNCH_OFFSET)
-		local targetOffset = LogCarryVisualService.GetTargetOffset(data.Logs, claim.UID)
-		local payload = makePickupFxPayload(claim, carryTargets[claim.UID], targetOffset, launchOffset)
-		if payload then
-			-- Cosmetics are best-effort. Inventory was committed above and is never
-			-- rolled back if client rendering or remote delivery fails.
-			local fired, err = pcall(function()
-				PickupLogFXRE:FireAllClients(payload)
-			end)
-			if not fired then
-				warn("Could not broadcast picked-up log cosmetic", err)
-			end
-		end
+	for _, claim in ipairs(claims) do
+		broadcastPickupFx(makePickupHomingPayload(claim, "Carry"))
 		claim.Model:Destroy()
-		task.delay(launchOffset + PICKUP_POP_DURATION + PICKUP_FLIGHT_DURATION, function()
-			finishCarryArrival(player, claim.UID)
-		end)
 	end
 	for _, overflow in ipairs(overflowClaims) do
-		local payload = makeOverflowFxPayload(overflow)
-		if payload then
-			local fired, err = pcall(function()
-				PickupLogFXRE:FireAllClients(payload)
-			end)
-			if not fired then
-				warn("Could not broadcast overflow-log cosmetic", err)
-			end
-		end
-		task.delay(OVERFLOW_TRANSIT_DURATION, function()
-			finishOverflowTransit(bundle, drop, overflow.UID, overflow.Entry)
-		end)
+		broadcastPickupFx(makePickupHomingPayload(overflow, "Overflow"))
 	end
 	return true
 end
@@ -1396,6 +1934,7 @@ local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, harvestB
 		model:SetAttribute("PickupEnabled", not hiddenUntilReveal)
 		model.Parent = bundle
 
+		local createdAt = os.clock()
 		local entry = {
 			LogRecord = logRecord,
 			Model = model,
@@ -1403,10 +1942,12 @@ local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, harvestB
 			Drop = drop,
 			OwnerUserId = ownerUserId,
 			HarvestBatchId = harvestBatchId,
-			ReservedUntil = os.clock() + OWNER_RESERVATION_SECONDS,
+			ReservedUntil = createdAt + OWNER_RESERVATION_SECONDS,
+			ExpiresAt = createdAt + GROUND_LOG_LIFETIME_SECONDS,
 			State = "Fresh",
 			PileId = nil,
 			PileSlot = nil,
+			GroundCFrame = groundCFrame,
 			PickupEnabled = not hiddenUntilReveal,
 			RevealPartTransparencies = if hiddenUntilReveal then revealTransparencyByPart else nil,
 		}
@@ -1424,9 +1965,7 @@ local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, harvestB
 			})
 		end
 
-		task.delay(GROUND_LOG_LIFETIME_SECONDS, function()
-			removeGroundDropLog(bundle, logRecord.UID, entry)
-		end)
+		scheduleGroundDropExpiry(bundle, logRecord.UID, entry)
 	end
 	if revealMode == true then
 		task.spawn(animateGroundDropReveal, reveals)
@@ -1621,21 +2160,18 @@ profileLoaded.Event:Connect(function(player)
 end)
 
 Players.PlayerRemoving:Connect(function(player)
-	local ownerBundle = pendingGroundDropByUserId[player.UserId]
-	local ownerDrop = ownerBundle and activeGroundDrops[ownerBundle]
-	if ownerBundle and ownerDrop then
-		clearGroundDropBundle(ownerBundle, ownerDrop)
-	elseif ownerBundle then
-		pendingGroundDropByUserId[player.UserId] = nil
-		if ownerBundle.Parent then ownerBundle:Destroy() end
-	end
-	for bundle, drop in pairs(activeGroundDrops) do
-		if drop.OwnerUserId == player.UserId then
-			clearGroundDropBundle(bundle, drop)
-			break
+	local leavingHomings = {}
+	for _, pickup in pairs(pickupHomingsByUid) do
+		if pickup.Player == player then
+			table.insert(leavingHomings, pickup)
 		end
 	end
-	pilesByPlayer[player.UserId] = nil
+	for _, pickup in ipairs(leavingHomings) do
+		cancelPickupHoming(pickup, "player-left", true)
+	end
+	-- Keep owner-reserved ground UIDs in their existing registry. Their original
+	-- per-log 60s cleanup remains scheduled, while a quick rejoin can still
+	-- recover them; deleting the bundle here would discard active overflow UIDs.
 	remoteBudgetByPlayer[player] = nil
 	pendingCarryArrivalUids[player] = nil
 	deferredCarryRecords[player] = nil

@@ -17,7 +17,7 @@ local SOUND_VOLUME = 0.85
 local SOUND_REGION = NumberRange.new(0.22, 0.38)
 local SOUND_POOL_SIZE = 16
 local PICKUP_AUDIO_SPACING = 0.06
-local PICKUP_COMBO_RESET_WINDOW = 0.4
+local PICKUP_COMBO_RESET_WINDOW = 1.5
 local MAX_QUEUED_PICKUP_CUES = 64
 -- Fifteen-note major-scale ladder across two octaves, including both endpoints.
 -- Semitone degrees: 0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17, 19, 21, 23, 24.
@@ -41,7 +41,9 @@ local PICKUP_COMBO_PITCHES = {
 	3.000000,
 }
 local MAX_OBSERVER_DISTANCE = 260
-local MAX_CONCURRENT_FLIGHTS = 16
+-- LogService can accept a 24-log pickup batch; retain room for a short overlap
+-- while the preceding batch is still homing/settling.
+local MAX_CONCURRENT_FLIGHTS = 32
 
 local CARRY_LOG_LENGTH = 2.15
 local CARRY_LOG_DIAMETER = 0.48
@@ -51,10 +53,14 @@ local WORLD_CAP_DIAMETER_RATIO = 0.88
 local CARRY_CAP_DIAMETER_RATIO = 0.88
 local GROUND_TO_CARRY_SCALE = 4
 local DEFAULT_POP_DURATION = 0.10
-local DEFAULT_FLIGHT_DURATION = 0.37
-local DEFAULT_OVERFLOW_FLIGHT_DURATION = 0.52
-local MAX_LAUNCH_OFFSET = 0.35
-local OVERFLOW_PLAYER_APPROACH_FRACTION = 0.44
+local DEFAULT_PICKUP_HOMING_SPEED = 24
+local DEFAULT_PICKUP_ARRIVAL_RADIUS = 2.5
+local LOCAL_PLAYER_HOLD_RADIUS = 1.5
+local LOCAL_HOLD_OFFSET_RADIUS = 1.7
+local DEFAULT_CARRY_SETTLE_DURATION = 0.16
+local DEFAULT_OVERFLOW_SETTLE_DURATION = 0.28
+local MAX_CLIENT_HOMING_LIFETIME = 45
+local DEBUG_PICKUP_HOMING = false
 
 local activeFlights = {}
 local soundPool = {}
@@ -330,81 +336,91 @@ local function isFiniteCFrame(value)
 	return true
 end
 
-local function getOverflowTargetCFrame(payload)
-	local targetCFrame = payload.PileTargetCFrame
-	if isFiniteCFrame(targetCFrame) then
-		return targetCFrame
-	end
+local function debugHomingTransition(transition, flight)
+	if not DEBUG_PICKUP_HOMING then return end
+	local uid = flight and flight.UID or "?"
+	local outcome = flight and flight.Outcome or "?"
+	print(("[PickupHoming] %s uid=%s outcome=%s"):format(transition, tostring(uid), tostring(outcome)))
+end
 
-	-- Position-only payloads are accepted as a defensive compatibility fallback.
-	-- The server remains the only source of this target; a missing/invalid target
-	-- causes the cosmetic flight to be skipped rather than guessed locally.
-	local targetPosition = payload.PileTargetPosition
-	if not isFiniteVector3(targetPosition) then
+local function moveToward(currentPosition, targetPosition, maxDistance)
+	local delta = targetPosition - currentPosition
+	local distance = delta.Magnitude
+	if distance <= maxDistance or distance <= 1e-5 then
+		return targetPosition
+	end
+	return currentPosition + delta * (maxDistance / distance)
+end
+
+local function getFinalTargetOffset(value)
+	if isFiniteVector3(value) then
+		return value
+	end
+	if type(value) ~= "table"
+		or not isFiniteNumber(value.X)
+		or not isFiniteNumber(value.Y)
+		or not isFiniteNumber(value.Z) then
 		return nil
 	end
-
-	local targetYaw = payload.PileTargetYaw
-	if not isFiniteNumber(targetYaw) then
-		targetYaw = 0
-	end
-	return CFrame.new(targetPosition) * CFrame.Angles(0, targetYaw, 0)
+	return Vector3.new(value.X, value.Y, value.Z)
 end
 
-local function getFlatYaw(cframe)
-	local _, yaw = cframe:ToOrientation()
-	return yaw
+local function getHoldOffset(root, currentPosition)
+	local relative = root.CFrame:VectorToObjectSpace(currentPosition - root.Position)
+	local horizontal = Vector3.new(relative.X, 0, relative.Z)
+	if horizontal.Magnitude <= 1e-4 then
+		horizontal = Vector3.new(0, 0, -1)
+	else
+		horizontal = horizontal.Unit
+	end
+	return horizontal * LOCAL_HOLD_OFFSET_RADIUS + Vector3.new(0, math.clamp(relative.Y, -0.25, 0.5), 0)
 end
 
-local function shortestAngleDelta(fromAngle, toAngle)
-	return math.atan2(math.sin(toAngle - fromAngle), math.cos(toAngle - fromAngle))
+local function setHomingVisual(flight, position, rotation, visualScale)
+	local diameter = WORLD_LOG_DIAMETER * visualScale
+	setVisualTransform(
+		flight,
+		CFrame.new(position) * rotation,
+		CARRY_LOG_LENGTH * visualScale,
+		diameter,
+		CARRY_CAP_THICKNESS * visualScale,
+		diameter * WORLD_CAP_DIAMETER_RATIO
+	)
 end
 
-local function getTargetOffset(payload)
-	local offset = payload.TargetOffset
-	if type(offset) ~= "table" then return nil end
-	for _, key in ipairs({ "X", "Y", "Z" }) do
-		local value = offset[key]
-		if type(value) ~= "number" or value ~= value or value == math.huge or value == -math.huge then
-			return nil
-		end
-	end
-	if math.abs(offset.X) > 8 or offset.Y < 0 or offset.Y > 32 or math.abs(offset.Z) > 8 then
-		return nil
-	end
-	return Vector3.new(offset.X, offset.Y, offset.Z)
+local function getCarrySettleTarget(flight, torso)
+	local offset = flight.Resolution and flight.Resolution.TargetOffset
+	if not offset then return nil end
+	local anchorRelativeTarget = CarryLayout.GetAnchorRelativeCFrame() * CFrame.new(offset)
+	return torso.CFrame * anchorRelativeTarget
 end
 
-local function startFlight(payload)
-	if type(payload) ~= "table" then return end
+local function beginFinalSettle(flight)
+	if flight.State == "CarrySettle" or flight.State == "OverflowSettle" then return end
+	if not flight.LocalReached or not flight.Resolution then return end
 
-	local isOverflowFlight = payload.Mode == "Overflow" or payload.Mode == "OverflowPile"
-	if payload.Mode ~= nil and payload.Mode ~= "Normal" and not isOverflowFlight then
-		return
-	end
-	local overflowTargetCFrame = isOverflowFlight and getOverflowTargetCFrame(payload) or nil
-	if isOverflowFlight and not overflowTargetCFrame then
-		return
-	end
+	flight.SettleStartCFrame = CFrame.new(flight.CurrentPosition) * flight.Rotation
+	flight.SettleElapsed = 0
+	flight.State = flight.Resolution.Kind == "Carry" and "CarrySettle" or "OverflowSettle"
+end
 
-	if type(payload.OwnerUserId) ~= "number"
+local function startHomingFlight(payload)
+	if type(payload) ~= "table"
+		or type(payload.OwnerUserId) ~= "number"
 		or type(payload.UID) ~= "string"
 		or #payload.UID == 0
-		or typeof(payload.StartCFrame) ~= "CFrame"
-		or (not isOverflowFlight and (payload.TargetStack ~= "Normal" and payload.TargetStack ~= "Rare"))
-		or (not isOverflowFlight and type(payload.TargetIndex) ~= "number")
-		or (not isOverflowFlight and payload.TargetIndex < 1) then
+		or #payload.UID > 80
+		or not isFiniteCFrame(payload.SourceCFrame)
+		or (payload.Outcome ~= "Carry" and payload.Outcome ~= "Overflow") then
 		return
 	end
 
 	local owner = Players:GetPlayerByUserId(payload.OwnerUserId)
 	if not owner then return end
-	local localCharacter = localPlayer.Character
-	local localRoot = getPlayerRoot(localCharacter)
-	if owner ~= localPlayer then
-		if not localRoot or (localRoot.Position - payload.StartCFrame.Position).Magnitude > MAX_OBSERVER_DISTANCE then
-			return
-		end
+	local localRoot = getPlayerRoot(localPlayer.Character)
+	if owner ~= localPlayer and (not localRoot
+		or (localRoot.Position - payload.SourceCFrame.Position).Magnitude > MAX_OBSERVER_DISTANCE) then
+		return
 	end
 
 	local key = tostring(payload.OwnerUserId) .. ":" .. payload.UID
@@ -418,231 +434,241 @@ local function startFlight(payload)
 
 	local barkColor = typeof(payload.BarkColor) == "Color3" and payload.BarkColor or Color3.fromRGB(115, 72, 42)
 	local cutEndColor = typeof(payload.CutEndColor) == "Color3" and payload.CutEndColor or Color3.fromRGB(190, 153, 105)
-	local model, body, caps = createFlightVisual(payload.StartCFrame, barkColor, cutEndColor)
+	local sourceCFrame = payload.SourceCFrame
+	local model, body, caps = createFlightVisual(sourceCFrame, barkColor, cutEndColor)
 	local carryVisualScale = getPayloadNumber(payload, "CarryVisualScale", 1, 0.05, 4)
-	local flightDuration = getPayloadNumber(payload, "FlightDuration", DEFAULT_FLIGHT_DURATION, 0.22, 0.55)
-	if isOverflowFlight then
-		flightDuration = getPayloadNumber(
-			payload,
-			"OverflowFlightDuration",
-			getPayloadNumber(payload, "FlightDuration", DEFAULT_OVERFLOW_FLIGHT_DURATION, 0.22, 1.2),
-			0.22,
-			1.2
-		)
+	local groundToCarryScale = getPayloadNumber(payload, "GroundToCarryScale", GROUND_TO_CARRY_SCALE, 1, 8)
+	local expectedStartScale = carryVisualScale * groundToCarryScale
+	local startVisualScale = getPayloadNumber(payload, "StartVisualScale", expectedStartScale, 0.05, 16)
+	-- Keep the authored 4x ground-to-carry relationship even if an older or
+	-- malformed payload sends one global start scale for every material.
+	if math.abs(startVisualScale - expectedStartScale) > 1e-3 then
+		startVisualScale = expectedStartScale
 	end
 	local flight = {
 		Model = model,
 		Body = body,
 		Caps = caps,
 		Owner = owner,
-		Mode = isOverflowFlight and "Overflow" or "Normal",
-		TargetStack = not isOverflowFlight and payload.TargetStack or nil,
-		TargetIndex = not isOverflowFlight and math.floor(payload.TargetIndex) or nil,
-		StartCFrame = payload.StartCFrame,
-		StartPosition = payload.StartCFrame.Position,
-		StartRotation = payload.StartCFrame.Rotation,
-		OverflowTargetCFrame = overflowTargetCFrame,
-		StartYaw = isOverflowFlight and getFlatYaw(payload.StartCFrame) or nil,
-		TargetYaw = overflowTargetCFrame and getFlatYaw(overflowTargetCFrame) or nil,
-		-- The server authors the material-specific carry scale. The world drop is
-		-- always exactly four times this scale.
+		OwnerUserId = payload.OwnerUserId,
+		UID = payload.UID,
+		Mode = "Homing",
+		Outcome = payload.Outcome,
+		CurrentPosition = sourceCFrame.Position,
+		Rotation = sourceCFrame.Rotation,
 		CarryVisualScale = carryVisualScale,
-		StartScale = carryVisualScale * GROUND_TO_CARRY_SCALE,
-		TargetOffset = getTargetOffset(payload),
-		LaunchOffset = getPayloadNumber(payload, "LaunchOffset", 0, 0, MAX_LAUNCH_OFFSET),
-		PopDuration = getPayloadNumber(payload, "PopDuration", DEFAULT_POP_DURATION, 0.04, 0.18),
-		FlightDuration = flightDuration,
+		StartVisualScale = startVisualScale,
+		HomingSpeed = getPayloadNumber(payload, "HomingSpeed", DEFAULT_PICKUP_HOMING_SPEED, 1, 120),
+		ArrivalRadius = getPayloadNumber(payload, "ArrivalRadius", DEFAULT_PICKUP_ARRIVAL_RADIUS, 0.5, 6),
+		PopDuration = getPayloadNumber(payload, "PopDuration", DEFAULT_POP_DURATION, 0.04, 0.3),
+		LaunchDelay = getPayloadNumber(payload, "LaunchDelay", 0, 0, 1),
 		Elapsed = 0,
+		Lifetime = 0,
+		State = "Pop",
+		LocalReached = false,
+		Resolution = nil,
 	}
-	flight.StartLength = CARRY_LOG_LENGTH * flight.StartScale
-	flight.StartDiameter = WORLD_LOG_DIAMETER * flight.StartScale
-	flight.StartCapThickness = CARRY_CAP_THICKNESS * flight.StartScale
-	flight.StartCapDiameter = flight.StartDiameter * WORLD_CAP_DIAMETER_RATIO
 	activeFlights[key] = flight
 	activeFlightCount += 1
-	setVisualTransform(
-		flight,
-		flight.StartCFrame,
-		flight.StartLength,
-		flight.StartDiameter,
-		flight.StartCapThickness,
-		flight.StartCapDiameter
-	)
+	setHomingVisual(flight, sourceCFrame.Position, flight.Rotation, flight.StartVisualScale)
+	debugHomingTransition("START", flight)
 
 	flight.Connection = RunService.RenderStepped:Connect(function(deltaTime)
 		if not flight.Model or not flight.Model.Parent or not owner:IsDescendantOf(Players) then
 			cleanupFlight(key, flight)
 			return
 		end
+		flight.Lifetime += deltaTime
+		if flight.Lifetime > MAX_CLIENT_HOMING_LIFETIME then
+			debugHomingTransition("MISSING_RESOLUTION_TIMEOUT", flight)
+			cleanupFlight(key, flight)
+			return
+		end
 
 		local character = owner.Character
 		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		local root = getPlayerRoot(character)
 		local torso = character and findTorso(character)
-		if not character or not humanoid or humanoid.Health <= 0 or not torso then
+		if not character or not humanoid or humanoid.Health <= 0 or not root or not torso then
 			cleanupFlight(key, flight)
 			return
 		end
 
 		flight.Elapsed += deltaTime
-		local localElapsed = flight.Elapsed - flight.LaunchOffset
-		if localElapsed < 0 then return end
-
-		if flight.Mode == "Overflow" then
-			local targetCFrame = flight.OverflowTargetCFrame
-			local playerRoot = getPlayerRoot(character)
-			if not targetCFrame or not playerRoot then
-				cleanupFlight(key, flight)
-				return
-			end
-
-			local visualRotation
-			if localElapsed < flight.PopDuration then
-				local popT = localElapsed / flight.PopDuration
-				local popEase = 1 - (1 - popT) ^ 3
-				local popPosition = flight.StartPosition + Vector3.new(0, 0.72 * popEase, 0)
-				visualRotation = CFrame.Angles(0, flight.StartYaw, 0)
-				setVisualTransform(
-					flight,
-					CFrame.new(popPosition) * visualRotation,
-					flight.StartLength,
-					flight.StartDiameter,
-					flight.StartCapThickness,
-					flight.StartCapDiameter
-				)
-				return
-			end
-
-			local flightT = math.clamp((localElapsed - flight.PopDuration) / flight.FlightDuration, 0, 1)
-			local popPosition = flight.StartPosition + Vector3.new(0, 0.72, 0)
-			local approachPosition = torso.Position + Vector3.new(0, 0.45, 0)
-			local targetPosition = targetCFrame.Position
-			local position
-			if flightT < OVERFLOW_PLAYER_APPROACH_FRACTION then
-				local phaseT = smoothStep(flightT / OVERFLOW_PLAYER_APPROACH_FRACTION)
-				local towardPlayer = approachPosition - popPosition
-				position = bezier(
-					popPosition,
-					popPosition + towardPlayer * 0.24 + Vector3.new(0, 1.8, 0),
-					popPosition + towardPlayer * 0.76 + Vector3.new(0, 1.6, 0),
-					approachPosition,
-					phaseT
-				)
-			else
-				local phaseT = smoothStep(
-					(flightT - OVERFLOW_PLAYER_APPROACH_FRACTION)
-						/ (1 - OVERFLOW_PLAYER_APPROACH_FRACTION)
-				)
-				local towardPile = targetPosition - approachPosition
-				position = bezier(
-					approachPosition,
-					approachPosition + towardPile * 0.30 + Vector3.new(0, 1.6, 0),
-					targetPosition + Vector3.new(0, 1.0, 0),
-					targetPosition,
-					phaseT
-				)
-			end
-
-			local yaw = flight.StartYaw
-				+ shortestAngleDelta(flight.StartYaw, flight.TargetYaw) * smoothStep(flightT)
-			visualRotation = CFrame.Angles(0, yaw, 0)
-			setVisualTransform(
-				flight,
-				CFrame.new(position) * visualRotation,
-				flight.StartLength,
-				flight.StartDiameter,
-				flight.StartCapThickness,
-				flight.StartCapDiameter
-			)
-
-			if flightT >= 1 then
-				-- The authoritative ground log takes over at the exact server-authored
-				-- pile slot. Keep its full ground scale and omit normal pickup audio.
-				setVisualTransform(
-					flight,
-					targetCFrame,
-					flight.StartLength,
-					flight.StartDiameter,
-					flight.StartCapThickness,
-					flight.StartCapDiameter
-				)
-				cleanupFlight(key, flight)
-			end
-			return
-		end
-
-		if localElapsed < flight.PopDuration then
-			local popT = localElapsed / flight.PopDuration
+		if flight.Elapsed < flight.LaunchDelay then return end
+		local activeElapsed = flight.Elapsed - flight.LaunchDelay
+		if activeElapsed < flight.PopDuration then
+			local popT = activeElapsed / flight.PopDuration
 			local popEase = 1 - (1 - popT) ^ 3
-			local popPosition = flight.StartPosition + Vector3.new(0, 0.72 * popEase, 0)
-			local popRotation = flight.StartRotation * CFrame.Angles(0.05 * popT, 0.08 * math.sin(popT * math.pi), -0.06 * popT)
-			setVisualTransform(
-				flight,
-				CFrame.new(popPosition) * popRotation,
-				flight.StartLength,
-				flight.StartDiameter,
-				flight.StartCapThickness,
-				flight.StartCapDiameter
-			)
+			local popPosition = sourceCFrame.Position + Vector3.new(0, 0.72 * popEase, 0)
+			setHomingVisual(flight, popPosition, flight.Rotation, flight.StartVisualScale)
 			return
 		end
 
-		local flightT = math.clamp((localElapsed - flight.PopDuration) / flight.FlightDuration, 0, 1)
-		local anchorRelativeTarget
-		if flight.TargetOffset then
-			anchorRelativeTarget = CarryLayout.GetAnchorRelativeCFrame() * CFrame.new(flight.TargetOffset)
+		if flight.State == "Pop" then
+			flight.State = "Homing"
+			flight.CurrentPosition = sourceCFrame.Position + Vector3.new(0, 0.72, 0)
+		end
+
+		if flight.State == "Homing" then
+			local homingTarget = root.Position + Vector3.new(0, 0.35, 0)
+			flight.CurrentPosition = moveToward(
+				flight.CurrentPosition,
+				homingTarget,
+				flight.HomingSpeed * deltaTime
+			)
+			if (flight.CurrentPosition - homingTarget).Magnitude <= LOCAL_PLAYER_HOLD_RADIUS then
+				flight.LocalReached = true
+				flight.HoldOffset = getHoldOffset(root, flight.CurrentPosition)
+				flight.State = "Hold"
+				debugHomingTransition("LOCAL_REACHED_PLAYER", flight)
+			end
+		end
+
+		if flight.State == "Hold" then
+			local holdTarget = root.CFrame:PointToWorldSpace(flight.HoldOffset)
+			flight.CurrentPosition = moveToward(
+				flight.CurrentPosition,
+				holdTarget,
+				flight.HomingSpeed * deltaTime
+			)
+			if flight.Resolution then
+				beginFinalSettle(flight)
+			end
+		end
+
+		if flight.State == "CarrySettle" or flight.State == "OverflowSettle" then
+			local resolution = flight.Resolution
+			flight.SettleElapsed += deltaTime
+			local settleT = math.clamp(flight.SettleElapsed / resolution.Duration, 0, 1)
+			local easedT = smoothStep(settleT)
+			local targetCFrame
+			if flight.State == "CarrySettle" then
+				targetCFrame = getCarrySettleTarget(flight, torso)
+			else
+				targetCFrame = resolution.PileTargetCFrame
+			end
+			if not targetCFrame then
+				debugHomingTransition("MALFORMED_RESOLUTION", flight)
+				cleanupFlight(key, flight)
+				return
+			end
+
+			local startCFrame = flight.SettleStartCFrame
+			local startPosition = startCFrame.Position
+			local endPosition = targetCFrame.Position
+			local control1 = startPosition + (endPosition - startPosition) * 0.28 + Vector3.new(0, 0.35, 0)
+			local control2 = endPosition + Vector3.new(0, 0.35, 0)
+			local position = bezier(startPosition, control1, control2, endPosition, easedT)
+			local rotation = startCFrame.Rotation:Lerp(targetCFrame.Rotation, easedT)
+			local visualScale = flight.StartVisualScale
+			if flight.State == "CarrySettle" then
+				visualScale += (flight.CarryVisualScale - flight.StartVisualScale) * easedT
+			end
+			setHomingVisual(flight, position, rotation, visualScale)
+
+			if settleT >= 1 then
+				setHomingVisual(
+					flight,
+					targetCFrame.Position,
+					targetCFrame.Rotation,
+					flight.State == "CarrySettle" and flight.CarryVisualScale or flight.StartVisualScale
+				)
+				debugHomingTransition("SETTLE_COMPLETE", flight)
+				if flight.State == "CarrySettle" then
+					queueArrivalSound()
+				end
+				cleanupFlight(key, flight)
+				return
+			end
 		else
-			local fallbackScales = table.create(flight.TargetIndex, flight.CarryVisualScale)
-			anchorRelativeTarget = CarryLayout.GetTorsoRelativeTargetCFrame(
-				flight.TargetStack,
-				flight.TargetIndex,
-				fallbackScales
-			)
-		end
-		if typeof(anchorRelativeTarget) ~= "CFrame" then
-			cleanupFlight(key, flight)
-			return
-		end
-		local targetCFrame = torso.CFrame * anchorRelativeTarget
-		local endPosition = targetCFrame.Position
-		local curveT = flightT ^ 2.1
-		local popPosition = flight.StartPosition + Vector3.new(0, 0.72, 0)
-		local control1 = popPosition + Vector3.new(0, 2.1, 0) + (endPosition - popPosition) * 0.10
-		local control2 = endPosition + Vector3.new(0, 0.55, 0)
-		local position = bezier(popPosition, control1, control2, endPosition, curveT)
-		local orientT = smoothStep(flightT)
-		local baseRotation = flight.StartRotation:Lerp(targetCFrame.Rotation, orientT)
-		local spinEnvelope = 1 - orientT
-		local spin = math.sin(flightT * math.pi * 2) * 0.16 * spinEnvelope
-		local tilt = math.sin(flightT * math.pi) * 0.12 * spinEnvelope
-		local yaw = 0.32 * spinEnvelope
-		local visualCFrame = CFrame.new(position) * baseRotation * CFrame.Angles(tilt, yaw, spin)
-		local shrinkT = smoothStep((flightT - 0.04) / 0.96)
-		local remaining = 1 - shrinkT
-		local carryLength = CARRY_LOG_LENGTH * flight.CarryVisualScale
-		local carryDiameter = CARRY_LOG_DIAMETER * flight.CarryVisualScale
-		local carryCapThickness = CARRY_CAP_THICKNESS * flight.CarryVisualScale
-		local carryCapDiameter = carryDiameter * CARRY_CAP_DIAMETER_RATIO
-		local bodyLength = carryLength + (flight.StartLength - carryLength) * remaining
-		local bodyDiameter = carryDiameter + (flight.StartDiameter - carryDiameter) * remaining
-		local capThickness = carryCapThickness + (flight.StartCapThickness - carryCapThickness) * remaining
-		local capDiameter = carryCapDiameter + (flight.StartCapDiameter - carryCapDiameter) * remaining
-		setVisualTransform(flight, visualCFrame, bodyLength, bodyDiameter, capThickness, capDiameter)
-
-		if flightT >= 1 then
-			-- Put the last rendered frame directly on the shared carry slot, then
-			-- play the cue locally on that same frame as the carried stack appears.
-			setVisualTransform(
-				flight,
-				targetCFrame,
-				CARRY_LOG_LENGTH * flight.CarryVisualScale,
-				CARRY_LOG_DIAMETER * flight.CarryVisualScale,
-				CARRY_CAP_THICKNESS * flight.CarryVisualScale,
-				CARRY_LOG_DIAMETER * flight.CarryVisualScale * CARRY_CAP_DIAMETER_RATIO
-			)
-			queueArrivalSound()
-			cleanupFlight(key, flight)
+			setHomingVisual(flight, flight.CurrentPosition, flight.Rotation, flight.StartVisualScale)
 		end
 	end)
 end
 
-pickupFXRemote.OnClientEvent:Connect(startFlight)
+local function findHomingFlight(payload)
+	if type(payload.OwnerUserId) == "number" then
+		local key = tostring(payload.OwnerUserId) .. ":" .. payload.UID
+		local flight = activeFlights[key]
+		if flight and flight.Mode == "Homing" then
+			return key, flight
+		end
+	end
+	-- Older server builds may omit OwnerUserId on the resolution. UID values are
+	-- generated per log; scan only the small bounded cosmetic flight registry.
+	for key, flight in pairs(activeFlights) do
+		if flight.Mode == "Homing" and flight.UID == payload.UID then
+			return key, flight
+		end
+	end
+	return nil, nil
+end
+
+local function resolveHomingFlight(payload)
+	if type(payload) ~= "table" or type(payload.UID) ~= "string" or #payload.UID == 0 then
+		return
+	end
+	local key, flight = findHomingFlight(payload)
+	if not flight then
+		if DEBUG_PICKUP_HOMING then
+			warn(("[PickupHoming] LATE_OR_UNKNOWN_RESOLUTION uid=%s mode=%s"):format(payload.UID, tostring(payload.Mode)))
+		end
+		return
+	end
+
+	if payload.Mode == "Cancel" then
+		debugHomingTransition("RESOLUTION_RECEIVED_CANCEL", flight)
+		cleanupFlight(key, flight)
+		return
+	end
+	if payload.Mode == "CarryResolve" and flight.Outcome == "Carry" then
+		local targetOffset = getFinalTargetOffset(payload.FinalTargetOffset)
+		if not targetOffset then
+			debugHomingTransition("MALFORMED_RESOLUTION", flight)
+			cleanupFlight(key, flight)
+			return
+		end
+		flight.Resolution = {
+			Kind = "Carry",
+			TargetOffset = targetOffset,
+			Duration = getPayloadNumber(payload, "FinalSettleDuration", DEFAULT_CARRY_SETTLE_DURATION, 0.05, 0.8),
+		}
+	elseif payload.Mode == "OverflowResolve" and flight.Outcome == "Overflow" then
+		local targetCFrame = payload.PileTargetCFrame
+		if not isFiniteCFrame(targetCFrame) then
+			debugHomingTransition("MALFORMED_RESOLUTION", flight)
+			cleanupFlight(key, flight)
+			return
+		end
+		flight.Resolution = {
+			Kind = "Overflow",
+			PileTargetCFrame = targetCFrame,
+			Duration = getPayloadNumber(payload, "FinalSettleDuration", DEFAULT_OVERFLOW_SETTLE_DURATION, 0.05, 1),
+		}
+	else
+		debugHomingTransition("MALFORMED_RESOLUTION", flight)
+		cleanupFlight(key, flight)
+		return
+	end
+
+	debugHomingTransition("RESOLUTION_RECEIVED", flight)
+	if flight.LocalReached then
+		beginFinalSettle(flight)
+	end
+end
+
+local function onPickupFX(payload)
+	if type(payload) ~= "table" then return end
+	if payload.Mode == "Homing" then
+		startHomingFlight(payload)
+	elseif payload.Mode == "CarryResolve" or payload.Mode == "OverflowResolve" or payload.Mode == "Cancel" then
+		resolveHomingFlight(payload)
+	else
+		if DEBUG_PICKUP_HOMING then
+			warn(("[PickupHoming] IGNORED_UNKNOWN_MODE mode=%s"):format(tostring(payload.Mode)))
+		end
+	end
+end
+
+pickupFXRemote.OnClientEvent:Connect(onPickupFX)
