@@ -67,6 +67,7 @@ local PILE_SLOT_YAW_VARIATION = 0.025
 local DEBUG_GROUND_PICKUP_DIAGNOSTICS = false
 local DEBUG_PICKUP_HOMING = false
 local DEBUG_PILE_LIFETIME = false
+local DEBUG_PILE_TIMER = true
 -- Ground geometry is an exact fourfold copy of the carry/back-stack geometry.
 -- This is a visual-only scale; it never affects inventory or log value.
 local GROUND_DROP_VISUAL_SCALE = 4
@@ -92,6 +93,7 @@ local pendingGroundDropByUserId = {}
 -- Server-only ownership and layout index. Ground entries remain the source of
 -- truth; these pile maps only group their UIDs into stable species-specific slots.
 local pilesByPlayer = {}
+local pileTimerUpdaterStarted = false
 local remoteBudgetByPlayer = {}
 local pendingCarryArrivalUids = {}
 local deferredCarryRecords = {}
@@ -106,6 +108,7 @@ local scheduleGroundDropExpiry
 local refreshPileExpiry
 local schedulePileExpiry
 local expireOverflowPile
+local isRegisteredPile
 
 local function isFinitePositive(number)
 	return type(number) == "number"
@@ -649,6 +652,178 @@ local function getGroundDropFolder()
 	return folder
 end
 
+local function cleanupDisabledPileTimerDebugAnchors()
+	if DEBUG_PILE_TIMER then return end
+
+	local folder = Workspace:FindFirstChild("WorldLogDrops")
+	if not folder or not folder:IsA("Folder") then return end
+
+	-- Timer anchors are direct children of WorldLogDrops. Match the explicit tag
+	-- used by new anchors and the old distinctive name so a hot reload also cleans
+	-- anchors created before the tag existed, without scanning normal drop models.
+	for _, child in ipairs(folder:GetChildren()) do
+		if child:IsA("BasePart")
+			and (child:GetAttribute("DebugPileTimerAnchor") == true or child.Name == "PileTimerDebugAnchor") then
+			child:Destroy()
+		end
+	end
+end
+
+cleanupDisabledPileTimerDebugAnchors()
+
+local function formatPileTimerCountdown(seconds)
+	local wholeSeconds = math.floor(math.max(0, seconds))
+	local minutes = math.floor(wholeSeconds / 60)
+	local remainingSeconds = wholeSeconds % 60
+	return string.format("%02d:%02d", minutes, remainingSeconds)
+end
+
+local function getPileTimerAnchorHeight(pile)
+	local material = getMaterialDefinition(pile.SpeciesId)
+	if not material then return nil end
+
+	local visualScale = math.clamp(material.CarryVisualScale, 0.05, 4) * GROUND_DROP_VISUAL_SCALE
+	local logDiameter = 0.48 * visualScale
+	local highestLayerIndex = math.floor((pile.ItemCount - 1) / PILE_LOGS_PER_LAYER)
+	local pileTop = logDiameter * 0.5 + 0.08
+		+ highestLayerIndex * logDiameter * PILE_LAYER_HEIGHT_FACTOR
+		+ logDiameter * 0.5
+	-- Add clear space above the tallest geometry-based layer so the readout does
+	-- not sit on the pile or follow an individual log model.
+	return pileTop + 3
+end
+
+local function updatePileTimerDebug(pile)
+	if not DEBUG_PILE_TIMER
+		or not isRegisteredPile(pile)
+		or pile.ItemCount <= 0
+		or type(pile.ExpiresAt) ~= "number"
+		or not pile.DebugPileTimerLabel
+		or not pile.DebugPileTimerAnchor then
+		return
+	end
+	local height = getPileTimerAnchorHeight(pile)
+	if height then
+		pile.DebugPileTimerAnchor.CFrame = pile.OriginCFrame * CFrame.new(0, height, 0)
+	end
+
+	local lifetimeTier = getPileLifetimeSeconds(pile.ItemCount)
+	local logText = if pile.ItemCount == 1
+		then "1 log"
+		else string.format("%d logs", pile.ItemCount)
+	pile.DebugPileTimerLabel.Text = string.format(
+		"%s\n%s\nTier: %ds",
+		logText,
+		formatPileTimerCountdown(pile.ExpiresAt - os.clock()),
+		lifetimeTier
+	)
+end
+
+local function updateRegisteredPileTimerDebug()
+	if not DEBUG_PILE_TIMER then return end
+
+	-- Snapshot references first, then revalidate each one before touching it. Pile
+	-- expiry/removal callbacks may invalidate registry entries between updates.
+	local registeredPiles = {}
+	for _, ownerPiles in pairs(pilesByPlayer) do
+		for _, pile in pairs(ownerPiles) do
+			table.insert(registeredPiles, pile)
+		end
+	end
+	for _, pile in ipairs(registeredPiles) do
+		if isRegisteredPile(pile) then
+			updatePileTimerDebug(pile)
+		end
+	end
+end
+
+local function startPileTimerDebugUpdater()
+	if not DEBUG_PILE_TIMER or pileTimerUpdaterStarted then return end
+	pileTimerUpdaterStarted = true
+	task.spawn(function()
+		while DEBUG_PILE_TIMER do
+			task.wait(1)
+			updateRegisteredPileTimerDebug()
+		end
+		pileTimerUpdaterStarted = false
+	end)
+end
+
+local function destroyPileTimerDebug(pile)
+	local billboard = pile.DebugPileTimerBillboard
+	local anchor = pile.DebugPileTimerAnchor
+	pile.DebugPileTimerBillboard = nil
+	pile.DebugPileTimerLabel = nil
+	pile.DebugPileTimerAnchor = nil
+	if billboard then billboard:Destroy() end
+	if anchor then anchor:Destroy() end
+end
+
+local function ensurePileTimerDebug(pile)
+	if not DEBUG_PILE_TIMER
+		or not isRegisteredPile(pile)
+		or pile.ItemCount <= 0
+		or type(pile.ExpiresAt) ~= "number" then
+		return
+	end
+
+	if pile.DebugPileTimerAnchor and pile.DebugPileTimerAnchor.Parent
+		and pile.DebugPileTimerBillboard and pile.DebugPileTimerBillboard.Parent == pile.DebugPileTimerAnchor
+		and pile.DebugPileTimerLabel and pile.DebugPileTimerLabel.Parent == pile.DebugPileTimerBillboard then
+		updatePileTimerDebug(pile)
+		startPileTimerDebugUpdater()
+		return
+	end
+	destroyPileTimerDebug(pile)
+
+	local anchor = Instance.new("Part")
+	anchor.Name = "PileTimerDebugAnchor"
+	anchor:SetAttribute("DebugPileTimerAnchor", true)
+	anchor.Size = Vector3.new(0.2, 0.2, 0.2)
+	anchor.Anchored = true
+	anchor.CanCollide = false
+	anchor.CanTouch = false
+	anchor.CanQuery = false
+	anchor.Transparency = 1
+	local height = getPileTimerAnchorHeight(pile)
+	if not height then
+		anchor:Destroy()
+		return
+	end
+	anchor.CFrame = pile.OriginCFrame * CFrame.new(0, height, 0)
+	anchor.Parent = getGroundDropFolder()
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "PileTimerDebugBillboard"
+	billboard.Adornee = anchor
+	billboard.AlwaysOnTop = true
+	billboard.LightInfluence = 0
+	billboard.MaxDistance = 160
+	billboard.Size = UDim2.fromOffset(176, 72)
+	billboard.Parent = anchor
+
+	local label = Instance.new("TextLabel")
+	label.Name = "TimerText"
+	label.Size = UDim2.fromScale(1, 1)
+	label.BackgroundColor3 = Color3.fromRGB(28, 34, 30)
+	label.BackgroundTransparency = 0.12
+	label.BorderSizePixel = 0
+	label.Font = Enum.Font.GothamBold
+	label.TextColor3 = Color3.fromRGB(245, 255, 245)
+	label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	label.TextStrokeTransparency = 0.6
+	label.TextSize = 15
+	label.TextWrapped = true
+	label.TextYAlignment = Enum.TextYAlignment.Center
+	label.Parent = billboard
+
+	pile.DebugPileTimerAnchor = anchor
+	pile.DebugPileTimerBillboard = billboard
+	pile.DebugPileTimerLabel = label
+	updatePileTimerDebug(pile)
+	startPileTimerDebugUpdater()
+end
+
 local function getGroundHeight(position)
 	local ground = Workspace:FindFirstChild("BaseGround")
 	if ground and ground:IsA("BasePart") then
@@ -699,7 +874,7 @@ local function getOwnerPiles(ownerUserId)
 	return ownerPiles
 end
 
-local function isRegisteredPile(pile)
+isRegisteredPile = function(pile)
 	local ownerPiles = pilesByPlayer[pile.OwnerUserId]
 	return ownerPiles ~= nil and ownerPiles[pile.PileId] == pile
 end
@@ -707,6 +882,7 @@ end
 local function removePileFromRegistry(pile)
 	pile.ExpiryGeneration = (pile.ExpiryGeneration or 0) + 1
 	pile.ExpiresAt = nil
+	destroyPileTimerDebug(pile)
 	local ownerPiles = pilesByPlayer[pile.OwnerUserId]
 	if ownerPiles and ownerPiles[pile.PileId] == pile then
 		ownerPiles[pile.PileId] = nil
@@ -760,6 +936,7 @@ refreshPileExpiry = function(pile, action, now)
 		pile.ExpiryGeneration = (pile.ExpiryGeneration or 0) + 1
 		schedulePileExpiry(pile, pile.ExpiryGeneration)
 	end
+	ensurePileTimerDebug(pile)
 	debugPileLifetime(action, pile, string.format("expiresIn=%.1f", pile.ExpiresAt - now))
 	return true
 end
