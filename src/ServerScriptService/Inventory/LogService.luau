@@ -31,6 +31,11 @@ local OWNER_RESERVATION_SECONDS = 60
 -- free a slot and recover the exact UID; it is not converted into a public
 -- loot race after the reservation expires.
 local GROUND_LOG_LIFETIME_SECONDS = 60
+local PILE_LIFETIME_1_LOG_SECONDS = 15
+local PILE_LIFETIME_2_LOGS_SECONDS = 25
+local PILE_LIFETIME_3_TO_5_LOGS_SECONDS = 45
+local PILE_LIFETIME_6_TO_12_LOGS_SECONDS = 75
+local PILE_LIFETIME_13_PLUS_LOGS_SECONDS = 120
 local MAX_PICKUP_DISTANCE = 15
 -- Maximum physical records processed per request, independent of kg capacity.
 local MAX_PICKUP_BATCH = 24
@@ -61,6 +66,7 @@ local PILE_SLOT_YAW_VARIATION = 0.025
 -- when investigating why a server rejected a ground-log pickup request.
 local DEBUG_GROUND_PICKUP_DIAGNOSTICS = false
 local DEBUG_PICKUP_HOMING = false
+local DEBUG_PILE_LIFETIME = false
 -- Ground geometry is an exact fourfold copy of the carry/back-stack geometry.
 -- This is a visual-only scale; it never affects inventory or log value.
 local GROUND_DROP_VISUAL_SCALE = 4
@@ -97,6 +103,9 @@ local MAX_HOMING_PICKUPS_PER_PLAYER = MAX_OWNED_LOGS + MAX_GROUND_LOG_DROPS_PER_
 local recoverOverflowHoming
 local cancelPickupHoming
 local scheduleGroundDropExpiry
+local refreshPileExpiry
+local schedulePileExpiry
+local expireOverflowPile
 
 local function isFinitePositive(number)
 	return type(number) == "number"
@@ -124,6 +133,31 @@ local function debugPickupHoming(action, uid, detail)
 	if not DEBUG_PICKUP_HOMING then return end
 	local suffix = if detail and detail ~= "" then " " .. detail else ""
 	print(string.format("[PickupHoming] %s uid=%s%s", action, tostring(uid), suffix))
+end
+
+local function getPileLifetimeSeconds(itemCount)
+	if itemCount <= 1 then
+		return PILE_LIFETIME_1_LOG_SECONDS
+	elseif itemCount == 2 then
+		return PILE_LIFETIME_2_LOGS_SECONDS
+	elseif itemCount <= 5 then
+		return PILE_LIFETIME_3_TO_5_LOGS_SECONDS
+	elseif itemCount <= 12 then
+		return PILE_LIFETIME_6_TO_12_LOGS_SECONDS
+	end
+	return PILE_LIFETIME_13_PLUS_LOGS_SECONDS
+end
+
+local function debugPileLifetime(action, pile, detail)
+	if not DEBUG_PILE_LIFETIME then return end
+	local suffix = if detail and detail ~= "" then " " .. detail else ""
+	print(string.format(
+		"[PileLifetime] %s pile=%s count=%d%s",
+		action,
+		tostring(pile.PileId),
+		pile.ItemCount,
+		suffix
+	))
 end
 
 local function isFiniteVector3(value)
@@ -665,6 +699,68 @@ local function getOwnerPiles(ownerUserId)
 	return ownerPiles
 end
 
+local function isRegisteredPile(pile)
+	local ownerPiles = pilesByPlayer[pile.OwnerUserId]
+	return ownerPiles ~= nil and ownerPiles[pile.PileId] == pile
+end
+
+local function removePileFromRegistry(pile)
+	pile.ExpiryGeneration = (pile.ExpiryGeneration or 0) + 1
+	pile.ExpiresAt = nil
+	local ownerPiles = pilesByPlayer[pile.OwnerUserId]
+	if ownerPiles and ownerPiles[pile.PileId] == pile then
+		ownerPiles[pile.PileId] = nil
+		if next(ownerPiles) == nil then
+			pilesByPlayer[pile.OwnerUserId] = nil
+		end
+	end
+end
+
+schedulePileExpiry = function(pile, generation)
+	if not isRegisteredPile(pile) or pile.ItemCount <= 0 or type(pile.ExpiresAt) ~= "number" then
+		return
+	end
+	task.delay(math.max(0, pile.ExpiresAt - os.clock()), function()
+		if pile.ExpiryGeneration ~= generation or not isRegisteredPile(pile) then return end
+		if pile.ItemCount <= 0 or type(pile.ExpiresAt) ~= "number" then return end
+
+		local now = os.clock()
+		if now < pile.ExpiresAt then
+			-- Delayed tasks can wake slightly early; retain this generation and
+			-- schedule only the remaining portion of its authoritative deadline.
+			schedulePileExpiry(pile, generation)
+			return
+		end
+		expireOverflowPile(pile, generation)
+	end)
+end
+
+refreshPileExpiry = function(pile, action, now)
+	if not isRegisteredPile(pile)
+		or pile.ItemCount <= 0
+		or type(pile.LastAddedAt) ~= "number" then
+		return false
+	end
+
+	now = now or os.clock()
+	pile.ExpiryGeneration = (pile.ExpiryGeneration or 0) + 1
+	local generation = pile.ExpiryGeneration
+	pile.ExpiresAt = pile.LastAddedAt + getPileLifetimeSeconds(pile.ItemCount)
+	for _, entry in pairs(pile.ItemsByUid) do
+		if entry and entry.PileId == pile.PileId and entry.OwnerUserId == pile.OwnerUserId then
+			entry.ExpiresAt = pile.ExpiresAt
+			entry.ReservedUntil = pile.ExpiresAt
+			if entry.Model then
+				entry.Model:SetAttribute("OwnerReservationSeconds", math.max(0, pile.ExpiresAt - now))
+			end
+		end
+	end
+	schedulePileExpiry(pile, generation)
+	local timeLabel = if action == "SHRINK" then "remaining" else "expiresIn"
+	debugPileLifetime(action, pile, string.format("%s=%.1f", timeLabel, pile.ExpiresAt - now))
+	return true
+end
+
 local function findCompatiblePile(ownerUserId, speciesId, position)
 	local ownerPiles = pilesByPlayer[ownerUserId]
 	if not ownerPiles then return nil end
@@ -691,6 +787,7 @@ local function createPlayerPile(player, speciesId, root)
 	position = Vector3.new(position.X, getGroundHeight(position), position.Z)
 	local originCFrame = CFrame.fromMatrix(position, right, Vector3.yAxis, right:Cross(Vector3.yAxis))
 	local pileId = HttpService:GenerateGUID(false)
+	local createdAt = os.clock()
 	local pile = {
 		PileId = pileId,
 		OwnerUserId = player.UserId,
@@ -699,6 +796,10 @@ local function createPlayerPile(player, speciesId, root)
 		ItemsByUid = {},
 		Slots = {},
 		ItemCount = 0,
+		CreatedAt = createdAt,
+		LastAddedAt = createdAt,
+		ExpiresAt = nil,
+		ExpiryGeneration = 0,
 	}
 	getOwnerPiles(player.UserId)[pileId] = pile
 	return pile
@@ -725,6 +826,7 @@ local function assignOverflowPileAtArrival(player, entry, root)
 	local slotIndex = getAvailablePileSlot(pile)
 	local targetCFrame = slotIndex and getPileSlotCFrame(pile, slotIndex, material.CarryVisualScale)
 	if not slotIndex or typeof(targetCFrame) ~= "CFrame" then return nil end
+	local isFirstMembership = pile.ItemCount == 0
 
 	-- Pile membership starts only after logical arrival and the owner's visible
 	-- homing acknowledgement (or its bounded timeout fallback).
@@ -741,30 +843,43 @@ local function assignOverflowPileAtArrival(player, entry, root)
 	pile.ItemsByUid[entry.LogRecord.UID] = entry
 	pile.Slots[slotIndex] = entry
 	pile.ItemCount += 1
+	local now = os.clock()
+	pile.LastAddedAt = now
+	-- Invalidate the Fresh-entry timer before it can consume a member now owned
+	-- by the pile lifecycle.
+	entry.ExpiryGeneration = (entry.ExpiryGeneration or 0) + 1
+	refreshPileExpiry(pile, if isFirstMembership then "CREATE" else "REFRESH", now)
 	return pile
 end
 
 local function unregisterPileMembership(ownerUserId, uid, entry)
 	local pileId = entry and entry.PileId
-	if type(pileId) ~= "string" then return end
+	if type(pileId) ~= "string" then return false end
 	local ownerPiles = pilesByPlayer[ownerUserId]
 	local pile = ownerPiles and ownerPiles[pileId]
+	local removed = false
 	if pile and pile.ItemsByUid[uid] == entry then
 		pile.ItemsByUid[uid] = nil
 		if pile.Slots[entry.PileSlot] == entry then
 			pile.Slots[entry.PileSlot] = nil
 		end
 		pile.ItemCount = math.max(0, pile.ItemCount - 1)
+		removed = true
 		if pile.ItemCount == 0 then
-			ownerPiles[pileId] = nil
-			if next(ownerPiles) == nil then
-				pilesByPlayer[ownerUserId] = nil
-			end
+			debugPileLifetime("REMOVE_EMPTY", pile)
+			removePileFromRegistry(pile)
+		else
+			-- Removal is not activity: preserve LastAddedAt so a smaller pile can
+			-- expire immediately when its new size tier is already overdue.
+			refreshPileExpiry(pile, "SHRINK", os.clock())
 		end
 	end
-	entry.PileId = nil
-	entry.PileSlot = nil
-	entry.PileTargetCFrame = nil
+	if entry and entry.PileId == pileId then
+		entry.PileId = nil
+		entry.PileSlot = nil
+		entry.PileTargetCFrame = nil
+	end
+	return removed
 end
 
 local function getFallPlacement(tree, fallRotation)
@@ -952,6 +1067,13 @@ local function restoreOverflowPartTransparencies(entry)
 	entry.TransitPartTransparencies = nil
 end
 
+local function getOwnerReservationSeconds(entry, state)
+	if state == "OverflowSettling" or state == "Piled" then
+		return math.max(0, (entry.ReservedUntil or os.clock()) - os.clock())
+	end
+	return OWNER_RESERVATION_SECONDS
+end
+
 local function ensureOverflowGroundRegistration(pickup)
 	local entry = pickup.Entry
 	local uid = pickup.UID
@@ -1063,7 +1185,7 @@ local function ensureOverflowGroundRegistration(pickup)
 		model:SetAttribute("ItemType", "Log")
 		model:SetAttribute("SpeciesId", registeredEntry.LogRecord.SpeciesId)
 		model:SetAttribute("OwnerUserId", registeredEntry.OwnerUserId)
-		model:SetAttribute("OwnerReservationSeconds", OWNER_RESERVATION_SECONDS)
+		model:SetAttribute("OwnerReservationSeconds", getOwnerReservationSeconds(registeredEntry, registeredEntry.State))
 		model:SetAttribute("HarvestBatchId", registeredEntry.HarvestBatchId)
 		model:SetAttribute("GroundLogState", registeredEntry.State)
 		model:SetAttribute("PileId", registeredEntry.PileId)
@@ -1120,7 +1242,7 @@ local function ensureOverflowGroundModel(pickup, state, targetCFrame, pickupEnab
 	model:SetAttribute("ItemType", "Log")
 	model:SetAttribute("SpeciesId", entry.LogRecord.SpeciesId)
 	model:SetAttribute("OwnerUserId", entry.OwnerUserId)
-	model:SetAttribute("OwnerReservationSeconds", OWNER_RESERVATION_SECONDS)
+	model:SetAttribute("OwnerReservationSeconds", getOwnerReservationSeconds(entry, state))
 	model:SetAttribute("HarvestBatchId", entry.HarvestBatchId)
 	model:SetAttribute("GroundLogState", state)
 	model:SetAttribute("PileId", entry.PileId)
@@ -1174,12 +1296,10 @@ local function finishOverflowPileSettle(pickup)
 	entry.Model:SetAttribute("PickupEnabled", false)
 	entry.PickupEnabled = false
 	entry.HomingStartCFrame = nil
-	local homingDuration = math.max(0, os.clock() - pickup.StartedAt)
-	entry.ExpiresAt = (pickup.OriginalExpiresAt or pickup.StartedAt) + homingDuration
-	entry.ReservedUntil = (pickup.OriginalReservedUntil or pickup.StartedAt) + homingDuration
+	entry.ExpiresAt = pile.ExpiresAt
+	entry.ReservedUntil = pile.ExpiresAt
 	clearPickupHoming(pickup)
 	debugPickupHoming("SETTLE_COMPLETE", pickup.UID, "mode=Overflow")
-	scheduleGroundDropExpiry(pickup.Bundle, pickup.UID, entry)
 	local owner = Players:GetPlayerByUserId(entry.OwnerUserId)
 	if owner then refreshPiledLogPickupEligibility(owner) end
 	return true
@@ -1370,14 +1490,108 @@ local function clearGroundDropBundle(bundle, drop)
 	end
 	table.clear(drop.LogRecordsByUid)
 	drop.Count = 0
-	pilesByPlayer[drop.OwnerUserId] = nil
 	if bundle.Parent then bundle:Destroy() end
+end
+
+expireOverflowPile = function(pile, generation)
+	if not isRegisteredPile(pile)
+		or pile.ExpiryGeneration ~= generation
+		or type(pile.ExpiresAt) ~= "number" then
+		return false
+	end
+	local now = os.clock()
+	if now < pile.ExpiresAt then
+		schedulePileExpiry(pile, generation)
+		return false
+	end
+
+	debugPileLifetime("EXPIRE", pile)
+	local members = {}
+	for uid, entry in pairs(pile.ItemsByUid) do
+		table.insert(members, { UID = uid, Entry = entry })
+	end
+
+	-- Remove the registry identity up front. No delayed callback or re-entrant
+	-- cleanup can treat this pile as current while its records are being removed.
+	removePileFromRegistry(pile)
+	local touchedDrops = {}
+	for _, member in ipairs(members) do
+		local uid = member.UID
+		local entry = member.Entry
+		if pile.ItemsByUid[uid] ~= entry then
+			continue
+		end
+
+		pile.ItemsByUid[uid] = nil
+		if pile.Slots[entry.PileSlot] == entry then
+			pile.Slots[entry.PileSlot] = nil
+		end
+		pile.ItemCount = math.max(0, pile.ItemCount - 1)
+
+		local pickup = pickupHomingsByUid[uid]
+		if pickup and pickup.Entry == entry and pickup.Outcome == "Overflow" then
+			pickup.Cancelled = true
+			pickup.Resolved = true
+			pickup.Status = "Expired"
+			sendPickupHomingCancel(pickup)
+			clearPickupHoming(pickup)
+		end
+
+		local bundle = entry.Bundle
+		local drop = entry.Drop
+		if type(drop) == "table" and type(drop.LogRecordsByUid) == "table"
+			and drop.LogRecordsByUid[uid] == entry then
+			drop.LogRecordsByUid[uid] = nil
+			drop.Count = math.max(0, (drop.Count or 0) - 1)
+			if bundle and activeGroundDrops[bundle] == drop then
+				touchedDrops[bundle] = drop
+			end
+		else
+			-- Repair only this exact UID if its bundle registration was rebuilt while
+			-- the pile record retained older bundle references.
+			for activeBundle, activeDrop in pairs(activeGroundDrops) do
+				if activeDrop.LogRecordsByUid[uid] == entry then
+					activeDrop.LogRecordsByUid[uid] = nil
+					activeDrop.Count = math.max(0, (activeDrop.Count or 0) - 1)
+					touchedDrops[activeBundle] = activeDrop
+					break
+				end
+			end
+		end
+
+		entry.ExpiryGeneration = (entry.ExpiryGeneration or 0) + 1
+		entry.ExpiresAt = nil
+		entry.ReservedUntil = nil
+		entry.PileId = nil
+		entry.PileSlot = nil
+		entry.PileTargetCFrame = nil
+		entry.PickupEnabled = false
+		entry.State = "Expired"
+		if entry.Model then
+			entry.Model:Destroy()
+			entry.Model = nil
+		end
+	end
+
+	table.clear(pile.ItemsByUid)
+	table.clear(pile.Slots)
+	pile.ItemCount = 0
+	for bundle, drop in pairs(touchedDrops) do
+		if drop.Count <= 0 and next(drop.LogRecordsByUid) == nil then
+			clearGroundDropBundle(bundle, drop)
+		end
+	end
+	return true
 end
 
 local function removeGroundDropLog(bundle, uid, expectedEntry)
 	local drop = activeGroundDrops[bundle]
 	local entry = drop and drop.LogRecordsByUid[uid]
 	if not drop or not entry or (expectedEntry and entry ~= expectedEntry) then return false end
+	-- Pile membership supersedes per-entry timers. This guard also makes any
+	-- stale Fresh timer harmless after the UID has entered OverflowSettling.
+	if entry.State == "OverflowSettling" or entry.State == "Piled" then return false end
+	if entry.State ~= "Fresh" and entry.State ~= "HomingOverflow" then return false end
 	local now = os.clock()
 	local pickup = pickupHomingsByUid[uid]
 	if pickup and pickup.Entry == entry
@@ -1411,11 +1625,13 @@ end
 
 scheduleGroundDropExpiry = function(bundle, uid, entry, expiryAt)
 	if not entry then return end
+	if entry.State == "OverflowSettling" or entry.State == "Piled" then return end
 	entry.ExpiryGeneration = (entry.ExpiryGeneration or 0) + 1
 	local generation = entry.ExpiryGeneration
 	local dueAt = expiryAt or entry.ExpiresAt or (os.clock() + GROUND_LOG_LIFETIME_SECONDS)
 	task.delay(math.max(0, dueAt - os.clock()), function()
 		if entry.ExpiryGeneration ~= generation then return end
+		if entry.State == "OverflowSettling" or entry.State == "Piled" then return end
 		removeGroundDropLog(bundle, uid, entry)
 	end)
 end
@@ -2304,9 +2520,9 @@ Players.PlayerRemoving:Connect(function(player)
 	for _, pickup in ipairs(leavingHomings) do
 		cancelPickupHoming(pickup, "player-left", true)
 	end
-	-- Keep owner-reserved ground UIDs in their existing registry. Their original
-	-- per-log 60s cleanup remains scheduled, while a quick rejoin can still
-	-- recover them; deleting the bundle here would discard active overflow UIDs.
+	-- Keep owner-reserved ground UIDs in their registry. Fresh and recovered
+	-- homing entries retain per-log expiry; established piles keep their own
+	-- generation-safe pile deadline while a quick rejoin remains possible.
 	remoteBudgetByPlayer[player] = nil
 	pendingCarryArrivalUids[player] = nil
 	deferredCarryRecords[player] = nil
