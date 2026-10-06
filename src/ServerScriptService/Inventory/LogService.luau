@@ -68,6 +68,9 @@ local DEBUG_GROUND_PICKUP_DIAGNOSTICS = false
 local DEBUG_PICKUP_HOMING = false
 local DEBUG_PILE_LIFETIME = false
 local DEBUG_PILE_TIMER = true
+local DEBUG_PILE_RADIUS = true
+local PILE_RADIUS_DEBUG_SEGMENT_COUNT = 32
+local PILE_RADIUS_DEBUG_HEIGHT_OFFSET = 0.08
 -- Ground geometry is an exact fourfold copy of the carry/back-stack geometry.
 -- This is a visual-only scale; it never affects inventory or log value.
 local GROUND_DROP_VISUAL_SCALE = 4
@@ -670,6 +673,23 @@ end
 
 cleanupDisabledPileTimerDebugAnchors()
 
+local function cleanupDisabledPileRadiusDebugModels()
+	if DEBUG_PILE_RADIUS then return end
+
+	local folder = Workspace:FindFirstChild("WorldLogDrops")
+	if not folder or not folder:IsA("Folder") then return end
+
+	-- Radius rings are direct child Models with an explicit marker.
+	for _, child in ipairs(folder:GetChildren()) do
+		if child:IsA("Model")
+			and child:GetAttribute("DebugPileRadiusModel") == true then
+			child:Destroy()
+		end
+	end
+end
+
+cleanupDisabledPileRadiusDebugModels()
+
 local function formatPileTimerCountdown(seconds)
 	local wholeSeconds = math.floor(math.max(0, seconds))
 	local minutes = math.floor(wholeSeconds / 60)
@@ -823,6 +843,61 @@ local function ensurePileTimerDebug(pile)
 	startPileTimerDebugUpdater()
 end
 
+local function destroyPileRadiusDebug(pile)
+	local model = pile.DebugPileRadiusModel
+	pile.DebugPileRadiusModel = nil
+	if model then model:Destroy() end
+end
+
+local function ensurePileRadiusDebug(pile)
+	if not DEBUG_PILE_RADIUS or not isRegisteredPile(pile) or pile.ItemCount <= 0 then
+		return
+	end
+
+	local folder = getGroundDropFolder()
+	local existingModel = pile.DebugPileRadiusModel
+	if existingModel and existingModel.Parent == folder
+		and existingModel:GetAttribute("DebugPileRadiusModel") == true then
+		return
+	end
+	destroyPileRadiusDebug(pile)
+
+	local model = Instance.new("Model")
+	model.Name = "PileMergeRadiusDebug"
+	model:SetAttribute("DebugPileRadiusModel", true)
+	model:SetAttribute("DebugMergeRadius", OVERFLOW_MERGE_RADIUS)
+	model:SetAttribute("DebugPileId", pile.PileId)
+
+	local radius = OVERFLOW_MERGE_RADIUS
+	local segmentLength = 2 * radius * math.sin(math.pi / PILE_RADIUS_DEBUG_SEGMENT_COUNT)
+	local origin = pile.OriginCFrame.Position
+	for index = 0, PILE_RADIUS_DEBUG_SEGMENT_COUNT - 1 do
+		local angle = 2 * math.pi * index / PILE_RADIUS_DEBUG_SEGMENT_COUNT
+		local radial = Vector3.new(math.cos(angle), 0, math.sin(angle))
+		local tangent = Vector3.new(-math.sin(angle), 0, math.cos(angle))
+		local center = origin
+			+ radial * radius
+			+ Vector3.new(0, PILE_RADIUS_DEBUG_HEIGHT_OFFSET, 0)
+
+		local segment = Instance.new("Part")
+		segment.Name = string.format("RadiusSegment%02d", index + 1)
+		segment.Size = Vector3.new(segmentLength, 0.07, 0.10)
+		segment.CFrame = CFrame.fromMatrix(center, tangent, Vector3.yAxis, tangent:Cross(Vector3.yAxis))
+		segment.Anchored = true
+		segment.CanCollide = false
+		segment.CanTouch = false
+		segment.CanQuery = false
+		segment.CastShadow = false
+		segment.Material = Enum.Material.Neon
+		segment.Color = Color3.fromRGB(255, 92, 64)
+		segment.Transparency = 0.18
+		segment.Parent = model
+	end
+
+	model.Parent = folder
+	pile.DebugPileRadiusModel = model
+end
+
 local function getGroundHeight(position)
 	local ground = Workspace:FindFirstChild("BaseGround")
 	if ground and ground:IsA("BasePart") then
@@ -882,6 +957,7 @@ local function removePileFromRegistry(pile)
 	pile.ExpiryGeneration = (pile.ExpiryGeneration or 0) + 1
 	pile.ExpiresAt = nil
 	destroyPileTimerDebug(pile)
+	destroyPileRadiusDebug(pile)
 	local ownerPiles = pilesByPlayer[pile.OwnerUserId]
 	if ownerPiles and ownerPiles[pile.PileId] == pile then
 		ownerPiles[pile.PileId] = nil
@@ -936,6 +1012,7 @@ refreshPileExpiry = function(pile, action, now)
 		schedulePileExpiry(pile, pile.ExpiryGeneration)
 	end
 	ensurePileTimerDebug(pile)
+	ensurePileRadiusDebug(pile)
 	debugPileLifetime(action, pile, string.format("expiresIn=%.1f", pile.ExpiresAt - now))
 	return true
 end
