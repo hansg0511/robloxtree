@@ -580,16 +580,16 @@ function Tree:Die(player)
 	task.spawn(function()
 		local harvestBatchId
 		FXService:TreeFall(fallenModel, player, fallRotation, function()
-			-- Spawn the authoritative drops shortly after the fade starts. They
-			-- reveal during the fade but remain uncollectable until the tree has
-			-- disappeared and the ground reveal has had a readable pause.
+			-- Spawn the authoritative drops shortly after the fade starts. Their
+			-- existing readable pickup pause begins as soon as the drop reveal
+			-- succeeds, so they become pickupable during the remaining tree fade.
 			if awardSnapshot then
 				harvestBatchId = LogService.AwardTreeLog(awardSnapshot, { Reveal = true })
+				if harvestBatchId then
+					LogService.EnableGroundLogBatch(harvestBatchId)
+				end
 			end
 		end)
-		if harvestBatchId then
-			LogService.EnableGroundLogBatch(harvestBatchId)
-		end
 	end)
 	if self.RespawnSeconds then
 		task.delay(self.RespawnSeconds, function()

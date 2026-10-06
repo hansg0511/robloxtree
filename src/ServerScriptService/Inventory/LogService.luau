@@ -1165,6 +1165,14 @@ local function finishCarryArrival(player, uid)
 	end
 end
 
+local function cancelGroundDropReveal(entry)
+	local reveal = entry and entry.ActiveGroundLogReveal
+	if reveal then
+		reveal.Cancelled = true
+		entry.ActiveGroundLogReveal = nil
+	end
+end
+
 local function makePickupHomingPayload(claim, outcome)
 	local logRecord = claim.Entry.LogRecord
 	local material = getMaterialDefinition(logRecord.SpeciesId)
@@ -1241,10 +1249,19 @@ local function sendPickupHomingCancel(pickup)
 end
 
 local function restoreOverflowPartTransparencies(entry)
-	for part, transparency in pairs(entry.TransitPartTransparencies or {}) do
+	local intendedTransparencies = entry.RevealPartTransparencies
+	local transitTransparencies = entry.TransitPartTransparencies or {}
+	for part, transparency in pairs(transitTransparencies) do
+		if intendedTransparencies then
+			transparency = intendedTransparencies[part] or transparency
+		end
+		if part.Parent then part.Transparency = transparency end
+	end
+	for part, transparency in pairs(intendedTransparencies or {}) do
 		if part.Parent then part.Transparency = transparency end
 	end
 	entry.TransitPartTransparencies = nil
+	entry.RevealPartTransparencies = nil
 end
 
 local function getOwnerReservationSeconds(entry, state)
@@ -1570,6 +1587,7 @@ end
 
 local function beginCarryHoming(player, claim, now)
 	if pickupHomingsByUid[claim.UID] then return nil end
+	cancelGroundDropReveal(claim.Entry)
 	local pickup = {
 		UID = claim.UID,
 		Player = player,
@@ -1596,6 +1614,7 @@ local function beginOverflowHoming(player, claim, now)
 		or entry.PileTargetCFrame ~= nil then
 		return nil
 	end
+	cancelGroundDropReveal(entry)
 	local pickup = {
 		UID = claim.UID,
 		Player = player,
@@ -2074,6 +2093,26 @@ RunService.Heartbeat:Connect(function(deltaTime)
 	updatePickupHomings(math.min(elapsed, 0.5))
 end)
 
+local function isValidFreshGroundDropReveal(reveal)
+	local entry = reveal.Entry
+	local model = reveal.Model
+	local record = entry and entry.LogRecord
+	return entry ~= nil
+		and model ~= nil
+		and entry.State == "Fresh"
+		and entry.ActiveGroundLogReveal == reveal
+		and entry.Model == model
+		and entry.Bundle == reveal.Bundle
+		and entry.Drop == reveal.Drop
+		and type(record) == "table"
+		and record.ItemType == "Log"
+		and record.UID == reveal.UID
+		and model:GetAttribute("UID") == reveal.UID
+		and model:GetAttribute("OwnerUserId") == entry.OwnerUserId
+		and model:GetAttribute("GroundLogState") == "Fresh"
+		and isActiveGroundDropEntry(reveal.Bundle, reveal.Drop, reveal.UID, entry)
+end
+
 local function animateGroundDropReveal(reveals)
 	if #reveals == 0 then return end
 	local startedAt = os.clock()
@@ -2082,43 +2121,49 @@ local function animateGroundDropReveal(reveals)
 		local elapsed = os.clock() - startedAt
 		local alpha = math.clamp(elapsed / GROUND_LOG_REVEAL_DURATION, 0, 1)
 		local eased = 1 - (1 - alpha) ^ 3
+		local hasPendingReveal = false
 		for _, reveal in ipairs(reveals) do
-			local entry = reveal.Entry
-			local model = reveal.Model
-			if isActiveGroundDropEntry(reveal.Bundle, reveal.Drop, reveal.UID, entry)
-				and entry.PickupEnabled == false
-				and model:GetAttribute("PickupEnabled") == false then
-				local position = reveal.StartPosition:Lerp(reveal.FinalCFrame.Position, eased)
-				position += Vector3.yAxis * (math.sin(math.pi * alpha) * GROUND_LOG_REVEAL_ARC_HEIGHT)
-				-- Keep the log aligned with its final ground orientation throughout
-				-- the reveal. The arc supplies the motion; no spin or wobble is needed.
-				model:PivotTo(CFrame.new(position) * reveal.FinalCFrame.Rotation)
+			if not reveal.Cancelled and not reveal.Completed then
+				if not isValidFreshGroundDropReveal(reveal) then
+					-- A claimed, replaced, or otherwise unregistered model must never
+					-- resume this old reveal if its entry later returns to Fresh.
+					reveal.Cancelled = true
+					if reveal.Entry.ActiveGroundLogReveal == reveal then
+						reveal.Entry.ActiveGroundLogReveal = nil
+					end
+				elseif alpha >= 1 then
+					local entry = reveal.Entry
+					local model = reveal.Model
+					model:PivotTo(reveal.FinalCFrame)
+					for part, finalTransparency in pairs(entry.RevealPartTransparencies or {}) do
+						if part:IsDescendantOf(model) then
+							part.Transparency = finalTransparency
+						end
+					end
+					entry.RevealPartTransparencies = nil
+					entry.ActiveGroundLogReveal = nil
+					reveal.Completed = true
+				else
+					hasPendingReveal = true
+					local entry = reveal.Entry
+					local model = reveal.Model
+					local position = reveal.StartPosition:Lerp(reveal.FinalCFrame.Position, eased)
+					position += Vector3.yAxis * (math.sin(math.pi * alpha) * GROUND_LOG_REVEAL_ARC_HEIGHT)
+					-- Keep the log aligned with its final ground orientation throughout
+					-- the reveal. The arc supplies the motion; no spin or wobble is needed.
+					model:PivotTo(CFrame.new(position) * reveal.FinalCFrame.Rotation)
 
-				for part, finalTransparency in pairs(entry.RevealPartTransparencies or {}) do
-					if part.Parent then
-						part.Transparency = 1 - ((1 - finalTransparency) * eased)
+					for part, finalTransparency in pairs(entry.RevealPartTransparencies or {}) do
+						if part:IsDescendantOf(model) then
+							part.Transparency = 1 - ((1 - finalTransparency) * eased)
+						end
 					end
 				end
 			end
 		end
 
-		if alpha >= 1 then
+		if not hasPendingReveal then
 			connection:Disconnect()
-			for _, reveal in ipairs(reveals) do
-				local entry = reveal.Entry
-				local model = reveal.Model
-				if isActiveGroundDropEntry(reveal.Bundle, reveal.Drop, reveal.UID, entry)
-					and entry.PickupEnabled == false
-					and model:GetAttribute("PickupEnabled") == false then
-					model:PivotTo(reveal.FinalCFrame)
-					for part, finalTransparency in pairs(entry.RevealPartTransparencies or {}) do
-						if part.Parent then
-							part.Transparency = finalTransparency
-						end
-					end
-					entry.RevealPartTransparencies = nil
-				end
-			end
 		end
 	end)
 end
@@ -2139,7 +2184,6 @@ function LogService.EnableGroundLogBatch(harvestBatchId)
 						and isActiveGroundDropEntry(bundle, drop, uid, entry) then
 						entry.PickupEnabled = true
 						entry.Model:SetAttribute("PickupEnabled", true)
-						entry.RevealPartTransparencies = nil
 					end
 				end
 			end
@@ -2460,7 +2504,7 @@ local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, harvestB
 		drop.LogRecordsByUid[logRecord.UID] = entry
 		drop.Count += 1
 		if hiddenUntilReveal then
-			table.insert(reveals, {
+			local reveal = {
 				Bundle = bundle,
 				Drop = drop,
 				UID = logRecord.UID,
@@ -2468,7 +2512,9 @@ local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, harvestB
 				Model = model,
 				StartPosition = startPosition,
 				FinalCFrame = groundCFrame,
-			})
+			}
+			entry.ActiveGroundLogReveal = reveal
+			table.insert(reveals, reveal)
 		end
 
 		scheduleGroundDropExpiry(bundle, logRecord.UID, entry)
