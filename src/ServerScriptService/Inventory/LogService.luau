@@ -743,9 +743,10 @@ refreshPileExpiry = function(pile, action, now)
 	end
 
 	now = now or os.clock()
-	pile.ExpiryGeneration = (pile.ExpiryGeneration or 0) + 1
-	local generation = pile.ExpiryGeneration
-	pile.ExpiresAt = pile.LastAddedAt + getPileLifetimeSeconds(pile.ItemCount)
+	local previousExpiry = if type(pile.ExpiresAt) == "number" then pile.ExpiresAt else 0
+	local proposedExpiry = now + getPileLifetimeSeconds(pile.ItemCount)
+	pile.ExpiresAt = math.max(previousExpiry, proposedExpiry)
+	local expiryExtended = pile.ExpiresAt > previousExpiry
 	for _, entry in pairs(pile.ItemsByUid) do
 		if entry and entry.PileId == pile.PileId and entry.OwnerUserId == pile.OwnerUserId then
 			entry.ExpiresAt = pile.ExpiresAt
@@ -755,9 +756,11 @@ refreshPileExpiry = function(pile, action, now)
 			end
 		end
 	end
-	schedulePileExpiry(pile, generation)
-	local timeLabel = if action == "SHRINK" then "remaining" else "expiresIn"
-	debugPileLifetime(action, pile, string.format("%s=%.1f", timeLabel, pile.ExpiresAt - now))
+	if expiryExtended then
+		pile.ExpiryGeneration = (pile.ExpiryGeneration or 0) + 1
+		schedulePileExpiry(pile, pile.ExpiryGeneration)
+	end
+	debugPileLifetime(action, pile, string.format("expiresIn=%.1f", pile.ExpiresAt - now))
 	return true
 end
 
@@ -869,9 +872,9 @@ local function unregisterPileMembership(ownerUserId, uid, entry)
 			debugPileLifetime("REMOVE_EMPTY", pile)
 			removePileFromRegistry(pile)
 		else
-			-- Removal is not activity: preserve LastAddedAt so a smaller pile can
-			-- expire immediately when its new size tier is already overdue.
-			refreshPileExpiry(pile, "SHRINK", os.clock())
+			-- Shrinking is not activity. Preserve the earned deadline and let its
+			-- existing generation-safe callback remain authoritative.
+			debugPileLifetime("SHRINK", pile, string.format("remaining=%.1f", pile.ExpiresAt - os.clock()))
 		end
 	end
 	if entry and entry.PileId == pileId then
