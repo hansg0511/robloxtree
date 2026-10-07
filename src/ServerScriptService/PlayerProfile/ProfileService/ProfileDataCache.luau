@@ -4,6 +4,7 @@ local profileBindableEvent = playerProfileFolder.ProfileInit.ProfileLoadedEvent
 local profileRemoteEvent = game.ReplicatedStorage.Profile.ProfileLoadEvent
 local ProfileService = playerProfileFolder.ProfileService
 local AxeShopCatalog = require(game.ServerScriptService.Economy.AxeShopCatalog)
+local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
 
 local PlayerProfileCache = {}
 
@@ -15,6 +16,160 @@ local function isNonnegativeInteger(value)
 		and value >= 0
 		and value < math.huge
 		and value % 1 == 0
+end
+
+local MAX_GROVE_UID_LENGTH = 80
+local MAX_GROVE_COORDINATE = 512
+local MIN_SIZE_POTENTIAL = 0.1
+local MAX_SIZE_POTENTIAL = 2
+
+local function isFiniteNumber(value)
+	return type(value) == "number"
+		and value == value
+		and value > -math.huge
+		and value < math.huge
+end
+
+local function isValidGroveUID(value)
+	return type(value) == "string"
+		and #value > 0
+		and #value <= MAX_GROVE_UID_LENGTH
+		and string.match(value, "%S") ~= nil
+		and string.match(value, "[%c]") == nil
+end
+
+local function copyGroveMutations(value)
+	local copy = {}
+	if type(value) ~= "table" then return copy end
+	for key, mutation in pairs(value) do
+		if type(key) == "string" and #key > 0 and #key <= 80 and string.match(key, "[%c]") == nil then
+			local mutationType = type(mutation)
+			if mutationType == "string" and #mutation <= 80 and string.match(mutation, "[%c]") == nil then
+				copy[key] = mutation
+			elseif mutationType == "boolean" then
+				copy[key] = mutation
+			elseif mutationType == "number" and isFiniteNumber(mutation) then
+				copy[key] = mutation
+			end
+		end
+	end
+	return copy
+end
+
+local function isValidGroveBaseRecord(record)
+	return type(record) == "table"
+		and isValidGroveUID(record.UID)
+		and type(record.SpeciesId) == "string"
+		and MaterialDefinitions.Get(record.SpeciesId) ~= nil
+		and isFiniteNumber(record.SizePotential)
+		and record.SizePotential >= MIN_SIZE_POTENTIAL
+		and record.SizePotential <= MAX_SIZE_POTENTIAL
+end
+
+local function countRecordUIDs(records, counts)
+	if type(records) ~= "table" then return end
+	for _, record in pairs(records) do
+		if type(record) == "table" and isValidGroveUID(record.UID) then
+			counts[record.UID] = (counts[record.UID] or 0) + 1
+		end
+	end
+end
+
+-- Grove profile values are deliberately rebuilt from primitive fields only.
+-- This drops Instances/userdata, malformed rows, duplicate record IDs, and
+-- invalid world-placement/timestamp values before they can become runtime trees.
+function PlayerProfileCache.NormalizeGroveData(data)
+	if type(data) ~= "table" then return false end
+
+	local rawSaplings = data.Saplings
+	local rawGroveTrees = data.GroveTrees
+	local uidCounts = {}
+	countRecordUIDs(rawSaplings, uidCounts)
+	countRecordUIDs(rawGroveTrees, uidCounts)
+
+	local saplings = {}
+	local acceptedRecordUIDs = {}
+	if type(rawSaplings) == "table" then
+		for _, record in pairs(rawSaplings) do
+			if isValidGroveBaseRecord(record)
+				and isFiniteNumber(record.CreatedAt)
+				and record.CreatedAt >= 0
+				and uidCounts[record.UID] == 1 then
+				table.insert(saplings, {
+					UID = record.UID,
+					SpeciesId = record.SpeciesId,
+					Mutations = copyGroveMutations(record.Mutations),
+					SizePotential = record.SizePotential,
+					CreatedAt = record.CreatedAt,
+				})
+				acceptedRecordUIDs[record.UID] = true
+			end
+		end
+	end
+
+	local rawGroveTreeUIDCounts = {}
+	local sourceUIDCounts = {}
+	if type(rawGroveTrees) == "table" then
+		for _, record in pairs(rawGroveTrees) do
+			if type(record) == "table" then
+				if isValidGroveUID(record.UID) then
+					rawGroveTreeUIDCounts[record.UID] = (rawGroveTreeUIDCounts[record.UID] or 0) + 1
+				end
+				if isValidGroveUID(record.SourceSaplingUID) then
+					sourceUIDCounts[record.SourceSaplingUID] = (sourceUIDCounts[record.SourceSaplingUID] or 0) + 1
+				end
+			end
+		end
+	end
+
+	local groveTrees = {}
+	local seenSourceUIDs = {}
+	if type(rawGroveTrees) == "table" then
+		for _, record in pairs(rawGroveTrees) do
+			if isValidGroveBaseRecord(record)
+				and isValidGroveUID(record.SourceSaplingUID)
+				and record.SourceSaplingUID ~= record.UID
+				and uidCounts[record.SourceSaplingUID] == nil
+				and not seenSourceUIDs[record.SourceSaplingUID]
+				and sourceUIDCounts[record.SourceSaplingUID] == 1
+				and rawGroveTreeUIDCounts[record.UID] == 1
+				and uidCounts[record.UID] == 1
+				and isFiniteNumber(record.LocalX)
+				and math.abs(record.LocalX) <= MAX_GROVE_COORDINATE
+				and isFiniteNumber(record.LocalZ)
+				and math.abs(record.LocalZ) <= MAX_GROVE_COORDINATE
+				and isFiniteNumber(record.Yaw)
+				and math.abs(record.Yaw) <= math.pi * 2
+				and isFiniteNumber(record.PlantedAt)
+				and record.PlantedAt >= 0
+				and isFiniteNumber(record.MaturesAt)
+				and record.MaturesAt > record.PlantedAt then
+				table.insert(groveTrees, {
+					UID = record.UID,
+					SourceSaplingUID = record.SourceSaplingUID,
+					SpeciesId = record.SpeciesId,
+					Mutations = copyGroveMutations(record.Mutations),
+					SizePotential = record.SizePotential,
+					LocalX = record.LocalX,
+					LocalZ = record.LocalZ,
+					Yaw = record.Yaw,
+					PlantedAt = record.PlantedAt,
+					MaturesAt = record.MaturesAt,
+				})
+				acceptedRecordUIDs[record.UID] = true
+				seenSourceUIDs[record.SourceSaplingUID] = true
+			end
+		end
+	end
+
+	local activeUIDs = {}
+	for _, record in ipairs(groveTrees) do
+		table.insert(activeUIDs, record.UID)
+	end
+	data.Saplings = saplings
+	data.GroveTrees = groveTrees
+	data.ActiveGroveTreeUIDs = activeUIDs
+	return true
 end
 
 local function normalizeProgressionData(data)
@@ -61,6 +216,7 @@ export type PlayerProfileCache = {
 	Get: (player: Player) -> (profileType.PlayerData),
 	Remove: (player: Player) -> (),
 	NormalizeCarryCapacity: (data: { [string]: any }) -> number,
+	NormalizeGroveData: (data: { [string]: any }) -> boolean,
 	FireLoaded: (profile: profileType.PlayerData) -> ()
 }
 
@@ -96,6 +252,7 @@ end
 function PlayerProfileCache.Set(player: Player, profile)
 	if profile and type(profile.Data) == "table" then
 		PlayerProfileCache.NormalizeCarryCapacity(profile.Data)
+		PlayerProfileCache.NormalizeGroveData(profile.Data)
 		normalizeProgressionData(profile.Data)
 	end
 	BuildRuntime(profile)

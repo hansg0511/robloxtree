@@ -20,6 +20,29 @@ export type LogItem = {
 	CreatedAt: number,
 }
 
+export type GroveMutations = { [string]: string | number | boolean }
+
+export type Sapling = {
+	UID: string,
+	SpeciesId: string,
+	Mutations: GroveMutations,
+	SizePotential: number,
+	CreatedAt: number,
+}
+
+export type GroveTree = {
+	UID: string,
+	SourceSaplingUID: string,
+	SpeciesId: string,
+	Mutations: GroveMutations,
+	SizePotential: number,
+	LocalX: number,
+	LocalZ: number,
+	Yaw: number,
+	PlantedAt: number,
+	MaturesAt: number,
+}
+
 export type AxeHeadCounts = { [string]: number }
 
 export type RunProgress = {
@@ -30,6 +53,9 @@ export type RunProgress = {
 export type PlayerData = {
 	Inventory: { InventoryItem },
 	Logs: { LogItem },
+	Saplings: { Sapling },
+	GroveTrees: { GroveTree },
+	ActiveGroveTreeUIDs: { string },
 	AxeHeads: AxeHeadCounts,
 	RunProgress: RunProgress,
 	CarryCapacityKg: number,

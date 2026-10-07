@@ -1,5 +1,6 @@
 local Players = game:GetService("Players")
 local PlotManager = require(game.ServerStorage.PlotManager)
+local GroveService = require(game.ServerScriptService.Grove.GroveService)
 local profileLoaded = game.ServerScriptService.PlayerProfile.ProfileInit.ProfileLoadedEvent
 
 PlotManager.buildPlots()
@@ -12,14 +13,14 @@ local function onProfileLoaded(player)
 		return
 	end
 
-	-- One temporary tree keeps the chop path testable. It deliberately uses a
-	-- free position within the GroveArea instead of a fixed planting marker.
-	local tree = PlotManager.CreateTree(player, PlotManager.GetPreviewTreeCFrame(player))
-	if tree then tree:Spawn() end
+	GroveService.RestorePlayer(player)
 end
 
 profileLoaded.Event:Connect(onProfileLoaded)
-Players.PlayerRemoving:Connect(PlotManager.CleanUp)
+Players.PlayerRemoving:Connect(function(player)
+	GroveService.CleanUp(player)
+	PlotManager.CleanUp(player)
+end)
 
 for _, player in ipairs(Players:GetPlayers()) do
 	if player:GetAttribute("ProfileReady") then

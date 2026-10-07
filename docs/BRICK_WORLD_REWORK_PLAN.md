@@ -29,17 +29,26 @@ The Git archive includes the 2026-10-01 full place (`archive/pre-gameplay-rework
 - Old passive-plot/bush presentation, `Tree Minecraft`, and decorative platform assets.
 - Studio-owned mountains, terrain layout, Forge, Anvil, crafting table and other old world decoration, once a fresh full-place snapshot exists.
 
-The old `Basic` tree mesh was replaced by a source-built chunky brick placeholder and verified in Studio. It is only a smoke-test target, not final art. The cleaned `BrickWorldBase.rbxl` place is tracked as the active minimal Studio shell.
+The old `Basic` tree mesh was replaced by source-built chunky brick visuals. `BasicGrove` remains only as a legacy definition and is non-choppable, non-yielding, and non-respawning. The cleaned `BrickWorldBase.rbxl` place is tracked as the active minimal Studio shell.
+
+## Personal Grove Milestone 1
+
+- Profiles own primitive `Saplings`, `GroveTrees`, and `ActiveGroveTreeUIDs` records. A planted tree gets a new UID and keeps its consumed sapling UID as `SourceSaplingUID`; mutations and size potential are copied server-side.
+- Grove positions persist as local `LocalX`/`LocalZ` values and server-derived `Yaw`, then rebuild relative to the currently assigned `GroveArea`. Plot numbers and world-space CFrames are not saved.
+- `PlantedAt`/`MaturesAt` determine sapling, young, and mature stages. TreeObject models are disposable runtime views, restored after plot assignment and destroyed on cleanup while profile records remain.
+- Grove runtime trees have species-correct visuals and cannot be chopped, yield logs, or respawn. Harvesting, rewards, mutations, persistence backend changes, and the final grove art loop remain deferred.
+- The only development seed seam is a Studio-only numeric UserId allowlist that idempotently adds two Oak, two Bamboo, and two Ironwood sapling records without replacing inventory.
 
 ## Stable interfaces
 
 - `ProfileLoadedEvent` and `ProfileLoadEvent` readiness signals.
 - `ChopEvent` remains an intent-only client request with no target payload. The server selects the closest eligible tree and cannot receive damage, HP, crits, rewards, RNG, or progression state from the client.
+- `Grove.GetGroveStateRF` returns sanitized grove snapshots; `Grove.PlantSaplingRE` accepts only `(saplingUID, localX, localZ)`, and `Grove.GroveStateUpdatedRE` publishes state after planting/restoration.
 - Inventory item UID records and the existing `EconomyUpdated(currency, amount)` outbound display contract.
 
 `WorldProgressService` is the temporary server-only forest eligibility seam. Base and Forest 1 access are available for this scaffold; Forest 2 access is denied until server gameplay unlocks it. No barrier or Forest 2 content is implemented here.
 
-Server-only tree definitions and registration may change internally. Public forest, barrier, boss, grove growing, selling, rebirth, Bark, Sharpness, and new reward formulas remain future work.
+Server-only tree definitions and registration may change internally. Public forest, barrier, boss, Grove harvesting, selling, rebirth, Bark, Sharpness, and new reward formulas remain future work.
 
 ## Verification and rollback
 

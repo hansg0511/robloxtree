@@ -8,14 +8,26 @@ local TreeDefinitions = {
 		SpeciesId = "Oak",
 		-- Personal-grove trees do not yield cargo, but retain the same species
 		-- identity as the starter forest for visuals.
-		-- This temporary plot smoke-test tree must never become a free base farm.
+		-- Legacy scaffold: it is retained for compatibility but cannot be chopped,
+		-- reward logs, or respawn as a free base farm.
 		YieldsLog = false,
-		RespawnSeconds = 3,
 		OwnerOnly = true,
-		Choppable = true,
+		Choppable = false,
 		ForestId = "Base",
 		InteractionPartName = "ChopHitbox",
 		ChopRadius = 6,
+	},
+	PersistentGroveTree = {
+		Category = "Grove",
+		ModelName = "StarterForestTree",
+		MaxHP = 1,
+		SpeciesId = "Oak",
+		YieldsLog = false,
+		OwnerOnly = true,
+		Choppable = false,
+		ForestId = "Base",
+		InteractionPartName = "ChopHitbox",
+		ChopRadius = 0,
 	},
 	StarterForestTree = {
 		Category = "Grove",

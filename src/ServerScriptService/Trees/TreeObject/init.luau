@@ -354,6 +354,18 @@ local SOURCE_BUILT_MODELS = {
 	BarrierTree = makeBarrierTree,
 }
 
+local GROVE_MODEL_BY_SPECIES = {
+	Oak = "StarterForestTree",
+	Bamboo = "BambooClump",
+	Ironwood = "Forest2Tree",
+}
+
+local GROVE_STAGE_SCALE = {
+	sapling = 0.18,
+	young = 0.52,
+	mature = 1,
+}
+
 Tree.ActiveTrees = {}
 Tree._nextCreationId = 0
 
@@ -388,6 +400,31 @@ function Tree.new(options)
 	self.UnlockForestId = definition.UnlockForestId
 	self.InteractionPartName = definition.InteractionPartName
 	self.ChopRadius = definition.ChopRadius
+	self.IsPersistentGrove = options.DefinitionId == "PersistentGroveTree"
+	if self.IsPersistentGrove then
+		local modelName = GROVE_MODEL_BY_SPECIES[options.SpeciesId]
+		local sizePotential = options.SizePotential
+		local plantedAt = options.PlantedAt
+		local maturesAt = options.MaturesAt
+		assert(type(options.GroveTreeUID) == "string" and #options.GroveTreeUID > 0, "Persistent Grove tree UID required")
+		assert(type(options.SourceSaplingUID) == "string" and #options.SourceSaplingUID > 0, "Persistent Grove source UID required")
+		assert(modelName ~= nil and MaterialDefinitions.Get(options.SpeciesId) ~= nil, "Unknown Persistent Grove species")
+		assert(type(sizePotential) == "number" and sizePotential == sizePotential and sizePotential >= 0.1 and sizePotential <= 2, "Invalid Persistent Grove size potential")
+		assert(type(plantedAt) == "number" and plantedAt == plantedAt and plantedAt >= 0 and plantedAt < math.huge, "Invalid Persistent Grove planting time")
+		assert(type(maturesAt) == "number" and maturesAt > plantedAt and maturesAt < math.huge, "Invalid Persistent Grove maturity time")
+		self.ModelName = modelName
+		self.SpeciesId = options.SpeciesId
+		self.GroveTreeUID = options.GroveTreeUID
+		self.SourceSaplingUID = options.SourceSaplingUID
+		self.GroveSizePotential = sizePotential
+		self.GrovePlantedAt = plantedAt
+		self.GroveMaturesAt = maturesAt
+		self.GroveStage = if GROVE_STAGE_SCALE[options.GroveStage] then options.GroveStage else "sapling"
+		self.YieldsLog = false
+		self.RespawnSeconds = nil
+		self.OwnerOnly = true
+		self.Choppable = false
+	end
 	self.Parent = options.Parent
 	self.CFrame = options.CFrame
 	self.isDead = false
@@ -405,7 +442,9 @@ function Tree:Spawn()
 	local hasLogDrop = self.YieldsLog
 		and self.Category ~= "Barrier"
 		and hasKnownMaterial
-	self.SizeScale = if type(self.FixedSizeScale) == "number" and self.FixedSizeScale > 0
+	self.SizeScale = if self.IsPersistentGrove
+		then self.GroveSizePotential
+		elseif type(self.FixedSizeScale) == "number" and self.FixedSizeScale > 0
 		then self.FixedSizeScale
 		elseif hasLogDrop
 		then rollTreeScale()
@@ -429,7 +468,11 @@ function Tree:Spawn()
 		model = template:Clone()
 	end
 	model.Name = "Tree"
-	model:ScaleTo(self.SizeScale)
+	local modelScale = self.SizeScale
+	if self.IsPersistentGrove then
+		modelScale *= GROVE_STAGE_SCALE[self.GroveStage]
+	end
+	model:ScaleTo(modelScale)
 	model:PivotTo(self.CFrame)
 	model.Parent = self.Parent
 	-- Keep useful read-only identity metadata on every lifecycle incarnation,
@@ -440,6 +483,16 @@ function Tree:Spawn()
 	model:SetAttribute("SizeScale", self.SizeScale)
 	model:SetAttribute("MaxHP", self.MaxHP)
 	if self.SpeciesId then model:SetAttribute("SpeciesId", self.SpeciesId) end
+	if self.IsPersistentGrove then
+		model:SetAttribute("PersistentGrove", true)
+		model:SetAttribute("OwnerUserId", self.OwnerUserId)
+		model:SetAttribute("GroveTreeUID", self.GroveTreeUID)
+		model:SetAttribute("SourceSaplingUID", self.SourceSaplingUID)
+		model:SetAttribute("GroveStage", self.GroveStage)
+		model:SetAttribute("GroveSizeScale", modelScale)
+		model:SetAttribute("GrovePlantedAt", self.GrovePlantedAt)
+		model:SetAttribute("GroveMaturesAt", self.GroveMaturesAt)
+	end
 	self.model = model
 	self.isDead = false
 	local interactionPart = model:FindFirstChild(self.InteractionPartName, true)
@@ -452,6 +505,20 @@ function Tree:Spawn()
 	self.InteractionPart = interactionPart
 	self:BuildLeafPool()
 	return model
+end
+
+function Tree:SetGroveStage(stage)
+	local stageScale = GROVE_STAGE_SCALE[stage]
+	if not self.IsPersistentGrove or not stageScale then return false end
+	self.GroveStage = stage
+	local model = self.model
+	if model and model.Parent then
+		local modelScale = self.GroveSizePotential * stageScale
+		model:ScaleTo(modelScale)
+		model:SetAttribute("GroveStage", stage)
+		model:SetAttribute("GroveSizeScale", modelScale)
+	end
+	return true
 end
 
 function Tree:BuildLeafPool()
@@ -470,6 +537,7 @@ end
 
 function Tree:CanChop(player)
 	if self.destroyed or self.isDead or not self.Choppable or not self.model or not self.model.Parent then return false end
+	if self.IsPersistentGrove then return false end
 	if self.OwnerOnly and self.OwnerUserId ~= player.UserId then return false end
 	return true
 end
@@ -566,6 +634,7 @@ end
 
 function Tree:Die(player)
 	if self.isDead or self.destroyed then return end
+	if self.IsPersistentGrove then return end
 	self.isDead = true
 	local fallenModel = self.model
 	local fallRotation = FXService.GetTreeFallRotation(fallenModel, player)
@@ -599,7 +668,7 @@ function Tree:Die(player)
 end
 
 function Tree:Respawn()
-	if self.destroyed then return end
+	if self.destroyed or self.IsPersistentGrove then return end
 	self.HP = self.MaxHP
 	local model = self:Spawn()
 	if model then FXService:FadeIn(model) end

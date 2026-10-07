@@ -1,7 +1,6 @@
 local PlotManager = {}
 
 local Workspace = game:GetService("Workspace")
-local TreeObject = require(game.ServerScriptService.Trees.TreeObject)
 local PlotConfiguration = require(game.ServerStorage.PlotConfiguration)
 
 local PLOT_COUNT = PlotConfiguration.MAX_PLOTS
@@ -11,7 +10,6 @@ local PLOT_COLOR = PlotConfiguration.PLOT_COLOR
 local PLOT_CENTERS = PlotConfiguration.PLOT_CENTERS
 
 PlotManager.playerPlotMap = {}
-PlotManager.playerTrees = {}
 PlotManager.MAX_PLOTS = PLOT_COUNT
 
 local function getPlotContainer()
@@ -114,51 +112,7 @@ function PlotManager.GetGroveArea(player)
 	return plot.PlotModel.GroveArea
 end
 
-local function containsPosition(area, position)
-	local localPosition = area.CFrame:PointToObjectSpace(position)
-	local halfSize = area.Size * 0.5
-	return math.abs(localPosition.X) <= halfSize.X and math.abs(localPosition.Z) <= halfSize.Z
-end
-
-function PlotManager.GetPreviewTreeCFrame(player)
-	local area = PlotManager.GetGroveArea(player)
-	if not area then return nil end
-	-- A temporary smoke-test tree gets a fresh open-area position. Real planting
-	-- will supply a stored world position rather than inheriting a fixed slot.
-	local random = Random.new()
-	local halfSize = area.Size * 0.5
-	return area.CFrame * CFrame.new(
-		random:NextNumber(-halfSize.X + 7, halfSize.X - 7),
-		0,
-		random:NextNumber(-halfSize.Z + 7, halfSize.Z - 7)
-	)
-end
-
-function PlotManager.CreateTree(player, treeCFrame)
-	local plot = PlotManager.playerPlotMap[player]
-	if not plot then return nil end
-	local area = plot.PlotModel:FindFirstChild("GroveArea")
-	if not area then return nil end
-	if typeof(treeCFrame) == "Vector3" then treeCFrame = CFrame.new(treeCFrame) end
-	if typeof(treeCFrame) ~= "CFrame" or not containsPosition(area, treeCFrame.Position) then return nil end
-
-	local tree = TreeObject.new({
-		DefinitionId = "BasicGrove",
-		Parent = plot.PlotModel,
-		CFrame = treeCFrame,
-		OwnerUserId = player.UserId,
-	})
-	PlotManager.playerTrees[player] = PlotManager.playerTrees[player] or {}
-	table.insert(PlotManager.playerTrees[player], tree)
-	return tree
-end
-
 function PlotManager.CleanUp(player)
-	for _, tree in pairs(PlotManager.playerTrees[player] or {}) do
-		tree:Destroy()
-	end
-	PlotManager.playerTrees[player] = nil
-
 	local plot = PlotManager.playerPlotMap[player]
 	if plot then
 		-- Never clear a plot that was reassigned after this player's old state.

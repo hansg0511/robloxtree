@@ -20,6 +20,11 @@ local ProfileTemplate = {
 	},
 	-- One unique physical log per record; material kg cost is resolved server-side.
 	Logs = {},
+	-- Personal Grove ownership is stored as primitive profile records. Runtime
+	-- TreeObjects and world transforms are rebuilt after the player's plot loads.
+	Saplings = {},
+	GroveTrees = {},
+	ActiveGroveTreeUIDs = {},
 	-- Axe heads are crafting materials, never equipable Tools.
 	AxeHeads = {
 		copper_head = 0,
@@ -89,6 +94,7 @@ local function PlayerAdded(player)
 			and priorTier >= 0
 			and priorTier % 1 == 0
 		profile:Reconcile() -- Fill in missing variables from ProfileTemplate (optional)
+		profileCache.NormalizeGroveData(profile.Data)
 		if not hadValidStandardAxeTier then
 			-- One-time legacy migration: direct-purchased Copper/Iron weapons already
 			-- owned before the schema existed count as reached tiers. Axe Heads alone
@@ -105,6 +111,8 @@ local function PlayerAdded(player)
 			profile.Data.RunProgress.StandardAxeTier = highestOwnedTier
 		end
 		DevelopmentLoadouts.ApplyStudioPreset(player, profile.Data)
+		DevelopmentLoadouts.ApplyGroveSaplings(player, profile.Data)
+		profileCache.NormalizeGroveData(profile.Data)
 		profile:ListenToRelease(function()
 			profileCache.Remove(player)
 			-- The profile could've been loaded on another Roblox server:
