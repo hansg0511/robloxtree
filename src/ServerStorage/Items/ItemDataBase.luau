@@ -100,6 +100,7 @@ function itemDataBase.ParseItem(item: IMS.ITEM_TYPE)
 	local weaponData = type(item.WeaponData) == "table" and deepCopy(item.WeaponData) or nil
 
 	return {
+		ItemID = item.ItemID,
 		ItemName = itemInfo.Name,
 		ItemIcon = itemInfo.Icon,
 		ItemType = itemInfo.Type,
