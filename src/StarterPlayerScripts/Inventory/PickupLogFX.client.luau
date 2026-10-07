@@ -59,12 +59,15 @@ local WORLD_CAP_DIAMETER_RATIO = 0.88
 local CARRY_CAP_DIAMETER_RATIO = 0.88
 local GROUND_TO_CARRY_SCALE = 4
 local DEFAULT_POP_DURATION = 0.10
-local DEFAULT_PICKUP_HOMING_SPEED = 24
+local DEFAULT_PICKUP_HOMING_SPEED = 40
 local DEFAULT_PICKUP_ARRIVAL_RADIUS = 2.5
 local LOCAL_PLAYER_HOLD_RADIUS = 1.5
 local LOCAL_HOLD_OFFSET_RADIUS = 1.7
 local DEFAULT_CARRY_SETTLE_DURATION = 0.16
 local DEFAULT_OVERFLOW_SETTLE_DURATION = 0.28
+local OVERFLOW_FAR_HANDOFF_THRESHOLD = 12
+local OVERFLOW_FAR_HANDOFF_MAX_DISTANCE = 24
+local OVERFLOW_FAR_HANDOFF_DURATION = 0.12
 local FOLLOW_ORIENTATION_RESPONSE = 10
 local MAX_CLIENT_HOMING_LIFETIME = 45
 local DEBUG_PICKUP_HOMING = false
@@ -444,18 +447,53 @@ local function getCarrySettleTarget(flight, torso)
 	return torso.CFrame * anchorRelativeTarget
 end
 
-local function beginFinalSettle(flight)
-	if flight.State == "CarrySettle" or flight.State == "OverflowSettle" then return end
-	if not flight.LocalReached or not flight.Resolution then return end
-	if flight.Resolution.Kind == "Overflow"
-		and flight.OverflowSettleNotBefore
-		and os.clock() < flight.OverflowSettleNotBefore then
-		return
+local function getCurrentVisualCFrame(flight)
+	if flight.Body and flight.Body.Parent then
+		return flight.Body.CFrame
 	end
+	return CFrame.new(flight.CurrentPosition) * flight.Rotation
+end
 
-	flight.SettleStartCFrame = CFrame.new(flight.CurrentPosition) * flight.Rotation
+local function startResolvedSettle(flight)
+	local currentCFrame = getCurrentVisualCFrame(flight)
+	flight.CurrentPosition = currentCFrame.Position
+	flight.Rotation = currentCFrame.Rotation
+	flight.SettleStartCFrame = currentCFrame
 	flight.SettleElapsed = 0
 	flight.State = flight.Resolution.Kind == "Carry" and "CarrySettle" or "OverflowSettle"
+end
+
+local function beginFinalSettle(flight, root)
+	if flight.State == "CarrySettle" or flight.State == "OverflowSettle" or flight.State == "OverflowHandoff" then
+		return
+	end
+	if not flight.Resolution then return end
+	if flight.Resolution.Kind == "Carry" then
+		if not flight.LocalReached then return end
+	elseif flight.Resolution.Kind == "Overflow" then
+		if flight.OverflowSettleNotBefore and os.clock() < flight.OverflowSettleNotBefore then
+			return
+		end
+
+		local currentCFrame = getCurrentVisualCFrame(flight)
+		local playerTarget = root.Position + Vector3.new(0, 0.35, 0)
+		if (currentCFrame.Position - playerTarget).Magnitude > OVERFLOW_FAR_HANDOFF_THRESHOLD then
+			local now = os.clock()
+			flight.OverflowHandoffStartCFrame = currentCFrame
+			flight.OverflowHandoffTargetPosition = moveToward(
+				currentCFrame.Position,
+				playerTarget,
+				OVERFLOW_FAR_HANDOFF_MAX_DISTANCE
+			)
+			flight.OverflowHandoffStartedAt = now
+			flight.OverflowHandoffDeadline = now + OVERFLOW_FAR_HANDOFF_DURATION
+			flight.State = "OverflowHandoff"
+			debugHomingTransition("OVERFLOW_VISUAL_HANDOFF_START", flight)
+			return
+		end
+	end
+
+	startResolvedSettle(flight)
 end
 
 local function startHomingFlight(payload)
@@ -533,8 +571,9 @@ local function startHomingFlight(payload)
 			return
 		end
 		flight.Lifetime += deltaTime
-		local overflowInHold = flight.Outcome == "Overflow" and flight.State == "Hold"
-		if flight.Lifetime > MAX_CLIENT_HOMING_LIFETIME and not overflowInHold then
+		local overflowCanResolve = flight.Outcome == "Overflow"
+			and (flight.State == "Hold" or flight.Resolution ~= nil)
+		if flight.Lifetime > MAX_CLIENT_HOMING_LIFETIME and not overflowCanResolve then
 			debugHomingTransition("MISSING_RESOLUTION_TIMEOUT", flight)
 			cleanupFlight(key, flight)
 			return
@@ -564,6 +603,13 @@ local function startHomingFlight(payload)
 			flight.State = "Homing"
 			flight.CurrentPosition = sourceCFrame.Position + Vector3.new(0, 0.72, 0)
 		end
+		if (flight.State == "Homing" or flight.State == "Hold")
+			and flight.Resolution
+			and flight.Resolution.Kind == "Overflow" then
+			-- Retry every rendered frame after the cosmetic stagger. Overflow
+			-- resolution never depends on the visual crossing a local arrival radius.
+			beginFinalSettle(flight, root)
+		end
 		if flight.State == "Homing" or flight.State == "Hold" then
 			flight.Rotation = smoothFollowRotation(flight.Rotation, root, deltaTime)
 		end
@@ -591,7 +637,29 @@ local function startHomingFlight(payload)
 				flight.HomingSpeed * deltaTime
 			)
 			if flight.Resolution then
-				beginFinalSettle(flight)
+				beginFinalSettle(flight, root)
+			end
+		end
+
+		if flight.State == "OverflowHandoff" then
+			local now = os.clock()
+			local handoffT = math.clamp(
+				(now - flight.OverflowHandoffStartedAt) / OVERFLOW_FAR_HANDOFF_DURATION,
+				0,
+				1
+			)
+			local startCFrame = flight.OverflowHandoffStartCFrame
+			local position = startCFrame.Position:Lerp(
+				flight.OverflowHandoffTargetPosition,
+				smoothStep(handoffT)
+			)
+			flight.CurrentPosition = position
+			setHomingVisual(flight, position, startCFrame.Rotation, flight.StartVisualScale)
+			if now >= flight.OverflowHandoffDeadline then
+				debugHomingTransition("OVERFLOW_VISUAL_HANDOFF_COMPLETE", flight)
+				-- The handoff has a hard deadline. Settle from its current rendered
+				-- transform even if the visual remains far from the player.
+				startResolvedSettle(flight)
 			end
 		end
 
@@ -714,9 +782,6 @@ local function resolveHomingFlight(payload)
 	end
 
 	debugHomingTransition("RESOLUTION_RECEIVED", flight)
-	if flight.LocalReached then
-		beginFinalSettle(flight)
-	end
 end
 
 local function onPickupFX(payload)
