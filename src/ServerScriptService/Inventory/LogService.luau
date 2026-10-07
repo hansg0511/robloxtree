@@ -47,6 +47,7 @@ local PICKUP_HOMING_UPDATE_INTERVAL = 1 / PICKUP_HOMING_UPDATE_RATE
 local PICKUP_HOMING_ARRIVAL_RADIUS = 2.5
 local PICKUP_HOMING_TIMEOUT = 20
 local OVERFLOW_PILE_COMMIT_DELAY = 0.35
+local OVERFLOW_MIN_FOLLOW_TIME = 0.5
 local CARRY_FINAL_SETTLE_DURATION = 0.16
 local OVERFLOW_FINAL_SETTLE_DURATION = 0.28
 local GROUND_LOG_REVEAL_DURATION = 0.36
@@ -2049,7 +2050,10 @@ local function markServerOverflowArrival(pickup, now, root)
 	pickup.ServerArrived = true
 	pickup.ServerArrivedAt = now
 	pickup.Status = "AwaitingPileCommit"
-	pickup.PileCommitAt = now + OVERFLOW_PILE_COMMIT_DELAY
+	pickup.PileCommitAt = math.max(
+		now + OVERFLOW_PILE_COMMIT_DELAY,
+		pickup.StartedAt + OVERFLOW_MIN_FOLLOW_TIME
+	)
 	local entry = pickup.Entry
 	refreshAwaitingPileCommitLifetime(pickup, now)
 	debugPickupHoming("SERVER_REACHED_PLAYER", pickup.UID)
