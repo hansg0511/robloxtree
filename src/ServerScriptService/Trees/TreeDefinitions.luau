@@ -20,14 +20,14 @@ local TreeDefinitions = {
 	PersistentGroveTree = {
 		Category = "Grove",
 		ModelName = "StarterForestTree",
-		MaxHP = 1,
+		MaxHP = 60,
 		SpeciesId = "Oak",
 		YieldsLog = false,
 		OwnerOnly = true,
-		Choppable = false,
+		Choppable = true,
 		ForestId = "Base",
 		InteractionPartName = "ChopHitbox",
-		ChopRadius = 0,
+		ChopRadius = 7,
 	},
 	StarterForestTree = {
 		Category = "Grove",
@@ -86,6 +86,14 @@ local TreeDefinitions = {
 		InteractionPartName = "ChopHitbox",
 		ChopRadius = 10,
 	},
+}
+
+-- Persistent Grove runtime prototypes reuse the species-specific world models,
+-- HP and interaction radii without changing those world tree definitions.
+TreeDefinitions.PersistentGroveSpecies = {
+	Oak = { ModelName = "StarterForestTree", MaxHP = 60, ChopRadius = 7 },
+	Bamboo = { ModelName = "BambooClump", MaxHP = 18, ChopRadius = 5 },
+	Ironwood = { ModelName = "Forest2Tree", MaxHP = 180, ChopRadius = 8 },
 }
 
 TreeDefinitions.Categories = {

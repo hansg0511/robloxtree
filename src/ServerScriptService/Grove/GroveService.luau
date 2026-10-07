@@ -105,6 +105,24 @@ local function isValidGroveTree(record)
 		and record.MaturesAt > record.PlantedAt
 end
 
+local function isValidHeartwood(record)
+	return type(record) == "table"
+		and isValidUID(record.UID)
+		and record.MaterialType == "Heartwood"
+		and isKnownSpecies(record.SpeciesId)
+		and type(record.Mutations) == "table"
+		and isFiniteNumber(record.SizePotential)
+		and record.SizePotential >= MIN_SIZE_POTENTIAL
+		and record.SizePotential <= MAX_SIZE_POTENTIAL
+		and isValidUID(record.SourceGroveTreeUID)
+		and isValidUID(record.SourceSaplingUID)
+		and record.SourceGroveTreeUID ~= record.SourceSaplingUID
+		and record.UID ~= record.SourceGroveTreeUID
+		and record.UID ~= record.SourceSaplingUID
+		and isFiniteNumber(record.CreatedAt)
+		and record.CreatedAt >= 0
+end
+
 local function getProfileData(player)
 	if typeof(player) ~= "Instance" or not player:IsA("Player") or not player:IsDescendantOf(Players) then
 		return nil
@@ -171,6 +189,19 @@ local function copyGroveTree(record, now)
 	}
 end
 
+local function copyHeartwood(record)
+	return {
+		UID = record.UID,
+		MaterialType = "Heartwood",
+		SpeciesId = record.SpeciesId,
+		Mutations = copyMutations(record.Mutations),
+		SizePotential = record.SizePotential,
+		SourceGroveTreeUID = record.SourceGroveTreeUID,
+		SourceSaplingUID = record.SourceSaplingUID,
+		CreatedAt = record.CreatedAt,
+	}
+end
+
 function GroveService.GetState(player)
 	local data = getProfileData(player)
 	local _, _, area = getAssignedGrove(player)
@@ -181,6 +212,7 @@ function GroveService.GetState(player)
 		PlacementMargin = GroveService.Constants.PlacementMargin,
 		Saplings = {},
 		GroveTrees = {},
+		GroveMaterials = {},
 		ActiveGroveTreeUIDs = {},
 	}
 	if not data then return state end
@@ -194,7 +226,11 @@ function GroveService.GetState(player)
 	for _, groveTree in ipairs(data.GroveTrees) do
 		if isValidGroveTree(groveTree) then
 			table.insert(state.GroveTrees, copyGroveTree(groveTree, now))
-			table.insert(state.ActiveGroveTreeUIDs, groveTree.UID)
+		end
+	end
+	for _, material in ipairs(data.GroveMaterials) do
+		if isValidHeartwood(material) then
+			table.insert(state.GroveMaterials, copyHeartwood(material))
 		end
 	end
 	return state
@@ -235,6 +271,12 @@ local function spawnGroveTree(player, plotModel, area, record)
 			PlantedAt = record.PlantedAt,
 			MaturesAt = record.MaturesAt,
 			GroveStage = deriveStage(record, os.time()),
+			CanChopCallback = function(chopper, candidate)
+				return GroveService.CanChopPersistentTree(chopper, candidate)
+			end,
+			OnPersistentHarvest = function(chopper, candidate)
+				return GroveService.HarvestPersistentTree(chopper, candidate)
+			end,
 		})
 		return treeObject:Spawn()
 	end)
@@ -289,7 +331,7 @@ end
 
 local function uidRecordCount(data, uid)
 	local count = 0
-	for _, collectionName in ipairs({ "Saplings", "GroveTrees" }) do
+	for _, collectionName in ipairs({ "Saplings", "GroveTrees", "GroveMaterials" }) do
 		local collection = data[collectionName]
 		if type(collection) == "table" then
 			for _, record in pairs(collection) do
@@ -332,6 +374,12 @@ local function uidAlreadyUsed(data, uid)
 	for _, groveTree in ipairs(data.GroveTrees) do
 		if type(groveTree) == "table" and groveTree.SourceSaplingUID == uid then return true end
 	end
+	for _, material in ipairs(data.GroveMaterials) do
+		if type(material) == "table"
+			and (material.SourceGroveTreeUID == uid or material.SourceSaplingUID == uid) then
+			return true
+		end
+	end
 	return false
 end
 
@@ -351,6 +399,136 @@ local function removeByIdentity(collection, item)
 		end
 	end
 	return false
+end
+
+local function findUniqueGroveTree(data, uid)
+	local found, foundIndex, count = nil, nil, 0
+	for index, record in ipairs(data.GroveTrees) do
+		if type(record) == "table" and record.UID == uid then
+			found = record
+			foundIndex = index
+			count += 1
+		end
+	end
+	if count ~= 1 or uidRecordCount(data, uid) ~= 1 or not isValidGroveTree(found) then
+		return nil
+	end
+	return found, foundIndex
+end
+
+local function sourceSaplingReferenceCount(data, uid)
+	local count = 0
+	for _, record in ipairs(data.GroveTrees) do
+		if type(record) == "table" and record.SourceSaplingUID == uid then count += 1 end
+	end
+	for _, record in ipairs(data.GroveMaterials) do
+		if type(record) == "table" and record.SourceSaplingUID == uid then count += 1 end
+	end
+	return count
+end
+
+local function heartwoodSourceTreeCount(data, uid)
+	local count = 0
+	for _, record in ipairs(data.GroveMaterials) do
+		if type(record) == "table" and record.SourceGroveTreeUID == uid then count += 1 end
+	end
+	return count
+end
+
+local function validateRuntimeGroveTree(player, treeObject)
+	if typeof(player) ~= "Instance" or not player:IsA("Player") or not player:IsDescendantOf(Players) then
+		return nil
+	end
+	if type(treeObject) ~= "table"
+		or treeObject.IsPersistentGrove ~= true
+		or treeObject.destroyed
+		or treeObject.isDead then
+		return nil
+	end
+	local data = getProfileData(player)
+	local plot, plotModel, area = getAssignedGrove(player)
+	if not data or not plot or RestoredPlotByPlayer[player] ~= plot then return nil end
+	if plotModel ~= treeObject.Parent
+		or not treeObject.model
+		or not treeObject.model:IsDescendantOf(plotModel)
+		or treeObject.OwnerUserId ~= player.UserId then
+		return nil
+	end
+	local uid = treeObject.GroveTreeUID
+	if not isValidUID(uid)
+		or RuntimeTreesByUID[uid] ~= treeObject
+		or not PlayerRuntimeUIDs[player]
+		or PlayerRuntimeUIDs[player][uid] ~= true
+		or TreeObject.ActiveTrees[treeObject] ~= true then
+		return nil
+	end
+	local record, recordIndex = findUniqueGroveTree(data, uid)
+	if not record
+		or record.SourceSaplingUID ~= treeObject.SourceSaplingUID
+		or record.SpeciesId ~= treeObject.SpeciesId
+		or record.SizePotential ~= treeObject.GroveSizePotential
+		or record.PlantedAt ~= treeObject.GrovePlantedAt
+		or record.MaturesAt ~= treeObject.GroveMaturesAt
+		or treeObject.CFrame ~= worldCFrameForRecord(area, record)
+		or sourceSaplingReferenceCount(data, record.SourceSaplingUID) ~= 1
+		or heartwoodSourceTreeCount(data, uid) ~= 0
+		or os.time() < record.MaturesAt then
+		return nil
+	end
+	return data, plot, plotModel, area, record, recordIndex
+end
+
+function GroveService.CanChopPersistentTree(player, treeObject)
+	local data, _, _, _, record = validateRuntimeGroveTree(player, treeObject)
+	return data ~= nil and record ~= nil
+end
+
+function GroveService.HarvestPersistentTree(player, treeObject)
+	local data, _, _, _, record, recordIndex = validateRuntimeGroveTree(player, treeObject)
+	if not data or not record or not isValidGroveTree(record) then return false end
+	local uid = newGroveUID(data)
+	if not uid then return false end
+	local createdAt = os.time()
+	if not isFiniteNumber(createdAt) or createdAt < 0 then return false end
+	local heartwood = {
+		UID = uid,
+		MaterialType = "Heartwood",
+		SpeciesId = record.SpeciesId,
+		Mutations = copyMutations(record.Mutations),
+		SizePotential = record.SizePotential,
+		SourceGroveTreeUID = record.UID,
+		SourceSaplingUID = record.SourceSaplingUID,
+		CreatedAt = createdAt,
+	}
+	if not isValidHeartwood(heartwood) or uidAlreadyUsed(data, uid) then return false end
+	local committed, wasRemoved = false, false
+	local ok = pcall(function()
+		table.insert(data.GroveMaterials, heartwood)
+		if not removeByIdentity(data.GroveTrees, record) then error("Grove tree identity changed during harvest") end
+		wasRemoved = true
+		for index = #data.ActiveGroveTreeUIDs, 1, -1 do
+			if data.ActiveGroveTreeUIDs[index] == record.UID then table.remove(data.ActiveGroveTreeUIDs, index) end
+		end
+		data.ActiveGroveTreeUIDs = {}
+		committed = true
+	end)
+	if not ok or not committed then
+		removeByIdentity(data.GroveMaterials, heartwood)
+		if wasRemoved then
+			table.insert(data.GroveTrees, math.min(recordIndex, #data.GroveTrees + 1), record)
+		end
+		data.ActiveGroveTreeUIDs = {}
+		return false
+	end
+
+	RuntimeTreesByUID[record.UID] = nil
+	local playerUIDs = PlayerRuntimeUIDs[player]
+	if playerUIDs then
+		playerUIDs[record.UID] = nil
+		if next(playerUIDs) == nil then PlayerRuntimeUIDs[player] = nil end
+	end
+	publishState(player)
+	return true
 end
 
 local function plantSapling(player, saplingUID, localX, localZ)
@@ -401,14 +579,11 @@ local function plantSapling(player, saplingUID, localX, localZ)
 	local sourceIndex = saplingIndex
 	local ok = pcall(function()
 		table.insert(data.GroveTrees, groveRecord)
-		table.insert(data.ActiveGroveTreeUIDs, uid)
 		table.remove(data.Saplings, sourceIndex)
 	end)
 	if not ok then
 		removeByIdentity(data.GroveTrees, groveRecord)
-		for index = #data.ActiveGroveTreeUIDs, 1, -1 do
-			if data.ActiveGroveTreeUIDs[index] == uid then table.remove(data.ActiveGroveTreeUIDs, index) end
-		end
+		data.ActiveGroveTreeUIDs = {}
 		local sourceStillPresent = false
 		for _, existing in ipairs(data.Saplings) do
 			if existing == sourceRecord then sourceStillPresent = true break end

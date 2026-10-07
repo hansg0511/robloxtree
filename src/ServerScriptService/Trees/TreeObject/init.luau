@@ -354,12 +354,6 @@ local SOURCE_BUILT_MODELS = {
 	BarrierTree = makeBarrierTree,
 }
 
-local GROVE_MODEL_BY_SPECIES = {
-	Oak = "StarterForestTree",
-	Bamboo = "BambooClump",
-	Ironwood = "Forest2Tree",
-}
-
 local GROVE_STAGE_SCALE = {
 	sapling = 0.18,
 	young = 0.52,
@@ -401,18 +395,26 @@ function Tree.new(options)
 	self.InteractionPartName = definition.InteractionPartName
 	self.ChopRadius = definition.ChopRadius
 	self.IsPersistentGrove = options.DefinitionId == "PersistentGroveTree"
+	self.CanChopCallback = options.CanChopCallback
+	self.OnPersistentHarvest = options.OnPersistentHarvest
 	if self.IsPersistentGrove then
-		local modelName = GROVE_MODEL_BY_SPECIES[options.SpeciesId]
+		local speciesConfig = Definitions.PersistentGroveSpecies[options.SpeciesId]
 		local sizePotential = options.SizePotential
 		local plantedAt = options.PlantedAt
 		local maturesAt = options.MaturesAt
 		assert(type(options.GroveTreeUID) == "string" and #options.GroveTreeUID > 0, "Persistent Grove tree UID required")
 		assert(type(options.SourceSaplingUID) == "string" and #options.SourceSaplingUID > 0, "Persistent Grove source UID required")
-		assert(modelName ~= nil and MaterialDefinitions.Get(options.SpeciesId) ~= nil, "Unknown Persistent Grove species")
+		assert(speciesConfig ~= nil and MaterialDefinitions.Get(options.SpeciesId) ~= nil, "Unknown Persistent Grove species")
+		assert(type(speciesConfig.MaxHP) == "number" and speciesConfig.MaxHP > 1, "Invalid Persistent Grove prototype HP")
+		assert(type(speciesConfig.ChopRadius) == "number" and speciesConfig.ChopRadius > 0, "Invalid Persistent Grove chop radius")
 		assert(type(sizePotential) == "number" and sizePotential == sizePotential and sizePotential >= 0.1 and sizePotential <= 2, "Invalid Persistent Grove size potential")
 		assert(type(plantedAt) == "number" and plantedAt == plantedAt and plantedAt >= 0 and plantedAt < math.huge, "Invalid Persistent Grove planting time")
 		assert(type(maturesAt) == "number" and maturesAt > plantedAt and maturesAt < math.huge, "Invalid Persistent Grove maturity time")
-		self.ModelName = modelName
+		self.ModelName = speciesConfig.ModelName
+		self.BaseHP = speciesConfig.MaxHP
+		self.MaxHP = speciesConfig.MaxHP
+		self.HP = speciesConfig.MaxHP
+		self.ChopRadius = speciesConfig.ChopRadius
 		self.SpeciesId = options.SpeciesId
 		self.GroveTreeUID = options.GroveTreeUID
 		self.SourceSaplingUID = options.SourceSaplingUID
@@ -423,7 +425,7 @@ function Tree.new(options)
 		self.YieldsLog = false
 		self.RespawnSeconds = nil
 		self.OwnerOnly = true
-		self.Choppable = false
+		self.Choppable = true
 	end
 	self.Parent = options.Parent
 	self.CFrame = options.CFrame
@@ -536,8 +538,14 @@ function Tree:BuildLeafPool()
 end
 
 function Tree:CanChop(player)
-	if self.destroyed or self.isDead or not self.Choppable or not self.model or not self.model.Parent then return false end
-	if self.IsPersistentGrove then return false end
+	if self.destroyed or self.isDead or not self.model or not self.model.Parent then return false end
+	if typeof(player) ~= "Instance" or not player:IsA("Player") then return false end
+	if self.IsPersistentGrove then
+		if self.OwnerUserId ~= player.UserId or type(self.CanChopCallback) ~= "function" then return false end
+		local ok, canChop = pcall(self.CanChopCallback, player, self)
+		return ok and canChop == true
+	end
+	if not self.Choppable then return false end
 	if self.OwnerOnly and self.OwnerUserId ~= player.UserId then return false end
 	return true
 end
@@ -608,6 +616,9 @@ function Tree:TakeDamage(ctx, player)
 	end
 	contribution.Damage += appliedDamage
 	ChopFX:FireAllClients("playHit", { model = self.model })
+	if self.IsPersistentGrove and self.HP == 0 then
+		self:Die(player)
+	end
 	DamageEvent:FireAllClients({
 		Target = self.model,
 		Damage = appliedDamage,
@@ -616,17 +627,19 @@ function Tree:TakeDamage(ctx, player)
 		MaxHP = self.MaxHP,
 	})
 
-	local targetLeaves = leavesForHP(self.HP, self.MaxHP, self.totalLeaves)
-	local leavesToDrop = self.leavesRemaining - targetLeaves
-	if leavesToDrop > 0 then
-		self.leavesRemaining = targetLeaves
-		local model = self.model
-		local pool = self.pool
-		task.spawn(function()
-			if model.Parent then FXService:DropLeaves(model, pool, leavesToDrop) end
-		end)
+	if not (self.IsPersistentGrove and self.isDead) then
+		local targetLeaves = leavesForHP(self.HP, self.MaxHP, self.totalLeaves)
+		local leavesToDrop = self.leavesRemaining - targetLeaves
+		if leavesToDrop > 0 then
+			self.leavesRemaining = targetLeaves
+			local model = self.model
+			local pool = self.pool
+			task.spawn(function()
+				if model and model.Parent then FXService:DropLeaves(model, pool, leavesToDrop) end
+			end)
+		end
 	end
-	if self.HP == 0 then
+	if self.HP == 0 and not self.IsPersistentGrove then
 		self:Die(player)
 	end
 	return true
@@ -634,7 +647,33 @@ end
 
 function Tree:Die(player)
 	if self.isDead or self.destroyed then return end
-	if self.IsPersistentGrove then return end
+	if self.IsPersistentGrove then
+		if self.HarvestInProgress then return false end
+		self.HarvestInProgress = true
+		local fallenModel = self.model
+		local fallRotation = FXService.GetTreeFallRotation(fallenModel, player)
+		local harvested = false
+		if type(self.OnPersistentHarvest) == "function" then
+			local ok, result = pcall(self.OnPersistentHarvest, player, self)
+			harvested = ok and result == true
+		end
+		if not harvested then
+			self.HP = 1
+			self.HarvestInProgress = false
+			return false
+		end
+		self.isDead = true
+		self.Choppable = false
+		self.DamageContributions = {}
+		Tree.ActiveTrees[self] = nil
+		task.spawn(function()
+			FXService:TreeFall(fallenModel, player, fallRotation, nil)
+			self.destroyed = true
+			self.model = nil
+			self.InteractionPart = nil
+		end)
+		return true
+	end
 	self.isDead = true
 	local fallenModel = self.model
 	local fallRotation = FXService.GetTreeFallRotation(fallenModel, player)

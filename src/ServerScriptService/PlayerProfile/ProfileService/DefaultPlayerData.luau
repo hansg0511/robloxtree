@@ -43,6 +43,17 @@ export type GroveTree = {
 	MaturesAt: number,
 }
 
+export type Heartwood = {
+	UID: string,
+	MaterialType: "Heartwood",
+	SpeciesId: string,
+	Mutations: GroveMutations,
+	SizePotential: number,
+	SourceGroveTreeUID: string,
+	SourceSaplingUID: string,
+	CreatedAt: number,
+}
+
 export type AxeHeadCounts = { [string]: number }
 
 export type RunProgress = {
@@ -55,6 +66,7 @@ export type PlayerData = {
 	Logs: { LogItem },
 	Saplings: { Sapling },
 	GroveTrees: { GroveTree },
+	GroveMaterials: { Heartwood },
 	ActiveGroveTreeUIDs: { string },
 	AxeHeads: AxeHeadCounts,
 	RunProgress: RunProgress,

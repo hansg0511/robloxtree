@@ -30,6 +30,7 @@ local cleanedUp = false
 local stateLoaded = false
 local hasAssignedGrove = false
 local saplings = {}
+local groveMaterials = {}
 local selectedSaplingUID
 local plantingMode = false
 local pendingPlantUID
@@ -76,7 +77,7 @@ local panel = Instance.new("Frame")
 panel.Name = "StatusPanel"
 panel.AnchorPoint = Vector2.new(0, 1)
 panel.Position = UDim2.new(0, 18, 1, -18)
-panel.Size = UDim2.fromOffset(352, 148)
+panel.Size = UDim2.fromOffset(352, 170)
 panel.BackgroundColor3 = Color3.fromRGB(21, 29, 25)
 panel.BackgroundTransparency = 0.08
 panel.BorderSizePixel = 0
@@ -123,10 +124,20 @@ local saplingsLabel = makeLabel(
 	Color3.fromRGB(234, 236, 224)
 )
 
+local heartwoodLabel = makeLabel(
+	panel,
+	"Heartwood",
+	UDim2.fromOffset(13, 73),
+	UDim2.new(1, -26, 0, 19),
+	Enum.Font.GothamMedium,
+	13,
+	Color3.fromRGB(234, 236, 224)
+)
+
 local feedbackLabel = makeLabel(
 	panel,
 	"Feedback",
-	UDim2.fromOffset(13, 73),
+	UDim2.fromOffset(13, 95),
 	UDim2.new(1, -26, 0, 23),
 	Enum.Font.Gotham,
 	12,
@@ -136,7 +147,7 @@ local feedbackLabel = makeLabel(
 local controlsLabel = makeLabel(
 	panel,
 	"Controls",
-	UDim2.fromOffset(13, 101),
+	UDim2.fromOffset(13, 122),
 	UDim2.new(1, -26, 0, 38),
 	Enum.Font.Gotham,
 	11,
@@ -244,6 +255,7 @@ local function render()
 	local selected = getSelectedSapling()
 	local speciesId = selected and tostring(selected.SpeciesId or "Unknown") or "none"
 	saplingsLabel.Text = string.format("Saplings remaining: %d  •  Selected: %s", #saplings, speciesId)
+	heartwoodLabel.Text = string.format("Heartwood: %d", #groveMaterials)
 	controlsLabel.Text = plantingMode
 		and "[G] or [Esc] exit  •  [Q/E] select  •  click to plant"
 		or "[G] planting mode  •  [Q/E] select sapling  •  [Esc] exit"
@@ -426,6 +438,15 @@ local function applySnapshot(snapshot)
 				and sapling.UID ~= ""
 			then
 				table.insert(saplings, sapling)
+			end
+		end
+	end
+
+	groveMaterials = {}
+	if type(snapshot.GroveMaterials) == "table" then
+		for _, material in ipairs(snapshot.GroveMaterials) do
+			if type(material) == "table" then
+				table.insert(groveMaterials, material)
 			end
 		end
 	end

@@ -66,11 +66,60 @@ local function isValidGroveBaseRecord(record)
 		and record.SizePotential <= MAX_SIZE_POTENTIAL
 end
 
-local function countRecordUIDs(records, counts)
+local function isValidSaplingRecord(record)
+	return isValidGroveBaseRecord(record)
+		and type(record.Mutations) == "table"
+		and isFiniteNumber(record.CreatedAt)
+		and record.CreatedAt >= 0
+end
+
+local function isValidGroveTreeRecord(record)
+	return isValidGroveBaseRecord(record)
+		and isValidGroveUID(record.SourceSaplingUID)
+		and record.SourceSaplingUID ~= record.UID
+		and type(record.Mutations) == "table"
+		and isFiniteNumber(record.LocalX)
+		and math.abs(record.LocalX) <= MAX_GROVE_COORDINATE
+		and isFiniteNumber(record.LocalZ)
+		and math.abs(record.LocalZ) <= MAX_GROVE_COORDINATE
+		and isFiniteNumber(record.Yaw)
+		and math.abs(record.Yaw) <= math.pi * 2
+		and isFiniteNumber(record.PlantedAt)
+		and record.PlantedAt >= 0
+		and isFiniteNumber(record.MaturesAt)
+		and record.MaturesAt > record.PlantedAt
+end
+
+local function isValidHeartwoodRecord(record)
+	return isValidGroveBaseRecord(record)
+		and record.MaterialType == "Heartwood"
+		and type(record.Mutations) == "table"
+		and isValidGroveUID(record.SourceGroveTreeUID)
+		and isValidGroveUID(record.SourceSaplingUID)
+		and record.SourceGroveTreeUID ~= record.SourceSaplingUID
+		and record.UID ~= record.SourceGroveTreeUID
+		and record.UID ~= record.SourceSaplingUID
+		and isFiniteNumber(record.CreatedAt)
+		and record.CreatedAt >= 0
+end
+
+local function countRawRecordUIDs(records, counts)
 	if type(records) ~= "table" then return end
 	for _, record in pairs(records) do
 		if type(record) == "table" and isValidGroveUID(record.UID) then
 			counts[record.UID] = (counts[record.UID] or 0) + 1
+		end
+	end
+end
+
+local function countRawSourceUIDs(records, fieldName, counts)
+	if type(records) ~= "table" then return end
+	for _, record in pairs(records) do
+		if type(record) == "table" then
+			local uid = record[fieldName]
+			if isValidGroveUID(uid) then
+				counts[uid] = (counts[uid] or 0) + 1
+			end
 		end
 	end
 end
@@ -83,17 +132,22 @@ function PlayerProfileCache.NormalizeGroveData(data)
 
 	local rawSaplings = data.Saplings
 	local rawGroveTrees = data.GroveTrees
+	local rawGroveMaterials = data.GroveMaterials
 	local uidCounts = {}
-	countRecordUIDs(rawSaplings, uidCounts)
-	countRecordUIDs(rawGroveTrees, uidCounts)
+	countRawRecordUIDs(rawSaplings, uidCounts)
+	countRawRecordUIDs(rawGroveTrees, uidCounts)
+	countRawRecordUIDs(rawGroveMaterials, uidCounts)
+
+	local sourceSaplingUIDCounts = {}
+	countRawSourceUIDs(rawGroveTrees, "SourceSaplingUID", sourceSaplingUIDCounts)
+	countRawSourceUIDs(rawGroveMaterials, "SourceSaplingUID", sourceSaplingUIDCounts)
+	local sourceGroveTreeUIDCounts = {}
+	countRawSourceUIDs(rawGroveMaterials, "SourceGroveTreeUID", sourceGroveTreeUIDCounts)
 
 	local saplings = {}
-	local acceptedRecordUIDs = {}
 	if type(rawSaplings) == "table" then
 		for _, record in pairs(rawSaplings) do
-			if isValidGroveBaseRecord(record)
-				and isFiniteNumber(record.CreatedAt)
-				and record.CreatedAt >= 0
+			if isValidSaplingRecord(record)
 				and uidCounts[record.UID] == 1 then
 				table.insert(saplings, {
 					UID = record.UID,
@@ -102,48 +156,17 @@ function PlayerProfileCache.NormalizeGroveData(data)
 					SizePotential = record.SizePotential,
 					CreatedAt = record.CreatedAt,
 				})
-				acceptedRecordUIDs[record.UID] = true
-			end
-		end
-	end
-
-	local rawGroveTreeUIDCounts = {}
-	local sourceUIDCounts = {}
-	if type(rawGroveTrees) == "table" then
-		for _, record in pairs(rawGroveTrees) do
-			if type(record) == "table" then
-				if isValidGroveUID(record.UID) then
-					rawGroveTreeUIDCounts[record.UID] = (rawGroveTreeUIDCounts[record.UID] or 0) + 1
-				end
-				if isValidGroveUID(record.SourceSaplingUID) then
-					sourceUIDCounts[record.SourceSaplingUID] = (sourceUIDCounts[record.SourceSaplingUID] or 0) + 1
-				end
 			end
 		end
 	end
 
 	local groveTrees = {}
-	local seenSourceUIDs = {}
 	if type(rawGroveTrees) == "table" then
 		for _, record in pairs(rawGroveTrees) do
-			if isValidGroveBaseRecord(record)
-				and isValidGroveUID(record.SourceSaplingUID)
-				and record.SourceSaplingUID ~= record.UID
+			if isValidGroveTreeRecord(record)
 				and uidCounts[record.SourceSaplingUID] == nil
-				and not seenSourceUIDs[record.SourceSaplingUID]
-				and sourceUIDCounts[record.SourceSaplingUID] == 1
-				and rawGroveTreeUIDCounts[record.UID] == 1
-				and uidCounts[record.UID] == 1
-				and isFiniteNumber(record.LocalX)
-				and math.abs(record.LocalX) <= MAX_GROVE_COORDINATE
-				and isFiniteNumber(record.LocalZ)
-				and math.abs(record.LocalZ) <= MAX_GROVE_COORDINATE
-				and isFiniteNumber(record.Yaw)
-				and math.abs(record.Yaw) <= math.pi * 2
-				and isFiniteNumber(record.PlantedAt)
-				and record.PlantedAt >= 0
-				and isFiniteNumber(record.MaturesAt)
-				and record.MaturesAt > record.PlantedAt then
+				and sourceSaplingUIDCounts[record.SourceSaplingUID] == 1
+				and uidCounts[record.UID] == 1 then
 				table.insert(groveTrees, {
 					UID = record.UID,
 					SourceSaplingUID = record.SourceSaplingUID,
@@ -156,19 +179,37 @@ function PlayerProfileCache.NormalizeGroveData(data)
 					PlantedAt = record.PlantedAt,
 					MaturesAt = record.MaturesAt,
 				})
-				acceptedRecordUIDs[record.UID] = true
-				seenSourceUIDs[record.SourceSaplingUID] = true
 			end
 		end
 	end
 
-	local activeUIDs = {}
-	for _, record in ipairs(groveTrees) do
-		table.insert(activeUIDs, record.UID)
+	local groveMaterials = {}
+	if type(rawGroveMaterials) == "table" then
+		for _, record in pairs(rawGroveMaterials) do
+			if isValidHeartwoodRecord(record)
+				and uidCounts[record.UID] == 1
+				and uidCounts[record.SourceGroveTreeUID] == nil
+				and uidCounts[record.SourceSaplingUID] == nil
+				and sourceSaplingUIDCounts[record.SourceSaplingUID] == 1
+				and sourceGroveTreeUIDCounts[record.SourceGroveTreeUID] == 1 then
+				table.insert(groveMaterials, {
+					UID = record.UID,
+					MaterialType = "Heartwood",
+					SpeciesId = record.SpeciesId,
+					Mutations = copyGroveMutations(record.Mutations),
+					SizePotential = record.SizePotential,
+					SourceGroveTreeUID = record.SourceGroveTreeUID,
+					SourceSaplingUID = record.SourceSaplingUID,
+					CreatedAt = record.CreatedAt,
+				})
+			end
+		end
 	end
 	data.Saplings = saplings
 	data.GroveTrees = groveTrees
-	data.ActiveGroveTreeUIDs = activeUIDs
+	data.GroveMaterials = groveMaterials
+	-- Until Milestone 3, Grove trees are not represented as active/passive refs.
+	data.ActiveGroveTreeUIDs = {}
 	return true
 end
 

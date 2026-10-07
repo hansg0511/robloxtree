@@ -24,6 +24,7 @@ local ProfileTemplate = {
 	-- TreeObjects and world transforms are rebuilt after the player's plot loads.
 	Saplings = {},
 	GroveTrees = {},
+	GroveMaterials = {},
 	ActiveGroveTreeUIDs = {},
 	-- Axe heads are crafting materials, never equipable Tools.
 	AxeHeads = {

@@ -33,22 +33,28 @@ The old `Basic` tree mesh was replaced by source-built chunky brick visuals. `Ba
 
 ## Personal Grove Milestone 1
 
-- Profiles own primitive `Saplings`, `GroveTrees`, and `ActiveGroveTreeUIDs` records. A planted tree gets a new UID and keeps its consumed sapling UID as `SourceSaplingUID`; mutations and size potential are copied server-side.
+- Profiles own primitive `Saplings`, `GroveTrees`, and `GroveMaterials` records. A planted tree gets a new UID and keeps its consumed sapling UID as `SourceSaplingUID`; mutations and size potential are copied server-side. `ActiveGroveTreeUIDs` stays empty until Milestone 3.
 - Grove positions persist as local `LocalX`/`LocalZ` values and server-derived `Yaw`, then rebuild relative to the currently assigned `GroveArea`. Plot numbers and world-space CFrames are not saved.
 - `PlantedAt`/`MaturesAt` determine sapling, young, and mature stages. TreeObject models are disposable runtime views, restored after plot assignment and destroyed on cleanup while profile records remain.
-- Grove runtime trees have species-correct visuals and cannot be chopped, yield logs, or respawn. Harvesting, rewards, mutations, persistence backend changes, and the final grove art loop remain deferred.
+- Grove runtime trees have species-correct visuals and do not yield logs or respawn. Harvesting is added in Milestone 2A below.
 - The only development seed seam is a Studio-only numeric UserId allowlist that idempotently adds two Oak, two Bamboo, and two Ironwood sapling records without replacing inventory.
+
+## Personal Grove Milestone 2A
+
+- Only the owner can chop a mature personal Grove tree. Server callbacks validate the profile record, assigned plot, and exact runtime tree mapping; model attributes are presentation only.
+- One successful mature-tree harvest permanently replaces its `GroveTree` with one `GroveMaterials` Heartwood record. The Heartwood gets a new UID, copies species, mutations, and size potential, and records `SourceGroveTreeUID` plus the original `SourceSaplingUID` as lineage.
+- Heartwood is a separate material collection: it does not become Logs, inventory cargo, ground piles, sell proceeds, or Forge input. M2B Forge use and M3 active/passive Grove behavior remain deferred.
 
 ## Stable interfaces
 
 - `ProfileLoadedEvent` and `ProfileLoadEvent` readiness signals.
 - `ChopEvent` remains an intent-only client request with no target payload. The server selects the closest eligible tree and cannot receive damage, HP, crits, rewards, RNG, or progression state from the client.
-- `Grove.GetGroveStateRF` returns sanitized grove snapshots; `Grove.PlantSaplingRE` accepts only `(saplingUID, localX, localZ)`, and `Grove.GroveStateUpdatedRE` publishes state after planting/restoration.
+- `Grove.GetGroveStateRF` returns sanitized sapling, tree, and Heartwood snapshots with `ActiveGroveTreeUIDs = {}`; `Grove.PlantSaplingRE` accepts only `(saplingUID, localX, localZ)`, and `Grove.GroveStateUpdatedRE` publishes after planting, restoration, or successful harvest.
 - Inventory item UID records and the existing `EconomyUpdated(currency, amount)` outbound display contract.
 
 `WorldProgressService` is the temporary server-only forest eligibility seam. Base and Forest 1 access are available for this scaffold; Forest 2 access is denied until server gameplay unlocks it. No barrier or Forest 2 content is implemented here.
 
-Server-only tree definitions and registration may change internally. Public forest, barrier, boss, Grove harvesting, selling, rebirth, Bark, Sharpness, and new reward formulas remain future work.
+Server-only tree definitions and registration may change internally. Public forest, barrier, boss, Grove selling, rebirth, Bark, Sharpness, and new reward formulas remain future work.
 
 ## Verification and rollback
 
