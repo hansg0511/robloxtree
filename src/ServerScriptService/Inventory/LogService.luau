@@ -199,6 +199,33 @@ local function copyMutations(mutations)
 	return result
 end
 
+local function cloneCraftMutationValue(value, seen)
+	local valueType = type(value)
+	if valueType == "string" or valueType == "number" or valueType == "boolean" then
+		return value
+	end
+	if valueType ~= "table" or seen[value] then return nil end
+
+	local clone = {}
+	seen[value] = true
+	for key, child in pairs(value) do
+		local keyType = type(key)
+		if keyType == "string" or keyType == "number" then
+			local childClone = cloneCraftMutationValue(child, seen)
+			if childClone ~= nil then
+				clone[key] = childClone
+			end
+		end
+	end
+	seen[value] = nil
+	return clone
+end
+
+local function copyCraftMutations(mutations)
+	if type(mutations) ~= "table" then return {} end
+	return cloneCraftMutationValue(mutations, {}) or {}
+end
+
 local function normalizeLogRecord(logRecord, seenUids)
 	if type(logRecord) ~= "table"
 		or (logRecord.ItemType ~= nil and logRecord.ItemType ~= "Log")
@@ -257,6 +284,17 @@ local function getPlayerData(player)
 		or profile.Data.Coins < 0
 		or profile.Data.Coins == math.huge then
 		profile.Data.Coins = 0
+	end
+	return profile.Data
+end
+
+-- Craft validation reads the authoritative list without normalization so a
+-- malformed or duplicate stored UID cannot be silently rewritten before the
+-- exact-UID transaction checks it.
+local function getRawCraftData(player)
+	local profile = ProfileCache.GetProfile(player)
+	if not profile or type(profile.Data) ~= "table" or type(profile.Data.Logs) ~= "table" then
+		return nil
 	end
 	return profile.Data
 end
@@ -408,120 +446,138 @@ function LogService.GetOwnedLogs(player)
 	return snapshot and snapshot.Logs or nil
 end
 
-local function isStandardCraftLog(logRecord, speciesId)
-	if type(logRecord) ~= "table"
-		or logRecord.ItemType ~= "Log"
-		or logRecord.SpeciesId ~= speciesId
-		or (logRecord.Locked ~= nil and logRecord.Locked ~= false)
-		or not isValidUid(logRecord.UID) then
-		return false
-	end
-	local mutations = logRecord.Mutations
-	return mutations == nil or (type(mutations) == "table" and next(mutations) == nil)
-end
-
--- Server-only crafting seam. It returns only unlocked, normal wood and hides
--- logs whose pickup-to-carry cosmetic has not completed yet.
-function LogService.GetCraftableLogUIDs(player, speciesId, count)
-	if type(speciesId) ~= "string" or #speciesId == 0
-		or type(count) ~= "number" or count % 1 ~= 0 or count < 1 then
-		return nil
-	end
-	local data = getPlayerData(player)
-	if not data then return nil end
-	local pendingUids = pendingCarryArrivalUids[player]
-	local selectedUids = {}
-	local seenUids = {}
-	for _, logRecord in ipairs(data.Logs) do
-		local uid = logRecord.UID
-		if isStandardCraftLog(logRecord, speciesId)
-			and not (pendingUids and pendingUids[uid])
-			and not seenUids[uid] then
-			seenUids[uid] = true
-			table.insert(selectedUids, uid)
-			if #selectedUids == count then
-				return selectedUids
-			end
-		end
-	end
-	return nil
-end
-
-function LogService.CountCraftableLogs(player, speciesId)
-	if type(speciesId) ~= "string" or #speciesId == 0 then return 0 end
-	local data = getPlayerData(player)
-	if not data then return 0 end
-	local pendingUids = pendingCarryArrivalUids[player]
+local function getDenseArrayLength(value)
+	if type(value) ~= "table" then return nil end
 	local count = 0
-	local seenUids = {}
-	for _, logRecord in ipairs(data.Logs) do
-		local uid = logRecord.UID
-		if isStandardCraftLog(logRecord, speciesId)
-			and not (pendingUids and pendingUids[uid])
-			and not seenUids[uid] then
-			seenUids[uid] = true
-			count += 1
-		end
+	local maxIndex = 0
+	for key in pairs(value) do
+		if type(key) ~= "number" or key < 1 or key % 1 ~= 0 then return nil end
+		count += 1
+		maxIndex = math.max(maxIndex, key)
 	end
+	if count ~= maxIndex then return nil end
 	return count
 end
 
--- Revalidates and removes the exact server-selected UIDs without publishing a
--- UI update. The caller must immediately commit the output or restore this list;
--- this small transaction intentionally contains no yielding calls.
-function LogService.TakeCraftableLogUIDs(player, speciesId, logUids)
-	if type(speciesId) ~= "string" or #speciesId == 0
-		or type(logUids) ~= "table" or #logUids == 0 then
+local function isCraftEligibleLog(logRecord)
+	if type(logRecord) ~= "table"
+		or logRecord.ItemType ~= "Log"
+		or not isValidUid(logRecord.UID)
+		or (logRecord.Locked ~= nil and logRecord.Locked ~= false) then
+		return false
+	end
+	local definition = MaterialDefinitions.Get(logRecord.SpeciesId)
+	return definition ~= nil
+		and type(definition.CraftPowerBonus) == "number"
+		and definition.CraftPowerBonus == definition.CraftPowerBonus
+		and math.abs(definition.CraftPowerBonus) < math.huge
+end
+
+-- A sanitized authoritative list for recipe previews. Mutations are retained
+-- as copied data; forge power is computed from the material definition only.
+function LogService.GetEligibleCraftLogs(player)
+	local data = getRawCraftData(player)
+	if not data or not getDenseArrayLength(data.Logs) then return {} end
+
+	local uidCounts = {}
+	for _, logRecord in ipairs(data.Logs) do
+		if type(logRecord) == "table" and isValidUid(logRecord.UID) then
+			uidCounts[logRecord.UID] = (uidCounts[logRecord.UID] or 0) + 1
+		end
+	end
+
+	local pendingUids = pendingCarryArrivalUids[player]
+	local eligible = {}
+	for _, logRecord in ipairs(data.Logs) do
+		local uid = type(logRecord) == "table" and logRecord.UID or nil
+		local definition = type(logRecord) == "table"
+			and MaterialDefinitions.Get(logRecord.SpeciesId)
+			or nil
+		if isCraftEligibleLog(logRecord)
+			and uidCounts[uid] == 1
+			and not (pendingUids and pendingUids[uid])
+			and definition then
+			table.insert(eligible, {
+				UID = uid,
+				SpeciesId = logRecord.SpeciesId,
+				CraftPowerBonus = definition.CraftPowerBonus,
+				Mutations = copyCraftMutations(logRecord.Mutations),
+			})
+		end
+	end
+	return eligible
+end
+
+-- Atomically validates and removes exactly the requested count of unique UIDs.
+-- The selected records may carry mutations; those records are preserved intact
+-- so a caller can use their authoritative species and restore them on failure.
+function LogService.TakeCraftLogUIDs(player, logUids, expectedCount)
+	if type(expectedCount) ~= "number" or expectedCount < 1 or expectedCount % 1 ~= 0
+		or getDenseArrayLength(logUids) ~= expectedCount then
 		return nil
 	end
-	local data = getPlayerData(player)
-	if not data then return nil end
-	local pendingUids = pendingCarryArrivalUids[player]
+	local data = getRawCraftData(player)
+	if not data or not getDenseArrayLength(data.Logs) then return nil end
+	-- Refuse the transaction if any authoritative record has a malformed UID or
+	-- if the UID namespace is ambiguous, even when the requested UIDs are unique.
+	local authoritativeUids = {}
+	for _, logRecord in ipairs(data.Logs) do
+		if type(logRecord) ~= "table" or not isValidUid(logRecord.UID) then return nil end
+		local uid = logRecord.UID
+		if authoritativeUids[uid] then return nil end
+		authoritativeUids[uid] = true
+	end
+
 	local requested = {}
 	for _, uid in ipairs(logUids) do
 		if not isValidUid(uid) or requested[uid] then return nil end
 		requested[uid] = true
 	end
+
+	local pendingUids = pendingCarryArrivalUids[player]
 	local foundByUid = {}
-	local requestedOccurrences = {}
+	local foundCounts = {}
 	for _, logRecord in ipairs(data.Logs) do
-		local uid = logRecord.UID
+		local uid = type(logRecord) == "table" and logRecord.UID or nil
 		if requested[uid] then
-			requestedOccurrences[uid] = (requestedOccurrences[uid] or 0) + 1
-			-- A malformed duplicate UID must never make one selected UID consume
-			-- multiple records or make rollback lose track of the original records.
-			if requestedOccurrences[uid] > 1 then return nil end
-			if not isStandardCraftLog(logRecord, speciesId)
+			foundCounts[uid] = (foundCounts[uid] or 0) + 1
+			if foundCounts[uid] ~= 1
+				or not isCraftEligibleLog(logRecord)
 				or (pendingUids and pendingUids[uid]) then
 				return nil
 			end
 			foundByUid[uid] = logRecord
 		end
 	end
+
 	local removedRecords = {}
 	for _, uid in ipairs(logUids) do
-		local logRecord = foundByUid[uid]
-		if not logRecord then return nil end
-		table.insert(removedRecords, logRecord)
+		if foundCounts[uid] ~= 1 or not foundByUid[uid] then return nil end
+		table.insert(removedRecords, foundByUid[uid])
 	end
 
 	for index = #data.Logs, 1, -1 do
-		if requested[data.Logs[index].UID] then
+		local logRecord = data.Logs[index]
+		if type(logRecord) == "table" and requested[logRecord.UID] then
 			table.remove(data.Logs, index)
 		end
 	end
 	return removedRecords
 end
 
--- Restores the original authoritative records after an output insertion fails.
--- It is intentionally silent; the caller publishes only the final transaction.
-function LogService.RestoreCraftableLogRecords(player, records)
-	if type(records) ~= "table" or #records == 0 then return false end
-	local data = getPlayerData(player)
-	if not data then return false end
+-- Restores the exact original record tables after output insertion fails. This
+-- stays silent so the caller can publish one coherent final state on success.
+function LogService.RestoreCraftLogRecords(player, records)
+	local restoreCount = getDenseArrayLength(records)
+	if not restoreCount or restoreCount == 0 then return false end
+	local data = getRawCraftData(player)
+	if not data or not getDenseArrayLength(data.Logs) then return false end
+
+	-- Only collisions with the records being restored make rollback unsafe;
+	-- unrelated malformed or duplicate records must not block exact restoration.
 	local existingUids = {}
 	for _, logRecord in ipairs(data.Logs) do
-		if type(logRecord) == "table" then
+		if type(logRecord) == "table" and isValidUid(logRecord.UID) then
 			existingUids[logRecord.UID] = true
 		end
 	end
@@ -541,6 +597,46 @@ function LogService.RestoreCraftableLogRecords(player, records)
 	end
 	return true
 end
+
+-- Compatibility wrappers for older server call sites. Standard forging uses
+-- the species-agnostic exact-UID API above.
+function LogService.GetCraftableLogUIDs(player, speciesId, count)
+	if type(speciesId) ~= "string" or type(count) ~= "number" or count < 1 or count % 1 ~= 0 then
+		return nil
+	end
+	local selected = {}
+	for _, logRecord in ipairs(LogService.GetEligibleCraftLogs(player)) do
+		if logRecord.SpeciesId == speciesId then
+			table.insert(selected, logRecord.UID)
+			if #selected == count then return selected end
+		end
+	end
+	return nil
+end
+
+function LogService.CountCraftableLogs(player, speciesId)
+	if type(speciesId) ~= "string" then return 0 end
+	local count = 0
+	for _, logRecord in ipairs(LogService.GetEligibleCraftLogs(player)) do
+		if logRecord.SpeciesId == speciesId then count += 1 end
+	end
+	return count
+end
+
+function LogService.TakeCraftableLogUIDs(player, speciesId, logUids)
+	local requestedCount = getDenseArrayLength(logUids)
+	if type(speciesId) ~= "string" or not requestedCount or requestedCount == 0 then return nil end
+	local allowed = {}
+	for _, logRecord in ipairs(LogService.GetEligibleCraftLogs(player)) do
+		if logRecord.SpeciesId == speciesId then allowed[logRecord.UID] = true end
+	end
+	for _, uid in ipairs(logUids) do
+		if not allowed[uid] then return nil end
+	end
+	return LogService.TakeCraftLogUIDs(player, logUids, requestedCount)
+end
+
+LogService.RestoreCraftableLogRecords = LogService.RestoreCraftLogRecords
 
 function LogService.ConsumeCraftableLogUIDs(player, speciesId, logUids)
 	local removedRecords = LogService.TakeCraftableLogUIDs(player, speciesId, logUids)

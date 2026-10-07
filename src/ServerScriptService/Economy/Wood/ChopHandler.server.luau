@@ -5,33 +5,15 @@ local TreeObject = require(game.ServerScriptService.Trees.TreeObject)
 local WorldProgressService = require(game.ServerScriptService.WorldProgressService)
 local DamageService = require(game.ServerStorage.DamageService)
 
-local DEBUG_PRO_AXE_DAMAGE = true
-local DEBUG_PRO_AXE_ATTACK = 10000
-local DEBUG_PRO_PLAYER_NAME = "ForsakenDemonz"
-
 local MIN_CHOP_INTERVAL = 0.3
 local lastChop = {}
-local debugProUserIds = {}
-
-if DEBUG_PRO_AXE_DAMAGE then
-	task.spawn(function()
-		local ok, userId = pcall(function()
-			return Players:GetUserIdFromNameAsync(DEBUG_PRO_PLAYER_NAME)
-		end)
-
-		if ok and type(userId) == "number" and userId > 0 and userId % 1 == 0 then
-			debugProUserIds[userId] = true
-		end
-	end)
-end
 
 local function hasEquippedAxe(player, profile)
-	local character = player.Character
-	local tool = character and character:FindFirstChildOfClass("Tool")
-	if not tool or not tool:GetAttribute("EquippedAxe") then return false end
-	local uid = profile.Data.Equipped.Weapon
-	local weapon = uid and profile.Data.Runtime.Weapon[uid]
-	return weapon ~= nil and weapon.ItemType == "Weapon" and tool.Name == weapon.InstanceName
+	local weapon, uid = WorldProgressService.GetEquippedRuntimeWeapon(player)
+	local runtime = profile.Data.Runtime
+	return weapon ~= nil
+		and uid == runtime.EquippedWeaponUID
+		and runtime.Weapon[uid] == weapon
 end
 
 ChopEvent.OnServerEvent:Connect(function(player)
@@ -56,15 +38,9 @@ ChopEvent.OnServerEvent:Connect(function(player)
 	local attack = stats and stats.Attack
 	if type(attack) ~= "number" or attack ~= attack or attack <= 0 or attack == math.huge then return end
 
-	local damageStats = stats
-	if DEBUG_PRO_AXE_DAMAGE and debugProUserIds[player.UserId] then
-		damageStats = table.clone(stats)
-		damageStats.Attack = math.max(attack, DEBUG_PRO_AXE_ATTACK)
-	end
-
-	local weaponUID = profile.Data.Equipped.Weapon
+	local weaponUID = profile.Data.Runtime.EquippedWeaponUID
 	local lumberjackStrength = profile.Data.LumberjackStrength
-	local context = DamageService:createDamageContext(player, tree, weaponUID, damageStats, nil, lumberjackStrength)
+	local context = DamageService:createDamageContext(player, tree, weaponUID, stats, nil, lumberjackStrength)
 	local _, calculated = DamageService.Calculate(context)
 	tree:TakeDamage(calculated, player)
 end)

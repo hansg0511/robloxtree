@@ -69,7 +69,11 @@ local function BuildRuntime(profile)
 		Weapon = {},
 		Pet = {},
 		Seed= {},
-		FinalStats= {}
+		FinalStats= {},
+		EquippedWeaponUID = nil,
+		EquippedWeaponTool = nil,
+		EphemeralWeaponUIDs = {},
+		DebugProAxeUID = nil,
 	}
 	profile.Data.Runtime = runtime
 end

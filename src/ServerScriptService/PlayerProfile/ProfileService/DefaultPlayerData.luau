@@ -8,6 +8,7 @@ export type InventoryItem = {
 	Stats: { [string]: number },
 	Substat: { [string]: number },
 	Rarity: string,
+	WeaponData: { [string]: any }?,
 }
 
 export type LogItem = {

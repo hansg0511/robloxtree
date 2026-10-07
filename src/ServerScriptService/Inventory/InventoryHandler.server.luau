@@ -1,5 +1,4 @@
 local Players = game:GetService("Players")
-local SS = game:GetService("ServerStorage")
 
 local IMS = require(script.Parent.Module.IMS)
 local IMRemotes = game.ReplicatedStorage:WaitForChild("Inventory")
@@ -21,6 +20,38 @@ local REMOTE_INTERVALS = {
 	SpawnEquippedItem = 0.75,
 	EquipAxe = 0.5,
 }
+
+local DEBUG_PRO_PLAYER_NAME = "ForsakenDemonz"
+local DEBUG_PRO_ALLOWED_USER_IDS = {}
+local debugAllowlistState = "unresolved"
+local debugAllowlistResolved = Instance.new("BindableEvent")
+
+local function resolveDebugProAllowlist()
+	if debugAllowlistState == "resolved" then return end
+	if debugAllowlistState == "resolving" then
+		debugAllowlistResolved.Event:Wait()
+		return
+	end
+
+	debugAllowlistState = "resolving"
+	local ok, userId = pcall(function()
+		return Players:GetUserIdFromNameAsync(DEBUG_PRO_PLAYER_NAME)
+	end)
+	if ok and typeof(userId) == "number" and userId > 0 and userId % 1 == 0 then
+		DEBUG_PRO_ALLOWED_USER_IDS[userId] = true
+	end
+	debugAllowlistState = "resolved"
+	debugAllowlistResolved:Fire()
+end
+
+local function deepCopy(value)
+	if type(value) ~= "table" then return value end
+	local copy = {}
+	for key, child in pairs(value) do
+		copy[deepCopy(key)] = deepCopy(child)
+	end
+	return copy
+end
 
 local suppressShopAxeInventoryCallbacks = {}
 local deferredShopAxeAddedItems = {}
@@ -98,6 +129,7 @@ local function initInventoryData(player: Player): { any }
 
 	local inventoryData = {}
 	local profile = playerProfileCache.GetProfile(player)
+	if not profile or not profile.Data.Runtime then return inventoryData end
 	for i,v in profile.Data.Inventory do
 
 		local info = itemDataBase.Info[v.ItemID]
@@ -106,6 +138,63 @@ local function initInventoryData(player: Player): { any }
 		local item = itemDataBase.ParseItem(v)::IMS.ITEM_TYPE
 		profile.Data.Runtime[item.ItemType][item.ItemUID] = item
 		table.insert(inventoryData, item)
+	end
+
+	resolveDebugProAllowlist()
+	if DEBUG_PRO_ALLOWED_USER_IDS[player.UserId] then
+		local runtime = profile.Data.Runtime
+		local function inventoryHasUID(uid)
+			for _, item in ipairs(inventoryData) do
+				if item and item.ItemUID == uid then return true end
+			end
+			return false
+		end
+
+		local debugUID = runtime.DebugProAxeUID
+		local debugWeapon = debugUID and runtime.Weapon[debugUID]
+		if not debugWeapon then
+			local baseUID = "debug-pro-axe-" .. tostring(player.UserId)
+			local candidateUID = baseUID
+			local suffix = 1
+			local function uidIsTaken(uid)
+				if runtime.Weapon[uid] then return true end
+				for _, owned in ipairs(profile.Data.Inventory or {}) do
+					if type(owned) == "table" and owned.UID == uid then return true end
+				end
+				return false
+			end
+			while uidIsTaken(candidateUID) do
+				suffix += 1
+				candidateUID = baseUID .. "-" .. tostring(suffix)
+			end
+
+			local debugRecord = {
+				ItemID = 9001,
+				UID = candidateUID,
+				Stats = { Attack = 9995 },
+				Substat = {},
+				Rarity = "Debug",
+				WeaponData = {
+					AxeTier = 999,
+					HeadId = "debug_pro_head",
+					CraftedPower = 10000,
+					DebugOnly = true,
+					Materials = {},
+				},
+			}
+			debugWeapon = itemDataBase.ParseItem(debugRecord)
+			if debugWeapon then
+				debugUID = candidateUID
+				runtime.Weapon[debugUID] = debugWeapon
+				runtime.EphemeralWeaponUIDs[debugUID] = true
+				runtime.DebugProAxeUID = debugUID
+			end
+		end
+
+		if debugWeapon and debugUID and not inventoryHasUID(debugUID) then
+			runtime.EphemeralWeaponUIDs[debugUID] = true
+			table.insert(inventoryData, debugWeapon)
+		end
 	end
 
 	return inventoryData
@@ -140,9 +229,10 @@ local function EquipItem(player, item)
 		item = inv:GetEquippedItem() 
 	end
 	if not item or item.ItemType ~= "Weapon" or typeof(item.ItemUID) ~= "string" then return false end
-	if playerProfile.Data.Runtime.Weapon[item.ItemUID] ~= item then return false end
-	local toolTemplate = SS.AxeParts:FindFirstChild(item.InstanceName)
-	if not toolTemplate or not toolTemplate:IsA("Tool") then return false end
+	local runtime = playerProfile.Data.Runtime
+	if runtime.Weapon[item.ItemUID] ~= item then return false end
+	local toolTemplate = itemDataBase.Instances[item.ItemID]
+	if not toolTemplate or not toolTemplate:IsA("Tool") or toolTemplate.Name ~= item.InstanceName then return false end
 	local character = player.Character
 	local playerHumanoid = character and character:FindFirstChildOfClass("Humanoid")
 	if not playerHumanoid or playerHumanoid.Health <= 0 then return false end
@@ -155,17 +245,28 @@ local function EquipItem(player, item)
 		return false
 	end
 
-	player:SetAttribute("EquipUID", item.ItemUID)
-	playerProfile.Data.Equipped.Weapon = item.ItemUID
-	for _, container in ipairs({backpack, character}) do
-		for _, child in ipairs(container:GetChildren()) do
-			if child:IsA("Tool") and child:GetAttribute("EquippedAxe") then child:Destroy() end
-		end
-	end
 	tool:SetAttribute("EquippedAxe", true)
 	tool:SetAttribute("AxeItemUID", item.ItemUID)
 	tool.Parent = backpack
 	playerHumanoid:EquipTool(tool)
+	for _, container in ipairs({backpack, character}) do
+		for _, child in ipairs(container:GetChildren()) do
+			if child ~= tool and child:IsA("Tool") and child:GetAttribute("EquippedAxe") then child:Destroy() end
+		end
+	end
+	if tool.Parent ~= character then
+		tool:Destroy()
+		return false
+	end
+
+	player:SetAttribute("EquipUID", item.ItemUID)
+	runtime.EquippedWeaponUID = item.ItemUID
+	runtime.EquippedWeaponTool = tool
+	if runtime.EphemeralWeaponUIDs[item.ItemUID] then
+		-- Debug equipment is session-only; leave the profile's saved weapon untouched.
+	else
+		playerProfile.Data.Equipped.Weapon = item.ItemUID
+	end
 	StatsAggregator.Aggregate(player)
 	return true
 end
@@ -233,7 +334,7 @@ addShopAxeItem.OnInvoke = function(player, itemRecord)
 	local template = itemDataBase.Instances[itemRecord.ItemID]
 	if not info or info.Type ~= "Weapon" or not template or not template:IsA("Tool") then return false end
 	for _, owned in ipairs(profile.Data.Inventory or {}) do
-		if type(owned) == "table" and (owned.UID == itemRecord.UID or owned.ItemID == itemRecord.ItemID) then
+		if type(owned) == "table" and owned.UID == itemRecord.UID then
 			return false
 		end
 	end
@@ -242,11 +343,16 @@ addShopAxeItem.OnInvoke = function(player, itemRecord)
 	local persistedRecord = {
 		ItemID = itemRecord.ItemID,
 		UID = itemRecord.UID,
-		Stats = table.clone(itemRecord.Stats),
-		Substat = table.clone(itemRecord.Substat),
+		Stats = deepCopy(itemRecord.Stats),
+		Substat = deepCopy(itemRecord.Substat),
 		Rarity = itemRecord.Rarity,
 	}
+	if itemRecord.WeaponData ~= nil then
+		if type(itemRecord.WeaponData) ~= "table" then return false end
+		persistedRecord.WeaponData = deepCopy(itemRecord.WeaponData)
+	end
 	local runtimeItem = itemDataBase.ParseItem(persistedRecord)
+	if not runtimeItem then return false end
 	profile.Data.Runtime.Weapon[runtimeItem.ItemUID] = runtimeItem
 	deferredShopAxeAddedItems[player] = nil
 	suppressShopAxeInventoryCallbacks[player] = true
@@ -282,17 +388,32 @@ end
 profileBindableEvent.Event:Connect(function(player: Player)
 	playerInventories[player] = createInventory(player)
 	local playerProfile = playerProfileCache.GetProfile(player)
+	local function equipActiveWeapon()
+		local runtime = playerProfile.Data.Runtime
+		local itemUID = runtime.EquippedWeaponUID
+		if typeof(itemUID) ~= "string" or not runtime.Weapon[itemUID] then
+			itemUID = playerProfile.Data.Equipped.Weapon
+		end
+		local item = itemUID and runtime.Weapon[itemUID]
+		if not EquipItem(player, item) then return end
+		local inv = playerInventories[player]
+		if not inv then return end
+		for slotIndex, inventoryItem in ipairs(inv:Items()) do
+			if inventoryItem == item then
+				inv:SetEquippedItem(slotIndex)
+				break
+			end
+		end
+	end
 	player.CharacterAdded:Connect(function(char)
 		(char::any).Humanoid.Died:Once(function()
 			IMS.Reset(playerInventories[player])
 		end)
-		local itemUID = playerProfile.Data.Equipped.Weapon
-		EquipItem(player, playerProfile.Data.Runtime.Weapon[itemUID])
+		equipActiveWeapon()
 		
 	end)
 	if player.Character then
-		local itemUID = playerProfile.Data.Equipped.Weapon
-		EquipItem(player, playerProfile.Data.Runtime.Weapon[itemUID])
+		equipActiveWeapon()
 	end
 	
 	

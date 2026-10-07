@@ -8,16 +8,19 @@ local DEFINITIONS = {
 		CapacityKg = 0.5,
 		SellValue = 5,
 		CarryVisualScale = 0.45,
+		CraftPowerBonus = 1,
 	},
 	Oak = {
 		CapacityKg = 4,
 		SellValue = 16,
 		CarryVisualScale = 1,
+		CraftPowerBonus = 3,
 	},
 	Ironwood = {
 		CapacityKg = 10,
 		SellValue = 144,
 		CarryVisualScale = 1.15,
+		CraftPowerBonus = 9,
 	},
 }
 

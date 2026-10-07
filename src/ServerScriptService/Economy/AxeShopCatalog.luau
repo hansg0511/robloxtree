@@ -24,26 +24,20 @@ AxeShopCatalog.StandardAxeRecipes = {
 		Id = "copper_axe",
 		Name = "Copper Axe",
 		HeadId = "copper_head",
-		Wood = {
-			SpeciesId = "Oak",
-			Count = 3,
-		},
 		OutputItemID = 102,
 		Tier = 1,
-		Power = 16,
+		RequiredLogCount = 3,
+		HeadBasePower = 13,
 		RequiredForestId = "Forest1",
 	},
 	{
 		Id = "iron_axe",
 		Name = "Iron Axe",
 		HeadId = "iron_head",
-		Wood = {
-			SpeciesId = "Ironwood",
-			Count = 3,
-		},
 		OutputItemID = 103,
 		Tier = 2,
-		Power = 26,
+		RequiredLogCount = 3,
+		HeadBasePower = 17,
 		RequiredForestId = "Forest2",
 	},
 }
@@ -85,8 +79,15 @@ function AxeShopCatalog.FindNextCapacityUpgrade(currentCapacityKg)
 end
 
 -- StatsAggregator contributes a base Attack of 5. Crafted records store only
--- the amount needed to reach the fixed Power configured above.
+-- the amount needed to reach the power derived from the head and materials.
 AxeShopCatalog.BaseAttack = 5
+
+local function isNonnegativeFinite(value)
+	return type(value) == "number"
+		and value == value
+		and value >= 0
+		and math.abs(value) < math.huge
+end
 
 function AxeShopCatalog.FindAxeHead(headId)
 	if type(headId) ~= "string" then return nil end
@@ -109,6 +110,28 @@ function AxeShopCatalog.FindRecipeForOutput(itemId)
 		if entry.OutputItemID == itemId then return entry end
 	end
 	return nil
+end
+
+-- Resolve progression from persisted weapon metadata first, then legacy item
+-- identities. Unknown or malformed weapons fail closed instead of receiving
+-- an implicit tier.
+function AxeShopCatalog.ResolveAxeTier(itemRecord)
+	if type(itemRecord) ~= "table" then return nil end
+	local weaponData = itemRecord.WeaponData
+	if type(weaponData) == "table" and weaponData.AxeTier ~= nil then
+		if isNonnegativeFinite(weaponData.AxeTier) then
+			return weaponData.AxeTier
+		end
+		return nil
+	end
+
+	local legacyTiers = {
+		[101] = 0,
+		[102] = 1,
+		[103] = 2,
+		[9001] = 999,
+	}
+	return legacyTiers[itemRecord.ItemID]
 end
 
 return AxeShopCatalog

@@ -2,6 +2,8 @@
 -- Rebirth can reset RunProgress without deriving access from player position.
 local Players = game:GetService("Players")
 local ProfileCache = require(game.ServerScriptService.PlayerProfile.ProfileService.ProfileDataCache)
+local ItemDataBase = require(game.ServerStorage.Items.ItemDataBase)
+local AxeShopCatalog = require(game.ServerScriptService.Economy.AxeShopCatalog)
 
 local WorldProgressService = {}
 
@@ -37,6 +39,54 @@ local function getRunProgress(player)
 		runProgress.UnlockedForests = { Base = true, Forest1 = true, Forest2 = false }
 	end
 	return runProgress
+end
+
+local function isNonnegativeInteger(value)
+	return type(value) == "number"
+		and value == value
+		and value >= 0
+		and value < math.huge
+		and value % 1 == 0
+end
+
+-- Runtime equipment is the source of truth for combat and barrier access. The
+-- server-created Tool reference prevents a matching name or client-side
+-- attribute from establishing an equipped weapon on its own.
+function WorldProgressService.GetEquippedRuntimeWeapon(player)
+	if not isCurrentPlayer(player) then return nil end
+	local data = ProfileCache.GetData(player)
+	if type(data) ~= "table" or type(data.Runtime) ~= "table" then return nil end
+	local runtime = data.Runtime
+	local uid = runtime.EquippedWeaponUID
+	if type(uid) ~= "string" or #uid < 1 then return nil end
+	local weapon = type(runtime.Weapon) == "table" and runtime.Weapon[uid] or nil
+	if type(weapon) ~= "table"
+		or weapon.ItemType ~= "Weapon"
+		or weapon.ItemUID ~= uid then
+		return nil
+	end
+
+	local template = ItemDataBase.Instances[weapon.ItemID]
+	if not template or not template:IsA("Tool") or weapon.InstanceName ~= template.Name then return nil end
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local tool = runtime.EquippedWeaponTool
+	if not character or not humanoid or humanoid.Health <= 0 then return nil end
+	if typeof(tool) ~= "Instance" or not tool:IsA("Tool") or tool.Parent ~= character then return nil end
+	if tool.Name ~= template.Name
+		or tool:GetAttribute("EquippedAxe") ~= true
+		or tool:GetAttribute("AxeItemUID") ~= uid then
+		return nil
+	end
+	return weapon, uid, tool
+end
+
+function WorldProgressService.CanUseEquippedAxeTier(player, requiredTier)
+	if not isNonnegativeInteger(requiredTier) then return false end
+	local weapon = WorldProgressService.GetEquippedRuntimeWeapon(player)
+	if not weapon then return false end
+	local currentTier = AxeShopCatalog.ResolveAxeTier(weapon)
+	return isNonnegativeInteger(currentTier) and currentTier >= requiredTier
 end
 
 function WorldProgressService.CanAccessForest(player, forestId)
@@ -85,7 +135,7 @@ function WorldProgressService.CanInteractWithTree(player, tree)
 	end
 	local requiredTier = tree.RequiredStandardAxeTier
 	if requiredTier ~= nil
-		and not WorldProgressService.CanUseStandardAxeTier(player, requiredTier) then
+		and not WorldProgressService.CanUseEquippedAxeTier(player, requiredTier) then
 		return false
 	end
 	return true

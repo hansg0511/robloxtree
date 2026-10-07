@@ -7,6 +7,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local profileCache = require(ServerScriptService.PlayerProfile.ProfileService.ProfileDataCache)
 local itemDataBase = require(game.ServerStorage.Items.ItemDataBase)
 local catalog = require(script.Parent.AxeShopCatalog)
+local MaterialDefinitions = require(script.Parent.MaterialDefinitions)
 local LogService = require(ServerScriptService.Inventory.LogService)
 local WorldProgressService = require(ServerScriptService.WorldProgressService)
 local BaseStationAccess = require(ServerScriptService.WorldLayout.BaseStationAccess)
@@ -43,6 +44,10 @@ local function isFiniteNumber(value)
 		and math.abs(value) < math.huge
 end
 
+local function isNonnegativeInteger(value)
+	return isFiniteNumber(value) and value >= 0 and value % 1 == 0
+end
+
 local function getProfileData(player)
 	local profile = profileCache.GetProfile(player)
 	if not profile or type(profile.Data) ~= "table" or type(profile.Data.Runtime) ~= "table" then
@@ -50,15 +55,6 @@ local function getProfileData(player)
 	end
 	profileCache.NormalizeCarryCapacity(profile.Data)
 	return profile, profile.Data
-end
-
-local function getOwnedAxe(profile, itemId)
-	for _, item in ipairs(profile.Data.Inventory or {}) do
-		if type(item) == "table" and item.ItemID == itemId then
-			return item
-		end
-	end
-	return nil
 end
 
 local function findRecipeForHead(headId)
@@ -85,9 +81,15 @@ end
 
 local function buildOwnedAxes(profile)
 	local axes = {}
-	local equippedWeapon = profile.Data.Equipped and profile.Data.Equipped.Weapon
+	local data = profile.Data
+	local runtime = type(data.Runtime) == "table" and data.Runtime or nil
+	local equippedWeapon = runtime and runtime.EquippedWeaponUID
+		or (data.Equipped and data.Equipped.Weapon)
 	for _, item in ipairs(profile.Data.Inventory or {}) do
 		if type(item) ~= "table" or type(item.UID) ~= "string" then continue end
+		-- ItemID 9001 is session-only. A stale saved copy must not make the
+		-- debug axe visible outside the allowlisted runtime injection path.
+		if item.ItemID == 9001 then continue end
 		local info = itemDataBase.Info[item.ItemID]
 		if not info or info.Type ~= "Weapon" then continue end
 		local recipe = catalog.FindRecipeForOutput(item.ItemID)
@@ -101,8 +103,52 @@ local function buildOwnedAxes(profile)
 			UID = item.UID,
 			Owned = true,
 			Equipped = equippedWeapon == item.UID,
-			Tier = recipe and recipe.Tier or nil,
+			Tier = catalog.ResolveAxeTier(item),
 		})
+	end
+
+	-- The debug axe lives only in the server runtime, so expose that exact
+	-- ephemeral record in the same snapshot used by the normal AXES UI.
+	local debugUID = runtime and runtime.DebugProAxeUID
+	local debugWeapon = type(debugUID) == "string"
+		and type(runtime.EphemeralWeaponUIDs) == "table"
+		and runtime.EphemeralWeaponUIDs[debugUID] == true
+		and type(runtime.Weapon) == "table"
+		and runtime.Weapon[debugUID]
+		or nil
+	local debugInfo = debugWeapon and itemDataBase.Info[debugWeapon.ItemID]
+	local debugTemplate = debugWeapon and itemDataBase.Instances[debugWeapon.ItemID]
+	if debugWeapon
+		and debugWeapon.ItemType == "Weapon"
+		and debugWeapon.ItemUID == debugUID
+		and debugWeapon.ItemID == 9001
+		and type(debugWeapon.WeaponData) == "table"
+		and debugWeapon.WeaponData.DebugOnly == true
+		and debugInfo
+		and debugTemplate
+		and debugTemplate:IsA("Tool")
+		and debugWeapon.InstanceName == debugTemplate.Name then
+		local alreadyListed = false
+		for _, axe in ipairs(axes) do
+			if axe.UID == debugUID then
+				alreadyListed = true
+				break
+			end
+		end
+		if not alreadyListed then
+			local attack = type(debugWeapon.ItemStats) == "table" and debugWeapon.ItemStats.Attack or 0
+			if not isFiniteNumber(attack) then attack = 0 end
+			table.insert(axes, {
+				Id = "debug_pro_axe",
+				Name = debugInfo.Name,
+				Power = catalog.BaseAttack + attack,
+				ItemID = debugWeapon.ItemID,
+				UID = debugUID,
+				Owned = true,
+				Equipped = equippedWeapon == debugUID,
+				Tier = catalog.ResolveAxeTier(debugWeapon),
+			})
+		end
 	end
 	return axes
 end
@@ -122,11 +168,13 @@ local function buildShopSnapshot(player, profile)
 
 	for _, head in ipairs(catalog.AxeHeads) do
 		local unlocked = WorldProgressService.CanAccessForest(player, head.RequiredForestId)
+		local headCount = headCounts[head.Id]
+		if not isNonnegativeInteger(headCount) then headCount = 0 end
 		axeHeads[#axeHeads + 1] = {
 			Id = head.Id,
 			Name = head.Name,
 			Price = head.Price,
-			Count = headCounts[head.Id] or 0,
+			Count = headCount,
 			RequiredForestId = head.RequiredForestId,
 			Available = unlocked,
 			CanBuy = unlocked and atAxeShop and coins >= head.Price,
@@ -134,37 +182,32 @@ local function buildShopSnapshot(player, profile)
 	end
 
 	local recipes = {}
+	local eligibleCraftLogs = LogService.GetEligibleCraftLogs(player)
 	for _, recipe in ipairs(catalog.StandardAxeRecipes) do
 		local head = catalog.FindAxeHead(recipe.HeadId)
-		local ownedHeadCount = head and (headCounts[head.Id] or 0) or 0
-		local ownedWoodCount = LogService.CountCraftableLogs(player, recipe.Wood.SpeciesId)
-		local outputOwned = getOwnedAxe(profile, recipe.OutputItemID) ~= nil
+		local ownedHeadCount = head and headCounts[head.Id] or 0
+		if not isNonnegativeInteger(ownedHeadCount) then ownedHeadCount = 0 end
 		local unlocked = WorldProgressService.CanAccessForest(player, recipe.RequiredForestId)
-		local atNextTier = standardTier + 1 == recipe.Tier
+		local progressionValid = recipe.Tier <= standardTier or recipe.Tier == standardTier + 1
 		local outputDefined = validOutputDefinition(recipe)
 		recipes[#recipes + 1] = {
 			Id = recipe.Id,
 			Name = recipe.Name,
 			Tier = recipe.Tier,
-			Power = recipe.Power,
 			HeadId = recipe.HeadId,
 			HeadName = head and head.Name or recipe.HeadId,
-			HeadRequired = 1,
 			HeadOwned = ownedHeadCount,
-			WoodSpeciesId = recipe.Wood.SpeciesId,
-			WoodRequired = recipe.Wood.Count,
-			WoodOwned = ownedWoodCount,
-			OutputOwned = outputOwned,
+			RequiredLogCount = recipe.RequiredLogCount,
+			HeadBasePower = recipe.HeadBasePower,
+			RequiredForestId = recipe.RequiredForestId,
 			Unlocked = unlocked,
-			AtNextTier = atNextTier,
+			ProgressionValid = progressionValid,
 			AtForge = atForge,
 			CanCraft = atForge
 				and unlocked
-				and atNextTier
-				and not outputOwned
+				and progressionValid
 				and outputDefined
-				and ownedHeadCount >= 1
-				and ownedWoodCount >= recipe.Wood.Count,
+				and ownedHeadCount >= 1,
 		}
 	end
 
@@ -194,6 +237,7 @@ local function buildShopSnapshot(player, profile)
 		RemainingKg = capacityState and capacityState.RemainingKg or catalog.DEFAULT_CAPACITY_KG,
 		AxeHeads = axeHeads,
 		Recipes = recipes,
+		EligibleCraftLogs = eligibleCraftLogs,
 		-- Axes are now owned inventory only. The Axe Shop no longer exposes a
 		-- purchasable list of finished progression weapons.
 		Axes = buildOwnedAxes(profile),
@@ -234,15 +278,76 @@ purchaseAxeHead.OnServerEvent:Connect(function(player, headId, ...)
 	economyUpdated:FireClient(player, "Progression")
 end)
 
-craftRecipe.OnServerEvent:Connect(function(player, recipeId, ...)
+local function isExactUidSelection(value, expectedCount)
+	if type(value) ~= "table" or type(expectedCount) ~= "number" or expectedCount < 1
+		or expectedCount % 1 ~= 0 then
+		return false
+	end
+	local count = 0
+	local maxIndex = 0
+	for key in pairs(value) do
+		if type(key) ~= "number" or key < 1 or key % 1 ~= 0 then return false end
+		count += 1
+		maxIndex = math.max(maxIndex, key)
+	end
+	if count ~= expectedCount or maxIndex ~= expectedCount then return false end
+	local seen = {}
+	for index = 1, expectedCount do
+		local uid = value[index]
+		if typeof(uid) ~= "string" or #uid < 1 or #uid > 80 or seen[uid] then return false end
+		seen[uid] = true
+	end
+	return true
+end
+
+local function cloneMutationValue(value, seen)
+	local valueType = type(value)
+	if valueType == "string" or valueType == "number" or valueType == "boolean" then
+		return value
+	end
+	if valueType ~= "table" or seen[value] then return nil end
+	local copy = {}
+	seen[value] = true
+	for key, child in pairs(value) do
+		local keyType = type(key)
+		if keyType == "string" or keyType == "number" then
+			local childCopy = cloneMutationValue(child, seen)
+			if childCopy ~= nil then copy[key] = childCopy end
+		end
+	end
+	seen[value] = nil
+	return copy
+end
+
+local function cloneMutations(mutations)
+	if type(mutations) ~= "table" then return {} end
+	return cloneMutationValue(mutations, {}) or {}
+end
+
+local function restoreCraftLogs(player, recipe, removedLogs)
+	local restoreOk, restored = pcall(function()
+		return LogService.RestoreCraftLogRecords(player, removedLogs)
+	end)
+	if not restoreOk or restored ~= true then
+		warn(string.format("Could not roll back source logs after failed %s craft for %s", recipe.Id, player.Name))
+	end
+end
+
+craftRecipe.OnServerEvent:Connect(function(player, recipeId, selectedLogUids, ...)
 	if select("#", ...) ~= 0 or not takeBudget(player, "CraftRecipe") then return end
 	if typeof(recipeId) ~= "string" or #recipeId < 1 or #recipeId > 64 then return end
+	local recipe = catalog.FindStandardAxeRecipe(recipeId)
+	if not recipe or not isExactUidSelection(selectedLogUids, recipe.RequiredLogCount) then return end
 	if not canUseForge(player) then return end
 	local profile, data = getProfileData(player)
 	if not profile then return end
+	if not validOutputDefinition(recipe)
+		or not isFiniteNumber(recipe.HeadBasePower)
+		or recipe.RequiredLogCount < 1
+		or recipe.RequiredLogCount % 1 ~= 0 then
+		return
+	end
 
-	local recipe = catalog.FindStandardAxeRecipe(recipeId)
-	if not recipe or not validOutputDefinition(recipe) then return end
 	local progress = data.RunProgress
 	if type(progress) ~= "table"
 		or not isFiniteNumber(progress.StandardAxeTier)
@@ -250,35 +355,63 @@ craftRecipe.OnServerEvent:Connect(function(player, recipeId, ...)
 		or progress.StandardAxeTier % 1 ~= 0 then
 		return
 	end
-	if recipe.Tier ~= progress.StandardAxeTier + 1 then return end
+	local previousTier = progress.StandardAxeTier
+	local progressionValid = recipe.Tier <= previousTier or recipe.Tier == previousTier + 1
+	if not progressionValid then return end
 	if not WorldProgressService.CanAccessForest(player, recipe.RequiredForestId) then return end
-	if getOwnedAxe(profile, recipe.OutputItemID) then return end
 
 	local head = catalog.FindAxeHead(recipe.HeadId)
 	if not head or type(data.AxeHeads) ~= "table" then return end
 	local headCount = data.AxeHeads[head.Id]
 	if not isFiniteNumber(headCount) or headCount < 1 or headCount % 1 ~= 0 then return end
 
-	-- The server selects exact owned UIDs. Locked, mutated, or still-arriving
-	-- pickup records are not eligible for deterministic standard recipes.
-	local logUids = LogService.GetCraftableLogUIDs(player, recipe.Wood.SpeciesId, recipe.Wood.Count)
-	if not logUids or #logUids ~= recipe.Wood.Count then return end
+	-- Exact selection is revalidated against authoritative logs in this atomic
+	-- take. Mutation data remains attached to the original records for metadata.
+	local removedLogs = LogService.TakeCraftLogUIDs(player, selectedLogUids, recipe.RequiredLogCount)
+	if not removedLogs or #removedLogs ~= recipe.RequiredLogCount then return end
 
-	local itemRecord = {
-		ItemID = recipe.OutputItemID,
-		UID = HttpService:GenerateGUID(false),
-		Stats = { Attack = math.max(0, recipe.Power - catalog.BaseAttack) },
-		Substat = {},
-		Rarity = "Common",
-	}
-	-- Begin a silent transaction: reserve/remove only the exact validated logs,
-	-- then update the head and tier before the inventory path can notify the client.
-	-- The BindableFunction handler is synchronous and contains no waits/yields.
-	local removedLogs = LogService.TakeCraftableLogUIDs(player, recipe.Wood.SpeciesId, logUids)
-	if not removedLogs then return end
-	local previousTier = progress.StandardAxeTier
+	local bonusTotal = 0
+	local sourceMaterials = {}
+	for _, logRecord in ipairs(removedLogs) do
+		local definition = type(logRecord) == "table" and MaterialDefinitions.Get(logRecord.SpeciesId) or nil
+		if logRecord.ItemType ~= "Log"
+			or not definition
+			or not isFiniteNumber(definition.CraftPowerBonus) then
+			restoreCraftLogs(player, recipe, removedLogs)
+			return
+		end
+		bonusTotal += definition.CraftPowerBonus
+		table.insert(sourceMaterials, {
+			SourceUID = logRecord.UID,
+			SpeciesId = logRecord.SpeciesId,
+			Mutations = cloneMutations(logRecord.Mutations),
+		})
+	end
+
+	local finalPower = math.floor((recipe.HeadBasePower + bonusTotal / #removedLogs) * 10 + 0.5) / 10
+	local itemRecordOk, itemRecord = pcall(function()
+		return {
+			ItemID = recipe.OutputItemID,
+			UID = HttpService:GenerateGUID(false),
+			Stats = { Attack = finalPower - catalog.BaseAttack },
+			Substat = {},
+			Rarity = "Common",
+			WeaponData = {
+				AxeTier = recipe.Tier,
+				HeadId = recipe.HeadId,
+				CraftedPower = finalPower,
+				Materials = sourceMaterials,
+			},
+		}
+	end)
+	if not itemRecordOk or type(itemRecord) ~= "table" then
+		restoreCraftLogs(player, recipe, removedLogs)
+		return
+	end
+
+	-- Keep head and progression writes silent until the output path succeeds.
 	data.AxeHeads[head.Id] = headCount - 1
-	progress.StandardAxeTier = recipe.Tier
+	progress.StandardAxeTier = math.max(previousTier, recipe.Tier)
 
 	local invokeOk, added = pcall(function()
 		return addShopItem:Invoke(player, itemRecord)
@@ -286,14 +419,11 @@ craftRecipe.OnServerEvent:Connect(function(player, recipeId, ...)
 	if not invokeOk or added ~= true then
 		data.AxeHeads[head.Id] = headCount
 		progress.StandardAxeTier = previousTier
-		if not LogService.RestoreCraftableLogRecords(player, removedLogs) then
-			warn(string.format("Could not roll back source logs after failed %s craft for %s", recipe.Id, player.Name))
-		end
+		restoreCraftLogs(player, recipe, removedLogs)
 		return
 	end
 
-	-- Publish one coherent final resource snapshot only after the same inventory
-	-- path confirms that the finished weapon exists in profile/runtime inventory.
+	-- Publish the final resources only after inventory insertion succeeded.
 	LogService.NotifyState(player)
 	economyUpdated:FireClient(player, "Progression")
 end)
