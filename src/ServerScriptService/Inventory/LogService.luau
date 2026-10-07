@@ -46,8 +46,9 @@ local PICKUP_HOMING_UPDATE_RATE = 15
 local PICKUP_HOMING_UPDATE_INTERVAL = 1 / PICKUP_HOMING_UPDATE_RATE
 local PICKUP_HOMING_ARRIVAL_RADIUS = 2.5
 local PICKUP_HOMING_TIMEOUT = 20
-local OVERFLOW_PILE_COMMIT_DELAY = 0.35
-local OVERFLOW_MIN_FOLLOW_TIME = 0.5
+local OVERFLOW_HOMING_SPEED = 32
+-- Safety bound for a live player's long-running overflow trail.
+local OVERFLOW_HOMING_TIMEOUT = 180
 local CARRY_FINAL_SETTLE_DURATION = 0.16
 local OVERFLOW_FINAL_SETTLE_DURATION = 0.28
 local GROUND_LOG_REVEAL_DURATION = 0.36
@@ -1085,8 +1086,8 @@ local function assignOverflowPileAtArrival(player, entry, root)
 	if not slotIndex or typeof(targetCFrame) ~= "CFrame" then return nil end
 	local isFirstMembership = pile.ItemCount == 0
 
-	-- Pile membership starts at the server-authoritative post-arrival commit
-	-- time, after the fixed commit grace.
+	-- Pile membership begins as soon as server homing catches a player moving
+	-- no faster than the overflow log.
 	entry.State = "OverflowSettling"
 	entry.PileId = pile.PileId
 	entry.PileSlot = slotIndex
@@ -1268,7 +1269,7 @@ local function makePickupHomingPayload(claim, outcome)
 		CarryVisualScale = material.CarryVisualScale,
 		PopDuration = PICKUP_POP_DURATION,
 		LaunchDelay = 0,
-		HomingSpeed = PICKUP_HOMING_SPEED,
+		HomingSpeed = if outcome == "Overflow" then OVERFLOW_HOMING_SPEED else PICKUP_HOMING_SPEED,
 		ArrivalRadius = PICKUP_HOMING_ARRIVAL_RADIUS,
 		StartVisualScale = material.CarryVisualScale * GROUND_DROP_VISUAL_SCALE,
 		GroundToCarryScale = GROUND_DROP_VISUAL_SCALE,
@@ -1311,7 +1312,6 @@ local function broadcastPickupFx(payload)
 end
 
 local function clearPickupHoming(pickup)
-	pickup.PileCommitAt = nil
 	if pickupHomingsByUid[pickup.UID] == pickup then
 		pickupHomingsByUid[pickup.UID] = nil
 	end
@@ -1671,6 +1671,7 @@ local function beginCarryHoming(player, claim, now)
 		Player = player,
 		Outcome = "Carry",
 		Status = "Homing",
+		HomingSpeed = PICKUP_HOMING_SPEED,
 		Entry = claim.Entry,
 		SourceCFrame = claim.StartCFrame,
 		LogicalPosition = claim.StartCFrame.Position,
@@ -1698,6 +1699,7 @@ local function beginOverflowHoming(player, claim, now)
 		Player = player,
 		Outcome = "Overflow",
 		Status = "Homing",
+		HomingSpeed = OVERFLOW_HOMING_SPEED,
 		Entry = entry,
 		Bundle = entry.Bundle,
 		Drop = entry.Drop,
@@ -1706,7 +1708,7 @@ local function beginOverflowHoming(player, claim, now)
 		StartedAt = now,
 		MotionStartsAt = now + PICKUP_POP_DURATION,
 		LastUpdateAt = now,
-		Deadline = now + PICKUP_HOMING_TIMEOUT,
+		Deadline = now + OVERFLOW_HOMING_TIMEOUT,
 		OriginalExpiresAt = entry.ExpiresAt or (now + GROUND_LOG_LIFETIME_SECONDS),
 		OriginalReservedUntil = entry.ReservedUntil or (now + OWNER_RESERVATION_SECONDS),
 	}
@@ -1727,8 +1729,8 @@ local function beginOverflowHoming(player, claim, now)
 	entry.Model:SetAttribute("PileId", nil)
 	entry.Model:SetAttribute("PileSlot", nil)
 	entry.Model:SetAttribute("PickupEnabled", false)
-	-- A request accepted before the 60s ground expiry gets enough time to finish
-	-- its bounded authoritative flight and final settle.
+	-- Preserve the ground record while a long overflow trail is active, with a
+	-- finite timeout above as the final safety bound.
 	entry.ReservedUntil = math.max(entry.ReservedUntil, pickup.Deadline + OVERFLOW_FINAL_SETTLE_DURATION)
 	pickupHomingsByUid[claim.UID] = pickup
 	debugPickupHoming("START", claim.UID, "mode=Overflow")
@@ -1871,17 +1873,7 @@ local function removeGroundDropLog(bundle, uid, expectedEntry)
 	if entry.State ~= "Fresh" and entry.State ~= "HomingOverflow" then return false end
 	local now = os.clock()
 	local pickup = pickupHomingsByUid[uid]
-	if pickup and pickup.Entry == entry
-		and pickup.Status == "AwaitingPileCommit" then
-		-- An overflow log held around a moving player remains registered. Refresh
-		-- its finite ground lifetime and reservation, and keep one generation-safe
-		-- expiry callback waiting beyond that window.
-		local holdUntil = math.max(entry.ExpiresAt or 0, now + GROUND_LOG_LIFETIME_SECONDS)
-		entry.ExpiresAt = holdUntil
-		entry.ReservedUntil = math.max(entry.ReservedUntil or 0, holdUntil)
-		scheduleGroundDropExpiry(bundle, uid, entry, holdUntil)
-		return false
-	elseif pickup and pickup.Entry == entry and pickup.Status == "Homing" then
+	if pickup and pickup.Entry == entry and pickup.Status == "Homing" then
 		-- The ground lifetime callback must never consume a UID mid-flight. Extend
 		-- by the remaining bounded homing time while preserving whatever ground
 		-- lifetime remained when the request began.
@@ -1956,7 +1948,7 @@ local function isValidOverflowHomingEntry(pickup, player)
 	if not pickup or not player or pickupHomingsByUid[pickup.UID] ~= pickup
 		or pickup.Player ~= player
 		or pickup.Outcome ~= "Overflow"
-		or (pickup.Status ~= "Homing" and pickup.Status ~= "AwaitingPileCommit")
+		or pickup.Status ~= "Homing"
 		or pickup.Resolved == true or pickup.Cancelled == true
 		or not isValidUid(pickup.UID) then
 		return false
@@ -1985,44 +1977,45 @@ local function isValidOverflowHomingEntry(pickup, player)
 		and isActiveGroundDropEntry(bundle, drop, pickup.UID, entry)
 end
 
-local function refreshAwaitingPileCommitLifetime(pickup, now)
-	local entry = pickup.Entry
-	local holdUntil = math.max(entry.ExpiresAt or 0, now + GROUND_LOG_LIFETIME_SECONDS)
-	entry.ExpiresAt = holdUntil
-	entry.ReservedUntil = math.max(entry.ReservedUntil or 0, holdUntil)
-end
-
 local function resolveOverflowHoming(pickup, now)
 	if pickupHomingsByUid[pickup.UID] ~= pickup
 		or pickup.Outcome ~= "Overflow"
-		or pickup.Status ~= "AwaitingPileCommit"
-		or pickup.Resolved == true or pickup.Cancelled == true
-		or pickup.ServerArrived ~= true
-		or type(pickup.PileCommitAt) ~= "number"
-		or now < pickup.PileCommitAt then
+		or pickup.Status ~= "Homing"
+		or pickup.Resolved == true or pickup.Cancelled == true then
 		return false
 	end
 
 	local player = pickup.Player
 	local entry = pickup.Entry
 	if not isValidOverflowHomingEntry(pickup, player) then
-		recoverOverflowHoming(pickup, "entry-invalid-at-pile-commit")
+		recoverOverflowHoming(pickup, "entry-invalid-at-catch")
 		return false
 	end
 	if not ensureOverflowGroundModel(pickup, "HomingOverflow", pickup.SourceCFrame, false) then
-		recoverOverflowHoming(pickup, "model-missing-at-pile-commit")
+		recoverOverflowHoming(pickup, "model-missing-at-catch")
 		return false
 	end
-	-- Sample the current authoritative root after revalidating the owned ground
-	-- entry. No client-supplied position participates in the pile decision.
+	-- Use only the live server root for both the speed test and pile position.
 	local root = getLivePlayerRoot(player)
 	if not root or not isValidOverflowHomingEntry(pickup, player) then
-		recoverOverflowHoming(pickup, "player-or-entry-invalid-at-pile-commit")
+		recoverOverflowHoming(pickup, "player-or-entry-invalid-at-catch")
 		return false
 	end
 
-	pickup.PileCommitAt = nil
-	debugPickupHoming("PILE_COMMIT", pickup.UID)
+	local velocity = root.AssemblyLinearVelocity
+	if typeof(velocity) ~= "Vector3" then return false end
+	local horizontalVelocity = Vector3.new(velocity.X, 0, velocity.Z)
+	local horizontalSpeed = horizontalVelocity.Magnitude
+	local finiteSpeed = horizontalSpeed == horizontalSpeed
+		and horizontalSpeed >= 0
+		and horizontalSpeed < math.huge
+	if not finiteSpeed or horizontalSpeed > OVERFLOW_HOMING_SPEED then
+		-- A fast player is escaping. Keep this pickup homing; it can catch later
+		-- if the player's server-observed horizontal speed falls to the threshold.
+		return false
+	end
+
+	debugPickupHoming("OVERFLOW_CAUGHT", pickup.UID, string.format("speed=%.2f", horizontalSpeed))
 	local pile = assignOverflowPileAtArrival(player, entry, root)
 	if not pile then
 		recoverOverflowHoming(pickup, "pile-assignment-failed")
@@ -2034,30 +2027,6 @@ local function resolveOverflowHoming(pickup, now)
 	pickup.SettleUntil = now + OVERFLOW_FINAL_SETTLE_DURATION
 	debugPickupHoming("RESOLVE_PILE", pickup.UID, "pile=" .. tostring(pile.PileId))
 	broadcastPickupFx(makeOverflowResolutionPayload(pickup))
-	return true
-end
-
-local function markServerOverflowArrival(pickup, now, root)
-	if pickupHomingsByUid[pickup.UID] ~= pickup
-		or pickup.Outcome ~= "Overflow"
-		or pickup.Status ~= "Homing"
-		or pickup.ServerArrived == true
-		or pickup.Cancelled == true
-		or not root or not root:IsA("BasePart") or not isFiniteVector3(root.Position) then
-		return false
-	end
-
-	pickup.ServerArrived = true
-	pickup.ServerArrivedAt = now
-	pickup.Status = "AwaitingPileCommit"
-	pickup.PileCommitAt = math.max(
-		now + OVERFLOW_PILE_COMMIT_DELAY,
-		pickup.StartedAt + OVERFLOW_MIN_FOLLOW_TIME
-	)
-	local entry = pickup.Entry
-	refreshAwaitingPileCommitLifetime(pickup, now)
-	debugPickupHoming("SERVER_REACHED_PLAYER", pickup.UID)
-	debugPickupHoming("AWAITING_PILE_COMMIT", pickup.UID)
 	return true
 end
 
@@ -2134,20 +2103,8 @@ local function updatePickupHomings(maxDeltaTime)
 					continue
 				end
 			end
-			if pickup.Status == "AwaitingPileCommit" then
-				refreshAwaitingPileCommitLifetime(pickup, now)
-			end
 			if not isValidOverflowHomingEntry(pickup, player) then
 				recoverOverflowHoming(pickup, "entry-invalid-during-homing")
-				continue
-			end
-
-			if pickup.Status == "AwaitingPileCommit" then
-				if type(pickup.PileCommitAt) ~= "number" then
-					recoverOverflowHoming(pickup, "pile-commit-time-missing")
-				elseif now >= pickup.PileCommitAt then
-					resolveOverflowHoming(pickup, now)
-				end
 				continue
 			end
 		end
@@ -2169,18 +2126,23 @@ local function updatePickupHomings(maxDeltaTime)
 			if pickup.Outcome == "Carry" then
 				finishCarryHoming(pickup)
 			else
-				markServerOverflowArrival(pickup, now, root)
+				resolveOverflowHoming(pickup, now)
 			end
 			continue
 		end
 
-		local stepDistance = math.min(PICKUP_HOMING_SPEED * deltaTime, distance)
+		local homingSpeed = pickup.HomingSpeed
+		if not isFinitePositive(homingSpeed) then
+			cancelPickupHoming(pickup, "invalid-homing-speed", false)
+			continue
+		end
+		local stepDistance = math.min(homingSpeed * deltaTime, distance)
 		pickup.LogicalPosition += offset.Unit * stepDistance
 		if (target - pickup.LogicalPosition).Magnitude <= PICKUP_HOMING_ARRIVAL_RADIUS then
 			if pickup.Outcome == "Carry" then
 				finishCarryHoming(pickup)
 			else
-				markServerOverflowArrival(pickup, now, root)
+				resolveOverflowHoming(pickup, now)
 			end
 		end
 	end

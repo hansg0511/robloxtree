@@ -60,6 +60,7 @@ local CARRY_CAP_DIAMETER_RATIO = 0.88
 local GROUND_TO_CARRY_SCALE = 4
 local DEFAULT_POP_DURATION = 0.10
 local DEFAULT_PICKUP_HOMING_SPEED = 24
+local DEFAULT_OVERFLOW_HOMING_SPEED = 32
 local DEFAULT_PICKUP_ARRIVAL_RADIUS = 2.5
 local LOCAL_PLAYER_HOLD_RADIUS = 1.5
 local LOCAL_HOLD_OFFSET_RADIUS = 1.7
@@ -70,6 +71,9 @@ local OVERFLOW_FAR_HANDOFF_MAX_DISTANCE = 24
 local OVERFLOW_FAR_HANDOFF_DURATION = 0.12
 local FOLLOW_ORIENTATION_RESPONSE = 3
 local MAX_CLIENT_HOMING_LIFETIME = 45
+-- Server overflow homing is bounded at 180 seconds; leave a small margin for
+-- replication and the final cosmetic settle before client-side cleanup.
+local MAX_OVERFLOW_CLIENT_HOMING_LIFETIME = 185
 local DEBUG_PICKUP_HOMING = false
 
 local activeFlights = {}
@@ -371,6 +375,17 @@ local function isFiniteNumber(value)
 		and value ~= -math.huge
 end
 
+local function getHomingSpeed(payload)
+	local fallback = payload.Outcome == "Overflow"
+		and DEFAULT_OVERFLOW_HOMING_SPEED
+		or DEFAULT_PICKUP_HOMING_SPEED
+	local value = payload.HomingSpeed
+	if not isFiniteNumber(value) then
+		return fallback
+	end
+	return math.clamp(value, 1, 120)
+end
+
 local function isFiniteVector3(value)
 	return typeof(value) == "Vector3"
 		and isFiniteNumber(value.X)
@@ -550,7 +565,7 @@ local function startHomingFlight(payload)
 		Rotation = sourceCFrame.Rotation,
 		CarryVisualScale = carryVisualScale,
 		StartVisualScale = startVisualScale,
-		HomingSpeed = getPayloadNumber(payload, "HomingSpeed", DEFAULT_PICKUP_HOMING_SPEED, 1, 120),
+		HomingSpeed = getHomingSpeed(payload),
 		ArrivalRadius = getPayloadNumber(payload, "ArrivalRadius", DEFAULT_PICKUP_ARRIVAL_RADIUS, 0.5, 6),
 		PopDuration = getPayloadNumber(payload, "PopDuration", DEFAULT_POP_DURATION, 0.04, 0.3),
 		LaunchDelay = getPayloadNumber(payload, "LaunchDelay", 0, 0, 1),
@@ -571,9 +586,10 @@ local function startHomingFlight(payload)
 			return
 		end
 		flight.Lifetime += deltaTime
-		local overflowCanResolve = flight.Outcome == "Overflow"
-			and (flight.State == "Hold" or flight.Resolution ~= nil)
-		if flight.Lifetime > MAX_CLIENT_HOMING_LIFETIME and not overflowCanResolve then
+		local maxLifetime = flight.Outcome == "Overflow"
+			and MAX_OVERFLOW_CLIENT_HOMING_LIFETIME
+			or MAX_CLIENT_HOMING_LIFETIME
+		if flight.Lifetime > maxLifetime then
 			debugHomingTransition("MISSING_RESOLUTION_TIMEOUT", flight)
 			cleanupFlight(key, flight)
 			return
