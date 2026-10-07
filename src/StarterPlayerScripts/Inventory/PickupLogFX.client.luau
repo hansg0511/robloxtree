@@ -61,6 +61,9 @@ local GROUND_TO_CARRY_SCALE = 4
 local DEFAULT_POP_DURATION = 0.10
 local DEFAULT_PICKUP_HOMING_SPEED = 24
 local DEFAULT_OVERFLOW_HOMING_SPEED = 32
+local DEFAULT_OVERFLOW_HOMING_ACCELERATION_DELAY = 1.0
+local DEFAULT_OVERFLOW_HOMING_ACCELERATION = 2.0
+local DEFAULT_MAX_OVERFLOW_HOMING_SPEED = 60
 local DEFAULT_PICKUP_ARRIVAL_RADIUS = 2.5
 local LOCAL_PLAYER_HOLD_RADIUS = 1.5
 local LOCAL_HOLD_OFFSET_RADIUS = 1.7
@@ -376,6 +379,9 @@ local function isFiniteNumber(value)
 end
 
 local function getHomingSpeed(payload)
+	if payload.Outcome == "Carry" then
+		return DEFAULT_PICKUP_HOMING_SPEED
+	end
 	local fallback = payload.Outcome == "Overflow"
 		and DEFAULT_OVERFLOW_HOMING_SPEED
 		or DEFAULT_PICKUP_HOMING_SPEED
@@ -552,6 +558,16 @@ local function startHomingFlight(payload)
 	if math.abs(startVisualScale - expectedStartScale) > 1e-3 then
 		startVisualScale = expectedStartScale
 	end
+	local homingSpeed = getHomingSpeed(payload)
+	local homingAccelerationDelay = payload.Outcome == "Overflow"
+		and getPayloadNumber(payload, "HomingAccelerationDelay", DEFAULT_OVERFLOW_HOMING_ACCELERATION_DELAY, 0, 60)
+		or 0
+	local homingAcceleration = payload.Outcome == "Overflow"
+		and getPayloadNumber(payload, "HomingAcceleration", DEFAULT_OVERFLOW_HOMING_ACCELERATION, 0, 1000)
+		or 0
+	local maxHomingSpeed = payload.Outcome == "Overflow"
+		and math.max(homingSpeed, getPayloadNumber(payload, "MaxHomingSpeed", DEFAULT_MAX_OVERFLOW_HOMING_SPEED, 1, 120))
+		or homingSpeed
 	local flight = {
 		Model = model,
 		Body = body,
@@ -565,7 +581,10 @@ local function startHomingFlight(payload)
 		Rotation = sourceCFrame.Rotation,
 		CarryVisualScale = carryVisualScale,
 		StartVisualScale = startVisualScale,
-		HomingSpeed = getHomingSpeed(payload),
+		HomingSpeed = homingSpeed,
+		HomingAccelerationDelay = homingAccelerationDelay,
+		HomingAcceleration = homingAcceleration,
+		MaxHomingSpeed = maxHomingSpeed,
 		ArrivalRadius = getPayloadNumber(payload, "ArrivalRadius", DEFAULT_PICKUP_ARRIVAL_RADIUS, 0.5, 6),
 		PopDuration = getPayloadNumber(payload, "PopDuration", DEFAULT_POP_DURATION, 0.04, 0.3),
 		LaunchDelay = getPayloadNumber(payload, "LaunchDelay", 0, 0, 1),
@@ -619,6 +638,15 @@ local function startHomingFlight(payload)
 			flight.State = "Homing"
 			flight.CurrentPosition = sourceCFrame.Position + Vector3.new(0, 0.72, 0)
 		end
+		local homingSpeed = flight.HomingSpeed
+		if flight.Outcome == "Overflow" then
+			local overflowChaseElapsed = math.max(0, activeElapsed - flight.PopDuration)
+			local acceleratedElapsed = math.max(0, overflowChaseElapsed - flight.HomingAccelerationDelay)
+			homingSpeed = math.min(
+				flight.HomingSpeed + acceleratedElapsed * flight.HomingAcceleration,
+				flight.MaxHomingSpeed
+			)
+		end
 		if (flight.State == "Homing" or flight.State == "Hold")
 			and flight.Resolution
 			and flight.Resolution.Kind == "Overflow" then
@@ -635,7 +663,7 @@ local function startHomingFlight(payload)
 			flight.CurrentPosition = moveToward(
 				flight.CurrentPosition,
 				homingTarget,
-				flight.HomingSpeed * deltaTime
+				homingSpeed * deltaTime
 			)
 			if (flight.CurrentPosition - homingTarget).Magnitude <= LOCAL_PLAYER_HOLD_RADIUS then
 				flight.LocalReached = true
@@ -650,7 +678,7 @@ local function startHomingFlight(payload)
 			flight.CurrentPosition = moveToward(
 				flight.CurrentPosition,
 				holdTarget,
-				flight.HomingSpeed * deltaTime
+				homingSpeed * deltaTime
 			)
 			if flight.Resolution then
 				beginFinalSettle(flight, root)

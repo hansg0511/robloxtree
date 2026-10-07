@@ -47,6 +47,9 @@ local PICKUP_HOMING_UPDATE_INTERVAL = 1 / PICKUP_HOMING_UPDATE_RATE
 local PICKUP_HOMING_ARRIVAL_RADIUS = 2.5
 local PICKUP_HOMING_TIMEOUT = 20
 local OVERFLOW_HOMING_SPEED = 32
+local OVERFLOW_HOMING_ACCELERATION_DELAY = 1.0
+local OVERFLOW_HOMING_ACCELERATION = 2.0
+local OVERFLOW_HOMING_MAX_SPEED = 60
 -- Safety bound for a live player's long-running overflow trail.
 local OVERFLOW_HOMING_TIMEOUT = 180
 local CARRY_FINAL_SETTLE_DURATION = 0.16
@@ -1256,7 +1259,7 @@ local function makePickupHomingPayload(claim, outcome)
 	local material = getMaterialDefinition(logRecord.SpeciesId)
 	if not material then return nil end
 	local palette = SpeciesVisuals.GetPalette(logRecord.SpeciesId)
-	return {
+	local payload = {
 		Mode = "Homing",
 		Outcome = outcome,
 		OwnerUserId = claim.OwnerUserId,
@@ -1274,6 +1277,12 @@ local function makePickupHomingPayload(claim, outcome)
 		StartVisualScale = material.CarryVisualScale * GROUND_DROP_VISUAL_SCALE,
 		GroundToCarryScale = GROUND_DROP_VISUAL_SCALE,
 	}
+	if outcome == "Overflow" then
+		payload.HomingAccelerationDelay = OVERFLOW_HOMING_ACCELERATION_DELAY
+		payload.HomingAcceleration = OVERFLOW_HOMING_ACCELERATION
+		payload.MaxHomingSpeed = OVERFLOW_HOMING_MAX_SPEED
+	end
+	return payload
 end
 
 local function makeCarryResolutionPayload(pickup, finalTargetOffset)
@@ -1977,6 +1986,15 @@ local function isValidOverflowHomingEntry(pickup, player)
 		and isActiveGroundDropEntry(bundle, drop, pickup.UID, entry)
 end
 
+local function getOverflowHomingSpeed(pickup, now)
+	local chaseAge = math.max(0, now - pickup.MotionStartsAt)
+	local accelerationAge = math.max(0, chaseAge - OVERFLOW_HOMING_ACCELERATION_DELAY)
+	return math.min(
+		OVERFLOW_HOMING_SPEED + OVERFLOW_HOMING_ACCELERATION * accelerationAge,
+		OVERFLOW_HOMING_MAX_SPEED
+	)
+end
+
 local function resolveOverflowHoming(pickup, now)
 	if pickupHomingsByUid[pickup.UID] ~= pickup
 		or pickup.Outcome ~= "Overflow"
@@ -2006,12 +2024,13 @@ local function resolveOverflowHoming(pickup, now)
 	if typeof(velocity) ~= "Vector3" then return false end
 	local horizontalVelocity = Vector3.new(velocity.X, 0, velocity.Z)
 	local horizontalSpeed = horizontalVelocity.Magnitude
+	local homingSpeed = getOverflowHomingSpeed(pickup, now)
 	local finiteSpeed = horizontalSpeed == horizontalSpeed
 		and horizontalSpeed >= 0
 		and horizontalSpeed < math.huge
-	if not finiteSpeed or horizontalSpeed > OVERFLOW_HOMING_SPEED then
+	if not finiteSpeed or horizontalSpeed > homingSpeed then
 		-- A fast player is escaping. Keep this pickup homing; it can catch later
-		-- if the player's server-observed horizontal speed falls to the threshold.
+		-- if the player's server-observed horizontal speed falls to the current speed.
 		return false
 	end
 
@@ -2131,7 +2150,9 @@ local function updatePickupHomings(maxDeltaTime)
 			continue
 		end
 
-		local homingSpeed = pickup.HomingSpeed
+		local homingSpeed = if pickup.Outcome == "Overflow"
+			then getOverflowHomingSpeed(pickup, now)
+			else pickup.HomingSpeed
 		if not isFinitePositive(homingSpeed) then
 			cancelPickupHoming(pickup, "invalid-homing-speed", false)
 			continue
