@@ -29,6 +29,7 @@ local cleanedUp = false
 
 local stateLoaded = false
 local hasAssignedGrove = false
+local latestStateRevision = -1
 local saplings = {}
 local groveMaterials = {}
 local selectedSaplingUID
@@ -428,6 +429,14 @@ local function setPlantingMode(enabled, showFeedback)
 end
 
 local function applySnapshot(snapshot)
+	local revision = snapshot.Revision
+	if type(revision) == "number" and revision == revision and revision >= 0 then
+		if revision < latestStateRevision then
+			return false
+		end
+		latestStateRevision = revision
+	end
+
 	stateLoaded = true
 	hasAssignedGrove = snapshot.HasAssignedGrove == true
 	saplings = {}
@@ -465,6 +474,7 @@ local function applySnapshot(snapshot)
 		setPlantingMode(false, false)
 	end
 	render()
+	return true
 end
 
 refreshState = function(onComplete)

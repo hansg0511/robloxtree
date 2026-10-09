@@ -34,6 +34,10 @@ local RuntimeTreesByUID = {}
 local PlayerRuntimeUIDs = {}
 local RestoredPlotByPlayer = {}
 local LastPlantRequestAt = {}
+-- A state response and a state-update event travel over separate remotes. Keep a
+-- monotonically increasing revision so an older RemoteFunction response cannot
+-- overwrite a newer pushed update on the client during player initialization.
+local StateRevisionByPlayer = {}
 local Started = false
 
 local function isFiniteNumber(value)
@@ -206,6 +210,7 @@ function GroveService.GetState(player)
 	local data = getProfileData(player)
 	local _, _, area = getAssignedGrove(player)
 	local state = {
+		Revision = StateRevisionByPlayer[player] or 0,
 		HasAssignedGrove = data ~= nil and area ~= nil,
 		Capacity = GroveService.Constants.Capacity,
 		MinimumSpacing = GroveService.Constants.MinimumSpacing,
@@ -238,6 +243,7 @@ end
 
 local function publishState(player)
 	if typeof(player) ~= "Instance" or not player:IsDescendantOf(Players) then return end
+	StateRevisionByPlayer[player] = (StateRevisionByPlayer[player] or 0) + 1
 	local ok, snapshot = pcall(GroveService.GetState, player)
 	if ok then
 		pcall(function()
@@ -327,6 +333,7 @@ end
 function GroveService.CleanUp(player)
 	GroveService.CleanRuntime(player)
 	LastPlantRequestAt[player] = nil
+	StateRevisionByPlayer[player] = nil
 end
 
 local function uidRecordCount(data, uid)
