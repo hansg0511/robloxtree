@@ -27,6 +27,7 @@ local lastRequestAtByModel = setmetatable({}, { __mode = "k" })
 local candidateModels = {}
 local activeDropsFolder = nil
 local folderConnections = {}
+local lastDiagnosticStatusByModel = setmetatable({}, { __mode = "k" })
 
 local function debugLog(message)
 	if DEBUG then
@@ -85,6 +86,63 @@ local function getOwnedDropInfo(instance, folderIsCurrent)
 	return uid, handle
 end
 
+local function getDistanceToModelBounds(worldPosition, model)
+	local ok, boundsCFrame, boundsSize = pcall(function()
+		return model:GetBoundingBox()
+	end)
+	if not ok then return math.huge end
+	local localPosition = boundsCFrame:PointToObjectSpace(worldPosition)
+	local halfSize = boundsSize * 0.5
+	local nearestLocal = Vector3.new(
+		math.clamp(localPosition.X, -halfSize.X, halfSize.X),
+		math.clamp(localPosition.Y, -halfSize.Y, halfSize.Y),
+		math.clamp(localPosition.Z, -halfSize.Z, halfSize.Z)
+	)
+	return (worldPosition - boundsCFrame:PointToWorldSpace(nearestLocal)).Magnitude
+end
+
+local function debugDetectionStatus(instance, root)
+	if not DEBUG or not instance:IsA("Model") or instance.Name ~= "DroppedLog" then
+		return
+	end
+	local uid = instance:GetAttribute("UID")
+	local speciesId = instance:GetAttribute("SpeciesId")
+	local state = instance:GetAttribute("GroundLogState")
+	local ownerUserId = instance:GetAttribute("OwnerUserId")
+	local itemType = instance:GetAttribute("ItemType")
+	local enabled = instance:GetAttribute("PickupEnabled") == true
+	local handle = instance.PrimaryPart
+	local status
+	local distance = math.huge
+	if ownerUserId ~= localPlayer.UserId or itemType ~= "Log" then
+		status = "not-owned-or-unregistered"
+	elseif not enabled then
+		status = "pickup-disabled"
+	elseif type(uid) ~= "string" or #uid == 0 or not handle or not handle:IsA("BasePart") then
+		status = "missing-uid-or-primary"
+	elseif root then
+		distance = getDistanceToModelBounds(root.Position, instance)
+		status = if distance <= MAX_PICKUP_DISTANCE then "candidate-in-range" else "candidate-out-of-range"
+	else
+		status = "waiting-for-character"
+	end
+	local previousStatus = lastDiagnosticStatusByModel[instance]
+	if status ~= previousStatus then
+		lastDiagnosticStatusByModel[instance] = status
+		debugLog(string.format(
+			"detection %s species=%s uid=%s owner=%s itemType=%s state=%s enabled=%s distance=%s",
+			status,
+			tostring(speciesId),
+			tostring(uid),
+			tostring(ownerUserId),
+			tostring(itemType),
+			tostring(state),
+			tostring(enabled),
+			if distance < math.huge then string.format("%.2f", distance) else "unknown"
+		))
+	end
+end
+
 local function findNearestOwnedDrop(root, now)
 	local nearestModel = nil
 	local nearestUid = nil
@@ -94,11 +152,12 @@ local function findNearestOwnedDrop(root, now)
 	end
 
 	for instance in pairs(candidateModels) do
+		debugDetectionStatus(instance, root)
 		local uid, handle = getOwnedDropInfo(instance, true)
 		if uid and handle then
 			local lastRequestAt = lastRequestAtByModel[instance] or -math.huge
 			if now - lastRequestAt >= PER_MODEL_RETRY_INTERVAL then
-				local distance = (root.Position - handle.Position).Magnitude
+				local distance = getDistanceToModelBounds(root.Position, instance)
 				if distance <= nearestDistance then
 					nearestModel = instance
 					nearestUid = uid
@@ -122,6 +181,7 @@ local function removeCandidate(instance)
 	if candidateModels[instance] then
 		candidateModels[instance] = nil
 		lastRequestAtByModel[instance] = nil
+		lastDiagnosticStatusByModel[instance] = nil
 		debugLog("remove candidate " .. instance:GetFullName())
 	end
 end
@@ -248,7 +308,7 @@ local function logCandidateSummary(root)
 		if uid and handle then
 			ownedValidCount += 1
 			if root then
-				local distance = (root.Position - handle.Position).Magnitude
+				local distance = getDistanceToModelBounds(root.Position, instance)
 				if distance < nearestDistance then
 					nearestUid = uid
 					nearestDistance = distance

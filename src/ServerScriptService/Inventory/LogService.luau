@@ -132,18 +132,115 @@ end
 local function debugPickupRejection(player, uid, reason)
 	if not DEBUG_GROUND_PICKUP_DIAGNOSTICS then return end
 	local playerLabel = if player then string.format("%s (%d)", player.Name, player.UserId) else "<unknown>"
+	local speciesId = "unknown"
+	local state = "unregistered"
+	local pickupEnabled = "unknown"
+	local distance = "unknown"
+	if type(uid) == "string" then
+		for _, drop in pairs(activeGroundDrops) do
+			local entry = drop and drop.LogRecordsByUid and drop.LogRecordsByUid[uid]
+			if entry then
+				speciesId = tostring(entry.LogRecord and entry.LogRecord.SpeciesId or "unknown")
+				state = tostring(entry.State or "unknown")
+				pickupEnabled = tostring(entry.PickupEnabled == true)
+				local root = player and player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+				if root and entry.Model then
+					local ok, boundsCFrame, boundsSize = pcall(function()
+						return entry.Model:GetBoundingBox()
+					end)
+					if ok then
+						local localPosition = boundsCFrame:PointToObjectSpace(root.Position)
+						local halfSize = boundsSize * 0.5
+						local nearestLocal = Vector3.new(
+							math.clamp(localPosition.X, -halfSize.X, halfSize.X),
+							math.clamp(localPosition.Y, -halfSize.Y, halfSize.Y),
+							math.clamp(localPosition.Z, -halfSize.Z, halfSize.Z)
+						)
+						distance = string.format("%.2f", (root.Position - boundsCFrame:PointToWorldSpace(nearestLocal)).Magnitude)
+					end
+				end
+				break
+			end
+		end
+	end
 	print(string.format(
-		"[LogService] Ground pickup rejected: %s; player=%s; uid=%s",
+		"[LogService] Ground pickup rejected: %s; player=%s; species=%s; uid=%s; state=%s; enabled=%s; distance=%s",
 		reason,
 		playerLabel,
-		tostring(uid)
+		speciesId,
+		tostring(uid),
+		state,
+		pickupEnabled,
+		distance
 	))
 end
 
-local function debugPickupHoming(action, uid, detail)
-	if not DEBUG_PICKUP_HOMING then return end
+local function getDistanceToModelBounds(worldPosition, model)
+	if typeof(worldPosition) ~= "Vector3" or not model or not model:IsA("Model") then
+		return math.huge
+	end
+	local ok, boundsCFrame, boundsSize = pcall(function()
+		return model:GetBoundingBox()
+	end)
+	if not ok then return math.huge end
+	local localPosition = boundsCFrame:PointToObjectSpace(worldPosition)
+	local halfSize = boundsSize * 0.5
+	local nearestLocal = Vector3.new(
+		math.clamp(localPosition.X, -halfSize.X, halfSize.X),
+		math.clamp(localPosition.Y, -halfSize.Y, halfSize.Y),
+		math.clamp(localPosition.Z, -halfSize.Z, halfSize.Z)
+	)
+	return (worldPosition - boundsCFrame:PointToWorldSpace(nearestLocal)).Magnitude
+end
+
+local function debugGroundPickup(stage, entry, uid, detail)
+	if not DEBUG_GROUND_PICKUP_DIAGNOSTICS then return end
+	local record = entry and entry.LogRecord
+	local suffix = if type(detail) == "string" and detail ~= "" then " " .. detail else ""
+	print(string.format(
+		"[GroundPickup] %s species=%s uid=%s state=%s enabled=%s%s",
+		stage,
+		tostring(record and record.SpeciesId or "unknown"),
+		tostring(uid),
+		tostring(entry and entry.State or "unregistered"),
+		tostring(entry and entry.PickupEnabled == true or false),
+		suffix
+	))
+end
+
+function LogService.DebugHarvestPickupLifecycle(stage, speciesId, detail)
+	if not DEBUG_GROUND_PICKUP_DIAGNOSTICS then return end
+	print(string.format(
+		"[GroundPickup] %s species=%s uid=none state=none %s",
+		tostring(stage),
+		tostring(speciesId or "unknown"),
+		tostring(detail or "")
+	))
+end
+
+local function debugMissingGroundReward(speciesId, reason)
+	LogService.DebugHarvestPickupLifecycle("NO_REWARD_CREATED", speciesId, "reason=" .. tostring(reason))
+end
+
+local function debugPickupHoming(action, uid, detail, entryOverride)
+	if not DEBUG_PICKUP_HOMING and not DEBUG_GROUND_PICKUP_DIAGNOSTICS then return end
+	local pickup = pickupHomingsByUid[uid]
+	local entry = entryOverride or (pickup and pickup.Entry)
+	if not entry then
+		for _, drop in pairs(activeGroundDrops) do
+			entry = drop and drop.LogRecordsByUid and drop.LogRecordsByUid[uid]
+			if entry then break end
+		end
+	end
 	local suffix = if detail and detail ~= "" then " " .. detail else ""
-	print(string.format("[PickupHoming] %s uid=%s%s", action, tostring(uid), suffix))
+	print(string.format(
+		"[PickupHoming] %s species=%s uid=%s state=%s%s",
+		action,
+		tostring(entry and entry.LogRecord and entry.LogRecord.SpeciesId or "unknown"),
+		tostring(uid),
+		tostring(entry and entry.State or "unregistered"),
+		suffix
+	))
 end
 
 local function getPileLifetimeSeconds(itemCount)
@@ -1677,7 +1774,7 @@ local function finishCarryHoming(pickup)
 	local finalTargetOffset = data and logRecord
 		and LogCarryVisualService.GetTargetOffset(data.Logs, pickup.UID) or nil
 	if not logRecord or type(finalTargetOffset) ~= "table" then
-		debugPickupHoming("CLEANUP", pickup.UID, "reason=carry-record-missing")
+		debugPickupHoming("CLEANUP", pickup.UID, "reason=carry-record-missing", pickup.Entry)
 		sendPickupHomingCancel(pickup)
 		clearPickupHoming(pickup)
 		finishCarryArrival(player, pickup.UID)
@@ -1686,8 +1783,8 @@ local function finishCarryHoming(pickup)
 
 	pickup.Status = "CarrySettling"
 	pickup.SettleUntil = os.clock() + CARRY_FINAL_SETTLE_DURATION
-	debugPickupHoming("ARRIVED", pickup.UID)
-	debugPickupHoming("RESOLVE_CARRY", pickup.UID)
+	debugPickupHoming("ARRIVED", pickup.UID, nil, pickup.Entry)
+	debugPickupHoming("RESOLVE_CARRY", pickup.UID, nil, pickup.Entry)
 	broadcastPickupFx(makeCarryResolutionPayload(pickup, finalTargetOffset))
 	return true
 end
@@ -1715,7 +1812,7 @@ local function finishOverflowPileSettle(pickup)
 	entry.ExpiresAt = pile.ExpiresAt
 	entry.ReservedUntil = pile.ExpiresAt
 	clearPickupHoming(pickup)
-	debugPickupHoming("SETTLE_COMPLETE", pickup.UID, "mode=Overflow")
+	debugPickupHoming("SETTLE_COMPLETE", pickup.UID, "mode=Overflow", entry)
 	local owner = Players:GetPlayerByUserId(entry.OwnerUserId)
 	if owner then refreshPiledLogPickupEligibility(owner) end
 	return true
@@ -1770,9 +1867,9 @@ recoverOverflowHoming = function(pickup, reason)
 	clearPickupHoming(pickup)
 	sendPickupHomingCancel(pickup)
 	if reason == "timeout" then
-		debugPickupHoming("TIMEOUT", pickup.UID)
+		debugPickupHoming("TIMEOUT", pickup.UID, nil, entry)
 	else
-		debugPickupHoming("CLEANUP", pickup.UID, "reason=" .. tostring(reason))
+		debugPickupHoming("CLEANUP", pickup.UID, "reason=" .. tostring(reason), entry)
 	end
 	scheduleGroundDropExpiry(pickup.Bundle, pickup.UID, entry)
 	local owner = Players:GetPlayerByUserId(entry.OwnerUserId)
@@ -1784,7 +1881,7 @@ local function cancelCarryHoming(pickup, reason, leaving)
 	if pickupHomingsByUid[pickup.UID] ~= pickup then return false end
 	clearPickupHoming(pickup)
 	sendPickupHomingCancel(pickup)
-	debugPickupHoming("CLEANUP", pickup.UID, "reason=" .. tostring(reason))
+	debugPickupHoming("CLEANUP", pickup.UID, "reason=" .. tostring(reason), pickup.Entry)
 	if not leaving then
 		-- The UID is already in the profile. Releasing its pending-visual marker
 		-- makes the existing carried-stack renderer the safe recovery path.
@@ -1823,7 +1920,7 @@ local function beginCarryHoming(player, claim, now)
 	}
 	claim.Entry.State = "HomingCarry"
 	pickupHomingsByUid[claim.UID] = pickup
-	debugPickupHoming("START", claim.UID, "mode=Carry")
+	debugPickupHoming("START", claim.UID, "mode=Carry", claim.Entry)
 	return pickup
 end
 
@@ -1878,7 +1975,7 @@ local function beginOverflowHoming(player, claim, now)
 	-- finite timeout above as the final safety bound.
 	entry.ReservedUntil = math.max(entry.ReservedUntil, pickup.Deadline + OVERFLOW_FINAL_SETTLE_DURATION)
 	pickupHomingsByUid[claim.UID] = pickup
-	debugPickupHoming("START", claim.UID, "mode=Overflow")
+	debugPickupHoming("START", claim.UID, "mode=Overflow", entry)
 	return pickup
 end
 
@@ -2393,26 +2490,52 @@ end
 -- Schedules one exact harvest batch for pickup after the fall fade and short
 -- readable pause. For custom animations, call this after the animation completes;
 -- adopted visuals remain disabled until this exact batch is released.
-function LogService.EnableGroundLogBatch(harvestBatchId)
+local function enableGroundLogBatchAfter(harvestBatchId, delaySeconds)
 	if not isValidUid(harvestBatchId) then return false end
-	task.delay(GROUND_LOG_READABLE_PAUSE, function()
+	task.delay(delaySeconds, function()
 		local worldDropFolder = Workspace:FindFirstChild("WorldLogDrops")
-		if not worldDropFolder or not worldDropFolder:IsA("Folder") then return end
+		if not worldDropFolder or not worldDropFolder:IsA("Folder") then
+			debugGroundPickup("BATCH_ENABLE_FAILED", nil, harvestBatchId, "reason=WorldLogDrops-missing")
+			return
+		end
+		local matchedCount = 0
+		local enabledCount = 0
 		for bundle, drop in pairs(activeGroundDrops) do
 			if drop and bundle.Parent == worldDropFolder then
 				for uid, entry in pairs(drop.LogRecordsByUid) do
-					if entry.HarvestBatchId == harvestBatchId
-						and entry.State == "Fresh"
-						and entry.PickupEnabled == false
-						and isActiveGroundDropEntry(bundle, drop, uid, entry) then
-						entry.PickupEnabled = true
-						entry.Model:SetAttribute("PickupEnabled", true)
+					if entry.HarvestBatchId == harvestBatchId then
+						matchedCount += 1
+						if entry.State == "Fresh"
+							and entry.PickupEnabled == false
+							and isActiveGroundDropEntry(bundle, drop, uid, entry) then
+							entry.PickupEnabled = true
+							entry.Model:SetAttribute("PickupEnabled", true)
+							enabledCount += 1
+							debugGroundPickup("PICKUP_ENABLED", entry, uid, "batch=" .. harvestBatchId)
+						elseif entry.PickupEnabled ~= true then
+							debugGroundPickup("PICKUP_ENABLE_SKIPPED", entry, uid, "batch=" .. harvestBatchId)
+						end
 					end
 				end
 			end
 		end
+		if matchedCount == 0 then
+			debugGroundPickup("BATCH_HAS_NO_REGISTERED_LOGS", nil, harvestBatchId)
+		elseif enabledCount == 0 then
+			debugGroundPickup("BATCH_ENABLED_NONE", nil, harvestBatchId, "matched=" .. matchedCount)
+		end
 	end)
 	return true
+end
+
+function LogService.EnableGroundLogBatch(harvestBatchId)
+	return enableGroundLogBatchAfter(harvestBatchId, GROUND_LOG_READABLE_PAUSE)
+end
+
+-- Standard reveal-mode drops animate independently of authored sections.
+-- Keep them disabled until that reveal completes and the readable pause elapses.
+function LogService.EnableGroundLogBatchAfterStandardReveal(harvestBatchId)
+	return enableGroundLogBatchAfter(harvestBatchId, GROUND_LOG_REVEAL_DURATION + GROUND_LOG_READABLE_PAUSE)
 end
 
 local function tryPickupGroundLog(player, bundle, uid, visualModel)
@@ -2450,8 +2573,9 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 	if not humanoid or humanoid.Health <= 0 or not root then
 		return rejectPickup(player, uid, "dead/missing character")
 	end
-	if (root.Position - handle.Position).Magnitude > MAX_PICKUP_DISTANCE then
-		return rejectPickup(player, uid, "too far")
+	local distance = getDistanceToModelBounds(root.Position, model)
+	if distance > MAX_PICKUP_DISTANCE then
+		return rejectPickup(player, uid, string.format("too far distance=%.2f", distance))
 	end
 
 	local data = getPlayerData(player)
@@ -2528,14 +2652,15 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 			and candidateHandle
 			and candidateCapacityKg
 			and os.clock() <= candidateEntry.ReservedUntil
-			and (root.Position - candidateHandle.Position).Magnitude <= MAX_PICKUP_DISTANCE
+			and getDistanceToModelBounds(root.Position, candidateModel) <= MAX_PICKUP_DISTANCE
 			and not findLog(data, candidateUid) then
+			local candidateDistance = getDistanceToModelBounds(root.Position, candidateModel)
 			table.insert(nearby, {
 				UID = candidateUid,
 				Entry = candidateEntry,
 				Model = candidateModel,
 				CapacityKg = candidateCapacityKg,
-				Distance = (root.Position - candidateHandle.Position).Magnitude,
+				Distance = candidateDistance,
 			})
 		end
 	end
@@ -2632,6 +2757,10 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 		pendingUids[claim.UID] = true
 		table.insert(data.Logs, claim.Entry.LogRecord)
 		claim.Homing = beginCarryHoming(player, claim, now)
+		debugGroundPickup("PICKUP_ACCEPTED", claim.Entry, claim.UID, "mode=Carry")
+	end
+	for _, overflow in ipairs(overflowClaims) do
+		debugGroundPickup("PICKUP_ACCEPTED", overflow.Entry, overflow.UID, "mode=Overflow")
 	end
 
 	if drop.Count <= 0 then
@@ -2782,6 +2911,18 @@ local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, harvestB
 		}
 		drop.LogRecordsByUid[logRecord.UID] = entry
 		drop.Count += 1
+		debugGroundPickup(
+			"REGISTERED",
+			entry,
+			logRecord.UID,
+			string.format(
+				"owner=%d batch=%s model=%s primary=%s",
+				ownerUserId,
+				tostring(harvestBatchId),
+				model.Name,
+				tostring(model.PrimaryPart ~= nil)
+			)
+		)
 		if hiddenUntilReveal then
 			local reveal = {
 				Bundle = bundle,
@@ -2887,29 +3028,55 @@ function LogService.AwardTreeLog(awardSnapshot, options)
 	local revealMode = type(options) == "table" and options.Reveal == true
 	local preparedVisuals = if type(options) == "table" then options.PreparedVisuals else nil
 	local harvestBatchId = HttpService:GenerateGUID(false)
-	if type(harvestBatchId) ~= "string" or #harvestBatchId == 0 then return false end
-	if type(awardSnapshot) ~= "table" or awardSnapshot.YieldsLog ~= true then return false end
-	if type(awardSnapshot.SpeciesId) ~= "string" or not getMaterialDefinition(awardSnapshot.SpeciesId) then return false end
+	local speciesId = type(awardSnapshot) == "table" and awardSnapshot.SpeciesId or nil
+	if type(harvestBatchId) ~= "string" or #harvestBatchId == 0 then
+		debugMissingGroundReward(speciesId, "batch-id-generation-failed")
+		return false
+	end
+	if type(awardSnapshot) ~= "table" or awardSnapshot.YieldsLog ~= true then
+		debugMissingGroundReward(speciesId, "invalid-award-snapshot")
+		return false
+	end
+	if type(awardSnapshot.SpeciesId) ~= "string" or not getMaterialDefinition(awardSnapshot.SpeciesId) then
+		debugMissingGroundReward(speciesId, "unknown-species")
+		return false
+	end
 	local rewardCount = LogService.GetTreeLogYieldCount(awardSnapshot)
-	if not rewardCount or rewardCount > MAX_HARVEST_LOGS then return false end
-	if not validatePreparedGroundLogVisuals(preparedVisuals, rewardCount) then return false end
+	if not rewardCount or rewardCount > MAX_HARVEST_LOGS then
+		debugMissingGroundReward(speciesId, "invalid-yield-count")
+		return false
+	end
+	if not validatePreparedGroundLogVisuals(preparedVisuals, rewardCount) then
+		debugMissingGroundReward(speciesId, "invalid-prepared-visuals")
+		return false
+	end
 
 	local winner = LogService.GetTreeAwardWinner(awardSnapshot.Contributions)
-	if not winner then return false end
+	if not winner then
+		debugMissingGroundReward(speciesId, "no-valid-award-winner")
+		return false
+	end
 
 	local data = getPlayerData(winner)
-	if not data then return false end
+	if not data then
+		debugMissingGroundReward(speciesId, "winner-profile-unavailable")
+		return false
+	end
 	local logRecords = {}
 	for index = 1, rewardCount do
 		table.insert(logRecords, createLogRecord({ SpeciesId = awardSnapshot.SpeciesId }))
 	end
 
 	local fallPlacement = awardSnapshot.FallPlacement
-	if type(fallPlacement) ~= "table" then return false end
+	if type(fallPlacement) ~= "table" then
+		debugMissingGroundReward(speciesId, "fall-placement-unavailable")
+		return false
+	end
 
 	-- Every tree reward remains a physical, owner-reserved drop until the winner
 	-- approaches it. Preflight the bounded registry so a harvest is never partial.
 	if not canSpawnGroundDrops(winner.UserId, #logRecords) then
+		debugMissingGroundReward(speciesId, "ground-drop-capacity-exhausted")
 		return false
 	end
 	if not spawnGroundDrops(
@@ -2922,6 +3089,7 @@ function LogService.AwardTreeLog(awardSnapshot, options)
 		revealMode,
 		preparedVisuals
 	) then
+		debugMissingGroundReward(speciesId, "ground-drop-registration-failed")
 		return false
 	end
 

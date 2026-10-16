@@ -1037,9 +1037,9 @@ local function createPreparedAuthoredHarvestLogs(fallenModel, sections, count, f
 			raycastParams
 		)
 		if not targetCFrames[index] or not inFlightCFrames[index] then
-			-- Do not route a rejected authored footprint through the legacy visual
-			-- placement path: it cannot verify an actual supporting surface.
-			return nil, "no-safe-landing"
+			-- Reject authored visuals before detaching them. The caller can then
+			-- register standard logs and destroy the still-parented source sections.
+			return nil, nil, nil, nil, "no-safe-landing"
 		end
 	end
 
@@ -1285,6 +1285,9 @@ function Tree:Die(player)
 		self.DamageContributions,
 		fallRotation
 	)
+	if not awardSnapshot then
+		LogService.DebugHarvestPickupLifecycle("NO_REWARD_CREATED", self.SpeciesId, "reason=award-snapshot-unavailable")
+	end
 	if self.UnlockForestId then
 		WorldProgressService.UnlockForest(player, self.UnlockForestId)
 	end
@@ -1293,14 +1296,27 @@ function Tree:Die(player)
 		and type(self.HarvestSections) == "table"
 	local legacyAwardAttempted = false
 	local function revealLegacyLogAward()
-		if legacyAwardAttempted then return end
+		if legacyAwardAttempted then return nil end
 		legacyAwardAttempted = true
 		if awardSnapshot then
 			local harvestBatchId = LogService.AwardTreeLog(awardSnapshot, { Reveal = true })
 			if harvestBatchId then
-				LogService.EnableGroundLogBatch(harvestBatchId)
+				LogService.DebugHarvestPickupLifecycle(
+					"STANDARD_FALLBACK_REGISTERED",
+					self.SpeciesId,
+					"batch=" .. tostring(harvestBatchId)
+				)
+				LogService.EnableGroundLogBatchAfterStandardReveal(harvestBatchId)
+			else
+				LogService.DebugHarvestPickupLifecycle(
+					"NO_REWARD_CREATED",
+					self.SpeciesId,
+					"reason=standard-fallback-registration-failed"
+				)
 			end
+			return harvestBatchId
 		end
+		return nil
 	end
 	task.spawn(function()
 		if usesAuthoredHarvestSections then
@@ -1354,7 +1370,15 @@ function Tree:Die(player)
 							preparedVisuals = nil
 						end
 						if preparationFailure == "no-safe-landing" then
-							warn("Authored harvest log placement rejected: no safe landing surface", self.DefinitionId)
+							-- The authored footprint was rejected before its Models were detached.
+							-- Register standard server-owned logs instead so cleanup cannot leave
+							-- visible, unregistered sections or silently discard this reward.
+							local fallbackBatchId = revealLegacyLogAward()
+							if fallbackBatchId then
+								warn("Authored harvest landing rejected; registered standard log fallback", self.DefinitionId, self.SpeciesId)
+							else
+								warn("Authored harvest landing rejected and standard log fallback could not be registered", self.DefinitionId, self.SpeciesId)
+							end
 						elseif awardSnapshot and not harvestBatchId then
 							revealLegacyLogAward()
 						end
