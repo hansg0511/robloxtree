@@ -2,6 +2,7 @@ local Tree = {}
 Tree.__index = Tree
 
 local ServerStorage = game:GetService("ServerStorage")
+local TweenService = game:GetService("TweenService")
 local SpeciesVisuals = require(ServerStorage:WaitForChild("SpeciesVisuals"))
 local ChopFX = game.ReplicatedStorage.Chop.ChopFX
 local DamageEvent = game.ReplicatedStorage.DamageEvent
@@ -605,6 +606,297 @@ local function leavesForHP(hp, maxHP, totalLeaves)
 	return math.ceil(math.clamp(hp / maxHP, 0, 1) * totalLeaves)
 end
 
+local MAX_HARVEST_LOGS = 6
+local MAX_STANDARD_TREE_LOGS = 3
+local TRUNK_BREAKUP_WAVE_INTERVAL = 0.12
+local TRUNK_BREAKUP_REVEAL_DURATION = 0.40
+local TRUNK_BREAKUP_LIFT = 0.35
+
+local function getTreeLogYieldCount(tree)
+	local configuredYield = tree and tree.LogYield
+	if configuredYield ~= nil then
+		if type(configuredYield) ~= "number"
+			or configuredYield ~= configuredYield
+			or configuredYield <= 0
+			or configuredYield == math.huge
+			or configuredYield % 1 ~= 0
+			or configuredYield > MAX_HARVEST_LOGS then
+			return nil
+		end
+		return configuredYield
+	end
+
+	local sizeScale = tree and tree.SizeScale
+	if type(sizeScale) ~= "number" or sizeScale ~= sizeScale
+		or sizeScale <= 0 or sizeScale == math.huge then
+		return nil
+	end
+	if sizeScale < 0.7 then
+		return 1
+	elseif sizeScale < 1.3 then
+		return 2
+	end
+	return MAX_STANDARD_TREE_LOGS
+end
+
+local function isTreeTrunkVisualPart(part, leavesFolder)
+	return part:IsA("BasePart")
+		and part.Name ~= "ChopHitbox"
+		and part:GetAttribute("AlwaysInvisible") ~= true
+		and (not leavesFolder or not part:IsDescendantOf(leavesFolder))
+end
+
+local function getBambooStalkIndex(partName)
+	if partName == "BambooCore" then return 1 end
+	local stalkIndex = tonumber(string.match(partName, "^BambooStalk(%d+)$"))
+	if stalkIndex then return stalkIndex end
+	return tonumber(string.match(partName, "^BambooNode(%d+)_"))
+end
+
+local function getTrunkSegmentGroups(model, fallDirection, count)
+	local leavesFolder = model:FindFirstChild("Leaves")
+	local sourceParts = {}
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if isTreeTrunkVisualPart(descendant, leavesFolder) then
+			table.insert(sourceParts, descendant)
+		end
+	end
+	if #sourceParts < count then return nil end
+
+	local groups = table.create(count)
+	for index = 1, count do
+		groups[index] = { Parts = {} }
+	end
+
+	if model:GetAttribute("TreeCategory") == "Grove"
+		and model:FindFirstChild("BambooCore", true)
+		and count == 5 then
+		local bambooGroupsValid = true
+		for _, part in ipairs(sourceParts) do
+			local stalkIndex = getBambooStalkIndex(part.Name)
+			if not stalkIndex or stalkIndex < 1 or stalkIndex > count then
+				bambooGroupsValid = false
+				break
+			end
+			local group = groups[stalkIndex]
+			table.insert(group.Parts, part)
+			if part.Name == "BambooCore" or part.Name == "BambooStalk" .. stalkIndex then
+				group.PreferredPrimary = part
+			end
+		end
+		if bambooGroupsValid then
+			for _, group in ipairs(groups) do
+				if #group.Parts == 0 then bambooGroupsValid = false break end
+			end
+		end
+		if bambooGroupsValid then return groups end
+		for index = 1, count do
+			groups[index] = { Parts = {} }
+		end
+	end
+
+	local primary = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart", true)
+	local axisOrigin = primary and primary.Position or model:GetPivot().Position
+	local partCenters = {}
+	local minimumProjection = math.huge
+	local maximumProjection = -math.huge
+	for _, part in ipairs(sourceParts) do
+		local projection = (part.Position - axisOrigin):Dot(fallDirection)
+		local halfLength = math.abs(part.CFrame.RightVector:Dot(fallDirection)) * part.Size.X * 0.5
+			+ math.abs(part.CFrame.UpVector:Dot(fallDirection)) * part.Size.Y * 0.5
+			+ math.abs(part.CFrame.LookVector:Dot(fallDirection)) * part.Size.Z * 0.5
+		minimumProjection = math.min(minimumProjection, projection - halfLength)
+		maximumProjection = math.max(maximumProjection, projection + halfLength)
+		partCenters[part] = projection
+	end
+
+	local projectionRange = maximumProjection - minimumProjection
+	for _, part in ipairs(sourceParts) do
+		local bucket = 1
+		if projectionRange > 0.001 then
+			bucket = math.clamp(
+				math.floor((partCenters[part] - minimumProjection) / projectionRange * count) + 1,
+				1,
+				count
+			)
+		end
+		local group = groups[bucket]
+		table.insert(group.Parts, part)
+		if part == primary or not group.PreferredPrimary
+			or part.Size.X * part.Size.Z > group.PreferredPrimary.Size.X * group.PreferredPrimary.Size.Z then
+			group.PreferredPrimary = part
+		end
+	end
+
+	for _, group in ipairs(groups) do
+		if #group.Parts == 0 then return nil end
+	end
+	return groups
+end
+
+local function getTrunkDropCFrame(fallenModel, fallRotation, index, count)
+	local pivot = fallenModel:GetPivot()
+	local direction = fallRotation:VectorToWorldSpace(Vector3.yAxis)
+	local horizontalDirection = Vector3.new(direction.X, 0, direction.Z)
+	if horizontalDirection.Magnitude <= 1e-4 then
+		horizontalDirection = Vector3.new(pivot.LookVector.X, 0, pivot.LookVector.Z)
+	end
+	if horizontalDirection.Magnitude <= 1e-4 then horizontalDirection = Vector3.xAxis end
+	direction = horizontalDirection.Unit
+
+	local primary = fallenModel.PrimaryPart or fallenModel:FindFirstChildWhichIsA("BasePart", true)
+	local trunkLength = primary and primary.Size.Y * 2 or 0
+	if trunkLength ~= trunkLength or trunkLength == math.huge or trunkLength < 6 then
+		local modelHeight = fallenModel:GetExtentsSize().Y
+		trunkLength = if modelHeight >= 6 then modelHeight * 0.55 else 18
+	end
+	trunkLength = math.clamp(trunkLength, 8, 48)
+
+	local fraction = if count == 1 then 0.5 else 0.2 + 0.6 * ((index - 1) / (count - 1))
+	local perpendicular = Vector3.new(-direction.Z, 0, direction.X)
+	local lateralOffset = if count == 1 then 0 else (index % 2 == 0 and 0.2 or -0.2)
+	local landing = pivot.Position
+		+ direction * (trunkLength * fraction)
+		+ perpendicular * lateralOffset
+	local groundY = landing.Y
+	local baseGround = workspace:FindFirstChild("BaseGround")
+	if baseGround and baseGround:IsA("BasePart") then
+		groundY = baseGround.Position.Y + baseGround.Size.Y * 0.5
+	end
+	local position = Vector3.new(landing.X, groundY, landing.Z)
+	local logRight = Vector3.yAxis
+	local logUp = direction
+	local logBack = logRight:Cross(logUp)
+	return CFrame.fromMatrix(position, logRight, logUp, logBack)
+end
+
+local function createPreparedTrunkLogs(fallenModel, fallRotation, count)
+	local impactDirection = fallRotation:VectorToWorldSpace(Vector3.yAxis)
+	local horizontalDirection = Vector3.new(impactDirection.X, 0, impactDirection.Z)
+	if horizontalDirection.Magnitude <= 1e-4 then return nil end
+	horizontalDirection = horizontalDirection.Unit
+	local groups = getTrunkSegmentGroups(fallenModel, horizontalDirection, count)
+	if not groups then return nil end
+
+	-- Capture placement while every source part still belongs to the fallen tree;
+	-- detaching the PrimaryPart below changes the tree model's pivot.
+	local targetCFrames = table.create(count)
+	for index = 1, count do
+		targetCFrames[index] = getTrunkDropCFrame(fallenModel, fallRotation, index, count)
+	end
+
+	local movedParts = {}
+	for _, group in ipairs(groups) do
+		for _, sourcePart in ipairs(group.Parts) do
+			movedParts[sourcePart] = true
+		end
+	end
+	for _, descendant in ipairs(fallenModel:GetDescendants()) do
+		if descendant:IsA("WeldConstraint") or descendant:IsA("JointInstance") then
+			if movedParts[descendant.Part0] or movedParts[descendant.Part1] then
+				descendant:Destroy()
+			end
+		end
+	end
+	fallenModel.PrimaryPart = nil
+
+	local preparedVisuals = table.create(count)
+	local revealTransparencyByVisual = table.create(count)
+	for index, group in ipairs(groups) do
+		local visual = Instance.new("Model")
+		visual.Name = "PreparedTreeLog"
+		local revealTransparency = {}
+		for _, sourcePart in ipairs(group.Parts) do
+			sourcePart.PivotOffset = CFrame.identity
+			sourcePart.Anchored = true
+			sourcePart.CanCollide = false
+			sourcePart.CanTouch = false
+			sourcePart.CanQuery = false
+			revealTransparency[sourcePart] = sourcePart.Transparency
+			sourcePart.Transparency = 1
+			sourcePart.Parent = visual
+		end
+
+		local primarySource = group.PreferredPrimary or group.Parts[1]
+		visual.PrimaryPart = primarySource or visual:FindFirstChildWhichIsA("BasePart", true)
+		local targetCFrame = targetCFrames[index]
+		visual:PivotTo(targetCFrame)
+		local lowestWorldY = math.huge
+		for _, descendant in ipairs(visual:GetDescendants()) do
+			if descendant:IsA("BasePart") then
+				local part = descendant
+				local verticalHalfExtent = math.abs(part.CFrame.RightVector.Y) * part.Size.X * 0.5
+					+ math.abs(part.CFrame.UpVector.Y) * part.Size.Y * 0.5
+					+ math.abs(part.CFrame.LookVector.Y) * part.Size.Z * 0.5
+				lowestWorldY = math.min(lowestWorldY, part.Position.Y - verticalHalfExtent)
+			end
+		end
+		local groundOffset = targetCFrame.Position.Y - lowestWorldY + 0.08
+		local groundedCFrame = targetCFrame + Vector3.new(0, groundOffset, 0)
+		visual:PivotTo(groundedCFrame)
+		visual.Parent = ServerStorage
+		preparedVisuals[index] = visual
+		revealTransparencyByVisual[index] = revealTransparency
+	end
+	return preparedVisuals, revealTransparencyByVisual
+end
+
+local function animatePreparedTrunkLogs(preparedVisuals, revealTransparencyByVisual, harvestBatchId)
+	task.spawn(function()
+		for index, visual in ipairs(preparedVisuals) do
+			local waveIndex = index
+			local currentVisual = visual
+			task.delay((waveIndex - 1) * TRUNK_BREAKUP_WAVE_INTERVAL, function()
+				if not currentVisual.Parent then return end
+				for _, descendant in ipairs(currentVisual:GetDescendants()) do
+					if descendant:IsA("BasePart") then
+						local finalCFrame = descendant.CFrame
+						descendant.CFrame = finalCFrame + Vector3.new(0, TRUNK_BREAKUP_LIFT, 0)
+						local tween = TweenService:Create(
+							descendant,
+							TweenInfo.new(TRUNK_BREAKUP_REVEAL_DURATION, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+							{
+								CFrame = finalCFrame,
+								Transparency = revealTransparencyByVisual[waveIndex][descendant] or 0,
+							}
+						)
+						tween.Completed:Connect(function()
+							tween:Destroy()
+						end)
+						tween:Play()
+					end
+				end
+			end)
+		end
+
+		task.wait(TRUNK_BREAKUP_REVEAL_DURATION + (#preparedVisuals - 1) * TRUNK_BREAKUP_WAVE_INTERVAL)
+		LogService.EnableGroundLogBatch(harvestBatchId)
+	end)
+end
+
+local function destroyPreparedTrunkLogs(preparedVisuals)
+	for _, visual in ipairs(preparedVisuals or {}) do
+		if visual and visual.Parent then visual:Destroy() end
+	end
+end
+
+local function fadeAndDestroyFallenTree(model)
+	if not model or not model.Parent then return end
+	local fadeInfo = TweenInfo.new(0.65)
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.Anchored = true
+			descendant.CanCollide = false
+			descendant.CanTouch = false
+			descendant.CanQuery = false
+			TweenService:Create(descendant, fadeInfo, { Transparency = 1 }):Play()
+		end
+	end
+	task.delay(0.7, function()
+		if model.Parent then model:Destroy() end
+	end)
+end
+
 function Tree:TakeDamage(ctx, player)
 	if not self:CanChop(player) or not WorldProgressService.CanInteractWithTree(player, self) then return false end
 	local damage = ctx.Damage
@@ -613,6 +905,7 @@ function Tree:TakeDamage(ctx, player)
 	local appliedDamage = math.min(math.floor(damage), self.HP)
 	if appliedDamage <= 0 then return false end
 	self.HP = math.max(0, self.HP - appliedDamage)
+	local isLethalHit = self.HP == 0
 	local contribution = self.DamageContributions[player.UserId]
 	if not contribution then
 		contribution = { Player = player, Damage = 0 }
@@ -631,7 +924,7 @@ function Tree:TakeDamage(ctx, player)
 		MaxHP = self.MaxHP,
 	})
 
-	if not (self.IsPersistentGrove and self.isDead) then
+	if not isLethalHit and not (self.IsPersistentGrove and self.isDead) then
 		local targetLeaves = leavesForHP(self.HP, self.MaxHP, self.totalLeaves)
 		local leavesToDrop = self.leavesRemaining - targetLeaves
 		if leavesToDrop > 0 then
@@ -693,19 +986,58 @@ function Tree:Die(player)
 	if self.UnlockForestId then
 		WorldProgressService.UnlockForest(player, self.UnlockForestId)
 	end
-	task.spawn(function()
-		local harvestBatchId
-		FXService:TreeFall(fallenModel, player, fallRotation, function()
-			-- Spawn the authoritative drops shortly after the fade starts. Their
-			-- existing readable pickup pause begins as soon as the drop reveal
-			-- succeeds, so they become pickupable during the remaining tree fade.
-			if awardSnapshot then
-				harvestBatchId = LogService.AwardTreeLog(awardSnapshot, { Reveal = true })
-				if harvestBatchId then
-					LogService.EnableGroundLogBatch(harvestBatchId)
-				end
+	local usesTrunkBreakup = self.Category == "Grove" and self.YieldsLog and not self.IsPersistentGrove
+	local legacyAwardAttempted = false
+	local function revealLegacyLogAward()
+		if legacyAwardAttempted then return end
+		legacyAwardAttempted = true
+		if awardSnapshot then
+			local harvestBatchId = LogService.AwardTreeLog(awardSnapshot, { Reveal = true })
+			if harvestBatchId then
+				LogService.EnableGroundLogBatch(harvestBatchId)
 			end
-		end)
+		end
+	end
+	task.spawn(function()
+		if usesTrunkBreakup then
+			local impactCompleted = FXService:TreeFallToImpact(fallenModel, player, fallRotation, {
+				OnImpact = function(impactModel)
+					local rewardCount = getTreeLogYieldCount(self)
+					local preparedVisuals, revealTransparencyByVisual
+					local harvestBatchId
+					if awardSnapshot and rewardCount then
+						preparedVisuals, revealTransparencyByVisual = createPreparedTrunkLogs(
+							impactModel,
+							fallRotation,
+							rewardCount
+						)
+					end
+					if preparedVisuals then
+						harvestBatchId = LogService.AwardTreeLog(awardSnapshot, {
+							Reveal = true,
+							PreparedVisuals = preparedVisuals,
+						})
+						if harvestBatchId then
+							impactModel:Destroy()
+							animatePreparedTrunkLogs(preparedVisuals, revealTransparencyByVisual, harvestBatchId)
+							return
+						end
+						destroyPreparedTrunkLogs(preparedVisuals)
+					end
+					if awardSnapshot and not harvestBatchId then
+						revealLegacyLogAward()
+					end
+					fadeAndDestroyFallenTree(impactModel)
+				end,
+			})
+			if not impactCompleted and fallenModel and fallenModel.Parent then
+				FXService:TreeFall(fallenModel, player, fallRotation, revealLegacyLogAward)
+			end
+		else
+			FXService:TreeFall(fallenModel, player, fallRotation, revealLegacyLogAward)
+		end
+		self.model = nil
+		self.InteractionPart = nil
 	end)
 	if self.RespawnSeconds then
 		task.delay(self.RespawnSeconds, function()

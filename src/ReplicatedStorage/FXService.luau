@@ -23,6 +23,8 @@ local TREE_FALL_DURATION = 1.0
 local POST_IMPACT_PAUSE = 0.15
 local TREE_FADE_DURATION = 0.65
 local DROP_REVEAL_FADE_OFFSET = 0.15
+local IMPACT_LEAF_SHRINK_DURATION = 0.18
+local IMPACT_SMOKE_DURATION = 0.42
 local activeHitByTree = setmetatable({}, { __mode = "k" })
 
 local function cancelHitTween(tree, restoreCFrame)
@@ -114,6 +116,146 @@ function FXService.GetTreeFallRotation(model, player)
 		fallAxis = Vector3.new(-fallback.Z, 0, fallback.X)
 	end
 	return CFrame.fromAxisAngle(fallAxis.Unit, math.rad(75))
+end
+
+local function shrinkAttachedLeaves(treeModel, duration)
+	local leavesFolder = treeModel:FindFirstChild("Leaves")
+	if not leavesFolder then return end
+
+	local tweens = {}
+	for _, descendant in ipairs(leavesFolder:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.CanCollide = false
+			local size = descendant.Size
+			local tween = TweenService:Create(
+				descendant,
+				TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+				{
+					Size = Vector3.new(
+						math.max(size.X * 0.02, 0.001),
+						math.max(size.Y * 0.02, 0.001),
+						math.max(size.Z * 0.02, 0.001)
+					),
+					Transparency = 1,
+				}
+			)
+			table.insert(tweens, tween)
+			tween:Play()
+		end
+	end
+
+	if #tweens > 0 then
+		task.wait(duration)
+		for _, tween in ipairs(tweens) do
+			tween:Destroy()
+		end
+	end
+end
+
+local function playImpactSmoke(position, options)
+	if options.SmokeEnabled == false then return end
+
+	local duration = math.clamp(options.SmokeDuration or IMPACT_SMOKE_DURATION, 0.12, 1.5)
+	local color = options.SmokeColor or Color3.fromRGB(142, 133, 121)
+	local offsets = {
+		Vector3.new(-0.45, 0, -0.25),
+		Vector3.new(0.4, 0.05, -0.35),
+		Vector3.new(-0.15, 0.1, 0.45),
+		Vector3.new(0.45, -0.05, 0.35),
+	}
+
+	for index, offset in ipairs(offsets) do
+		local puff = Instance.new("Part")
+		puff.Name = "TreeImpactSmokePuff"
+		puff.Shape = Enum.PartType.Ball
+		puff.Material = Enum.Material.SmoothPlastic
+		puff.Color = color
+		puff.Transparency = 0.38
+		puff.Anchored = true
+		puff.CanCollide = false
+		puff.CanTouch = false
+		puff.CanQuery = false
+		puff.CastShadow = false
+		puff.Size = Vector3.new(1.2, 0.9, 1.2)
+		puff.CFrame = CFrame.new(position + offset)
+		puff.Parent = workspace
+
+		local spread = offset.Unit * 1.1
+		local sizeScale = 1.8 + (index % 2) * 0.25
+		local tween = TweenService:Create(
+			puff,
+			TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{
+				Position = position + spread + Vector3.new(0, 0.8, 0),
+				Size = Vector3.new(1.2, 0.9, 1.2) * sizeScale,
+				Transparency = 1,
+			}
+		)
+		local completedConnection
+		completedConnection = tween.Completed:Connect(function()
+			completedConnection:Disconnect()
+			if puff.Parent then puff:Destroy() end
+			tween:Destroy()
+		end)
+		tween:Play()
+		Debris:AddItem(puff, duration + 0.25)
+		Debris:AddItem(tween, duration + 0.25)
+	end
+end
+
+-- Plays the fall through its impact and hands the still-existing tree to the
+-- caller. Leaves remain attached until impact, then shrink before OnImpact runs.
+-- Options: LeafShrinkDuration, SmokeEnabled, SmokeDuration, SmokeColor, OnImpact.
+-- OnImpact receives (treeModel, impactCFrame); trunk cleanup belongs to caller.
+function FXService:TreeFallToImpact(model, player, fallRotation, options)
+	if not model or not model.Parent then return false end
+	options = type(options) == "table" and options or {}
+	local treeModel = model
+	local primary = treeModel.PrimaryPart or treeModel:FindFirstChildWhichIsA("BasePart")
+	if not primary then
+		warn("Tree has no PrimaryPart or BasePart to fall")
+		return false
+	end
+
+	local pivotCF = treeModel:GetPivot().Position + Vector3.new(0, primary.Size.Y / 8, 0)
+	local rotation = fallRotation or FXService.GetTreeFallRotation(treeModel, player)
+	local offset = primary.Position - pivotCF
+	local rotatedOffset = rotation:VectorToWorldSpace(offset)
+	local newPosition = pivotCF + rotatedOffset
+	local relativeRotation = primary.CFrame - primary.Position
+	local newCFrame = CFrame.new(newPosition) * (rotation * relativeRotation)
+	local fallTween = TweenService:Create(
+		primary,
+		TweenInfo.new(TREE_FALL_DURATION, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+		{ CFrame = newCFrame }
+	)
+	fallTween:Play()
+	fallTween.Completed:Wait()
+	fallTween:Destroy()
+	if not treeModel.Parent then return false end
+
+	for _, descendant in ipairs(treeModel:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.CanCollide = false
+		end
+	end
+	local impactCFrame = primary.CFrame
+	local leafDuration = math.clamp(
+		options.LeafShrinkDuration or IMPACT_LEAF_SHRINK_DURATION,
+		0.05,
+		0.75
+	)
+	playImpactSmoke(impactCFrame.Position, options)
+	shrinkAttachedLeaves(treeModel, leafDuration)
+	if not treeModel.Parent then return false end
+
+	if type(options.OnImpact) == "function" then
+		local ok, err = pcall(options.OnImpact, treeModel, impactCFrame)
+		if not ok then
+			warn("Tree impact callback failed", err)
+		end
+	end
+	return true, impactCFrame
 end
 
 function FXService:TreeFall(model, player, fallRotation, onDropReveal)

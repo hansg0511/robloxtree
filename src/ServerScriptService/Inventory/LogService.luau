@@ -2351,7 +2351,8 @@ local function animateGroundDropReveal(reveals)
 end
 
 -- Schedules one exact harvest batch for pickup after the fall fade and short
--- readable pause. Entries removed, reparented, or expired before then stay off.
+-- readable pause. For custom animations, call this after the animation completes;
+-- adopted visuals remain disabled until this exact batch is released.
 function LogService.EnableGroundLogBatch(harvestBatchId)
 	if not isValidUid(harvestBatchId) then return false end
 	task.delay(GROUND_LOG_READABLE_PAUSE, function()
@@ -2607,9 +2608,46 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 	return true
 end
 
-local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, harvestBatchId, firstIndex, batchCount, revealMode)
+local function validatePreparedGroundLogVisuals(preparedVisuals, expectedCount)
+	if preparedVisuals == nil then return true end
+	if getDenseArrayLength(preparedVisuals) ~= expectedCount then return false end
+
+	local seen = {}
+	for _, visual in ipairs(preparedVisuals) do
+		if typeof(visual) ~= "Instance" or not visual:IsA("Model") or seen[visual] then
+			return false
+		end
+		seen[visual] = true
+
+		local ancestor = visual.Parent
+		while ancestor do
+			if activeGroundDrops[ancestor] then return false end
+			ancestor = ancestor.Parent
+		end
+
+		for priorVisual in pairs(seen) do
+			if priorVisual ~= visual
+				and (visual:IsDescendantOf(priorVisual) or priorVisual:IsDescendantOf(visual)) then
+				return false
+			end
+		end
+
+		local hasBasePart = false
+		for _, descendant in ipairs(visual:GetDescendants()) do
+			if descendant:IsA("BasePart") then
+				hasBasePart = true
+				break
+			end
+		end
+		if not hasBasePart then return false end
+	end
+	return true
+end
+
+local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, harvestBatchId, firstIndex, batchCount, revealMode, preparedVisuals)
 	if #logRecords == 0 then return true end
 	if not canSpawnGroundDrops(ownerUserId, #logRecords) then return false end
+	if not validatePreparedGroundLogVisuals(preparedVisuals, #logRecords) then return false end
 
 	local bundle, drop = getPendingGroundDrop(ownerUserId)
 	if not bundle then
@@ -2628,28 +2666,51 @@ local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, harvestB
 
 	local reveals = {}
 	for index, logRecord in ipairs(logRecords) do
-		local hiddenUntilReveal = revealMode == true
-		local model, handle, revealTransparencyByPart = createLogVisualModel(
-			"DroppedLog",
-			logRecord,
-			GROUND_DROP_VISUAL_SCALE,
-			hiddenUntilReveal
-		)
-		local revealIndex = (firstIndex or 1) + index - 1
-		local revealCount = batchCount or #logRecords
-		local landingPosition = getFallPathPosition(fallPlacement, revealIndex, revealCount)
-		local groundCFrame = CFrame.fromMatrix(
-			Vector3.new(
-				landingPosition.X,
-				getGroundHeight(landingPosition) + handle.Size.Y * 0.5 + 0.08,
-				landingPosition.Z
-			),
-			-- Log geometry's long local X axis follows the fallen trunk, not its
-			-- crosswise perpendicular. Drops remain flat on the ground.
-			fallPlacement.Direction,
-			Vector3.yAxis,
-			fallPlacement.Direction:Cross(Vector3.yAxis)
-		)
+		local model = preparedVisuals and preparedVisuals[index] or nil
+		local hiddenUntilReveal = revealMode == true and model == nil
+		local pickupEnabled = revealMode ~= true and model == nil
+		local revealTransparencyByPart
+		local groundCFrame
+		if model then
+			-- Adopt the visible breakup segment itself. It is already at the intended
+			-- final footprint; registering it avoids a second model appearing over it.
+			if not model.PrimaryPart then
+				model.PrimaryPart = model:FindFirstChildWhichIsA("BasePart", true)
+			end
+			groundCFrame = model:GetPivot()
+			model.Name = "DroppedLog"
+			for _, descendant in ipairs(model:GetDescendants()) do
+				if descendant:IsA("BasePart") then
+					descendant.Anchored = true
+					descendant.CanCollide = false
+					descendant.CanTouch = false
+					descendant.CanQuery = false
+				end
+			end
+		else
+			local handle
+			model, handle, revealTransparencyByPart = createLogVisualModel(
+				"DroppedLog",
+				logRecord,
+				GROUND_DROP_VISUAL_SCALE,
+				hiddenUntilReveal
+			)
+			local revealIndex = (firstIndex or 1) + index - 1
+			local revealCount = batchCount or #logRecords
+			local landingPosition = getFallPathPosition(fallPlacement, revealIndex, revealCount)
+			groundCFrame = CFrame.fromMatrix(
+				Vector3.new(
+					landingPosition.X,
+					getGroundHeight(landingPosition) + handle.Size.Y * 0.5 + 0.08,
+					landingPosition.Z
+				),
+				-- Log geometry's long local X axis follows the fallen trunk, not its
+				-- crosswise perpendicular. Drops remain flat on the ground.
+				fallPlacement.Direction,
+				Vector3.yAxis,
+				fallPlacement.Direction:Cross(Vector3.yAxis)
+			)
+		end
 		-- Start at the final footprint position. The reveal animation adds only a
 		-- vertical pop, so logs settle in place along the trunk without flying sideways.
 		local startPosition = groundCFrame.Position
@@ -2663,7 +2724,7 @@ local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, harvestB
 		model:SetAttribute("GroundLogState", "Fresh")
 		model:SetAttribute("PileId", nil)
 		model:SetAttribute("PileSlot", nil)
-		model:SetAttribute("PickupEnabled", not hiddenUntilReveal)
+		model:SetAttribute("PickupEnabled", pickupEnabled)
 		model.Parent = bundle
 
 		local createdAt = os.clock()
@@ -2680,7 +2741,7 @@ local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, harvestB
 			PileId = nil,
 			PileSlot = nil,
 			GroundCFrame = groundCFrame,
-			PickupEnabled = not hiddenUntilReveal,
+			PickupEnabled = pickupEnabled,
 			RevealPartTransparencies = if hiddenUntilReveal then revealTransparencyByPart else nil,
 		}
 		drop.LogRecordsByUid[logRecord.UID] = entry
@@ -2782,14 +2843,20 @@ function LogService.GetTreeAwardWinner(contributions)
 	return winner
 end
 
+-- options.PreparedVisuals may provide one pre-positioned Model per yielded log,
+-- in reward order. LogService adopts those instances as the authoritative UID
+-- visuals and keeps pickup disabled. After a caller's breakup animation ends,
+-- it should release the returned batch id with EnableGroundLogBatch.
 function LogService.AwardTreeLog(awardSnapshot, options)
 	local revealMode = type(options) == "table" and options.Reveal == true
+	local preparedVisuals = if type(options) == "table" then options.PreparedVisuals else nil
 	local harvestBatchId = HttpService:GenerateGUID(false)
 	if type(harvestBatchId) ~= "string" or #harvestBatchId == 0 then return false end
 	if type(awardSnapshot) ~= "table" or awardSnapshot.YieldsLog ~= true then return false end
 	if type(awardSnapshot.SpeciesId) ~= "string" or not getMaterialDefinition(awardSnapshot.SpeciesId) then return false end
 	local rewardCount = getTreeLogYieldCount(awardSnapshot)
 	if not rewardCount or rewardCount > MAX_HARVEST_LOGS then return false end
+	if not validatePreparedGroundLogVisuals(preparedVisuals, rewardCount) then return false end
 
 	local winner = LogService.GetTreeAwardWinner(awardSnapshot.Contributions)
 	if not winner then return false end
@@ -2816,7 +2883,8 @@ function LogService.AwardTreeLog(awardSnapshot, options)
 		harvestBatchId,
 		1,
 		rewardCount,
-		revealMode
+		revealMode,
+		preparedVisuals
 	) then
 		return false
 	end
