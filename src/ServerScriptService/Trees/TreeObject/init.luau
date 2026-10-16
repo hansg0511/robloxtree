@@ -1122,8 +1122,24 @@ local function animateAuthoredHarvestSection(visual, sourceCFrame, inFlightCFram
 			{ Value = target }
 		)
 		table.insert(tweens, tween)
+		local completed = false
+		local completionConnection = tween.Completed:Connect(function(playbackState)
+			completed = playbackState == Enum.PlaybackState.Completed
+		end)
+		table.insert(connections, completionConnection)
 		tween:Play()
-		tween.Completed:Wait()
+
+		-- A destroyed/replaced tween target or a scheduler edge case must not hold
+		-- the whole harvest batch forever. Preserve the normal tween when it
+		-- completes, but cap each phase and settle its progress value on timeout.
+		local deadline = os.clock() + duration + 0.35
+		while not completed and os.clock() < deadline do
+			task.wait()
+		end
+		if not completed then
+			tween:Cancel()
+		end
+		value.Value = target
 	end
 
 	local ok, err = pcall(function()
@@ -1137,6 +1153,7 @@ local function animateAuthoredHarvestSection(visual, sourceCFrame, inFlightCFram
 			rotationCompleted = playbackState == Enum.PlaybackState.Completed
 		end))
 		rotationTween:Play()
+		local rotationDeadline = os.clock() + animationDuration + 0.35
 
 		local firstPhaseDuration = animationDuration * 0.4
 		tweenProgress(movementProgress, 0.4, firstPhaseDuration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
@@ -1147,7 +1164,13 @@ local function animateAuthoredHarvestSection(visual, sourceCFrame, inFlightCFram
 			Enum.EasingStyle.Quad,
 			Enum.EasingDirection.In
 		)
-		if not rotationCompleted then rotationTween.Completed:Wait() end
+		while not rotationCompleted and os.clock() < rotationDeadline do
+			task.wait()
+		end
+		if not rotationCompleted then
+			rotationTween:Cancel()
+		end
+		rotationProgress.Value = 1
 	end)
 	if not ok then
 		warn("Could not animate authored harvest section", err)
@@ -1164,31 +1187,47 @@ local function animateAuthoredHarvestSection(visual, sourceCFrame, inFlightCFram
 	rotationProgress:Destroy()
 end
 
-local function animateAuthoredHarvestSections(preparedVisuals, sourcePivots, inFlightCFrames, targetCFrames, harvestBatchId)
+local function animateAuthoredHarvestSections(preparedVisuals, sourcePivots, inFlightCFrames, targetCFrames, harvestBatchId, speciesId)
+	LogService.DebugHarvestPickupLifecycle(
+		"AUTHORED_ANIMATION_START",
+		speciesId,
+		string.format("batch=%s sections=%d waveInterval=%.2f animationDuration=%.2f", tostring(harvestBatchId), #preparedVisuals, OAK_HARVEST_WAVE_INTERVAL, OAK_HARVEST_ANIMATION_DURATION)
+	)
 	task.spawn(function()
 		local completedCount = 0
 		for index, visual in ipairs(preparedVisuals) do
 			task.spawn(function()
-				task.wait((index - 1) * OAK_HARVEST_WAVE_INTERVAL)
-				if visual.Parent then
-					local ok, err = pcall(
-						animateAuthoredHarvestSection,
-						visual,
-						sourcePivots[index],
-						inFlightCFrames[index],
-						targetCFrames[index]
-					)
-					if not ok then
-						warn("Could not finish authored harvest section movement", err)
-						if visual.Parent then visual:PivotTo(targetCFrames[index]) end
+				local animationOk, animationError = pcall(function()
+					task.wait((index - 1) * OAK_HARVEST_WAVE_INTERVAL)
+					if visual.Parent then
+						animateAuthoredHarvestSection(
+							visual,
+							sourcePivots[index],
+							inFlightCFrames[index],
+							targetCFrames[index]
+						)
 					end
+				end)
+				if not animationOk then
+					warn("Could not finish authored harvest section movement", animationError)
+					if visual.Parent then pcall(function() visual:PivotTo(targetCFrames[index]) end) end
 				end
 				completedCount += 1
+				LogService.DebugHarvestPickupLifecycle(
+					"AUTHORED_SECTION_COMPLETE",
+					speciesId,
+					string.format("batch=%s section=%d/%d completed=%d animationOk=%s", tostring(harvestBatchId), index, #preparedVisuals, completedCount, tostring(animationOk))
+				)
 			end)
 		end
 		while completedCount < #preparedVisuals do
 			task.wait(0.03)
 		end
+		LogService.DebugHarvestPickupLifecycle(
+			"AUTHORED_RELEASE_BARRIER",
+			speciesId,
+			string.format("batch=%s completed=%d/%d", tostring(harvestBatchId), completedCount, #preparedVisuals)
+		)
 		LogService.EnableGroundLogBatch(harvestBatchId)
 	end)
 end
@@ -1360,7 +1399,8 @@ function Tree:Die(player)
 									sourcePivots,
 									inFlightCFrames,
 									targetCFrames,
-									harvestBatchId
+									harvestBatchId,
+									self.SpeciesId
 								)
 								movementScheduled = true
 								scheduleImpactCleanup()
