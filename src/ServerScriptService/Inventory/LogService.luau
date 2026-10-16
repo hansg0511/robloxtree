@@ -69,7 +69,7 @@ local PILE_SLOT_GAP = 0.08
 local PILE_SLOT_YAW_VARIATION = 0.025
 -- Keep pickup rejection diagnostics quiet in normal play. Enable temporarily
 -- when investigating why a server rejected a ground-log pickup request.
-local DEBUG_GROUND_PICKUP_DIAGNOSTICS = false
+local DEBUG_GROUND_PICKUP_DIAGNOSTICS = true
 local DEBUG_PICKUP_HOMING = false
 local DEBUG_PILE_LIFETIME = false
 local DEBUG_PILE_TIMER = true
