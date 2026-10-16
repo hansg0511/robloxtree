@@ -203,10 +203,17 @@ local function playImpactSmoke(position, options)
 	end
 end
 
--- Plays the fall through its impact and hands the still-existing tree to the
--- caller. Leaves remain attached until impact, then shrink before OnImpact runs.
--- Options: LeafShrinkDuration, SmokeEnabled, SmokeDuration, SmokeColor, OnImpact.
--- OnImpact receives (treeModel, impactCFrame); trunk cleanup belongs to caller.
+-- Plays the fall through impact and hands the still-existing tree to the caller.
+-- By default, leaves shrink before OnImpact runs. Set ConcurrentLeafShrink to
+-- true to start leaf shrinking asynchronously and invoke OnImpact at impact.
+-- Options: LeafShrinkDuration, SmokeEnabled, SmokeDuration, SmokeColor,
+-- OnImpact, ConcurrentLeafShrink.
+-- OnImpact receives (treeModel, impactCFrame) and is invoked inline after the
+-- shrink by default, or at impact in concurrent mode. If it yields, this
+-- function yields until it returns. Callback errors are warned and still
+-- produce a successful impact result. Concurrent leaf-shrink errors are also
+-- warned; that path does not wait for the leaf effect to finish.
+-- Trunk cleanup and presentation remain the caller's responsibility.
 function FXService:TreeFallToImpact(model, player, fallRotation, options)
 	if not model or not model.Parent then return false end
 	options = type(options) == "table" and options or {}
@@ -246,7 +253,16 @@ function FXService:TreeFallToImpact(model, player, fallRotation, options)
 		0.75
 	)
 	playImpactSmoke(impactCFrame.Position, options)
-	shrinkAttachedLeaves(treeModel, leafDuration)
+	if options.ConcurrentLeafShrink == true then
+		task.spawn(function()
+			local ok, err = pcall(shrinkAttachedLeaves, treeModel, leafDuration)
+			if not ok then
+				warn("Could not shrink fallen tree leaves", err)
+			end
+		end)
+	else
+		shrinkAttachedLeaves(treeModel, leafDuration)
+	end
 	if not treeModel.Parent then return false end
 
 	if type(options.OnImpact) == "function" then

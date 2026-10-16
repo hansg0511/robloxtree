@@ -2667,6 +2667,7 @@ local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, harvestB
 	local reveals = {}
 	for index, logRecord in ipairs(logRecords) do
 		local model = preparedVisuals and preparedVisuals[index] or nil
+		local isPreparedVisual = model ~= nil
 		local hiddenUntilReveal = revealMode == true and model == nil
 		local pickupEnabled = revealMode ~= true and model == nil
 		local revealTransparencyByPart
@@ -2679,14 +2680,6 @@ local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, harvestB
 			end
 			groundCFrame = model:GetPivot()
 			model.Name = "DroppedLog"
-			for _, descendant in ipairs(model:GetDescendants()) do
-				if descendant:IsA("BasePart") then
-					descendant.Anchored = true
-					descendant.CanCollide = false
-					descendant.CanTouch = false
-					descendant.CanQuery = false
-				end
-			end
 		else
 			local handle
 			model, handle, revealTransparencyByPart = createLogVisualModel(
@@ -2714,7 +2707,9 @@ local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, harvestB
 		-- Start at the final footprint position. The reveal animation adds only a
 		-- vertical pop, so logs settle in place along the trunk without flying sideways.
 		local startPosition = groundCFrame.Position
-		model:PivotTo(groundCFrame)
+		if not isPreparedVisual then
+			model:PivotTo(groundCFrame)
+		end
 		model:SetAttribute("UID", logRecord.UID)
 		model:SetAttribute("ItemType", "Log")
 		model:SetAttribute("SpeciesId", logRecord.SpeciesId)
@@ -2779,7 +2774,7 @@ local function createLogRecord(tree)
 	}
 end
 
-local function getTreeLogYieldCount(tree)
+function LogService.GetTreeLogYieldCount(tree)
 	local configuredYield = tree and tree.LogYield
 	if configuredYield ~= nil then
 		if not isFinitePositive(configuredYield) or configuredYield % 1 ~= 0
@@ -2854,7 +2849,7 @@ function LogService.AwardTreeLog(awardSnapshot, options)
 	if type(harvestBatchId) ~= "string" or #harvestBatchId == 0 then return false end
 	if type(awardSnapshot) ~= "table" or awardSnapshot.YieldsLog ~= true then return false end
 	if type(awardSnapshot.SpeciesId) ~= "string" or not getMaterialDefinition(awardSnapshot.SpeciesId) then return false end
-	local rewardCount = getTreeLogYieldCount(awardSnapshot)
+	local rewardCount = LogService.GetTreeLogYieldCount(awardSnapshot)
 	if not rewardCount or rewardCount > MAX_HARVEST_LOGS then return false end
 	if not validatePreparedGroundLogVisuals(preparedVisuals, rewardCount) then return false end
 

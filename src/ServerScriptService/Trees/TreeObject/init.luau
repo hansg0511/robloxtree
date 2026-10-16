@@ -218,6 +218,79 @@ local function makeStarterForestTree()
 	return model
 end
 
+local function makeStarterForestHarvestOak(sectionCount)
+	local sectionNamesByCount = {
+		[1] = { "Base" },
+		[2] = { "Base", "Top" },
+		[3] = { "Base", "Middle", "Top" },
+	}
+	local sectionNames = sectionNamesByCount[sectionCount]
+	if not sectionNames then return nil end
+
+	local oakPalette = SpeciesVisuals.GetPalette("Oak")
+	local model = Instance.new("Model")
+	model.Name = "StarterForestTree"
+
+	-- This hidden carrier keeps the authored groups, leaves, and hitbox moving as
+	-- one rigid tree until impact. Each harvest section has its own explicit weld.
+	local carrier = makeBrickPart(
+		"OakRootCarrier",
+		Vector3.new(1, 18, 1),
+		Vector3.new(0, 9, 0),
+		oakPalette.Bark,
+		model
+	)
+	carrier.PivotOffset = CFrame.new(0, -9, 0)
+	carrier.Transparency = 1
+	carrier.CanCollide = false
+	carrier.CanTouch = false
+	carrier.CanQuery = false
+	carrier:SetAttribute("AlwaysInvisible", true)
+	model.PrimaryPart = carrier
+
+	local sectionsFolder = Instance.new("Folder")
+	sectionsFolder.Name = "OakHarvestSections"
+	sectionsFolder.Parent = model
+
+	local sections = table.create(sectionCount)
+	local sectionHeight = 18 / sectionCount
+	local coreWidth = 5.5
+	for index, sectionName in ipairs(sectionNames) do
+		local section = Instance.new("Model")
+		section.Name = sectionName
+		section:SetAttribute("OakHarvestSection", true)
+		section:SetAttribute("OakHarvestIndex", index)
+		section.Parent = sectionsFolder
+
+		local core = makeBrickPart(
+			"OakHarvestCore",
+			Vector3.new(coreWidth, sectionHeight, coreWidth),
+			Vector3.new(0, (index - 0.5) * sectionHeight, 0),
+			oakPalette.Bark,
+			section,
+			carrier,
+			index == 1
+		)
+		core.CanTouch = true
+		section.PrimaryPart = core
+		addBarkStuds(core, core, oakPalette)
+		sections[index] = section
+	end
+
+	local leaves = Instance.new("Folder")
+	leaves.Name = "Leaves"
+	leaves.Parent = model
+	addLeafBricks(leaves, carrier, {
+		{ Size = Vector3.new(18, 8, 16), Position = Vector3.new(0, 20, 0), Color = oakPalette.Leaf },
+		{ Size = Vector3.new(12, 7, 12), Position = Vector3.new(-7, 23, -2), Color = oakPalette.LeafHighlight },
+		{ Size = Vector3.new(12, 7, 12), Position = Vector3.new(7, 23, 2), Color = oakPalette.LeafShadow },
+		{ Size = Vector3.new(15, 7, 14), Position = Vector3.new(0, 27, 0), Color = oakPalette.Leaf },
+		{ Size = Vector3.new(10, 7, 10), Position = Vector3.new(0, 33, 0), Color = oakPalette.LeafHighlight },
+	}, false)
+	addChopHitbox(model, carrier, Vector3.new(10, 22, 10), Vector3.new(0, 11, 0))
+	return model, sections
+end
+
 local function makeForest2Tree()
 	local ironwoodPalette = SpeciesVisuals.GetPalette("Ironwood")
 	local model, trunk, leaves = makeTreeFrame(
@@ -460,12 +533,22 @@ function Tree:Spawn()
 	self.MaxHP = math.max(1, math.floor(self.BaseHP * (self.SizeScale ^ 1.4) + 0.5))
 	self.HP = self.MaxHP
 	self.DamageContributions = {}
+	self.OakHarvestSections = nil
+	local oakHarvestCount
+	if self.DefinitionId == "StarterForestTree" and hasLogDrop then
+		oakHarvestCount = LogService.GetTreeLogYieldCount(self)
+	end
 
 	local builder = SOURCE_BUILT_MODELS[self.ModelName]
 	local model
-	if builder then
+	local oakHarvestSections
+	if self.DefinitionId == "StarterForestTree" and oakHarvestCount then
+		model, oakHarvestSections = makeStarterForestHarvestOak(oakHarvestCount)
+	end
+	if not model and builder then
 		model = builder()
-	else
+	end
+	if not model then
 		local templates = ServerStorage:FindFirstChild("TreeTypes")
 		local template = templates and templates:FindFirstChild(self.ModelName)
 		if not template or not template:IsA("Model") then
@@ -501,6 +584,9 @@ function Tree:Spawn()
 		model:SetAttribute("GroveMaturesAt", self.GroveMaturesAt)
 	end
 	self.model = model
+	if self.DefinitionId == "StarterForestTree" then
+		self.OakHarvestSections = oakHarvestSections
+	end
 	self.isDead = false
 	local interactionPart = model:FindFirstChild(self.InteractionPartName, true)
 	if not interactionPart or not interactionPart:IsA("BasePart") then
@@ -606,38 +692,9 @@ local function leavesForHP(hp, maxHP, totalLeaves)
 	return math.ceil(math.clamp(hp / maxHP, 0, 1) * totalLeaves)
 end
 
-local MAX_HARVEST_LOGS = 6
-local MAX_STANDARD_TREE_LOGS = 3
 local TRUNK_BREAKUP_WAVE_INTERVAL = 0.12
 local TRUNK_BREAKUP_REVEAL_DURATION = 0.40
 local TRUNK_BREAKUP_LIFT = 0.35
-
-local function getTreeLogYieldCount(tree)
-	local configuredYield = tree and tree.LogYield
-	if configuredYield ~= nil then
-		if type(configuredYield) ~= "number"
-			or configuredYield ~= configuredYield
-			or configuredYield <= 0
-			or configuredYield == math.huge
-			or configuredYield % 1 ~= 0
-			or configuredYield > MAX_HARVEST_LOGS then
-			return nil
-		end
-		return configuredYield
-	end
-
-	local sizeScale = tree and tree.SizeScale
-	if type(sizeScale) ~= "number" or sizeScale ~= sizeScale
-		or sizeScale <= 0 or sizeScale == math.huge then
-		return nil
-	end
-	if sizeScale < 0.7 then
-		return 1
-	elseif sizeScale < 1.3 then
-		return 2
-	end
-	return MAX_STANDARD_TREE_LOGS
-end
 
 local function isTreeTrunkVisualPart(part, leavesFolder)
 	return part:IsA("BasePart")
@@ -880,6 +937,219 @@ local function destroyPreparedTrunkLogs(preparedVisuals)
 	end
 end
 
+local OAK_HARVEST_WAVE_INTERVAL = 0.12
+local OAK_HARVEST_ARC_HEIGHT = 1.4
+local OAK_HARVEST_ANIMATION_DURATION = 0.45
+local OAK_HARVEST_GAP = 0.28
+
+local function getOakModelBottomOffset(model, sourcePivot, targetRotation)
+	local lowestY = math.huge
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			local relativeCFrame = sourcePivot:ToObjectSpace(descendant.CFrame)
+			local targetRelativeCFrame = targetRotation * relativeCFrame
+			local part = descendant
+			local verticalHalfExtent = math.abs(targetRelativeCFrame.RightVector.Y) * part.Size.X * 0.5
+				+ math.abs(targetRelativeCFrame.UpVector.Y) * part.Size.Y * 0.5
+				+ math.abs(targetRelativeCFrame.LookVector.Y) * part.Size.Z * 0.5
+			lowestY = math.min(lowestY, targetRelativeCFrame.Position.Y - verticalHalfExtent)
+		end
+	end
+	if lowestY == math.huge then return nil end
+	return lowestY
+end
+
+local function getOakHarvestGroundCFrame(section, sourcePivot, horizontalDirection, gapOffset, raycastParams)
+	local flatRotation = CFrame.fromMatrix(
+		Vector3.zero,
+		Vector3.yAxis,
+		horizontalDirection,
+		Vector3.yAxis:Cross(horizontalDirection)
+	)
+	local bottomOffset = getOakModelBottomOffset(section, sourcePivot, flatRotation)
+	if not bottomOffset then return nil end
+
+	local horizontalPosition = sourcePivot.Position + horizontalDirection * gapOffset
+	local rayOrigin = Vector3.new(horizontalPosition.X, math.max(sourcePivot.Position.Y + 128, 128), horizontalPosition.Z)
+	local groundHit = workspace:Raycast(rayOrigin, Vector3.new(0, -4096, 0), raycastParams)
+	if not groundHit then return nil end
+
+	local targetPosition = Vector3.new(
+		horizontalPosition.X,
+		groundHit.Position.Y - bottomOffset + 0.06,
+		horizontalPosition.Z
+	)
+	local targetCFrame = CFrame.new(targetPosition) * flatRotation
+	local axialRoll = math.rad(treeRandom:NextNumber(45, 100))
+	local inFlightRotation = flatRotation * CFrame.Angles(0, axialRoll, 0)
+	local inFlightPosition = sourcePivot.Position:Lerp(targetPosition, 0.55)
+		+ Vector3.new(0, OAK_HARVEST_ARC_HEIGHT, 0)
+	local inFlightCFrame = CFrame.new(inFlightPosition) * inFlightRotation
+	return targetCFrame, inFlightCFrame
+end
+
+local function createPreparedOakHarvestLogs(fallenModel, sections, count, fallRotation, player)
+	local sectionNamesByCount = {
+		[1] = { "Base" },
+		[2] = { "Base", "Top" },
+		[3] = { "Base", "Middle", "Top" },
+	}
+	local expectedNames = sectionNamesByCount[count]
+	if not fallenModel or not fallenModel.Parent or not expectedNames
+		or type(sections) ~= "table" or #sections ~= count then
+		return nil
+	end
+
+	local horizontalDirection = fallRotation:VectorToWorldSpace(Vector3.yAxis)
+	horizontalDirection = Vector3.new(horizontalDirection.X, 0, horizontalDirection.Z)
+	if horizontalDirection.Magnitude <= 1e-4 then return nil end
+	horizontalDirection = horizontalDirection.Unit
+
+	local sourcePivots = table.create(count)
+	for index, expectedName in ipairs(expectedNames) do
+		local section = sections[index]
+		if not section or not section:IsA("Model") or section.Name ~= expectedName
+			or section:GetAttribute("OakHarvestSection") ~= true
+			or section:GetAttribute("OakHarvestIndex") ~= index
+			or not section:IsDescendantOf(fallenModel)
+			or not section:FindFirstChildWhichIsA("BasePart", true) then
+			return nil
+		end
+		sourcePivots[index] = section:GetPivot()
+	end
+
+	local excludedInstances = { fallenModel }
+	if player and player.Character then
+		table.insert(excludedInstances, player.Character)
+	end
+	for _, section in ipairs(sections) do
+		table.insert(excludedInstances, section)
+	end
+	local raycastParams = RaycastParams.new()
+	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+	raycastParams.FilterDescendantsInstances = excludedInstances
+	raycastParams.IgnoreWater = true
+
+	local targetCFrames = table.create(count)
+	local inFlightCFrames = table.create(count)
+	for index, section in ipairs(sections) do
+		local gapOffset = (index - (count + 1) * 0.5) * OAK_HARVEST_GAP
+		targetCFrames[index], inFlightCFrames[index] = getOakHarvestGroundCFrame(
+			section,
+			sourcePivots[index],
+			horizontalDirection,
+			gapOffset,
+			raycastParams
+		)
+		if not targetCFrames[index] or not inFlightCFrames[index] then return nil end
+	end
+
+	local partSectionByPart = {}
+	for _, section in ipairs(sections) do
+		for _, descendant in ipairs(section:GetDescendants()) do
+			if descendant:IsA("BasePart") then
+				partSectionByPart[descendant] = section
+			end
+		end
+	end
+	local externalJoints = {}
+	for _, descendant in ipairs(fallenModel:GetDescendants()) do
+		if descendant:IsA("WeldConstraint") or descendant:IsA("JointInstance") then
+			local section0 = partSectionByPart[descendant.Part0]
+			local section1 = partSectionByPart[descendant.Part1]
+			if section0 ~= section1 and (section0 or section1) then
+				table.insert(externalJoints, descendant)
+			end
+		end
+	end
+
+	for _, section in ipairs(sections) do
+		for _, descendant in ipairs(section:GetDescendants()) do
+			if descendant:IsA("BasePart") then
+				descendant.Anchored = true
+				descendant.CanCollide = false
+				descendant.CanTouch = false
+				descendant.CanQuery = false
+			end
+		end
+	end
+	for _, joint in ipairs(externalJoints) do
+		joint:Destroy()
+	end
+
+	local sectionParent = fallenModel.Parent
+	for index, section in ipairs(sections) do
+		section.Parent = sectionParent
+		section.Name = "PreparedOakHarvestLog" .. index
+	end
+	return sections, sourcePivots, inFlightCFrames, targetCFrames
+end
+
+local function animateOakHarvestLog(visual, sourceCFrame, inFlightCFrame, targetCFrame)
+	local value = Instance.new("CFrameValue")
+	value.Value = sourceCFrame
+	local connection = value:GetPropertyChangedSignal("Value"):Connect(function()
+		if visual.Parent then visual:PivotTo(value.Value) end
+	end)
+
+	local function tweenPivot(target, duration, easingDirection)
+		local tween = TweenService:Create(
+			value,
+			TweenInfo.new(duration, Enum.EasingStyle.Quad, easingDirection),
+			{ Value = target }
+		)
+		tween:Play()
+		tween.Completed:Wait()
+		tween:Destroy()
+	end
+
+	local ok, err = pcall(function()
+		tweenPivot(inFlightCFrame, OAK_HARVEST_ANIMATION_DURATION * 0.4, Enum.EasingDirection.Out)
+		tweenPivot(targetCFrame, OAK_HARVEST_ANIMATION_DURATION * 0.6, Enum.EasingDirection.In)
+	end)
+	if not ok then
+		warn("Could not animate Oak harvest section", err)
+	end
+	if visual.Parent then visual:PivotTo(targetCFrame) end
+	connection:Disconnect()
+	value:Destroy()
+end
+
+local function animateOakHarvestLogs(preparedVisuals, sourcePivots, inFlightCFrames, targetCFrames, harvestBatchId)
+	task.spawn(function()
+		local completedCount = 0
+		for index, visual in ipairs(preparedVisuals) do
+			task.spawn(function()
+				task.wait((index - 1) * OAK_HARVEST_WAVE_INTERVAL)
+				if visual.Parent then
+					local ok, err = pcall(
+						animateOakHarvestLog,
+						visual,
+						sourcePivots[index],
+						inFlightCFrames[index],
+						targetCFrames[index]
+					)
+					if not ok then
+						warn("Could not finish Oak harvest section movement", err)
+						if visual.Parent then visual:PivotTo(targetCFrames[index]) end
+					end
+				end
+				completedCount += 1
+			end)
+		end
+		while completedCount < #preparedVisuals do
+			task.wait(0.03)
+		end
+		LogService.EnableGroundLogBatch(harvestBatchId)
+	end)
+end
+
+local function destroyPreparedOakHarvestLogs(preparedVisuals)
+	for _, visual in ipairs(preparedVisuals or {}) do
+		if visual and visual.Parent then visual:Destroy() end
+	end
+end
+
 local function fadeAndDestroyFallenTree(model)
 	if not model or not model.Parent then return end
 	local fadeInfo = TweenInfo.new(0.65)
@@ -986,7 +1256,11 @@ function Tree:Die(player)
 	if self.UnlockForestId then
 		WorldProgressService.UnlockForest(player, self.UnlockForestId)
 	end
-	local usesTrunkBreakup = self.Category == "Grove" and self.YieldsLog and not self.IsPersistentGrove
+	local usesOakHarvestCore = self.DefinitionId == "StarterForestTree"
+	local usesTrunkBreakup = self.Category == "Grove"
+		and self.YieldsLog
+		and not self.IsPersistentGrove
+		and not usesOakHarvestCore
 	local legacyAwardAttempted = false
 	local function revealLegacyLogAward()
 		if legacyAwardAttempted then return end
@@ -999,10 +1273,101 @@ function Tree:Die(player)
 		end
 	end
 	task.spawn(function()
-		if usesTrunkBreakup then
+		if usesOakHarvestCore then
+			local impactCompleted = FXService:TreeFallToImpact(fallenModel, player, fallRotation, {
+				ConcurrentLeafShrink = true,
+				OnImpact = function(impactModel)
+					local preparedVisuals, sourcePivots, inFlightCFrames, targetCFrames
+					local harvestBatchId
+					local movementScheduled = false
+					local cleanupScheduled = false
+					local function scheduleImpactCleanup()
+						if cleanupScheduled then return end
+						local delayedCleanupOk = pcall(task.delay, 0.3, function()
+							if impactModel.Parent then impactModel:Destroy() end
+						end)
+						cleanupScheduled = true
+						if not delayedCleanupOk and impactModel.Parent then
+							impactModel:Destroy()
+						end
+					end
+
+					local callbackOk, callbackError = pcall(function()
+						local rewardCount = LogService.GetTreeLogYieldCount(self)
+						if awardSnapshot and rewardCount then
+							preparedVisuals, sourcePivots, inFlightCFrames, targetCFrames = createPreparedOakHarvestLogs(
+								impactModel,
+								self.OakHarvestSections,
+								rewardCount,
+								fallRotation,
+								player
+							)
+						end
+						if preparedVisuals then
+							harvestBatchId = LogService.AwardTreeLog(awardSnapshot, {
+								Reveal = true,
+								PreparedVisuals = preparedVisuals,
+							})
+							if harvestBatchId then
+								animateOakHarvestLogs(
+									preparedVisuals,
+									sourcePivots,
+									inFlightCFrames,
+									targetCFrames,
+									harvestBatchId
+								)
+								movementScheduled = true
+								scheduleImpactCleanup()
+								return
+							end
+							destroyPreparedOakHarvestLogs(preparedVisuals)
+							preparedVisuals = nil
+						end
+						if awardSnapshot and not harvestBatchId then
+							revealLegacyLogAward()
+						end
+						scheduleImpactCleanup()
+					end)
+					if not callbackOk then
+						warn("Oak harvest impact callback failed", callbackError)
+						-- Schedule residual tree cleanup before attempting any recovery work.
+						pcall(scheduleImpactCleanup)
+						if harvestBatchId then
+							-- The batch owns these section Models now. If movement setup failed,
+							-- settle them and release pickup without awarding a second batch.
+							if not movementScheduled then
+								for index, visual in ipairs(preparedVisuals or {}) do
+									local targetCFrame = targetCFrames and targetCFrames[index]
+									if visual and visual.Parent and targetCFrame then
+										pcall(function() visual:PivotTo(targetCFrame) end)
+									end
+								end
+								pcall(LogService.EnableGroundLogBatch, harvestBatchId)
+							end
+						else
+							if preparedVisuals then
+								pcall(destroyPreparedOakHarvestLogs, preparedVisuals)
+							elseif type(self.OakHarvestSections) == "table" then
+								-- Preparation can fail partway through detaching. Remove only
+								-- sections already moved out of the impact tree.
+								for _, section in ipairs(self.OakHarvestSections) do
+									if section and section.Parent and not section:IsDescendantOf(impactModel) then
+										pcall(function() section:Destroy() end)
+									end
+								end
+							end
+							if awardSnapshot then pcall(revealLegacyLogAward) end
+						end
+					end
+				end,
+			})
+			if not impactCompleted and fallenModel and fallenModel.Parent then
+				FXService:TreeFall(fallenModel, player, fallRotation, revealLegacyLogAward)
+			end
+		elseif usesTrunkBreakup then
 			local impactCompleted = FXService:TreeFallToImpact(fallenModel, player, fallRotation, {
 				OnImpact = function(impactModel)
-					local rewardCount = getTreeLogYieldCount(self)
+					local rewardCount = LogService.GetTreeLogYieldCount(self)
 					local preparedVisuals, revealTransparencyByVisual
 					local harvestBatchId
 					if awardSnapshot and rewardCount then
