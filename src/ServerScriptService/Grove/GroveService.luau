@@ -268,6 +268,9 @@ local function spawnGroveTree(player, plotModel, area, record)
 			GroveTreeUID = record.UID,
 			SourceSaplingUID = record.SourceSaplingUID,
 			SpeciesId = record.SpeciesId,
+			-- Pass an allowlisted copy so runtime TreeObjects never share the
+			-- mutable persisted record table or trust unknown mutation identifiers.
+			Mutations = MutationDefinitions.CopyKnown(record.Mutations),
 			SizePotential = record.SizePotential,
 			PlantedAt = record.PlantedAt,
 			MaturesAt = record.MaturesAt,

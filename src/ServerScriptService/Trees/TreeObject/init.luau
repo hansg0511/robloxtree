@@ -4,10 +4,12 @@ Tree.__index = Tree
 local ServerStorage = game:GetService("ServerStorage")
 local TweenService = game:GetService("TweenService")
 local SpeciesVisuals = require(ServerStorage:WaitForChild("SpeciesVisuals"))
+local TreeVisualModifiers = require(ServerStorage:WaitForChild("TreeVisualModifiers"))
 local ChopFX = game.ReplicatedStorage.Chop.ChopFX
 local DamageEvent = game.ReplicatedStorage.DamageEvent
 local FXService = require(game.ReplicatedStorage.FXService)
 local Definitions = require(script.Parent.TreeDefinitions)
+local MutationDefinitions = require(game.ServerScriptService.Grove.MutationDefinitions)
 local WorldProgressService = require(game.ServerScriptService.WorldProgressService)
 local LogService = require(game.ServerScriptService.Inventory.LogService)
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
@@ -496,6 +498,16 @@ local GROVE_STAGE_SCALE = {
 Tree.ActiveTrees = {}
 Tree._nextCreationId = 0
 
+local function applyVisualModifiers(tree, model, currentScale)
+	TreeVisualModifiers.Apply(model, {
+		SpeciesId = tree.SpeciesId,
+		Mutations = tree.Mutations,
+		GroveStage = if tree.IsPersistentGrove then tree.GroveStage else nil,
+		SizePotential = if tree.IsPersistentGrove then tree.GroveSizePotential else nil,
+		CurrentScale = currentScale,
+	})
+end
+
 function Tree.new(options)
 	assert(type(options) == "table", "Tree options required")
 	local definition = Definitions[options.DefinitionId]
@@ -528,6 +540,7 @@ function Tree.new(options)
 	self.InteractionPartName = definition.InteractionPartName
 	self.ChopRadius = definition.ChopRadius
 	self.IsPersistentGrove = options.DefinitionId == "PersistentGroveTree"
+	self.Mutations = {}
 	self.CanChopCallback = options.CanChopCallback
 	self.OnPersistentHarvest = options.OnPersistentHarvest
 	if self.IsPersistentGrove then
@@ -551,6 +564,7 @@ function Tree.new(options)
 		self.SpeciesId = options.SpeciesId
 		self.GroveTreeUID = options.GroveTreeUID
 		self.SourceSaplingUID = options.SourceSaplingUID
+		self.Mutations = MutationDefinitions.CopyKnown(options.Mutations)
 		self.GroveSizePotential = sizePotential
 		self.GrovePlantedAt = plantedAt
 		self.GroveMaturesAt = maturesAt
@@ -650,6 +664,7 @@ function Tree:Spawn()
 		model:SetAttribute("GrovePlantedAt", self.GrovePlantedAt)
 		model:SetAttribute("GroveMaturesAt", self.GroveMaturesAt)
 	end
+	applyVisualModifiers(self, model, modelScale)
 	self.model = model
 	if self.DefinitionId == "StarterForestTree" then
 		self.OakHarvestSections = oakHarvestSections
@@ -678,6 +693,7 @@ function Tree:SetGroveStage(stage)
 		model:ScaleTo(modelScale)
 		model:SetAttribute("GroveStage", stage)
 		model:SetAttribute("GroveSizeScale", modelScale)
+		applyVisualModifiers(self, model, modelScale)
 	end
 	return true
 end
