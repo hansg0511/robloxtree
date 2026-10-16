@@ -79,6 +79,7 @@ local PILE_RADIUS_DEBUG_HEIGHT_OFFSET = 0.08
 -- Ground geometry is an exact fourfold copy of the carry/back-stack geometry.
 -- This is a visual-only scale; it never affects inventory or log value.
 local GROUND_DROP_VISUAL_SCALE = 4
+local STANDARD_GROUND_VISUAL_ATTRIBUTE = "LogServiceStandardGroundVisual"
 local REMOTE_INTERVALS = {
 	Sell = 1,
 	Lock = 0.15,
@@ -1305,6 +1306,7 @@ end
 local function createLogVisualModel(name, logRecord, visualScale, hidden)
 	local model = Instance.new("Model")
 	model.Name = name
+	model:SetAttribute(STANDARD_GROUND_VISUAL_ATTRIBUTE, true)
 	local handle, caps = SpeciesVisuals.CreateLogParts(logRecord, "LogHandle", visualScale)
 	local revealTransparencyByPart = {}
 	handle.Parent = model
@@ -1325,6 +1327,55 @@ local function createLogVisualModel(name, logRecord, visualScale, hidden)
 		end
 	end
 	return model, handle, revealTransparencyByPart
+end
+
+local function isStandardGroundVisual(entry, model)
+	return entry.StandardGroundVisual == true
+		and model ~= nil
+		and model:GetAttribute(STANDARD_GROUND_VISUAL_ATTRIBUTE) == true
+end
+
+-- Overflow remains ground-owned, so replace adopted/custom visuals with the
+-- SpeciesVisuals geometry at the same source footprint before homing begins.
+-- The server-only flag and model marker make repeated recovery idempotent.
+local function ensureStandardOverflowGroundVisual(entry, targetCFrame, hidden)
+	local currentModel = entry.Model
+	local modelAlive = currentModel ~= nil and currentModel:IsDescendantOf(game)
+	if modelAlive and isStandardGroundVisual(entry, currentModel) then
+		if currentModel.Parent ~= entry.Bundle then currentModel.Parent = entry.Bundle end
+		if typeof(targetCFrame) == "CFrame" then
+			currentModel:PivotTo(targetCFrame)
+		end
+		return currentModel, false
+	end
+
+	local newModel, _, transparencies = createLogVisualModel(
+		"DroppedLog",
+		entry.LogRecord,
+		GROUND_DROP_VISUAL_SCALE,
+		hidden
+	)
+	local replacementCFrame = targetCFrame
+		or (modelAlive and currentModel:GetPivot())
+	if typeof(replacementCFrame) == "CFrame" then
+		newModel:PivotTo(replacementCFrame)
+	end
+	if modelAlive then
+		for attributeName, attributeValue in pairs(currentModel:GetAttributes()) do
+			newModel:SetAttribute(attributeName, attributeValue)
+		end
+		currentModel:Destroy()
+	end
+	newModel:SetAttribute(STANDARD_GROUND_VISUAL_ATTRIBUTE, true)
+	newModel.Parent = entry.Bundle
+	entry.Model = newModel
+	entry.StandardGroundVisual = true
+	entry.RevealPartTransparencies = nil
+	entry.TransitPartTransparencies = if hidden then transparencies else nil
+	if typeof(replacementCFrame) == "CFrame" then
+		entry.GroundCFrame = replacementCFrame
+	end
+	return newModel, true
 end
 
 local function finishCarryArrival(player, uid)
@@ -1552,6 +1603,8 @@ local function ensureOverflowGroundRegistration(pickup)
 				hidden
 			)
 			registeredEntry.Model = newModel
+			registeredEntry.StandardGroundVisual = true
+			registeredEntry.RevealPartTransparencies = nil
 			registeredEntry.TransitPartTransparencies = if hidden then transparencies else nil
 			model = newModel
 		end
@@ -1599,25 +1652,8 @@ local function ensureOverflowGroundModel(pickup, state, targetCFrame, pickupEnab
 		bundle.Parent = worldDropFolder
 	end
 
-	local model = entry.Model
-	local modelAlive = model ~= nil and model:IsDescendantOf(game)
-	if not modelAlive then
-		local newModel, _, originalTransparencies = createLogVisualModel(
-			"DroppedLog",
-			entry.LogRecord,
-			GROUND_DROP_VISUAL_SCALE,
-			true
-		)
-		entry.Model = newModel
-		entry.TransitPartTransparencies = originalTransparencies
-		model = newModel
-		model.Parent = bundle
-	elseif model.Parent ~= bundle then
-		model.Parent = bundle
-	end
-	if typeof(targetCFrame) == "CFrame" then
-		model:PivotTo(targetCFrame)
-	end
+	local model = ensureStandardOverflowGroundVisual(entry, targetCFrame, true)
+	if not model then return false end
 	model:SetAttribute("UID", uid)
 	model:SetAttribute("ItemType", "Log")
 	model:SetAttribute("SpeciesId", entry.LogRecord.SpeciesId)
@@ -1818,16 +1854,20 @@ local function beginOverflowHoming(player, claim, now)
 		OriginalReservedUntil = entry.ReservedUntil or (now + OWNER_RESERVATION_SECONDS),
 	}
 	entry.HomingStartCFrame = claim.StartCFrame
+	local _, replacedVisual = ensureStandardOverflowGroundVisual(entry, claim.StartCFrame, true)
+	if not entry.Model then return nil end
 	entry.State = "HomingOverflow"
 	entry.PickupEnabled = false
 	entry.PileId = nil
 	entry.PileSlot = nil
 	entry.PileTargetCFrame = nil
-	entry.TransitPartTransparencies = {}
-	for _, descendant in ipairs(entry.Model:GetDescendants()) do
-		if descendant:IsA("BasePart") then
-			entry.TransitPartTransparencies[descendant] = descendant.Transparency
-			descendant.Transparency = 1
+	if not replacedVisual then
+		entry.TransitPartTransparencies = {}
+		for _, descendant in ipairs(entry.Model:GetDescendants()) do
+			if descendant:IsA("BasePart") then
+				entry.TransitPartTransparencies[descendant] = descendant.Transparency
+				descendant.Transparency = 1
+			end
 		end
 	end
 	entry.Model:SetAttribute("GroundLogState", entry.State)
@@ -2733,6 +2773,7 @@ local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, harvestB
 			ReservedUntil = createdAt + OWNER_RESERVATION_SECONDS,
 			ExpiresAt = createdAt + GROUND_LOG_LIFETIME_SECONDS,
 			State = "Fresh",
+			StandardGroundVisual = not isPreparedVisual,
 			PileId = nil,
 			PileSlot = nil,
 			GroundCFrame = groundCFrame,
