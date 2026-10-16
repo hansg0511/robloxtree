@@ -22,6 +22,8 @@ local stateFunction
 local plantEvent
 local stateUpdatedEvent
 local stateUpdatedConnection
+local saplingDiscoveredEvent
+local saplingDiscoveredConnection
 local groveFolder
 local refreshInProgress = false
 local refreshCallbacks = {}
@@ -78,7 +80,7 @@ local panel = Instance.new("Frame")
 panel.Name = "StatusPanel"
 panel.AnchorPoint = Vector2.new(0, 1)
 panel.Position = UDim2.new(0, 18, 1, -18)
-panel.Size = UDim2.fromOffset(352, 170)
+panel.Size = UDim2.fromOffset(372, 210)
 panel.BackgroundColor3 = Color3.fromRGB(21, 29, 25)
 panel.BackgroundTransparency = 0.08
 panel.BorderSizePixel = 0
@@ -135,10 +137,20 @@ local heartwoodLabel = makeLabel(
 	Color3.fromRGB(234, 236, 224)
 )
 
+local selectedSaplingLabel = makeLabel(
+	panel,
+	"SelectedSapling",
+	UDim2.fromOffset(13, 94),
+	UDim2.new(1, -26, 0, 40),
+	Enum.Font.GothamMedium,
+	12,
+	Color3.fromRGB(234, 236, 224)
+)
+
 local feedbackLabel = makeLabel(
 	panel,
 	"Feedback",
-	UDim2.fromOffset(13, 95),
+	UDim2.fromOffset(13, 138),
 	UDim2.new(1, -26, 0, 23),
 	Enum.Font.Gotham,
 	12,
@@ -148,7 +160,7 @@ local feedbackLabel = makeLabel(
 local controlsLabel = makeLabel(
 	panel,
 	"Controls",
-	UDim2.fromOffset(13, 122),
+	UDim2.fromOffset(13, 164),
 	UDim2.new(1, -26, 0, 38),
 	Enum.Font.Gotham,
 	11,
@@ -187,6 +199,29 @@ local function getSelectedSapling()
 		end
 	end
 	return nil
+end
+
+local function formatMutationNames(mutations)
+	local names = {}
+	if type(mutations) == "table" then
+		for mutationId, enabled in pairs(mutations) do
+			if type(mutationId) == "string" and enabled == true then
+				table.insert(names, mutationId)
+			end
+		end
+	end
+	table.sort(names)
+	return table.concat(names, " + ")
+end
+
+local function describeSapling(sapling)
+	local speciesId = type(sapling) == "table" and sapling.SpeciesId or nil
+	local prefix = type(sapling) == "table" and formatMutationNames(sapling.Mutations) or ""
+	local name = tostring(speciesId or "Unknown")
+	if prefix ~= "" then
+		name = prefix .. " " .. name
+	end
+	return name .. " Sapling"
 end
 
 local function getAreaFromPlot(plot)
@@ -254,9 +289,17 @@ local function render()
 	end
 
 	local selected = getSelectedSapling()
-	local speciesId = selected and tostring(selected.SpeciesId or "Unknown") or "none"
-	saplingsLabel.Text = string.format("Saplings remaining: %d  •  Selected: %s", #saplings, speciesId)
+	saplingsLabel.Text = string.format("Saplings remaining: %d", #saplings)
 	heartwoodLabel.Text = string.format("Heartwood: %d", #groveMaterials)
+	if selected then
+		selectedSaplingLabel.Text = string.format(
+			"Selected: %s\nSize: %.2fx",
+			describeSapling(selected),
+			type(selected.SizePotential) == "number" and selected.SizePotential or 1
+		)
+	else
+		selectedSaplingLabel.Text = "Selected: none"
+	end
 	controlsLabel.Text = plantingMode
 		and "[G] or [Esc] exit  •  [Q/E] select  •  click to plant"
 		or "[G] planting mode  •  [Q/E] select sapling  •  [Esc] exit"
@@ -536,6 +579,27 @@ local function setRemoteUpdateEvent(candidate)
 	end
 end
 
+local function setSaplingDiscoveredEvent(candidate)
+	if saplingDiscoveredEvent == candidate then
+		return
+	end
+	if saplingDiscoveredConnection then
+		saplingDiscoveredConnection:Disconnect()
+		saplingDiscoveredConnection = nil
+	end
+	saplingDiscoveredEvent = candidate
+	if candidate then
+		saplingDiscoveredConnection = candidate.OnClientEvent:Connect(function(record)
+			if type(record) == "table" then
+				setFeedback("Discovered " .. describeSapling(record) .. "!", "success")
+			end
+			-- Server discovery is the source of truth; query the normal sanitized
+			-- snapshot so the new UID becomes selectable without client prediction.
+			refreshState()
+		end)
+	end
+end
+
 local function refreshRemotes()
 	if cleanedUp then
 		return
@@ -553,10 +617,12 @@ local function refreshRemotes()
 	stateFunction = nil
 	plantEvent = nil
 	local updateEvent
+	local discoveredEvent
 	if groveFolder then
 		local stateCandidate = groveFolder:FindFirstChild("GetGroveStateRF")
 		local plantCandidate = groveFolder:FindFirstChild("PlantSaplingRE")
 		local updateCandidate = groveFolder:FindFirstChild("GroveStateUpdatedRE")
+		local discoveryCandidate = groveFolder:FindFirstChild("SaplingDiscoveredRE")
 		if stateCandidate and stateCandidate:IsA("RemoteFunction") then
 			stateFunction = stateCandidate
 		end
@@ -566,8 +632,12 @@ local function refreshRemotes()
 		if updateCandidate and updateCandidate:IsA("RemoteEvent") then
 			updateEvent = updateCandidate
 		end
+		if discoveryCandidate and discoveryCandidate:IsA("RemoteEvent") then
+			discoveredEvent = discoveryCandidate
+		end
 	end
 	setRemoteUpdateEvent(updateEvent)
+	setSaplingDiscoveredEvent(discoveredEvent)
 	if stateFunction and not stateLoaded then
 		refreshState()
 	else
@@ -597,7 +667,7 @@ local function cycleSapling(direction)
 	end
 	local nextIndex = ((currentIndex - 1 + direction) % #saplings) + 1
 	selectedSaplingUID = saplings[nextIndex].UID
-	setFeedback("Selected " .. tostring(saplings[nextIndex].SpeciesId or "Unknown") .. ".", "info")
+	setFeedback("Selected " .. describeSapling(saplings[nextIndex]) .. ".", "info")
 	render()
 end
 
@@ -752,6 +822,10 @@ keepConnection(script.Destroying:Connect(function()
 	if stateUpdatedConnection then
 		stateUpdatedConnection:Disconnect()
 		stateUpdatedConnection = nil
+	end
+	if saplingDiscoveredConnection then
+		saplingDiscoveredConnection:Disconnect()
+		saplingDiscoveredConnection = nil
 	end
 	for _, connection in ipairs(connections) do
 		connection:Disconnect()

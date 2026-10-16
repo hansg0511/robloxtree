@@ -20,7 +20,7 @@ export type LogItem = {
 	CreatedAt: number,
 }
 
-export type GroveMutations = { [string]: string | number | boolean }
+export type GroveMutations = { [string]: boolean }
 
 export type Sapling = {
 	UID: string,

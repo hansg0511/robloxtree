@@ -7,6 +7,7 @@ local ProfileCache = require(game.ServerScriptService.PlayerProfile.ProfileServi
 local TreeObject = require(game.ServerScriptService.Trees.TreeObject)
 local PlotManager = require(game.ServerStorage.PlotManager)
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
+local MutationDefinitions = require(script.Parent.MutationDefinitions)
 
 local GroveService = {}
 
@@ -60,19 +61,7 @@ local function isKnownSpecies(speciesId)
 end
 
 local function copyMutations(mutations)
-	local result = {}
-	if type(mutations) ~= "table" then return result end
-	for key, value in pairs(mutations) do
-		if type(key) == "string" and #key > 0 and #key <= 80 and string.match(key, "[%c]") == nil then
-			local valueType = type(value)
-			if valueType == "string" and #value <= 80 and string.match(value, "[%c]") == nil then
-				result[key] = value
-			elseif valueType == "boolean" or (valueType == "number" and isFiniteNumber(value)) then
-				result[key] = value
-			end
-		end
-	end
-	return result
+	return MutationDefinitions.CopyKnown(mutations)
 end
 
 local function isValidSapling(record)
@@ -250,6 +239,12 @@ local function publishState(player)
 			GroveStateUpdatedRE:FireClient(player, snapshot)
 		end)
 	end
+end
+
+-- Server-only callers that mutate a Grove collection use this narrow seam so
+-- their change participates in the same ordered client-state stream.
+function GroveService.NotifyState(player)
+	publishState(player)
 end
 
 local function worldCFrameForRecord(area, record)

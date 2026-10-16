@@ -2763,19 +2763,13 @@ function LogService.CaptureTreeLogAward(tree, contributions, fallRotation)
 	}
 end
 
-function LogService.AwardTreeLog(awardSnapshot, options)
-	local revealMode = type(options) == "table" and options.Reveal == true
-	local harvestBatchId = HttpService:GenerateGUID(false)
-	if type(harvestBatchId) ~= "string" or #harvestBatchId == 0 then return false end
-	if type(awardSnapshot) ~= "table" or awardSnapshot.YieldsLog ~= true then return false end
-	if type(awardSnapshot.SpeciesId) ~= "string" or not getMaterialDefinition(awardSnapshot.SpeciesId) then return false end
-	local rewardCount = getTreeLogYieldCount(awardSnapshot)
-	if not rewardCount or rewardCount > MAX_HARVEST_LOGS then return false end
-
+-- Shared authoritative wild-tree reward winner selection. Sapling discovery
+-- uses this exact rule so it cannot diverge from normal log ownership.
+function LogService.GetTreeAwardWinner(contributions)
 	local winner
 	local winnerUserId
 	local winnerDamage = -1
-	for userId, contribution in pairs(awardSnapshot.Contributions or {}) do
+	for userId, contribution in pairs(contributions or {}) do
 		local player = Players:GetPlayerByUserId(userId)
 		if player and contribution.Player == player and isFinitePositive(contribution.Damage)
 			and (contribution.Damage > winnerDamage
@@ -2785,6 +2779,19 @@ function LogService.AwardTreeLog(awardSnapshot, options)
 			winnerDamage = contribution.Damage
 		end
 	end
+	return winner
+end
+
+function LogService.AwardTreeLog(awardSnapshot, options)
+	local revealMode = type(options) == "table" and options.Reveal == true
+	local harvestBatchId = HttpService:GenerateGUID(false)
+	if type(harvestBatchId) ~= "string" or #harvestBatchId == 0 then return false end
+	if type(awardSnapshot) ~= "table" or awardSnapshot.YieldsLog ~= true then return false end
+	if type(awardSnapshot.SpeciesId) ~= "string" or not getMaterialDefinition(awardSnapshot.SpeciesId) then return false end
+	local rewardCount = getTreeLogYieldCount(awardSnapshot)
+	if not rewardCount or rewardCount > MAX_HARVEST_LOGS then return false end
+
+	local winner = LogService.GetTreeAwardWinner(awardSnapshot.Contributions)
 	if not winner then return false end
 
 	local data = getPlayerData(winner)

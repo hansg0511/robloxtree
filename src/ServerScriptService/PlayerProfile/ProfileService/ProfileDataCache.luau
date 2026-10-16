@@ -5,6 +5,7 @@ local profileRemoteEvent = game.ReplicatedStorage.Profile.ProfileLoadEvent
 local ProfileService = playerProfileFolder.ProfileService
 local AxeShopCatalog = require(game.ServerScriptService.Economy.AxeShopCatalog)
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
+local MutationDefinitions = require(game.ServerScriptService.Grove.MutationDefinitions)
 
 local PlayerProfileCache = {}
 
@@ -39,21 +40,7 @@ local function isValidGroveUID(value)
 end
 
 local function copyGroveMutations(value)
-	local copy = {}
-	if type(value) ~= "table" then return copy end
-	for key, mutation in pairs(value) do
-		if type(key) == "string" and #key > 0 and #key <= 80 and string.match(key, "[%c]") == nil then
-			local mutationType = type(mutation)
-			if mutationType == "string" and #mutation <= 80 and string.match(mutation, "[%c]") == nil then
-				copy[key] = mutation
-			elseif mutationType == "boolean" then
-				copy[key] = mutation
-			elseif mutationType == "number" and isFiniteNumber(mutation) then
-				copy[key] = mutation
-			end
-		end
-	end
-	return copy
+	return MutationDefinitions.CopyKnown(value)
 end
 
 local function isValidGroveBaseRecord(record)

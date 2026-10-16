@@ -45,11 +45,20 @@ The old `Basic` tree mesh was replaced by source-built chunky brick visuals. `Ba
 - One successful mature-tree harvest permanently replaces its `GroveTree` with one `GroveMaterials` Heartwood record. The Heartwood gets a new UID, copies species, mutations, and size potential, and records `SourceGroveTreeUID` plus the original `SourceSaplingUID` as lineage.
 - Heartwood is a separate material collection: it does not become Logs, inventory cargo, ground piles, sell proceeds, or Forge input. M2B Forge use and M3 active/passive Grove behavior remain deferred.
 
+## Personal Grove Milestone 3A — Wild Sapling Discovery
+
+- Only explicitly mapped wild definitions can make one discovery roll per death: `StarterForestTree → Oak`, `BambooClump → Bamboo`, and `Forest2Tree → Ironwood`. Persistent Grove, barrier, decorative, and otherwise unmapped trees cannot award saplings.
+- The server reuses the ordinary wild-log winner rule: highest valid recorded damage wins, with lower `UserId` breaking ties. Saplings are committed directly to `Saplings`, so a full log bag or failed normal ground-drop path does not prevent a valid discovery.
+- Provisional balance is a 10% discovery chance per eligible tree death. Mutation-count weights are 75% none, 22% one, and 3% two; `Golden`, `Giant`, and `Crystal` have equal weight and are sampled without replacement. These are identity-only traits—no passive, combat, luck, affinity, or economy effects exist yet.
+- Every discovered sapling gets an independent center-weighted three-sample size roll in the 0.85–1.15 range. `Giant` is unrelated to `SizePotential` in this milestone.
+- The discovery service creates a fresh GUID only after checking all sapling/Grove/Heartwood identity and lineage fields. The established sapling → GroveTree → Heartwood chain continues to copy species, mutations, and size without rerolling.
+- The temporary Grove panel shows the selected exact-UID sapling’s mutation identity and size; a server-confirmed `SaplingDiscoveredRE` supplies the one-time discovery message. Rebirth, affinities, passives, axe skills, and final inventory UI remain deferred.
+
 ## Stable interfaces
 
 - `ProfileLoadedEvent` and `ProfileLoadEvent` readiness signals.
 - `ChopEvent` remains an intent-only client request with no target payload. The server selects the closest eligible tree and cannot receive damage, HP, crits, rewards, RNG, or progression state from the client.
-- `Grove.GetGroveStateRF` returns sanitized sapling, tree, and Heartwood snapshots with `ActiveGroveTreeUIDs = {}`; `Grove.PlantSaplingRE` accepts only `(saplingUID, localX, localZ)`, and `Grove.GroveStateUpdatedRE` publishes after planting, restoration, or successful harvest.
+- `Grove.GetGroveStateRF` returns sanitized sapling, tree, and Heartwood snapshots with `ActiveGroveTreeUIDs = {}`; `Grove.PlantSaplingRE` accepts only `(saplingUID, localX, localZ)`, and `Grove.GroveStateUpdatedRE` publishes after planting, restoration, successful harvest, or discovery. `Grove.SaplingDiscoveredRE` is outbound-only and reports a confirmed new persistent sapling; it cannot request or influence discovery RNG.
 - Inventory item UID records and the existing `EconomyUpdated(currency, amount)` outbound display contract.
 
 `WorldProgressService` is the temporary server-only forest eligibility seam. Base and Forest 1 access are available for this scaffold; Forest 2 access is denied until server gameplay unlocks it. No barrier or Forest 2 content is implemented here.

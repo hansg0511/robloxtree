@@ -10,6 +10,7 @@ local Definitions = require(script.Parent.TreeDefinitions)
 local WorldProgressService = require(game.ServerScriptService.WorldProgressService)
 local LogService = require(game.ServerScriptService.Inventory.LogService)
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
+local SaplingDiscoveryService = require(game.ServerScriptService.Grove.SaplingDiscoveryService)
 
 local treeRandom = Random.new()
 
@@ -439,6 +440,9 @@ end
 
 function Tree:Spawn()
 	if self.destroyed then return nil end
+	-- A respawn reuses this TreeObject, so discovery idempotency must distinguish
+	-- each life from stale callbacks associated with an earlier death.
+	self.DeathGeneration = (self.DeathGeneration or 0) + 1
 	local hasKnownMaterial = type(self.SpeciesId) == "string"
 		and MaterialDefinitions.Get(self.SpeciesId) ~= nil
 	local hasLogDrop = self.YieldsLog
@@ -675,6 +679,10 @@ function Tree:Die(player)
 		return true
 	end
 	self.isDead = true
+	-- The discovery service is server-only, uses the shared log-winner rule, and
+	-- marks this exact TreeObject death before rolling. It does not depend on
+	-- physical log creation, pickup, carry capacity, or tree-fall callbacks.
+	SaplingDiscoveryService.AwardForTreeDeath(self, self.DamageContributions, self.DeathGeneration)
 	local fallenModel = self.model
 	local fallRotation = FXService.GetTreeFallRotation(fallenModel, player)
 	local awardSnapshot = LogService.CaptureTreeLogAward(
