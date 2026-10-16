@@ -18,7 +18,7 @@ local RECONCILE_INTERVAL = 1.5
 local WORLD_LOG_DROPS_NAME = "WorldLogDrops"
 
 -- Enable temporarily while diagnosing pickup behavior; keep false in production.
-local DEBUG = true
+local DEBUG = false
 
 local scanElapsed = 0
 local reconcileElapsed = 0
