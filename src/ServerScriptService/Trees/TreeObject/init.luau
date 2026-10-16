@@ -254,7 +254,7 @@ local function makeStarterForestHarvestOak(sectionCount)
 
 	local sections = table.create(sectionCount)
 	local sectionHeight = 18 / sectionCount
-	local coreWidth = 5.5
+	local coreWidth = 2.4
 	for index, sectionName in ipairs(sectionNames) do
 		local section = Instance.new("Model")
 		section.Name = sectionName
@@ -319,9 +319,9 @@ local function makeForest2Tree(sectionCount)
 	sectionsFolder.Name = "IronwoodHarvestSections"
 	sectionsFolder.Parent = model
 	local trunkPieces = {
-		{ Name = "Bark", Size = Vector3.new(7, 16, 7), Position = Vector3.new(0, 8, 0), Color = ironwoodPalette.Bark },
-		{ Name = "BarkBrick1", Size = Vector3.new(6, 9, 6), Position = Vector3.new(0, 18, 0), Color = ironwoodPalette.BarkHighlight },
-		{ Name = "BarkBrick2", Size = Vector3.new(5, 8, 5), Position = Vector3.new(0, 25, 0), Color = ironwoodPalette.Bark },
+		{ Name = "Bark", Size = Vector3.new(3.5, 16, 3.5), Position = Vector3.new(0, 8, 0), Color = ironwoodPalette.Bark },
+		{ Name = "BarkBrick1", Size = Vector3.new(3, 9, 3), Position = Vector3.new(0, 18, 0), Color = ironwoodPalette.BarkHighlight },
+		{ Name = "BarkBrick2", Size = Vector3.new(2.5, 8, 2.5), Position = Vector3.new(0, 25, 0), Color = ironwoodPalette.Bark },
 	}
 	local sections = table.create(#sectionGroups)
 	for index, pieceRange in ipairs(sectionGroups) do
@@ -763,6 +763,13 @@ end
 local OAK_HARVEST_WAVE_INTERVAL = 0.12
 local OAK_HARVEST_ARC_HEIGHT = 1.4
 local OAK_HARVEST_ANIMATION_DURATION = 0.45
+local HARVEST_AXIAL_ROTATION_TURNS = 1
+local HARVEST_AXIAL_ROTATION_DIRECTION = 1
+local HARVEST_AXIAL_ROTATION_SPEED_RADIANS_PER_SECOND = math.rad(800)
+local HARVEST_GROUND_RAY_START_HEIGHT = 128
+local HARVEST_GROUND_RAY_LENGTH = 4096
+local HARVEST_GROUND_MAX_HEIGHT_VARIATION = 1.25
+local HARVEST_GROUND_CLEARANCE = 0.06
 
 local function getHarvestSectionProjectionBounds(model, sourcePivot, targetRotation, axis)
 	local minimumProjection = math.huge
@@ -852,6 +859,52 @@ local function planSeparatedSectionCenters(sections, sourcePivots, targetRotatio
 	return centersByIndex
 end
 
+local function createHarvestLandingRaycastParams()
+	local includeInstances = { workspace.Terrain }
+	local included = { [workspace.Terrain] = true }
+	local baseGround = workspace:FindFirstChild("BaseGround")
+	if baseGround and baseGround:IsA("BasePart") then
+		table.insert(includeInstances, baseGround)
+		included[baseGround] = true
+	end
+
+	-- The source world marks only its actual support surfaces. This keeps trees,
+	-- foliage, props, players, and station geometry out of the candidate set.
+	for _, descendant in ipairs(workspace:GetDescendants()) do
+		if descendant:IsA("BasePart")
+			and descendant:GetAttribute("HarvestLandingSurface") == true
+			and not included[descendant] then
+			table.insert(includeInstances, descendant)
+			included[descendant] = true
+		end
+	end
+
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Include
+	params.FilterDescendantsInstances = includeInstances
+	params.IgnoreWater = true
+	return params
+end
+
+local function isSuitableHarvestLandingHit(hit)
+	if not hit or hit.Normal.Y < 0.65 then return false end
+	if hit.Instance == workspace.Terrain then
+		return hit.Material ~= Enum.Material.Water
+	end
+	local part = hit.Instance
+	return part:IsA("BasePart")
+		and part.Anchored
+		and part.CanCollide
+		and (part.Name == "BaseGround" or part:GetAttribute("HarvestLandingSurface") == true)
+end
+
+local function getHarvestGroundHeight(position, raycastParams)
+	local rayOrigin = Vector3.new(position.X, position.Y + HARVEST_GROUND_RAY_START_HEIGHT, position.Z)
+	local hit = workspace:Raycast(rayOrigin, Vector3.new(0, -HARVEST_GROUND_RAY_LENGTH, 0), raycastParams)
+	if not isSuitableHarvestLandingHit(hit) then return nil end
+	return hit.Position.Y
+end
+
 local function getAuthoredHarvestGroundCFrame(
 	section,
 	sourcePivot,
@@ -862,32 +915,56 @@ local function getAuthoredHarvestGroundCFrame(
 	raycastParams
 )
 	local flatRotation = CFrame.fromMatrix(Vector3.zero, Vector3.yAxis, horizontalDirection, Vector3.yAxis:Cross(horizontalDirection))
-	local alongCenter = getPlannedSectionCenter(section, sourcePivot, flatRotation, horizontalDirection)
-	local acrossCenter = getPlannedSectionCenter(section, sourcePivot, flatRotation, perpendicularDirection)
+	local alongCenter, alongHalfExtent = getPlannedSectionCenter(section, sourcePivot, flatRotation, horizontalDirection)
+	local acrossCenter, acrossHalfExtent = getPlannedSectionCenter(section, sourcePivot, flatRotation, perpendicularDirection)
 	local _, _, bottomOffset = getHarvestSectionProjectionBounds(section, sourcePivot, flatRotation, Vector3.yAxis)
-	if not alongCenter or not acrossCenter or not bottomOffset then return nil end
+	if not alongCenter or not acrossCenter or not alongHalfExtent or not acrossHalfExtent or not bottomOffset then return nil end
 	local horizontalPosition = sourcePivot.Position
 		+ horizontalDirection * (targetAlongCenter - alongCenter)
 		+ perpendicularDirection * (targetAcrossCenter - acrossCenter)
-	local rayOrigin = Vector3.new(horizontalPosition.X, math.max(sourcePivot.Position.Y + 128, 128), horizontalPosition.Z)
-	local groundHit = workspace:Raycast(rayOrigin, Vector3.new(0, -4096, 0), raycastParams)
-	if not groundHit then return nil end
+
+	-- Check the center, both ends, both sides, and the footprint corners. All
+	-- samples must land on designated ground and remain close in height so a
+	-- log cannot bridge a ledge or settle on an unrelated elevated object.
+	local inset = math.min(0.12, alongHalfExtent * 0.2, acrossHalfExtent * 0.2)
+	local alongReach = math.max(0, alongHalfExtent - inset)
+	local acrossReach = math.max(0, acrossHalfExtent - inset)
+	local sampleOffsets = {
+		Vector3.zero,
+		horizontalDirection * alongReach,
+		-horizontalDirection * alongReach,
+		perpendicularDirection * acrossReach,
+		-perpendicularDirection * acrossReach,
+		horizontalDirection * alongReach + perpendicularDirection * acrossReach,
+		horizontalDirection * alongReach - perpendicularDirection * acrossReach,
+		-horizontalDirection * alongReach + perpendicularDirection * acrossReach,
+		-horizontalDirection * alongReach - perpendicularDirection * acrossReach,
+	}
+	local lowestGroundY = math.huge
+	local highestGroundY = -math.huge
+	for _, offset in ipairs(sampleOffsets) do
+		local samplePosition = horizontalPosition + offset
+		local groundY = getHarvestGroundHeight(samplePosition, raycastParams)
+		if groundY == nil then return nil end
+		lowestGroundY = math.min(lowestGroundY, groundY)
+		highestGroundY = math.max(highestGroundY, groundY)
+	end
+	local allowedHeightVariation = math.clamp(alongHalfExtent * 0.2, 0.65, HARVEST_GROUND_MAX_HEIGHT_VARIATION)
+	if highestGroundY - lowestGroundY > allowedHeightVariation then return nil end
 
 	local targetPosition = Vector3.new(
 		horizontalPosition.X,
-		groundHit.Position.Y - bottomOffset + 0.06,
+		highestGroundY - bottomOffset + HARVEST_GROUND_CLEARANCE,
 		horizontalPosition.Z
 	)
 	local targetCFrame = CFrame.new(targetPosition) * flatRotation
-	local axialRoll = math.rad(treeRandom:NextNumber(45, 100))
-	local inFlightRotation = flatRotation * CFrame.Angles(0, axialRoll, 0)
 	local inFlightPosition = sourcePivot.Position:Lerp(targetPosition, 0.55)
 		+ Vector3.new(0, OAK_HARVEST_ARC_HEIGHT, 0)
-	local inFlightCFrame = CFrame.new(inFlightPosition) * inFlightRotation
+	local inFlightCFrame = CFrame.new(inFlightPosition) * flatRotation
 	return targetCFrame, inFlightCFrame
 end
 
-local function createPreparedAuthoredHarvestLogs(fallenModel, sections, count, fallRotation, player, speciesId)
+local function createPreparedAuthoredHarvestLogs(fallenModel, sections, count, fallRotation, speciesId)
 	if not fallenModel or not fallenModel.Parent
 		or type(sections) ~= "table" or #sections ~= count then
 		return nil
@@ -912,17 +989,7 @@ local function createPreparedAuthoredHarvestLogs(fallenModel, sections, count, f
 		sourcePivots[index] = section:GetPivot()
 	end
 
-	local excludedInstances = { fallenModel }
-	if player and player.Character then
-		table.insert(excludedInstances, player.Character)
-	end
-	for _, section in ipairs(sections) do
-		table.insert(excludedInstances, section)
-	end
-	local raycastParams = RaycastParams.new()
-	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-	raycastParams.FilterDescendantsInstances = excludedInstances
-	raycastParams.IgnoreWater = true
+	local raycastParams = createHarvestLandingRaycastParams()
 
 	local flatRotation = CFrame.fromMatrix(Vector3.zero, Vector3.yAxis, horizontalDirection, Vector3.yAxis:Cross(horizontalDirection))
 	local perpendicularDirection = Vector3.new(-horizontalDirection.Z, 0, horizontalDirection.X)
@@ -969,7 +1036,11 @@ local function createPreparedAuthoredHarvestLogs(fallenModel, sections, count, f
 			acrossCenters[index],
 			raycastParams
 		)
-		if not targetCFrames[index] or not inFlightCFrames[index] then return nil end
+		if not targetCFrames[index] or not inFlightCFrames[index] then
+			-- Do not route a rejected authored footprint through the legacy visual
+			-- placement path: it cannot verify an actual supporting surface.
+			return nil, "no-safe-landing"
+		end
 	end
 
 	local partSectionByPart = {}
@@ -1014,33 +1085,83 @@ local function createPreparedAuthoredHarvestLogs(fallenModel, sections, count, f
 end
 
 local function animateAuthoredHarvestSection(visual, sourceCFrame, inFlightCFrame, targetCFrame)
-	local value = Instance.new("CFrameValue")
-	value.Value = sourceCFrame
-	local connection = value:GetPropertyChangedSignal("Value"):Connect(function()
-		if visual.Parent then visual:PivotTo(value.Value) end
-	end)
+	local movementProgress = Instance.new("NumberValue")
+	local rotationProgress = Instance.new("NumberValue")
+	local turns = math.max(0, HARVEST_AXIAL_ROTATION_TURNS)
+	local direction = if HARVEST_AXIAL_ROTATION_DIRECTION < 0 then -1 else 1
+	local targetAngle = direction * turns * 2 * math.pi
+	local rotationSpeed = math.max(math.abs(HARVEST_AXIAL_ROTATION_SPEED_RADIANS_PER_SECOND), math.rad(1))
+	local animationDuration = if turns > 0
+		then math.abs(targetAngle) / rotationSpeed
+		else OAK_HARVEST_ANIMATION_DURATION
+	local tweens = {}
+	local connections = {}
+	local rotationCompleted = false
 
-	local function tweenPivot(target, duration, easingDirection)
+	local function updatePose()
+		if not visual.Parent then return end
+		local progress = movementProgress.Value
+		local position
+		if progress <= 0.4 then
+			position = sourceCFrame.Position:Lerp(inFlightCFrame.Position, progress / 0.4)
+		else
+			position = inFlightCFrame.Position:Lerp(targetCFrame.Position, (progress - 0.4) / 0.6)
+		end
+
+		local baseRotation = sourceCFrame.Rotation:Lerp(targetCFrame.Rotation, progress)
+		local axialRotation = CFrame.fromAxisAngle(Vector3.yAxis, targetAngle * rotationProgress.Value)
+		visual:PivotTo(CFrame.new(position) * baseRotation * axialRotation)
+	end
+
+	table.insert(connections, movementProgress:GetPropertyChangedSignal("Value"):Connect(updatePose))
+	table.insert(connections, rotationProgress:GetPropertyChangedSignal("Value"):Connect(updatePose))
+	local function tweenProgress(value, target, duration, easingStyle, easingDirection)
 		local tween = TweenService:Create(
 			value,
-			TweenInfo.new(duration, Enum.EasingStyle.Quad, easingDirection),
+			TweenInfo.new(duration, easingStyle, easingDirection),
 			{ Value = target }
 		)
+		table.insert(tweens, tween)
 		tween:Play()
 		tween.Completed:Wait()
-		tween:Destroy()
 	end
 
 	local ok, err = pcall(function()
-		tweenPivot(inFlightCFrame, OAK_HARVEST_ANIMATION_DURATION * 0.4, Enum.EasingDirection.Out)
-		tweenPivot(targetCFrame, OAK_HARVEST_ANIMATION_DURATION * 0.6, Enum.EasingDirection.In)
+		local rotationTween = TweenService:Create(
+			rotationProgress,
+			TweenInfo.new(animationDuration, Enum.EasingStyle.Linear),
+			{ Value = 1 }
+		)
+		table.insert(tweens, rotationTween)
+		table.insert(connections, rotationTween.Completed:Connect(function(playbackState)
+			rotationCompleted = playbackState == Enum.PlaybackState.Completed
+		end))
+		rotationTween:Play()
+
+		local firstPhaseDuration = animationDuration * 0.4
+		tweenProgress(movementProgress, 0.4, firstPhaseDuration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		tweenProgress(
+			movementProgress,
+			1,
+			animationDuration - firstPhaseDuration,
+			Enum.EasingStyle.Quad,
+			Enum.EasingDirection.In
+		)
+		if not rotationCompleted then rotationTween.Completed:Wait() end
 	end)
 	if not ok then
 		warn("Could not animate authored harvest section", err)
 	end
 	if visual.Parent then visual:PivotTo(targetCFrame) end
-	connection:Disconnect()
-	value:Destroy()
+	for _, tween in ipairs(tweens) do
+		tween:Cancel()
+		tween:Destroy()
+	end
+	for _, connection in ipairs(connections) do
+		connection:Disconnect()
+	end
+	movementProgress:Destroy()
+	rotationProgress:Destroy()
 end
 
 local function animateAuthoredHarvestSections(preparedVisuals, sourcePivots, inFlightCFrames, targetCFrames, harvestBatchId)
@@ -1186,7 +1307,7 @@ function Tree:Die(player)
 			local impactCompleted = FXService:TreeFallToImpact(fallenModel, player, fallRotation, {
 				ConcurrentLeafShrink = true,
 				OnImpact = function(impactModel)
-					local preparedVisuals, sourcePivots, inFlightCFrames, targetCFrames
+					local preparedVisuals, sourcePivots, inFlightCFrames, targetCFrames, preparationFailure
 					local harvestBatchId
 					local movementScheduled = false
 					local cleanupScheduled = false
@@ -1204,12 +1325,11 @@ function Tree:Die(player)
 					local callbackOk, callbackError = pcall(function()
 						local rewardCount = LogService.GetTreeLogYieldCount(self)
 						if awardSnapshot and rewardCount then
-							preparedVisuals, sourcePivots, inFlightCFrames, targetCFrames = createPreparedAuthoredHarvestLogs(
+							preparedVisuals, sourcePivots, inFlightCFrames, targetCFrames, preparationFailure = createPreparedAuthoredHarvestLogs(
 								impactModel,
 								self.HarvestSections,
 								rewardCount,
 								fallRotation,
-								player,
 								self.SpeciesId
 							)
 						end
@@ -1233,7 +1353,9 @@ function Tree:Die(player)
 							destroyPreparedAuthoredHarvestLogs(preparedVisuals)
 							preparedVisuals = nil
 						end
-						if awardSnapshot and not harvestBatchId then
+						if preparationFailure == "no-safe-landing" then
+							warn("Authored harvest log placement rejected: no safe landing surface", self.DefinitionId)
+						elseif awardSnapshot and not harvestBatchId then
 							revealLegacyLogAward()
 						end
 						scheduleImpactCleanup()

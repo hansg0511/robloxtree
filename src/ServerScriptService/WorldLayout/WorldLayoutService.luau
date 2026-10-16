@@ -38,6 +38,7 @@ local function createGround(parent, name, center, size)
 		parent
 	)
 	ground:SetAttribute("WorldLayoutOwned", true)
+	ground:SetAttribute("HarvestLandingSurface", true)
 	return ground
 end
 
@@ -53,6 +54,7 @@ local function createPath(parent, segment)
 		parent
 	)
 	path:SetAttribute("WorldLayoutOwned", true)
+	path:SetAttribute("HarvestLandingSurface", true)
 	path:SetAttribute("Route", "BaseToForest2")
 	return path
 end
