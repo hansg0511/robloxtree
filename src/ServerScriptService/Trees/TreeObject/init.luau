@@ -1,6 +1,7 @@
 local Tree = {}
 Tree.__index = Tree
 
+local RunService = game:GetService("RunService")
 local ServerStorage = game:GetService("ServerStorage")
 local TweenService = game:GetService("TweenService")
 local SpeciesVisuals = require(ServerStorage:WaitForChild("SpeciesVisuals"))
@@ -506,6 +507,82 @@ local function applyVisualModifiers(tree, model, currentScale)
 		SizePotential = if tree.IsPersistentGrove then tree.GroveSizePotential else nil,
 		CurrentScale = currentScale,
 	})
+end
+
+-- Builds an unregistered, non-interactive copy of one of the authored tree
+-- visuals for Studio-only tools. The returned Model is intentionally unparented
+-- and is never added to Tree.ActiveTrees.
+--
+-- kind: "GroveOak", "WildOak", "Bamboo", or "Ironwood"
+-- context: { GroveStage = "sapling" | "young" | "mature", SizePotential = number, Mutations = { [id] = true } }
+function Tree.BuildPreviewModel(kind, context)
+	if not RunService:IsStudio() then return nil end
+	if type(kind) ~= "string" then return nil end
+	context = if type(context) == "table" then context else {}
+
+	local groveStage = context.GroveStage or "mature"
+	local stageScale = GROVE_STAGE_SCALE[groveStage]
+	if not stageScale then return nil end
+
+	local sizePotential = context.SizePotential
+	if sizePotential == nil then sizePotential = 1 end
+	if type(sizePotential) ~= "number"
+		or sizePotential ~= sizePotential
+		or sizePotential < 0.1
+		or sizePotential > 2
+		or sizePotential == math.huge then
+		return nil
+	end
+
+	local model
+	local speciesId
+	if kind == "GroveOak" then
+		model = makeStarterForestTree()
+		speciesId = "Oak"
+	elseif kind == "WildOak" then
+		-- Three authored sections provide a representative mature wild Oak while
+		-- using the same harvest-core construction path as live forest trees.
+		model = makeStarterForestHarvestOak(3)
+		speciesId = "Oak"
+	elseif kind == "Bamboo" then
+		model = makeBambooClump()
+		speciesId = "Bamboo"
+	elseif kind == "Ironwood" then
+		-- nil intentionally selects the builder's same default section grouping
+		-- used by PersistentGroveTree spawning.
+		model = makeForest2Tree(nil)
+		speciesId = "Ironwood"
+	else
+		return nil
+	end
+
+	if not model then return nil end
+	local currentScale = sizePotential * stageScale
+	model:ScaleTo(currentScale)
+	model.Name = "DevTreePreview_" .. kind
+	model:SetAttribute("DevTreePreviewKind", kind)
+
+	-- Previews only display the builder output: remove the invisible chop target
+	-- and make every remaining part static and non-interactive before parenting.
+	local chopHitbox = model:FindFirstChild("ChopHitbox", true)
+	if chopHitbox then chopHitbox:Destroy() end
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.Anchored = true
+			descendant.CanCollide = false
+			descendant.CanTouch = false
+			descendant.CanQuery = false
+		end
+	end
+
+	TreeVisualModifiers.Apply(model, {
+		SpeciesId = speciesId,
+		Mutations = context.Mutations,
+		GroveStage = groveStage,
+		SizePotential = sizePotential,
+		CurrentScale = currentScale,
+	})
+	return model
 end
 
 function Tree.new(options)
