@@ -13,6 +13,7 @@ local ServerStorage = game:GetService("ServerStorage")
 
 local TreeObject = require(ServerScriptService:WaitForChild("Trees"):WaitForChild("TreeObject"))
 local TreeVisualModifiers = require(ServerStorage:WaitForChild("TreeVisualModifiers"))
+local SpeciesVisuals = require(ServerStorage:WaitForChild("SpeciesVisuals"))
 
 local GALLERY_NAME = "DevTreeGallery"
 local GALLERY_ORIGIN = Vector3.new(6000, 120, 6000)
@@ -167,6 +168,176 @@ local function addPlatform(parent, name, position, size)
 	return platform
 end
 
+local function makeOakHarvestSectionReference()
+	local referenceTree = TreeObject.BuildPreviewModel("WildOak", {
+		GroveStage = "mature",
+		SizePotential = 1,
+		Mutations = {},
+	})
+	assert(referenceTree and referenceTree:IsA("Model"), "Wild Oak preview builder returned no Model")
+
+	local sectionsFolder = referenceTree:FindFirstChild("OakHarvestSections")
+	local baseSection = sectionsFolder and sectionsFolder:FindFirstChild("Base")
+	assert(baseSection and baseSection:IsA("Model"), "Wild Oak preview has no authored Base section")
+
+	local section = baseSection:Clone()
+	for _, descendant in ipairs(section:GetDescendants()) do
+		if descendant:IsA("WeldConstraint") or descendant:IsA("JointInstance") then
+			local part0 = descendant.Part0
+			local part1 = descendant.Part1
+			local bothPartsRemainInSection = part0
+				and part1
+				and part0:IsDescendantOf(section)
+				and part1:IsDescendantOf(section)
+			if not bothPartsRemainInSection then
+				descendant:Destroy()
+			end
+		end
+	end
+	referenceTree:Destroy()
+	section.Name = "OakHarvestSectionReference"
+	section:SetAttribute("DevTreeGalleryPreview", true)
+	section:SetAttribute("DevTreeGalleryLabel", "Original Oak Harvest Section")
+	return section
+end
+
+local function makeStandardOakLogModel()
+	local model = Instance.new("Model")
+	model.Name = "StandardOakLogReference"
+
+	-- Use the production standardized log builder so the comparison shows the
+	-- exact SpeciesVisuals Oak ground-drop geometry. Ground drops use four times
+	-- the carry footprint in LogService.
+	local handle, caps = SpeciesVisuals.CreateLogParts({
+		SpeciesId = "Oak",
+		Mutations = {},
+	}, "LogHandle", 4)
+	handle.Parent = model
+	for _, cap in ipairs(caps) do
+		cap.Parent = model
+	end
+	model.PrimaryPart = handle
+	model:SetAttribute("DevTreeGalleryPreview", true)
+	model:SetAttribute("DevTreeGalleryLabel", "Standardized Oak Log")
+	return model
+end
+
+local function configureVisualOnlyModel(model)
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.Anchored = true
+			descendant.CanCollide = false
+			descendant.CanTouch = false
+			descendant.CanQuery = false
+		elseif descendant:IsA("Script") or descendant:IsA("LocalScript") then
+			descendant:Destroy()
+		end
+	end
+end
+
+local function placeVisualOnPlatform(model, center, orientation)
+	configureVisualOnlyModel(model)
+	model:PivotTo(CFrame.new(center.X, GALLERY_ORIGIN.Y, center.Z) * (orientation or CFrame.new()))
+	local boundsCFrame, boundsSize = model:GetBoundingBox()
+	local bottomY = boundsCFrame.Position.Y - boundsSize.Y * 0.5
+	model:PivotTo(model:GetPivot() + Vector3.new(0, GALLERY_ORIGIN.Y - bottomY + 0.04, 0))
+end
+
+local function hideTemplateForClientClone(model, role)
+	configureVisualOnlyModel(model)
+	model:SetAttribute("DevTreeGalleryTemplate", true)
+	model:SetAttribute("DevTreeGalleryTemplateRole", role)
+	model:SetAttribute("SpeciesId", "Oak")
+	model:SetAttribute("ClientCloneTransparencyAttribute", "DevOriginalTransparency")
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			-- The client bridge restores this value on its local clone before the
+			-- transformation preview, retaining any intentional source alpha.
+			descendant:SetAttribute("DevOriginalTransparency", descendant.Transparency)
+			descendant.Transparency = 1
+		end
+	end
+end
+
+local function addTransformationPlayground(gallery)
+	local playground = Instance.new("Folder")
+	playground.Name = "TransformationPlayground"
+	playground:SetAttribute("DevOnly", true)
+	playground:SetAttribute("VisualOnly", true)
+	playground:SetAttribute("SpeciesId", "Oak")
+	playground.Parent = gallery
+
+	local center = GALLERY_ORIGIN + Vector3.new(300, 0, 40)
+	local sampleOffset = 17
+	local sampleWidth = 28
+	local sampleDepth = 24
+	local sourceCenter = Vector3.new(center.X - sampleOffset, GALLERY_ORIGIN.Y, center.Z + 3)
+	local destinationCenter = Vector3.new(center.X + sampleOffset, GALLERY_ORIGIN.Y, center.Z + 3)
+
+	addSign(gallery, "LOG TRANSFORMATION PLAYGROUND", Vector3.new(center.X, 0, center.Z - 31), 64, "TransformationPlaygroundHeader")
+	addPlatform(gallery, "TransformationSourcePlatform", Vector3.new(sourceCenter.X, GALLERY_ORIGIN.Y - 0.5, sourceCenter.Z), Vector3.new(sampleWidth, 1, sampleDepth))
+	addPlatform(gallery, "TransformationDestinationPlatform", Vector3.new(destinationCenter.X, GALLERY_ORIGIN.Y - 0.5, destinationCenter.Z), Vector3.new(sampleWidth, 1, sampleDepth))
+	addSign(gallery, "IRREGULAR OAK / HARVEST SIZE", Vector3.new(sourceCenter.X, 0, center.Z - 14), 30, "TransformationSourceLabel")
+	addSign(gallery, "STANDARD OAK / LOG SIZE", Vector3.new(destinationCenter.X, 0, center.Z - 14), 30, "TransformationDestinationLabel")
+
+	local sourceReference = makeOakHarvestSectionReference()
+	-- Production harvest lays the tree's local Y trunk axis along the horizontal
+	-- fall direction. Align it with the standardized log's local X length axis.
+	local fallenSectionOrientation = CFrame.fromMatrix(
+		Vector3.zero,
+		Vector3.yAxis,
+		Vector3.xAxis,
+		Vector3.yAxis:Cross(Vector3.xAxis)
+	)
+	placeVisualOnPlatform(sourceReference, sourceCenter, fallenSectionOrientation)
+	sourceReference.Parent = playground
+
+	local destinationReference = makeStandardOakLogModel()
+	placeVisualOnPlatform(destinationReference, destinationCenter)
+	destinationReference.Parent = playground
+
+	local sourceTemplate = sourceReference:Clone()
+	sourceTemplate.Name = "TransformationSourceTemplate"
+	sourceTemplate:SetAttribute("DevTreeGalleryLabel", "Original Oak Harvest Section")
+	hideTemplateForClientClone(sourceTemplate, "Source")
+	sourceTemplate.Parent = playground
+
+	local destinationTemplate = destinationReference:Clone()
+	destinationTemplate.Name = "TransformationDestinationTemplate"
+	destinationTemplate:SetAttribute("DevTreeGalleryLabel", "Standardized Oak Log")
+	hideTemplateForClientClone(destinationTemplate, "Destination")
+	destinationTemplate.Parent = playground
+
+	-- This marker is a local-preview anchor only; it has no server behavior.
+	local demoSlot = createPart(
+		playground,
+		"DemoSlot",
+		Vector3.new(1, 1, 1),
+		CFrame.new(center.X, GALLERY_ORIGIN.Y + 0.5, center.Z + 16),
+		Color3.new(1, 1, 1)
+	)
+	demoSlot.Transparency = 1
+	demoSlot:SetAttribute("SourceTemplateName", sourceTemplate.Name)
+	demoSlot:SetAttribute("DestinationTemplateName", destinationTemplate.Name)
+	demoSlot:SetAttribute("DevGalleryAction", "PreviewLogTransformation")
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "TransformationPreviewPrompt"
+	prompt.ActionText = "Preview Log Transformation"
+	prompt.ObjectText = "Oak Log"
+	prompt.KeyboardKeyCode = Enum.KeyCode.E
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = 12
+	prompt.RequiresLineOfSight = false
+	prompt:SetAttribute("DevTreeGalleryTransformationPrompt", true)
+	prompt:SetAttribute("DevGalleryAction", "PreviewLogTransformation")
+	prompt:SetAttribute("SpeciesId", "Oak")
+	prompt:SetAttribute("SourceTemplateName", sourceTemplate.Name)
+	prompt:SetAttribute("DestinationTemplateName", destinationTemplate.Name)
+	prompt:SetAttribute("DemoSlotName", demoSlot.Name)
+	prompt.Parent = demoSlot
+end
+
 local function arrangeRow(gallery, title, entries, rowZ)
 	local rowDepth = MIN_PLATFORM_SIZE
 	local rowWidth = 0
@@ -293,6 +464,8 @@ local function createGallery()
 		makeEntry("WildOak", "Oak", "mature", {}, "Wild Oak"),
 		makeEntry("GroveOak", "Oak", "mature", {}, "Grove Oak"),
 	})
+
+	addTransformationPlayground(gallery)
 
 	return gallery
 end
