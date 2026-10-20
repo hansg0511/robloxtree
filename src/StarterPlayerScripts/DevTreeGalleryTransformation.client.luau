@@ -8,6 +8,7 @@ local PromptService = game:GetService("ProximityPromptService")
 local FX = require(script.Parent:WaitForChild("Inventory"):WaitForChild("Modules"):WaitForChild("LogTransformationFX"))
 local CarryLayout = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CarryLayout"))
 local player = Players.LocalPlayer
+local DEBUG_OVERFLOW_SHOWCASE = false
 
 -- Prototype-only tuning. These values do not change production.
 local CONFIG = {
@@ -16,11 +17,23 @@ local CONFIG = {
 	LiftDuration = 0.16, CompressionDuration = 0.24, RevealDuration = 0.18,
 	LiftHeight = 1.1, RotationTurns = 0.35, ChipCount = 8,
 	HomingSpeed = 24, HomingAcceleration = 4, AccelerationDelay = 1,
-	MaxHomingSpeed = 60, MaxHomingDuration = 8, ArrivalRadius = 2.5,
+	MaxHomingSpeed = 60, MaxHomingDuration = 8, OverflowHomingDuration = 60, ArrivalRadius = 2.5,
 	CarrySettleDuration = 0.22, OverflowSettleDuration = 0.45, PileSpacing = 0.08,
 }
 local session, controls
 local selectedMode = "Backpack"
+
+local function debugEvent(event, detail)
+	if DEBUG_OVERFLOW_SHOWCASE then
+		print(("[DevHarvestPickup] %s %s"):format(event, detail or ""))
+	end
+end
+
+local function status(message)
+	if controls and controls.status and controls.status.Parent then
+		controls.status.Text = "MODE: " .. selectedMode:upper() .. "\n" .. message
+	end
+end
 
 local function smooth(t)
 	t = math.clamp(t, 0, 1)
@@ -87,6 +100,7 @@ local function reset()
 	restore(s.saved)
 	if s.fallPrompt.Parent then s.fallPrompt.Enabled = true end
 	updateControls()
+	status("Showcase reset — press E at the tree")
 end
 local function detachJoints(tree, sections)
 	local membership = {}
@@ -178,13 +192,18 @@ local function followCarries(s)
 end
 local function home(s, model, mode)
 	local started, last = os.clock(), os.clock()
-	while alive(s) and os.clock() - started < CONFIG.MaxHomingDuration do
+	local limit = if mode == "Overflow" then CONFIG.OverflowHomingDuration else CONFIG.MaxHomingDuration
+	debugEvent("HOMING_STARTED", ("mode=%s limit=%.1fs"):format(mode, limit))
+	while alive(s) and os.clock() - started < limit do
 		local now = os.clock()
 		local root = rootAndTorso()
 		assert(root and root:IsA("BasePart"), "player character unavailable")
 		local frame = model:GetPivot()
 		local delta = root.Position - frame.Position
-		if delta.Magnitude <= CONFIG.ArrivalRadius then return true end
+		if delta.Magnitude <= CONFIG.ArrivalRadius then
+			debugEvent("HOMING_COMPLETE", ("mode=%s elapsed=%.2fs"):format(mode, now - started))
+			return true
+		end
 		local acceleration = if mode == "Overflow"
 			then CONFIG.HomingAcceleration * math.max(0, now - started - CONFIG.AccelerationDelay) else 0
 		local speed = math.min(CONFIG.MaxHomingSpeed, CONFIG.HomingSpeed + acceleration)
@@ -194,6 +213,8 @@ local function home(s, model, mode)
 		last = now
 		RunService.Heartbeat:Wait()
 	end
+	debugEvent(if alive(s) then "HOMING_TIMEOUT" else "HOMING_CANCELLED",
+		("mode=%s elapsed=%.2fs"):format(mode, os.clock() - started))
 	return false
 end
 local function settle(s, model, duration, targetProvider, finalScale)
@@ -207,22 +228,81 @@ local function settle(s, model, duration, targetProvider, finalScale)
 		model:PivotTo(CFrame.new(position) * start.Rotation:Lerp(target.Rotation, alpha))
 	end)
 end
--- Production's first three-column row, including its scale, spacing and yaw.
-local function pileTarget(s, root, index)
-	if not s.pileOrigin then
-		local right = Vector3.new(root.CFrame.RightVector.X, 0, root.CFrame.RightVector.Z).Unit
-		local forward = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z).Unit
-		local position = root.Position + right * 2.8 - forward * 2
-		position = Vector3.new(position.X, s.groundY, position.Z)
-		s.pileOrigin = CFrame.fromMatrix(position, right, Vector3.yAxis, right:Cross(Vector3.yAxis))
-	end
-	local length, diameter, column = 2.15 * 4, 0.48 * 4, index - 1
-	local stagger = if column % 2 == 0 then 0.045 else -0.045
+-- Match LogService's slot layout using the actual SpeciesVisuals template body.
+local function pileSlotOffset(index, length, diameter)
+	local zero = index - 1
+	local layer = math.floor(zero / 12)
+	local within = zero % 12
+	local row, column = math.floor(within / 3), within % 3
+	local stagger = if (row + column) % 2 == 0 then 0.045 else -0.045
 	local yaw = ((index * 37) % 7 - 3) * 0.025 / 3
-	return s.pileOrigin * CFrame.new(-1.5 * length * 0.48 + stagger, diameter * 0.5 + 0.08,
+	return CFrame.new((row - 1.5) * length * 0.48 + stagger,
+		diameter * 0.5 + 0.08 + layer * diameter * 0.70,
 		(column - 1) * (diameter * 1.08 + CONFIG.PileSpacing)) * CFrame.Angles(0, yaw, 0)
 end
+
+local function pileTarget(s, root, index)
+	local body = s.destination.PrimaryPart
+	local stage = s.playground:FindFirstChild("ShowcaseStage")
+	assert(body and stage and stage:IsA("BasePart"), "standard log body or gallery stage missing")
+	local length, diameter = body.Size.X, body.Size.Y
+	if not s.pileOrigin then
+		local right = Vector3.new(root.CFrame.RightVector.X, 0, root.CFrame.RightVector.Z)
+		right = if right.Magnitude > 1e-4 then right.Unit else Vector3.xAxis
+		local forward = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
+		forward = if forward.Magnitude > 1e-4 then forward.Unit else Vector3.zAxis
+		local rotation = CFrame.fromMatrix(Vector3.zero, right, Vector3.yAxis, right:Cross(Vector3.yAxis))
+		-- Clamp the whole three-log footprint onto the actual stage, not a fixed
+		-- height or a raycast (the gallery floor is intentionally non-queryable).
+		local minX, maxX, minZ, maxZ = math.huge, -math.huge, math.huge, -math.huge
+		for slot = 1, 3 do
+			local frame = rotation * pileSlotOffset(slot, length, diameter)
+			local center = stage.CFrame:VectorToObjectSpace(frame.Position)
+			local xAxis = stage.CFrame:VectorToObjectSpace(frame.RightVector)
+			local zAxis = stage.CFrame:VectorToObjectSpace(frame.LookVector)
+			local xRadius = math.abs(xAxis.X) * length * 0.5 + math.abs(zAxis.X) * diameter * 0.5 + 0.3
+			local zRadius = math.abs(xAxis.Z) * length * 0.5 + math.abs(zAxis.Z) * diameter * 0.5 + 0.3
+			minX, maxX = math.min(minX, center.X - xRadius), math.max(maxX, center.X + xRadius)
+			minZ, maxZ = math.min(minZ, center.Z - zRadius), math.max(maxZ, center.Z + zRadius)
+		end
+		local lowX, highX = -stage.Size.X * 0.5 - minX, stage.Size.X * 0.5 - maxX
+		local lowZ, highZ = -stage.Size.Z * 0.5 - minZ, stage.Size.Z * 0.5 - maxZ
+		assert(lowX <= highX and lowZ <= highZ, "gallery stage is too small for the pile footprint")
+		local bestPosition, bestClearance, bestDistance = nil, -math.huge, math.huge
+		for _, displacement in ipairs({
+			-right * 2.2 - forward * 2, right * 12 - forward * 2,
+			-right * 2.2 + forward * 10, -right * 2.2 - forward * 10,
+			right * 18 + forward * 12, right * 18 - forward * 12,
+			-right * 8 + forward * 16, -right * 8 - forward * 16,
+		}) do
+			local desired = stage.CFrame:PointToObjectSpace(root.Position + displacement)
+			local position = stage.CFrame:PointToWorldSpace(Vector3.new(
+				math.clamp(desired.X, lowX, highX), stage.Size.Y * 0.5, math.clamp(desired.Z, lowZ, highZ)))
+			local origin = CFrame.new(position) * rotation
+			local clearance = math.huge
+			for slot = 1, 3 do
+				local relative = (origin * pileSlotOffset(slot, length, diameter)):PointToObjectSpace(root.Position)
+				local dx = math.max(0, math.abs(relative.X) - length * 0.5)
+				local dz = math.max(0, math.abs(relative.Z) - diameter * 0.5)
+				clearance = math.min(clearance, math.sqrt(dx * dx + dz * dz))
+			end
+			local distance = (position - root.Position).Magnitude
+			if (clearance >= 2 and (bestClearance < 2 or distance < bestDistance))
+				or (bestClearance < 2 and clearance > bestClearance) then
+				bestPosition, bestClearance, bestDistance = position, clearance, distance
+			end
+		end
+		s.pileOrigin = CFrame.new(bestPosition) * rotation
+		debugEvent("PILE_ORIGIN", tostring(bestPosition) .. (" clearance=%.2f"):format(bestClearance))
+	end
+	local target = s.pileOrigin * pileSlotOffset(index, length, diameter)
+	debugEvent("PILE_SLOT", ("slot=%d position=%s"):format(index, tostring(target.Position)))
+	return target
+end
 local function runPickup(s, item, mode)
+	s.pickupStage = "transformation"
+	debugEvent("PICKUP_STARTED", ("mode=%s section=%d"):format(mode, item.index))
+	if mode == "Overflow" then status("Overflow pickup started") end
 	local controller, message = FX.Play(item.model, s.destination, {
 		LiftDuration = CONFIG.LiftDuration, CompressionDuration = CONFIG.CompressionDuration,
 		RevealDuration = CONFIG.RevealDuration, FinishDuration = 3,
@@ -231,15 +311,21 @@ local function runPickup(s, item, mode)
 	})
 	assert(controller, "could not transform section: " .. tostring(message))
 	s.controller = controller
-	hide(item.model)
+	item.saved = hide(item.model)
 	local deadline = os.clock() + CONFIG.LiftDuration + CONFIG.CompressionDuration + CONFIG.RevealDuration + 1
 	while alive(s) and controller.Active and not controller.Ready and os.clock() < deadline do
 		RunService.Heartbeat:Wait()
 	end
 	assert(alive(s) and controller.Ready, "transformation did not complete")
+	debugEvent("TRANSFORMATION_COMPLETE", ("mode=%s section=%d"):format(mode, item.index))
+	s.pickupStage = "handoff"
 	local model = controller:TakeResult(s.folder)
-	s.controller = nil
 	assert(model, "could not hand off transformed log")
+	s.controller = nil
+	s.activeModel = model
+	debugEvent("HANDOFF_SUCCEEDED", ("mode=%s section=%d parent=%s position=%s"):format(
+		mode, item.index, model.Parent:GetFullName(), tostring(model:GetPivot().Position)))
+	s.pickupStage = "homing"
 	assert(home(s, model, mode), "pickup homing timed out or was cancelled")
 	if mode == "Backpack" then
 		local index = #s.carries + 1
@@ -248,15 +334,22 @@ local function runPickup(s, item, mode)
 		table.insert(s.carries, model)
 		followCarries(s)
 	else
+		s.pickupStage = "pile allocation"
 		local root = rootAndTorso()
 		assert(root, "player character unavailable")
 		local target = pileTarget(s, root, #s.pile + 1)
+		s.pickupStage = "pile settlement"
 		assert(settle(s, model, CONFIG.OverflowSettleDuration, function() return target end,
 			model:GetScale()), "overflow settle cancelled")
 		table.insert(s.pile, model)
+		debugEvent("SETTLEMENT_COMPLETE", ("section=%d pileCount=%d position=%s"):format(
+			item.index, #s.pile, tostring(model:GetPivot().Position)))
+		status(("Overflow complete — pile: %d/3"):format(#s.pile))
 	end
 	item.state = "collected"
 	item.prompt:Destroy()
+	s.activeModel = nil
+	s.pickupStage = nil
 	s.phase = "ready"
 	updateControls()
 end
@@ -280,12 +373,12 @@ local function start(playground, fallPrompt)
 		prompt.ActionText = "Preview " .. selectedMode .. " Pickup"
 		prompt.ObjectText = "Oak section " .. index
 		prompt.KeyboardKeyCode = Enum.KeyCode.E
-		prompt.MaxActivationDistance = 7
+		prompt.MaxActivationDistance = 5
 		prompt.RequiresLineOfSight = false
 		prompt.Enabled = false
 		prompt:SetAttribute("DevShowcaseSection", index)
 		prompt.Parent = model.PrimaryPart
-		table.insert(sections, { model = model, state = "available", prompt = prompt })
+		table.insert(sections, { index = index, model = model, state = "available", prompt = prompt })
 	end
 	local folder = Instance.new("Folder")
 	folder.Name = "ClientFullHarvestShowcase"
@@ -327,7 +420,7 @@ local function makeControl(folder, position, action, title)
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.ActionText, prompt.ObjectText = title, "Harvest showcase"
 	prompt.KeyboardKeyCode = Enum.KeyCode.E
-	prompt.MaxActivationDistance = 5
+	prompt.MaxActivationDistance = 4
 	prompt.RequiresLineOfSight = false
 	prompt:SetAttribute("DevShowcaseAction", action)
 	prompt.Parent = anchor
@@ -350,12 +443,27 @@ local function setupControls(gallery)
 	if controls and controls.folder.Parent then controls.folder:Destroy() end
 	local folder = Instance.new("Folder")
 	folder.Name, folder.Parent = "ClientShowcaseControls", playground
-	local pos = slot.Position + Vector3.new(0, 0, -8)
-	local backpack = makeControl(folder, pos + Vector3.new(-10, 0, 0), "Backpack", "Select Backpack")
+	-- Keep controls outside the fall prompt's radius and apart from each other.
+	local pos = slot.Position + Vector3.new(0, 0, -20)
+	local backpack = makeControl(folder, pos + Vector3.new(-12, 0, 0), "Backpack", "Select Backpack")
 	local overflow = makeControl(folder, pos, "Overflow", "Select Overflow")
-	makeControl(folder, pos + Vector3.new(10, 0, 0), "Reset", "Reset Showcase")
-	controls = { folder = folder, labels = { Backpack = backpack, Overflow = overflow } }
+	makeControl(folder, pos + Vector3.new(12, 0, 0), "Reset", "Reset Showcase")
+	local anchor = Instance.new("Part")
+	anchor.Name, anchor.Anchored, anchor.Transparency = "DevShowcaseStatus", true, 1
+	anchor.Size, anchor.CFrame = Vector3.new(0.2, 0.2, 0.2), CFrame.new(pos + Vector3.new(0, 5, 0))
+	anchor.CanCollide, anchor.CanTouch, anchor.CanQuery = false, false, false
+	anchor.Parent = folder
+	local billboard = Instance.new("BillboardGui")
+	billboard.Size, billboard.MaxDistance, billboard.AlwaysOnTop = UDim2.fromOffset(250, 55), 100, true
+	billboard.Parent = anchor
+	local statusLabel = Instance.new("TextLabel")
+	statusLabel.BackgroundColor3, statusLabel.BackgroundTransparency = Color3.fromRGB(30, 42, 31), 0.2
+	statusLabel.Size, statusLabel.Font = UDim2.fromScale(1, 1), Enum.Font.GothamBold
+	statusLabel.TextColor3, statusLabel.TextScaled = Color3.new(1, 1, 1), true
+	statusLabel.Parent = billboard
+	controls = { folder = folder, labels = { Backpack = backpack, Overflow = overflow }, status = statusLabel }
 	updateControls()
+	status("Select a mode, then collect a section")
 end
 Workspace.ChildAdded:Connect(function(child)
 	if child.Name == "DevTreeGallery" then task.defer(setupControls, child) end
@@ -371,7 +479,11 @@ PromptService.PromptTriggered:Connect(function(prompt)
 			reset()
 		elseif (action == "Backpack" or action == "Overflow") and (not session or session.phase == "ready") then
 			selectedMode = action
+			debugEvent("MODE_SELECTED", action)
 			updateControls()
+			status("Approach a section and press E")
+		else
+			debugEvent("MODE_SELECTION_IGNORED", ("action=%s phase=%s"):format(action, session and session.phase or "none"))
 		end
 		return
 	end
@@ -385,17 +497,42 @@ PromptService.PromptTriggered:Connect(function(prompt)
 	end
 	local index = prompt:GetAttribute("DevShowcaseSection")
 	local s = session
-	if not s or s.phase ~= "ready" or typeof(index) ~= "number" then return end
+	if typeof(index) ~= "number" then return end
+	if not s or s.phase ~= "ready" then
+		debugEvent("SECTION_SELECTION_IGNORED", ("index=%s phase=%s"):format(tostring(index), s and s.phase or "none"))
+		return
+	end
 	local item = s.sections[index]
-	if not item or item.prompt ~= prompt or item.state ~= "available" then return end
+	if not item or item.prompt ~= prompt or item.state ~= "available" then
+		debugEvent("SECTION_SELECTION_IGNORED", ("index=%s phase=%s"):format(tostring(index), s.phase))
+		return
+	end
 	item.state, s.phase = "animating", "collecting"
 	updateControls()
 	local mode = selectedMode
 	task.spawn(function()
 		local ok, err = pcall(runPickup, s, item, mode)
 		if not ok and session == s then
-			warn("[DevTreeGallery] Showcase reset after pickup error: " .. tostring(err))
-			reset()
+			local reason = ("%s: %s"):format(s.pickupStage or "unknown stage", tostring(err))
+			debugEvent("PICKUP_FAILED", ("mode=%s section=%d reason=%s"):format(mode, index, reason))
+			warn("[DevTreeGallery] " .. mode .. " pickup failed: " .. reason)
+			if mode == "Overflow" then
+				if s.controller then s.controller:Cancel(); s.controller = nil end
+				if s.activeModel then
+					for i = #s.pile, 1, -1 do
+						if s.pile[i] == s.activeModel then table.remove(s.pile, i) end
+					end
+					s.activeModel:Destroy()
+					s.activeModel = nil
+				end
+				if item.saved then restore(item.saved); item.saved = nil end
+				if #s.pile == 0 then s.pileOrigin = nil end
+				item.state, s.phase, s.pickupStage = "available", "ready", nil
+				updateControls()
+				status("Overflow failed — section restored, try again")
+			else
+				reset()
+			end
 		end
 	end)
 end)
