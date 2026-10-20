@@ -158,6 +158,20 @@ local function getLongAxis(boundsCFrame, boundsSize, requestedAxis)
 	return boundsCFrame.LookVector
 end
 
+local function rotationBetween(from, to)
+	local dot = math.clamp(from:Dot(to), -1, 1)
+	local axis = from:Cross(to)
+	if axis.Magnitude > 0.0001 then
+		return CFrame.fromAxisAngle(axis.Unit, math.acos(dot))
+	end
+	if dot < 0 then
+		local perpendicular = from:Cross(Vector3.yAxis)
+		if perpendicular.Magnitude < 0.0001 then perpendicular = from:Cross(Vector3.xAxis) end
+		return CFrame.fromAxisAngle(perpendicular.Unit, math.pi)
+	end
+	return CFrame.new()
+end
+
 local function makeChipBurst(effectFolder, sourceModel, center, count, strength, random)
 	local colors = {}
 	for _, descendant in ipairs(sourceModel:GetDescendants()) do
@@ -341,8 +355,8 @@ function LogTransformationFX.Play(sourceTemplate, destinationTemplate, options)
 		end
 	end
 
-	local destinationBoundsCFrame = getBounds(destinationClone)
-	if not sourceBoundsCFrame or not destinationBoundsCFrame then
+	local destinationBoundsCFrame, destinationBoundsSize = getBounds(destinationClone)
+	if not sourceBoundsCFrame or not destinationBoundsCFrame or not destinationBoundsSize then
 		destroyIfParented(sourceClone)
 		destroyIfParented(destinationClone)
 		return nil, "source or destination has no measurable visual bounds"
@@ -352,8 +366,14 @@ function LogTransformationFX.Play(sourceTemplate, destinationTemplate, options)
 	local sourceCenter = sourceBoundsCFrame.Position
 	local originalSourceScale = sourceClone:GetScale()
 	local originalDestinationScale = destinationClone:GetScale()
-	local destinationAlignment = sourceBoundsCFrame * destinationBoundsCFrame:Inverse()
 	local axis = getLongAxis(sourceBoundsCFrame, sourceBoundsSize, settings.RotationAxis)
+	local destinationAlignment = sourceBoundsCFrame * destinationBoundsCFrame:Inverse()
+	if options.AlignLongAxis == true then
+		local destinationAxis = getLongAxis(destinationBoundsCFrame, destinationBoundsSize)
+		destinationAlignment = CFrame.new(sourceCenter)
+			* rotationBetween(destinationAxis, axis)
+			* CFrame.new(-destinationBoundsCFrame.Position)
+	end
 	local fxFolder = getFxFolder()
 	local effectFolder = Instance.new("Folder")
 	effectFolder.Name = "TransformationRun"

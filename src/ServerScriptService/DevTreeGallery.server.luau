@@ -168,39 +168,6 @@ local function addPlatform(parent, name, position, size)
 	return platform
 end
 
-local function makeOakHarvestSectionReference()
-	local referenceTree = TreeObject.BuildPreviewModel("WildOak", {
-		GroveStage = "mature",
-		SizePotential = 1,
-		Mutations = {},
-	})
-	assert(referenceTree and referenceTree:IsA("Model"), "Wild Oak preview builder returned no Model")
-
-	local sectionsFolder = referenceTree:FindFirstChild("OakHarvestSections")
-	local baseSection = sectionsFolder and sectionsFolder:FindFirstChild("Base")
-	assert(baseSection and baseSection:IsA("Model"), "Wild Oak preview has no authored Base section")
-
-	local section = baseSection:Clone()
-	for _, descendant in ipairs(section:GetDescendants()) do
-		if descendant:IsA("WeldConstraint") or descendant:IsA("JointInstance") then
-			local part0 = descendant.Part0
-			local part1 = descendant.Part1
-			local bothPartsRemainInSection = part0
-				and part1
-				and part0:IsDescendantOf(section)
-				and part1:IsDescendantOf(section)
-			if not bothPartsRemainInSection then
-				descendant:Destroy()
-			end
-		end
-	end
-	referenceTree:Destroy()
-	section.Name = "OakHarvestSectionReference"
-	section:SetAttribute("DevTreeGalleryPreview", true)
-	section:SetAttribute("DevTreeGalleryLabel", "Original Oak Harvest Section")
-	return section
-end
-
 local function makeStandardOakLogModel()
 	local model = Instance.new("Model")
 	model.Name = "StandardOakLogReference"
@@ -235,14 +202,6 @@ local function configureVisualOnlyModel(model)
 	end
 end
 
-local function placeVisualOnPlatform(model, center, orientation)
-	configureVisualOnlyModel(model)
-	model:PivotTo(CFrame.new(center.X, GALLERY_ORIGIN.Y, center.Z) * (orientation or CFrame.new()))
-	local boundsCFrame, boundsSize = model:GetBoundingBox()
-	local bottomY = boundsCFrame.Position.Y - boundsSize.Y * 0.5
-	model:PivotTo(model:GetPivot() + Vector3.new(0, GALLERY_ORIGIN.Y - bottomY + 0.04, 0))
-end
-
 local function hideTemplateForClientClone(model, role)
 	configureVisualOnlyModel(model)
 	model:SetAttribute("DevTreeGalleryTemplate", true)
@@ -267,44 +226,41 @@ local function addTransformationPlayground(gallery)
 	playground:SetAttribute("SpeciesId", "Oak")
 	playground.Parent = gallery
 
-	local center = GALLERY_ORIGIN + Vector3.new(300, 0, 40)
-	local sampleOffset = 17
-	local sampleWidth = 28
-	local sampleDepth = 24
-	local sourceCenter = Vector3.new(center.X - sampleOffset, GALLERY_ORIGIN.Y, center.Z + 3)
-	local destinationCenter = Vector3.new(center.X + sampleOffset, GALLERY_ORIGIN.Y, center.Z + 3)
+	local center = GALLERY_ORIGIN + Vector3.new(275, 0, 485)
+	addSign(gallery, "FULL TREE HARVEST SHOWCASE", Vector3.new(center.X + 12, 0, center.Z - 24), 58, "TransformationPlaygroundHeader")
+	addPlatform(playground, "ShowcaseStage", center, Vector3.new(90, 1, 44))
 
-	addSign(gallery, "LOG TRANSFORMATION PLAYGROUND", Vector3.new(center.X, 0, center.Z - 31), 64, "TransformationPlaygroundHeader")
-	addPlatform(gallery, "TransformationSourcePlatform", Vector3.new(sourceCenter.X, GALLERY_ORIGIN.Y - 0.5, sourceCenter.Z), Vector3.new(sampleWidth, 1, sampleDepth))
-	addPlatform(gallery, "TransformationDestinationPlatform", Vector3.new(destinationCenter.X, GALLERY_ORIGIN.Y - 0.5, destinationCenter.Z), Vector3.new(sampleWidth, 1, sampleDepth))
-	addSign(gallery, "IRREGULAR OAK / HARVEST SIZE", Vector3.new(sourceCenter.X, 0, center.Z - 14), 30, "TransformationSourceLabel")
-	addSign(gallery, "STANDARD OAK / LOG SIZE", Vector3.new(destinationCenter.X, 0, center.Z - 14), 30, "TransformationDestinationLabel")
+	-- The normal three-section wild Oak builder is enlarged only for this
+	-- gallery. Irregular protrusions already belong to the trunk sections.
+	local tree = TreeObject.BuildPreviewModel("WildOak", {
+		GroveStage = "mature",
+		SizePotential = 1.55,
+		Mutations = {},
+	})
+	assert(tree and tree.PrimaryPart, "Full harvest preview needs the wild Oak builder")
+	local sections = tree:FindFirstChild("OakHarvestSections")
+	assert(sections, "Full harvest preview needs authored Oak sections")
+	for index, name in ipairs({ "Base", "Middle", "Top" }) do
+		local section = sections:FindFirstChild(name)
+		assert(section and section.PrimaryPart, "Missing authored Oak section: " .. name)
+		local core = section.PrimaryPart
+		local direction = if index == 2 then -1 else 1
+		local branch = createPart(section, "ShowcaseTrunkProtrusion", Vector3.new(4.4, 2.3, 2.1),
+			core.CFrame * CFrame.new(direction * (core.Size.X * 0.5 + 1.3), core.Size.Y * 0.14, 0)
+				* CFrame.Angles(0, 0, direction * 0.32), core.Color, core.Material)
+		branch:SetAttribute("DevShowcaseGeometry", true)
+		local knot = createPart(section, "ShowcaseBarkKnot", Vector3.new(1.4, 2.8, 1.4),
+			core.CFrame * CFrame.new(-direction * core.Size.X * 0.45, -core.Size.Y * 0.22, core.Size.Z * 0.55),
+			core.Color, core.Material)
+		knot:SetAttribute("DevShowcaseGeometry", true)
+	end
+	configureVisualOnlyModel(tree)
+	tree.Name = "ShowcaseTree"
+	tree:PivotTo(CFrame.new(center.X - 24, GALLERY_ORIGIN.Y + 0.04, center.Z))
+	tree.Parent = playground
 
-	local sourceReference = makeOakHarvestSectionReference()
-	-- Production harvest lays the tree's local Y trunk axis along the horizontal
-	-- fall direction. Align it with the standardized log's local X length axis.
-	local fallenSectionOrientation = CFrame.fromMatrix(
-		Vector3.zero,
-		Vector3.yAxis,
-		Vector3.xAxis,
-		Vector3.yAxis:Cross(Vector3.xAxis)
-	)
-	placeVisualOnPlatform(sourceReference, sourceCenter, fallenSectionOrientation)
-	sourceReference.Parent = playground
-
-	local destinationReference = makeStandardOakLogModel()
-	placeVisualOnPlatform(destinationReference, destinationCenter)
-	destinationReference.Parent = playground
-
-	local sourceTemplate = sourceReference:Clone()
-	sourceTemplate.Name = "TransformationSourceTemplate"
-	sourceTemplate:SetAttribute("DevTreeGalleryLabel", "Original Oak Harvest Section")
-	hideTemplateForClientClone(sourceTemplate, "Source")
-	sourceTemplate.Parent = playground
-
-	local destinationTemplate = destinationReference:Clone()
+	local destinationTemplate = makeStandardOakLogModel()
 	destinationTemplate.Name = "TransformationDestinationTemplate"
-	destinationTemplate:SetAttribute("DevTreeGalleryLabel", "Standardized Oak Log")
 	hideTemplateForClientClone(destinationTemplate, "Destination")
 	destinationTemplate.Parent = playground
 
@@ -313,28 +269,21 @@ local function addTransformationPlayground(gallery)
 		playground,
 		"DemoSlot",
 		Vector3.new(1, 1, 1),
-		CFrame.new(center.X, GALLERY_ORIGIN.Y + 0.5, center.Z + 16),
+		CFrame.new(center.X - 24, GALLERY_ORIGIN.Y + 1.5, center.Z - 15),
 		Color3.new(1, 1, 1)
 	)
 	demoSlot.Transparency = 1
-	demoSlot:SetAttribute("SourceTemplateName", sourceTemplate.Name)
-	demoSlot:SetAttribute("DestinationTemplateName", destinationTemplate.Name)
-	demoSlot:SetAttribute("DevGalleryAction", "PreviewLogTransformation")
+	demoSlot:SetAttribute("GroundY", GALLERY_ORIGIN.Y)
 
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = "TransformationPreviewPrompt"
-	prompt.ActionText = "Preview Log Transformation"
-	prompt.ObjectText = "Oak Log"
+	prompt.ActionText = "Preview Full Harvest"
+	prompt.ObjectText = "Large Oak"
 	prompt.KeyboardKeyCode = Enum.KeyCode.E
 	prompt.HoldDuration = 0
 	prompt.MaxActivationDistance = 12
 	prompt.RequiresLineOfSight = false
 	prompt:SetAttribute("DevTreeGalleryTransformationPrompt", true)
-	prompt:SetAttribute("DevGalleryAction", "PreviewLogTransformation")
-	prompt:SetAttribute("SpeciesId", "Oak")
-	prompt:SetAttribute("SourceTemplateName", sourceTemplate.Name)
-	prompt:SetAttribute("DestinationTemplateName", destinationTemplate.Name)
-	prompt:SetAttribute("DemoSlotName", demoSlot.Name)
 	prompt.Parent = demoSlot
 end
 
