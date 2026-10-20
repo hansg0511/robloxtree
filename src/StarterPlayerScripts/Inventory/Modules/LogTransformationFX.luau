@@ -76,7 +76,8 @@ local function cloneVisualTemplate(template, name, initiallyVisible)
 	local transparencyRecords = {}
 
 	for _, descendant in ipairs(clone:GetDescendants()) do
-		if descendant:IsA("Script") or descendant:IsA("LocalScript") or descendant:IsA("ModuleScript") then
+		if descendant:IsA("Script") or descendant:IsA("LocalScript") or descendant:IsA("ModuleScript")
+			or descendant:IsA("ProximityPrompt") then
 			descendant:Destroy()
 		elseif descendant:IsA("BasePart") then
 			descendant.Anchored = true
@@ -422,6 +423,16 @@ function LogTransformationFX.Play(sourceTemplate, destinationTemplate, options)
 		removeEmptyFxFolder()
 	end
 
+	-- Transfer the actual revealed visual, rather than replacing it for flight.
+	function controller:TakeResult(parent)
+		if not self.Active or not self.Ready or not parent or not parent.Parent or not destinationClone.Parent then
+			return nil
+		end
+		destinationClone.Parent = parent
+		self:Cancel()
+		return destinationClone
+	end
+
 	destinationClone:PivotTo(destinationAlignment * destinationClone:GetPivot())
 	local destinationAlignedBoundsCFrame, destinationAlignedBoundsSize = getBounds(destinationClone)
 	if not destinationAlignedBoundsCFrame or not destinationAlignedBoundsSize then
@@ -443,6 +454,8 @@ function LogTransformationFX.Play(sourceTemplate, destinationTemplate, options)
 		local rise
 		if elapsed <= liftDuration then
 			rise = settings.LiftHeight * easeInOut(elapsed / liftDuration)
+		elseif options.HoldLift == true then
+			rise = settings.LiftHeight
 		else
 			local compressionProgress = math.clamp((elapsed - liftDuration) / compressionDuration, 0, 1)
 			rise = settings.LiftHeight * (1 - easeInOut(compressionProgress))
@@ -455,8 +468,8 @@ function LogTransformationFX.Play(sourceTemplate, destinationTemplate, options)
 
 	local finalSourceTransform = sourceTransformAt(liftDuration + compressionDuration)
 	local finalDestinationPivot = finalSourceTransform * destinationClone:GetPivot()
-	local destinationCenter = sourceCenter
-	local destinationGroundCenter = sourceCenter
+	local destinationCenter = finalSourceTransform:PointToWorldSpace(sourceCenter)
+	local destinationGroundCenter = destinationCenter
 	if groundY ~= nil then
 		local alignedDestinationBounds = finalSourceTransform * destinationAlignedBoundsCFrame
 		local destinationHalfHeight = getVerticalHalfExtent(alignedDestinationBounds, destinationAlignedBoundsSize)
@@ -530,6 +543,7 @@ function LogTransformationFX.Play(sourceTemplate, destinationTemplate, options)
 			sourceDestroyed = true
 			destroyIfParented(sourceClone)
 			setVisibility(sourceVisuals, 1)
+			controller.Ready = true
 		end
 
 		if elapsed >= totalDuration then
