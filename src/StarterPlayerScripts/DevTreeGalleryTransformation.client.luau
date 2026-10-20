@@ -17,7 +17,8 @@ local CONFIG = {
 	LiftDuration = 0.16, CompressionDuration = 0.24, RevealDuration = 0.18,
 	LiftHeight = 1.1, RotationTurns = 0.35, ChipCount = 8,
 	HomingSpeed = 24, HomingAcceleration = 4, AccelerationDelay = 1,
-	MaxHomingSpeed = 60, MaxHomingDuration = 8, OverflowHomingDuration = 60, ArrivalRadius = 2.5,
+	MaxHomingSpeed = 60, MaxHomingDuration = 8, OverflowHomingDuration = 60,
+	ArrivalRadius = 2.5, OverflowArrivalRadius = 0.5,
 	CarrySettleDuration = 0.22, OverflowSettleDuration = 0.45, PileSpacing = 0.08,
 }
 local session, controls
@@ -57,8 +58,8 @@ local function extentAlong(frame, size, axis)
 		+ math.abs(frame.UpVector:Dot(axis)) * size.Y
 		+ math.abs(frame.LookVector:Dot(axis)) * size.Z)
 end
-local function hide(tree)
-	local saved = {}
+local function hide(tree, saved)
+	saved = saved or {}
 	for _, part in ipairs(tree:GetDescendants()) do
 		if part:IsA("BasePart") then
 			saved[part] = part.LocalTransparencyModifier
@@ -192,7 +193,11 @@ local function followCarries(s)
 end
 local function home(s, model, mode)
 	local started, last = os.clock(), os.clock()
+	local firstUpdate = false
 	local limit = if mode == "Overflow" then CONFIG.OverflowHomingDuration else CONFIG.MaxHomingDuration
+	-- A nearby section can already be inside the production-style 2.5-stud
+	-- arrival radius; the preview must visibly approach before it settles.
+	local arrivalRadius = if mode == "Overflow" then CONFIG.OverflowArrivalRadius else CONFIG.ArrivalRadius
 	debugEvent("HOMING_STARTED", ("mode=%s limit=%.1fs"):format(mode, limit))
 	while alive(s) and os.clock() - started < limit do
 		local now = os.clock()
@@ -200,8 +205,9 @@ local function home(s, model, mode)
 		assert(root and root:IsA("BasePart"), "player character unavailable")
 		local frame = model:GetPivot()
 		local delta = root.Position - frame.Position
-		if delta.Magnitude <= CONFIG.ArrivalRadius then
-			debugEvent("HOMING_COMPLETE", ("mode=%s elapsed=%.2fs"):format(mode, now - started))
+		if delta.Magnitude <= arrivalRadius then
+			debugEvent("HOMING_ARRIVAL", ("mode=%s elapsed=%.2fs distance=%.2f moved=%s"):format(
+				mode, now - started, delta.Magnitude, tostring(firstUpdate)))
 			return true
 		end
 		local acceleration = if mode == "Overflow"
@@ -210,6 +216,11 @@ local function home(s, model, mode)
 		local position = frame.Position + delta.Unit * math.min(delta.Magnitude, speed * math.min(now - last, 0.1))
 		-- Preserve the rotation handed off by the transform during the chase.
 		model:PivotTo(CFrame.new(position) * frame.Rotation)
+		if not firstUpdate and (position - frame.Position).Magnitude > 0 then
+			firstUpdate = true
+			debugEvent("HOMING_FIRST_UPDATE", ("mode=%s from=%s to=%s"):format(
+				mode, tostring(frame.Position), tostring(position)))
+		end
 		last = now
 		RunService.Heartbeat:Wait()
 	end
@@ -300,8 +311,8 @@ local function pileTarget(s, root, index)
 	return target
 end
 local function runPickup(s, item, mode)
-	s.pickupStage = "transformation"
-	debugEvent("PICKUP_STARTED", ("mode=%s section=%d"):format(mode, item.index))
+	s.pickupStage = "FX.Play"
+	debugEvent("TRANSFORMATION_STARTING", ("mode=%s section=%d"):format(mode, item.index))
 	if mode == "Overflow" then status("Overflow pickup started") end
 	local controller, message = FX.Play(item.model, s.destination, {
 		LiftDuration = CONFIG.LiftDuration, CompressionDuration = CONFIG.CompressionDuration,
@@ -311,20 +322,35 @@ local function runPickup(s, item, mode)
 	})
 	assert(controller, "could not transform section: " .. tostring(message))
 	s.controller = controller
-	item.saved = hide(item.model)
+	s.pickupStage = "transformation"
+	debugEvent("TRANSFORMATION_STARTED", ("mode=%s section=%d"):format(mode, item.index))
+	item.saved = {}
+	hide(item.model, item.saved)
+	debugEvent("SOURCE_HIDDEN", ("section=%d parts=%d"):format(item.index, #item.model:GetDescendants()))
 	local deadline = os.clock() + CONFIG.LiftDuration + CONFIG.CompressionDuration + CONFIG.RevealDuration + 1
 	while alive(s) and controller.Active and not controller.Ready and os.clock() < deadline do
 		RunService.Heartbeat:Wait()
 	end
-	assert(alive(s) and controller.Ready, "transformation did not complete")
-	debugEvent("TRANSFORMATION_COMPLETE", ("mode=%s section=%d"):format(mode, item.index))
+	assert(alive(s) and controller.Ready, "transformation did not complete: "
+		.. tostring(controller.Failure or ("deadline or cancellation at " .. tostring(controller.Phase))))
+	debugEvent("TRANSFORMATION_READY", ("mode=%s section=%d"):format(mode, item.index))
 	s.pickupStage = "handoff"
 	local model = controller:TakeResult(s.folder)
 	assert(model, "could not hand off transformed log")
 	s.controller = nil
 	s.activeModel = model
-	debugEvent("HANDOFF_SUCCEEDED", ("mode=%s section=%d parent=%s position=%s"):format(
-		mode, item.index, model.Parent:GetFullName(), tostring(model:GetPivot().Position)))
+	local visibleParts = 0
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("BasePart") and descendant.Transparency < 1 and descendant.LocalTransparencyModifier < 1 then
+			visibleParts += 1
+		end
+	end
+	assert(model.PrimaryPart and model.Parent == s.folder and visibleParts > 0,
+		"handoff returned a hidden, unparented or primary-part-less standardized model")
+	local boundsFrame, boundsSize = model:GetBoundingBox()
+	debugEvent("HANDOFF_SUCCEEDED", ("mode=%s section=%d parent=%s pivot=%s bounds=%s size=%s scale=%.3f visibleParts=%d"):format(
+		mode, item.index, model.Parent:GetFullName(), tostring(model:GetPivot().Position),
+		tostring(boundsFrame.Position), tostring(boundsSize), model:GetScale(), visibleParts))
 	s.pickupStage = "homing"
 	assert(home(s, model, mode), "pickup homing timed out or was cancelled")
 	if mode == "Backpack" then
@@ -338,7 +364,10 @@ local function runPickup(s, item, mode)
 		local root = rootAndTorso()
 		assert(root, "player character unavailable")
 		local target = pileTarget(s, root, #s.pile + 1)
+		debugEvent("PILE_TARGET_CREATED", ("section=%d position=%s"):format(item.index, tostring(target.Position)))
 		s.pickupStage = "pile settlement"
+		debugEvent("SETTLEMENT_STARTED", ("section=%d from=%s to=%s"):format(
+			item.index, tostring(model:GetPivot().Position), tostring(target.Position)))
 		assert(settle(s, model, CONFIG.OverflowSettleDuration, function() return target end,
 			model:GetScale()), "overflow settle cancelled")
 		table.insert(s.pile, model)
@@ -510,6 +539,7 @@ PromptService.PromptTriggered:Connect(function(prompt)
 	item.state, s.phase = "animating", "collecting"
 	updateControls()
 	local mode = selectedMode
+	debugEvent("PROMPT_ACCEPTED", ("mode=%s section=%d"):format(mode, index))
 	task.spawn(function()
 		local ok, err = pcall(runPickup, s, item, mode)
 		if not ok and session == s then
@@ -517,7 +547,12 @@ PromptService.PromptTriggered:Connect(function(prompt)
 			debugEvent("PICKUP_FAILED", ("mode=%s section=%d reason=%s"):format(mode, index, reason))
 			warn("[DevTreeGallery] " .. mode .. " pickup failed: " .. reason)
 			if mode == "Overflow" then
-				if s.controller then s.controller:Cancel(); s.controller = nil end
+				if s.controller then
+					local result = s.controller.Result
+					s.controller:Cancel()
+					if result and result.Parent then result:Destroy() end
+					s.controller = nil
+				end
 				if s.activeModel then
 					for i = #s.pile, 1, -1 do
 						if s.pile[i] == s.activeModel then table.remove(s.pile, i) end

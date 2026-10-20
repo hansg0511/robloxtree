@@ -81,6 +81,9 @@ local function cloneVisualTemplate(template, name, initiallyVisible)
 			descendant:Destroy()
 		elseif descendant:IsA("BasePart") then
 			descendant.Anchored = true
+			-- Templates may have been hidden locally; clones must render according
+			-- to their recorded Transparency, independent of the template.
+			descendant.LocalTransparencyModifier = 0
 			descendant.CanCollide = false
 			descendant.CanTouch = false
 			descendant.CanQuery = false
@@ -116,7 +119,7 @@ local function getBounds(model)
 		return model:GetBoundingBox()
 	end)
 	if not ok then
-		return nil, nil
+		return nil, nil, tostring(boundsCFrame)
 	end
 	return boundsCFrame, boundsSize
 end
@@ -315,11 +318,11 @@ function LogTransformationFX.Play(sourceTemplate, destinationTemplate, options)
 		return nil, destinationError
 	end
 
-	local sourceBoundsCFrame, sourceBoundsSize = getBounds(sourceClone)
+	local sourceBoundsCFrame, sourceBoundsSize, sourceBoundsError = getBounds(sourceClone)
 	if not sourceBoundsCFrame then
 		destroyIfParented(sourceClone)
 		destroyIfParented(destinationClone)
-		return nil, "source has no measurable visual bounds"
+		return nil, "source has no measurable visual bounds: " .. tostring(sourceBoundsError)
 	end
 
 	-- Gallery templates stay in their reference positions. Reposition only the
@@ -356,11 +359,11 @@ function LogTransformationFX.Play(sourceTemplate, destinationTemplate, options)
 		end
 	end
 
-	local destinationBoundsCFrame, destinationBoundsSize = getBounds(destinationClone)
+	local destinationBoundsCFrame, destinationBoundsSize, destinationBoundsError = getBounds(destinationClone)
 	if not sourceBoundsCFrame or not destinationBoundsCFrame or not destinationBoundsSize then
 		destroyIfParented(sourceClone)
 		destroyIfParented(destinationClone)
-		return nil, "source or destination has no measurable visual bounds"
+		return nil, "source or destination has no measurable visual bounds: " .. tostring(destinationBoundsError)
 	end
 
 	local originalSourcePivot = sourceClone:GetPivot()
@@ -388,7 +391,6 @@ function LogTransformationFX.Play(sourceTemplate, destinationTemplate, options)
 	local compressionStart = liftDuration
 	local revealStart = liftDuration + compressionDuration
 	local transformDuration = liftDuration + compressionDuration + revealDuration
-	local totalDuration = transformDuration + settings.FinishDuration
 	local fadeStart = liftDuration + compressionDuration * 0.62
 	local chips = {}
 	local chipsCreated = false
@@ -397,6 +399,8 @@ function LogTransformationFX.Play(sourceTemplate, destinationTemplate, options)
 	local controller = {
 		Active = true,
 		Completed = false,
+		Phase = "setup",
+		Failure = nil,
 		SourceTemplate = sourceTemplate,
 		Connection = nil,
 	}
@@ -429,11 +433,18 @@ function LogTransformationFX.Play(sourceTemplate, destinationTemplate, options)
 			return nil
 		end
 		destinationClone.Parent = parent
+		self.Result = destinationClone
 		self:Cancel()
 		return destinationClone
 	end
 
-	destinationClone:PivotTo(destinationAlignment * destinationClone:GetPivot())
+	local placed, placementError = pcall(function()
+		destinationClone:PivotTo(destinationAlignment * destinationClone:GetPivot())
+	end)
+	if not placed then
+		controller:Cancel()
+		return nil, "destination alignment failed: " .. tostring(placementError)
+	end
 	local destinationAlignedBoundsCFrame, destinationAlignedBoundsSize = getBounds(destinationClone)
 	if not destinationAlignedBoundsCFrame or not destinationAlignedBoundsSize then
 		destroyIfParented(effectFolder)
@@ -480,9 +491,11 @@ function LogTransformationFX.Play(sourceTemplate, destinationTemplate, options)
 		)
 	end
 	local startedAt = os.clock()
+	local readyAt = nil
 
 	local function update(elapsed)
 		if not sourceDestroyed then
+			controller.Phase = "source compression"
 			local transform = sourceTransformAt(elapsed)
 			local compressionProgress = math.clamp((elapsed - compressionStart) / compressionDuration, 0, 1)
 			local sourceScaleFactor = if elapsed < compressionStart
@@ -500,6 +513,7 @@ function LogTransformationFX.Play(sourceTemplate, destinationTemplate, options)
 			setVisibility(sourceVisuals, sourceFadeAlpha)
 
 			if not chipsCreated and elapsed >= burstTime and settings.ChipCount > 0 then
+				controller.Phase = "wood-chip creation"
 				chipsCreated = true
 				chips = makeChipBurst(
 					effectFolder,
@@ -512,9 +526,11 @@ function LogTransformationFX.Play(sourceTemplate, destinationTemplate, options)
 			end
 		end
 
+		controller.Phase = "wood-chip update"
 		updateChips(chips, elapsed, burstTime, settings.ChipDuration)
 
 		if elapsed >= revealStart then
+			controller.Phase = "standard log reveal"
 			local revealProgress = math.clamp((elapsed - revealStart) / revealDuration, 0, 1)
 			local easedReveal = easeInOut(revealProgress)
 			local destinationCenterAtReveal = destinationCenter:Lerp(destinationGroundCenter, easedReveal)
@@ -540,14 +556,19 @@ function LogTransformationFX.Play(sourceTemplate, destinationTemplate, options)
 		end
 
 		if elapsed >= transformDuration and not sourceDestroyed then
+			controller.Phase = "transformation completion"
 			sourceDestroyed = true
 			destroyIfParented(sourceClone)
 			setVisibility(sourceVisuals, 1)
 			controller.Ready = true
+			controller.Phase = "ready for handoff"
+			readyAt = os.clock()
 		end
 
-		if elapsed >= totalDuration then
+		-- Give the consumer its full handoff window even after a delayed frame.
+		if readyAt and os.clock() - readyAt >= settings.FinishDuration then
 			controller.Completed = true
+			controller.Failure = "handoff window expired"
 			controller:Cancel()
 		end
 	end
@@ -558,13 +579,15 @@ function LogTransformationFX.Play(sourceTemplate, destinationTemplate, options)
 			return
 		end
 		if not effectFolder.Parent or (not sourceDestroyed and not sourceClone.Parent) or not destinationClone.Parent then
+			controller.Failure = "effect, source, or standardized destination was removed during " .. controller.Phase
 			controller:Cancel()
 			return
 		end
 
 		local success, errorMessage = pcall(update, os.clock() - startedAt)
 		if not success then
-			warn("[LogTransformationFX] Animation stopped safely: " .. tostring(errorMessage))
+			controller.Failure = controller.Phase .. ": " .. tostring(errorMessage)
+			warn("[LogTransformationFX] Animation stopped safely: " .. controller.Failure)
 			controller:Cancel()
 		end
 	end)
