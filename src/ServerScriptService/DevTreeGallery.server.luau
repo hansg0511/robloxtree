@@ -274,6 +274,9 @@ local function addTransformationPlayground(gallery)
 	)
 	demoSlot.Transparency = 1
 	demoSlot:SetAttribute("GroundY", GALLERY_ORIGIN.Y)
+	-- Attributes on the gallery model replicate even when the distant marker is
+	-- not streamed to the client yet.
+	gallery:SetAttribute("ShowcaseTeleportCFrame", demoSlot.CFrame + Vector3.new(0, 4, -5))
 
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = "TransformationPreviewPrompt"

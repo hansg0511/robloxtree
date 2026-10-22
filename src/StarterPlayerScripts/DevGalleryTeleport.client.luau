@@ -34,14 +34,17 @@ corner.Parent = button
 local gallery
 local galleryAdded
 local galleryRemoved
+local destinationChanged
 
 local function getDestination()
 	if not gallery or gallery.Parent ~= Workspace then return nil end
 	local playground = gallery:FindFirstChild("TransformationPlayground")
 	local slot = playground and playground:FindFirstChild("DemoSlot")
-	if slot and slot:IsA("BasePart") then return slot end
+	if slot and slot:IsA("BasePart") then return slot.CFrame + Vector3.new(0, 4, -5) end
 	local spawn = gallery:FindFirstChild("GallerySpawn")
-	if spawn and spawn:IsA("BasePart") then return spawn end
+	local showcase = gallery:GetAttribute("ShowcaseTeleportCFrame")
+	if typeof(showcase) == "CFrame" then return showcase end
+	if spawn and spawn:IsA("BasePart") then return spawn.CFrame + Vector3.new(0, 4, -5) end
 	return nil
 end
 
@@ -52,8 +55,10 @@ end
 local function setGallery(candidate)
 	if galleryAdded then galleryAdded:Disconnect(); galleryAdded = nil end
 	if galleryRemoved then galleryRemoved:Disconnect(); galleryRemoved = nil end
+	if destinationChanged then destinationChanged:Disconnect(); destinationChanged = nil end
 	gallery = candidate
 	if gallery then
+		destinationChanged = gallery:GetAttributeChangedSignal("ShowcaseTeleportCFrame"):Connect(updateButton)
 		galleryAdded = gallery.DescendantAdded:Connect(updateButton)
 		galleryRemoved = gallery.DescendantRemoving:Connect(function()
 			-- DescendantRemoving fires before removal, so check on the next step.
@@ -71,10 +76,28 @@ Workspace.ChildRemoved:Connect(function(child)
 end)
 setGallery(Workspace:FindFirstChild("DevTreeGallery"))
 
+local teleporting = false
 button.Activated:Connect(function()
 	local destination = getDestination()
 	local character = player.Character
-	if not destination or not character or not character:FindFirstChild("HumanoidRootPart") then return end
+	if teleporting or not destination or not character or not character:FindFirstChild("HumanoidRootPart") then return end
+	teleporting = true
+	button.Text = "LOADING..."
+	if Workspace.StreamingEnabled then
+		local ok, err = pcall(function()
+			player:RequestStreamAroundAsync(destination.Position, 5)
+		end)
+		if not ok then
+			warn("[DevGalleryTeleport] Could not stream the gallery: " .. tostring(err))
+			button.Text = "DEV GALLERY"
+			teleporting = false
+			return
+		end
+	end
 	-- This local-only shortcut affects only the Studio test character.
-	character:PivotTo(destination.CFrame + Vector3.new(0, 4, -5))
+	if player.Character == character and character.Parent and getDestination() then
+		character:PivotTo(destination)
+	end
+	button.Text = "DEV GALLERY"
+	teleporting = false
 end)
