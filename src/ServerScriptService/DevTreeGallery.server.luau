@@ -227,6 +227,7 @@ local function addTransformationPlayground(gallery)
 	playground.Parent = gallery
 
 	local center = GALLERY_ORIGIN + Vector3.new(275, 0, 485)
+	local demoSlotCFrame = CFrame.new(center.X - 24, GALLERY_ORIGIN.Y + 1.5, center.Z - 15)
 	addSign(gallery, "FULL TREE HARVEST SHOWCASE", Vector3.new(center.X + 12, 0, center.Z - 24), 58, "TransformationPlaygroundHeader")
 	addPlatform(playground, "ShowcaseStage", center, Vector3.new(90, 1, 44))
 
@@ -261,6 +262,11 @@ local function addTransformationPlayground(gallery)
 
 	local destinationTemplate = makeStandardOakLogModel()
 	destinationTemplate.Name = "TransformationDestinationTemplate"
+	-- The builder creates parts at the world origin. Keep the invisible
+	-- template beside the showcase so StreamingEnabled clients receive it,
+	-- and stream its complete geometry as one model.
+	destinationTemplate.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
+	destinationTemplate:PivotTo(demoSlotCFrame)
 	hideTemplateForClientClone(destinationTemplate, "Destination")
 	destinationTemplate.Parent = playground
 
@@ -269,7 +275,7 @@ local function addTransformationPlayground(gallery)
 		playground,
 		"DemoSlot",
 		Vector3.new(1, 1, 1),
-		CFrame.new(center.X - 24, GALLERY_ORIGIN.Y + 1.5, center.Z - 15),
+		demoSlotCFrame,
 		Color3.new(1, 1, 1)
 	)
 	demoSlot.Transparency = 1
