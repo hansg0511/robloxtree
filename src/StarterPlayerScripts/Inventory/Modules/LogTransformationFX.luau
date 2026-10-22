@@ -317,6 +317,18 @@ function LogTransformationFX.Play(sourceTemplate, destinationTemplate, options)
 		destroyIfParented(sourceClone)
 		return nil, destinationError
 	end
+	-- The Studio gallery uses a named standardized body. Its replicated
+	-- template can arrive without a PrimaryPart reference, even when the body
+	-- itself is present. Restore the clone's pivot before positioning it.
+	if not destinationClone.PrimaryPart then
+		local body = destinationClone:FindFirstChild("LogHandle")
+		if not body or not body:IsA("BasePart") then
+			sourceClone:Destroy()
+			destinationClone:Destroy()
+			return nil, "standardized destination has no LogHandle"
+		end
+		destinationClone.PrimaryPart = body
+	end
 
 	local sourceBoundsCFrame, sourceBoundsSize, sourceBoundsError = getBounds(sourceClone)
 	if not sourceBoundsCFrame then
@@ -443,6 +455,10 @@ function LogTransformationFX.Play(sourceTemplate, destinationTemplate, options)
 		destinationClone.Parent = parent
 		self.Result = destinationClone
 		self:Cancel()
+		if not destinationClone.PrimaryPart then
+			local body = destinationClone:FindFirstChild("LogHandle")
+			if body and body:IsA("BasePart") then destinationClone.PrimaryPart = body end
+		end
 		return destinationClone
 	end
 

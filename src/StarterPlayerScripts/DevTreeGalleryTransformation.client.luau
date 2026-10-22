@@ -253,9 +253,9 @@ local function pileSlotOffset(index, length, diameter)
 end
 
 local function pileTarget(s, root, index)
-	local body = s.destination.PrimaryPart
+	local body = s.destination:FindFirstChild("LogHandle")
 	local stage = s.playground:FindFirstChild("ShowcaseStage")
-	assert(body and stage and stage:IsA("BasePart"), "standard log body or gallery stage missing")
+	assert(body and body:IsA("BasePart") and stage and stage:IsA("BasePart"), "standard log body or gallery stage missing")
 	local length, diameter = body.Size.X, body.Size.Y
 	if not s.pileOrigin then
 		local right = Vector3.new(root.CFrame.RightVector.X, 0, root.CFrame.RightVector.Z)
@@ -399,6 +399,8 @@ local function start(playground, fallPrompt)
 	local slot = playground:FindFirstChild("DemoSlot")
 	assert(source and source:IsA("Model") and destination and destination:IsA("Model")
 		and slot and slot:IsA("BasePart"), "showcase templates missing")
+	local body = destination:WaitForChild("LogHandle", 5)
+	assert(body and body:IsA("BasePart"), "standard log body was not streamed in")
 	local tree = source:Clone()
 	assert(tree, "could not clone showcase tree")
 	local sectionFolder, sections = tree:FindFirstChild("OakHarvestSections"), {}
