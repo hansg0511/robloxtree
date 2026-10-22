@@ -432,6 +432,14 @@ function LogTransformationFX.Play(sourceTemplate, destinationTemplate, options)
 		if not self.Active or not self.Ready or not parent or not parent.Parent or not destinationClone.Parent then
 			return nil
 		end
+		-- Complete the reveal explicitly before handing this same model to the
+		-- pickup animation. Preserve each part's original template transparency.
+		setVisibility(destinationVisuals, 0)
+		for _, record in ipairs(destinationVisuals) do
+			if record.Instance:IsA("BasePart") then
+				record.Instance.LocalTransparencyModifier = 0
+			end
+		end
 		destinationClone.Parent = parent
 		self.Result = destinationClone
 		self:Cancel()

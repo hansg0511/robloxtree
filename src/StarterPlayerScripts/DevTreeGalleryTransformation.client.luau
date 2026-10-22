@@ -340,13 +340,24 @@ local function runPickup(s, item, mode)
 	s.controller = nil
 	s.activeModel = model
 	local visibleParts = 0
+	local partCount = 0
+	local examplePart
 	for _, descendant in ipairs(model:GetDescendants()) do
-		if descendant:IsA("BasePart") and descendant.Transparency < 1 and descendant.LocalTransparencyModifier < 1 then
-			visibleParts += 1
+		if descendant:IsA("BasePart") then
+			partCount += 1
+			examplePart = examplePart or descendant
+			if descendant.Transparency < 1 and descendant.LocalTransparencyModifier < 1 then
+				visibleParts += 1
+			end
 		end
 	end
-	assert(model.PrimaryPart and model.Parent == s.folder and visibleParts > 0,
-		"handoff returned a hidden, unparented or primary-part-less standardized model")
+	assert(model.PrimaryPart, "handoff standardized model has no PrimaryPart")
+	assert(model.Parent == s.folder, "handoff standardized model has unexpected parent: " .. tostring(model.Parent))
+	assert(visibleParts > 0, ("handoff standardized model has no visible parts: count=%d example=%s transparency=%s localTransparency=%s originalTransparency=%s"):format(
+		partCount, examplePart and examplePart.Name or "none",
+		examplePart and tostring(examplePart.Transparency) or "n/a",
+		examplePart and tostring(examplePart.LocalTransparencyModifier) or "n/a",
+		examplePart and tostring(examplePart:GetAttribute("DevOriginalTransparency")) or "n/a"))
 	local boundsFrame, boundsSize = model:GetBoundingBox()
 	debugEvent("HANDOFF_SUCCEEDED", ("mode=%s section=%d parent=%s pivot=%s bounds=%s size=%s scale=%.3f visibleParts=%d"):format(
 		mode, item.index, model.Parent:GetFullName(), tostring(model:GetPivot().Position),
