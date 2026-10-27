@@ -23,9 +23,32 @@ local MIN_PLATFORM_SIZE = 24
 local PLATFORM_PADDING = 12
 local COLUMN_GAP = 20
 local ROW_GAP = 46
--- Change only this Studio-gallery value to inspect the one-, two-, or
--- three-section construction. Production yield rules remain untouched.
-local STARTER_OAK_HARVEST_SHOWCASE_YIELD = 3
+-- Gallery-only dimensions and a deliberately small proportion check prevent
+-- the Starter Oak preview from producing short, blocky harvest pieces.
+local STARTER_OAK_HARVEST_TRUNK_LENGTH = 12
+local STARTER_OAK_HARVEST_TRUNK_THICKNESS = 2.4
+local STARTER_OAK_MIN_HARVEST_SECTION_LENGTH = 4.5
+local STARTER_OAK_MIN_HARVEST_LENGTH_TO_THICKNESS_RATIO = 2.5
+
+local function isAcceptableStarterOakSectionLength(sectionLength)
+	return sectionLength >= STARTER_OAK_MIN_HARVEST_SECTION_LENGTH
+		and sectionLength / STARTER_OAK_HARVEST_TRUNK_THICKNESS
+			>= STARTER_OAK_MIN_HARVEST_LENGTH_TO_THICKNESS_RATIO
+end
+
+local function chooseStarterOakHarvestSectionCount()
+	local twoSectionLength = STARTER_OAK_HARVEST_TRUNK_LENGTH / 2
+	if isAcceptableStarterOakSectionLength(twoSectionLength) then
+		return 2
+	end
+	assert(isAcceptableStarterOakSectionLength(STARTER_OAK_HARVEST_TRUNK_LENGTH),
+		"Starter Oak gallery trunk is too short or thin for one acceptable harvest section")
+	return 1
+end
+
+-- The normal Starter Oak uses two sections. If its gallery-only trunk is
+-- shortened later, it falls back to one rather than creating cubic pieces.
+local STARTER_OAK_HARVEST_SHOWCASE_YIELD = chooseStarterOakHarvestSectionCount()
 
 if not ENABLED then
 	-- Turning the Studio tool off removes a gallery created during an earlier
@@ -133,20 +156,20 @@ local function makeStarterOakPrototype()
 	return model
 end
 
-local STARTER_OAK_NORMALIZED_LOG_LENGTH = 4.6
-local STARTER_OAK_NORMALIZED_LOG_DIAMETER = 2.1
+local STARTER_OAK_NORMALIZED_LOG_LENGTH = 7
+local STARTER_OAK_NORMALIZED_LOG_DIAMETER = 1.8
+local STARTER_OAK_NORMALIZED_LOG_BODY_DIAMETER = STARTER_OAK_NORMALIZED_LOG_DIAMETER - 0.02
 
 -- Gallery-only authored version of the approved Starter Oak. The sections are
 -- actual pieces of its trunk; canopy and branch blocks deliberately remain
 -- outside them so they cannot prop a fallen section above the ground.
 local function makeStarterOakHarvestTree(sectionCount)
 	local rangesByYield = {
-		[1] = { { 1, 3 } },
-		[2] = { { 1, 1 }, { 2, 3 } },
-		[3] = { { 1, 1 }, { 2, 2 }, { 3, 3 } },
+		[1] = { { 1, 2 } },
+		[2] = { { 1, 1 }, { 2, 2 } },
 	}
 	local ranges = rangesByYield[sectionCount]
-	assert(ranges, "Starter Oak supports only 1, 2, or 3 harvest sections")
+	assert(ranges, "Starter Oak supports only 1 or 2 harvest sections")
 
 	local palette = SpeciesVisuals.GetPalette("Oak")
 	local model = Instance.new("Model")
@@ -155,7 +178,7 @@ local function makeStarterOakHarvestTree(sectionCount)
 	model:SetAttribute("VisualOnly", true)
 	model:SetAttribute("PrototypeOnly", true)
 	model:SetAttribute("SpeciesId", "Oak")
-	model:SetAttribute("SupportedHarvestYields", "1,2,3")
+	model:SetAttribute("SupportedHarvestYields", "1,2")
 	model:SetAttribute("HarvestYieldPreview", sectionCount)
 
 	local pivot = createStarterOakBlock(model, "StarterOakPivot", Vector3.new(0.2, 0.2, 0.2), Vector3.new(0, 0.1, 0), palette.Bark)
@@ -168,20 +191,19 @@ local function makeStarterOakHarvestTree(sectionCount)
 	local sectionsFolder = Instance.new("Folder")
 	sectionsFolder.Name = "StarterOakHarvestSections"
 	sectionsFolder.Parent = model
+	local halfTrunkLength = STARTER_OAK_HARVEST_TRUNK_LENGTH * 0.5
+	local halfTrunkThickness = STARTER_OAK_HARVEST_TRUNK_THICKNESS * 0.5
+	local trunkCoreThickness = STARTER_OAK_HARVEST_TRUNK_THICKNESS - 0.02
 	local components = {
 		{
-			{ "BaseCore", Vector3.new(3.2, 3.34, 3.2), Vector3.new(0, 1.67, 0), palette.Bark },
-			{ "BaseWarmFace", Vector3.new(0.28, 2.2, 2.45), Vector3.new(-1.47, 1.85, -0.1), palette.BarkHighlight },
-			{ "BaseShadowFace", Vector3.new(2.45, 1.25, 0.28), Vector3.new(0.08, 0.9, 1.47), palette.BarkShadow },
+			{ "BaseCore", Vector3.new(trunkCoreThickness, halfTrunkLength, trunkCoreThickness), Vector3.new(0, halfTrunkLength * 0.5, 0), palette.Bark },
+			{ "BaseWarmFace", Vector3.new(0.12, halfTrunkLength * 0.7, 1.75), Vector3.new(-halfTrunkThickness + 0.06, halfTrunkLength * 0.517, -0.08), palette.BarkHighlight },
+			{ "BaseShadowFace", Vector3.new(1.75, halfTrunkLength * 0.467, 0.12), Vector3.new(0.08, halfTrunkLength * 0.317, halfTrunkThickness - 0.06), palette.BarkShadow },
 		},
 		{
-			{ "MiddleCore", Vector3.new(3.2, 3.33, 3.2), Vector3.new(0, 5.005, 0), palette.Bark },
-			{ "MiddleWarmFace", Vector3.new(0.28, 1.8, 2.45), Vector3.new(1.47, 5.25, 0.1), palette.BarkHighlight },
-		},
-		{
-			{ "TopCore", Vector3.new(3.2, 3.33, 3.2), Vector3.new(0, 8.335, 0), palette.Bark },
-			{ "TrunkCrown", Vector3.new(3.8, 3.4, 3.8), Vector3.new(0, 10.5, 0), palette.Bark },
-			{ "TopShadowFace", Vector3.new(2.45, 1.55, 0.28), Vector3.new(-0.08, 8.1, -1.47), palette.BarkShadow },
+			{ "TopCore", Vector3.new(trunkCoreThickness, halfTrunkLength, trunkCoreThickness), Vector3.new(0, halfTrunkLength * 1.5, 0), palette.Bark },
+			{ "TopWarmFace", Vector3.new(0.12, halfTrunkLength * 0.65, 1.75), Vector3.new(halfTrunkThickness - 0.06, halfTrunkLength * 1.467, 0.08), palette.BarkHighlight },
+			{ "TopShadowFace", Vector3.new(1.75, halfTrunkLength * 0.433, 0.12), Vector3.new(-0.08, halfTrunkLength * 1.683, -halfTrunkThickness + 0.06), palette.BarkShadow },
 		},
 	}
 
@@ -227,7 +249,7 @@ local function makeStarterOakHarvestTree(sectionCount)
 	return model
 end
 
--- Compact, smooth logs carry a shared 4.6 x 2.1 x 2.1 outer footprint. The
+-- Smooth logs carry a shared 7 x 1.8 x 1.8 outer footprint. The
 -- source section determines the bark accent placement, preserving its visual
 -- identity while removing branches and uneven geometry that would stack badly.
 local function makeStarterOakNormalizedLogTemplate(sectionIndex)
@@ -244,20 +266,21 @@ local function makeStarterOakNormalizedLogTemplate(sectionIndex)
 
 	local length = STARTER_OAK_NORMALIZED_LOG_LENGTH
 	local diameter = STARTER_OAK_NORMALIZED_LOG_DIAMETER
-	local handle = createStarterOakBlock(model, "LogHandle", Vector3.new(length, diameter, diameter), Vector3.zero, palette.Bark)
+	local bodyDiameter = STARTER_OAK_NORMALIZED_LOG_BODY_DIAMETER
+	local handle = createStarterOakBlock(model, "LogHandle", Vector3.new(length, bodyDiameter, bodyDiameter), Vector3.zero, palette.Bark)
 	model.PrimaryPart = handle
 	createStarterOakBlock(model, "CutEndLeft", Vector3.new(0.18, diameter * 0.82, diameter * 0.82), Vector3.new(-length * 0.5 + 0.09, 0, 0), palette.CutEnd)
 	createStarterOakBlock(model, "CutEndRight", Vector3.new(0.18, diameter * 0.82, diameter * 0.82), Vector3.new(length * 0.5 - 0.09, 0, 0), palette.CutEnd)
 
 	if sectionIndex == 1 then
-		createStarterOakBlock(model, "BaseWarmBark", Vector3.new(length * 0.52, 0.12, diameter * 0.72), Vector3.new(-0.38, diameter * 0.5 + 0.04, -0.12), palette.BarkHighlight)
-		createStarterOakBlock(model, "BaseShadowBark", Vector3.new(length * 0.32, diameter * 0.56, 0.12), Vector3.new(0.85, -0.12, diameter * 0.5 + 0.04), palette.BarkShadow)
+		createStarterOakBlock(model, "BaseWarmBark", Vector3.new(length * 0.52, 0.08, diameter * 0.72), Vector3.new(-0.38, diameter * 0.5 - 0.04, -0.12), palette.BarkHighlight)
+		createStarterOakBlock(model, "BaseShadowBark", Vector3.new(length * 0.32, diameter * 0.56, 0.08), Vector3.new(0.85, -0.12, diameter * 0.5 - 0.04), palette.BarkShadow)
 	elseif sectionIndex == 2 then
-		createStarterOakBlock(model, "MiddleWarmBark", Vector3.new(length * 0.42, 0.12, diameter * 0.74), Vector3.new(0.36, diameter * 0.5 + 0.04, 0.08), palette.BarkHighlight)
-		createStarterOakBlock(model, "MiddleShadowBark", Vector3.new(length * 0.2, diameter * 0.48, 0.12), Vector3.new(-1.0, 0.12, -diameter * 0.5 - 0.04), palette.BarkShadow)
+		createStarterOakBlock(model, "MiddleWarmBark", Vector3.new(length * 0.42, 0.08, diameter * 0.74), Vector3.new(0.36, diameter * 0.5 - 0.04, 0.08), palette.BarkHighlight)
+		createStarterOakBlock(model, "MiddleShadowBark", Vector3.new(length * 0.2, diameter * 0.48, 0.08), Vector3.new(-1.0, 0.12, -diameter * 0.5 + 0.04), palette.BarkShadow)
 	else
-		createStarterOakBlock(model, "TopWarmBark", Vector3.new(length * 0.30, 0.12, diameter * 0.72), Vector3.new(0.8, diameter * 0.5 + 0.04, 0), palette.BarkHighlight)
-		createStarterOakBlock(model, "TopBarkKnot", Vector3.new(0.48, 0.38, 0.12), Vector3.new(-0.72, 0.12, -diameter * 0.5 - 0.04), palette.BarkShadow)
+		createStarterOakBlock(model, "TopWarmBark", Vector3.new(length * 0.30, 0.08, diameter * 0.72), Vector3.new(0.8, diameter * 0.5 - 0.04, 0), palette.BarkHighlight)
+		createStarterOakBlock(model, "TopBarkKnot", Vector3.new(0.48, 0.38, 0.08), Vector3.new(-0.72, 0.12, -diameter * 0.5 + 0.04), palette.BarkShadow)
 	end
 	return model
 end
@@ -529,7 +552,8 @@ local function addStarterOakHarvestPlayground(gallery)
 	playground:SetAttribute("SourceTreeName", "StarterOakHarvestTree")
 	playground:SetAttribute("SectionFolderName", "StarterOakHarvestSections")
 	playground:SetAttribute("NormalizationTemplateFolder", "StarterOakNormalizedLogTemplates")
-	playground:SetAttribute("SupportedHarvestYields", "1,2,3")
+	playground:SetAttribute("SupportedHarvestYields", "1,2")
+	playground:SetAttribute("FallStyle", "CanopySupported")
 	playground.Parent = gallery
 
 	local center = GALLERY_ORIGIN + Vector3.new(75, 0, 485)
@@ -537,8 +561,8 @@ local function addStarterOakHarvestPlayground(gallery)
 	addSign(gallery, "STARTER OAK — TREE-DERIVED LOG SHOWCASE", Vector3.new(center.X, 0, center.Z - 25), 58, "StarterOakHarvestHeader")
 	addPlatform(playground, "ShowcaseStage", center, Vector3.new(82, 1, 44))
 
-	assert(STARTER_OAK_HARVEST_SHOWCASE_YIELD >= 1 and STARTER_OAK_HARVEST_SHOWCASE_YIELD <= 3,
-		"Starter Oak gallery yield must be 1, 2, or 3")
+	assert(STARTER_OAK_HARVEST_SHOWCASE_YIELD >= 1 and STARTER_OAK_HARVEST_SHOWCASE_YIELD <= 2,
+		"Starter Oak gallery yield must be 1 or 2")
 	local tree = makeStarterOakHarvestTree(STARTER_OAK_HARVEST_SHOWCASE_YIELD)
 	configureVisualOnlyModel(tree)
 	tree.Name = "StarterOakHarvestTree"

@@ -59,6 +59,119 @@ local function extentAlong(frame, size, axis)
 		+ math.abs(frame.UpVector:Dot(axis)) * size.Y
 		+ math.abs(frame.LookVector:Dot(axis)) * size.Z)
 end
+local CANOPY_FALL = {
+	MinimumAngle = math.rad(60), MaximumAngle = math.rad(82),
+	GroundClearance = 0.025, SectionGap = 0.5, SectionSettlePop = 0.25,
+}
+local CORNER_SIGNS = { -1, 1 }
+local function collectVisibleBounds(root, referencePivot)
+	local bounds = {}
+	for _, part in ipairs(root:GetDescendants()) do
+		if part:IsA("BasePart") and part.Transparency < 1 and part.LocalTransparencyModifier < 1 then
+			local half = part.Size * 0.5
+			local corners = {}
+			for _, xSign in ipairs(CORNER_SIGNS) do
+				for _, ySign in ipairs(CORNER_SIGNS) do
+					for _, zSign in ipairs(CORNER_SIGNS) do
+						table.insert(corners, Vector3.new(half.X * xSign, half.Y * ySign, half.Z * zSign))
+					end
+				end
+			end
+			table.insert(bounds, { Frame = referencePivot:ToObjectSpace(part.CFrame), Corners = corners })
+		end
+	end
+	return bounds
+end
+local function appendBounds(target, source)
+	for _, partBounds in ipairs(source) do table.insert(target, partBounds) end
+end
+local function boundsAt(bounds, pivot)
+	if #bounds == 0 then return nil end
+	local result = { MinX = math.huge, MaxX = -math.huge, MinY = math.huge }
+	for _, partBounds in ipairs(bounds) do
+		local frame = pivot * partBounds.Frame
+		for _, corner in ipairs(partBounds.Corners) do
+			local point = frame:PointToWorldSpace(corner)
+			result.MinX = math.min(result.MinX, point.X)
+			result.MaxX = math.max(result.MaxX, point.X)
+			result.MinY = math.min(result.MinY, point.Y)
+		end
+	end
+	return result
+end
+local function minimumYAt(bounds, pivot)
+	local result = boundsAt(bounds, pivot)
+	return result and result.MinY or math.huge
+end
+local function solveCanopyLandingAngle(tree, sections, standing)
+	local baseBounds = collectVisibleBounds(sections[1].model, standing)
+	local foliageBounds = {}
+	local supportBounds = {}
+	for _, folderName in ipairs({ "FoliageDecorations", "DecorativeBranches", "Leaves" }) do
+		local folder = tree:FindFirstChild(folderName)
+		if folder then
+			local folderBounds = collectVisibleBounds(folder, standing)
+			appendBounds(supportBounds, folderBounds)
+			if folderName == "FoliageDecorations" or folderName == "Leaves" then
+				appendBounds(foliageBounds, folderBounds)
+			end
+		end
+	end
+	if #baseBounds == 0 or #supportBounds == 0 then
+		return nil
+	end
+	local function contactGap(angle, bounds)
+		local rotatedPivot = standing * CFrame.Angles(0, 0, -angle)
+		return minimumYAt(bounds, rotatedPivot) - minimumYAt(baseBounds, rotatedPivot)
+	end
+	local function supportGap(angle)
+		return contactGap(angle, supportBounds)
+	end
+	local low, high = CANOPY_FALL.MinimumAngle, CANOPY_FALL.MaximumAngle
+	local lowGap = supportGap(low)
+	local previousAngle, previousGap = low, lowGap
+	local bracketLow, bracketHigh
+	local exactAngle
+	for sample = 1, 88 do
+		local angle = low + (high - low) * sample / 88
+		local gap = supportGap(angle)
+		if previousGap == 0 then
+			exactAngle = previousAngle
+			break
+		elseif gap == 0 then
+			exactAngle = angle
+			break
+		elseif (previousGap < 0 and gap > 0) or (previousGap > 0 and gap < 0) then
+			bracketLow, bracketHigh = previousAngle, angle
+			break
+		end
+		previousAngle, previousGap = angle, gap
+	end
+	local landingAngle
+	if exactAngle then
+		landingAngle = exactAngle
+	elseif bracketLow then
+		local left, right = bracketLow, bracketHigh
+		local leftGap = supportGap(left)
+		for _ = 1, 32 do
+			local middle = (left + right) * 0.5
+			local middleGap = supportGap(middle)
+			if middleGap == 0 then
+				left, right = middle, middle
+				break
+			elseif (leftGap < 0 and middleGap > 0) or (leftGap > 0 and middleGap < 0) then
+				right = middle
+			else
+				left, leftGap = middle, middleGap
+			end
+		end
+		landingAngle = (left + right) * 0.5
+	else
+		return nil
+	end
+	local foliageGap = if #foliageBounds > 0 then contactGap(landingAngle, foliageBounds) else nil
+	return landingAngle, foliageGap, supportGap(landingAngle)
+end
 local function hide(tree, saved)
 	saved = saved or {}
 	for _, part in ipairs(tree:GetDescendants()) do
@@ -136,11 +249,37 @@ end
 local function runFall(s)
 	local tree = s.tree
 	local standing = tree:GetPivot()
-	local baseRadius = s.sections[1].model.PrimaryPart.Size.X * 0.5
-	assert(animate(s, CONFIG.Fall, function(progress)
-		local angle = smooth(progress) * math.pi * 0.5
-		tree:PivotTo(CFrame.new(0, baseRadius * math.sin(angle), 0) * standing * CFrame.Angles(0, 0, -angle))
-	end), "fall cancelled")
+	local canopySupported = s.playground:GetAttribute("FallStyle") == "CanopySupported"
+	local treeBounds = if canopySupported then collectVisibleBounds(tree, standing) else nil
+	if canopySupported and #treeBounds == 0 then
+		warn("[DevTreeGallery] CanopySupported fall has no visible bounds; using the legacy fall")
+		canopySupported = false
+	end
+	if canopySupported then
+		local landingAngle, foliageGap, supportGap = solveCanopyLandingAngle(tree, s.sections, standing)
+		if landingAngle then
+			s.standing = standing
+			debugEvent("CANOPY_LANDING_SOLVED", ("angle=%.2f foliageGap=%.3f supportGap=%.3f"):format(
+				math.deg(landingAngle), foliageGap or -1, supportGap or -1))
+			assert(animate(s, CONFIG.Fall, function(progress)
+				local angle = landingAngle * smooth(progress)
+				local rotatedPivot = standing * CFrame.Angles(0, 0, -angle)
+				local minimumY = minimumYAt(treeBounds, rotatedPivot)
+				local groundOffset = s.groundY + CANOPY_FALL.GroundClearance - minimumY
+				tree:PivotTo(CFrame.new(0, groundOffset, 0) * rotatedPivot)
+			end), "fall cancelled")
+		else
+			warn("[DevTreeGallery] CanopySupported fall has no reliable contact; using the legacy fall")
+			canopySupported = false
+		end
+	end
+	if not canopySupported then
+		local baseRadius = s.sections[1].model.PrimaryPart.Size.X * 0.5
+		assert(animate(s, CONFIG.Fall, function(progress)
+			local angle = smooth(progress) * math.pi * 0.5
+			tree:PivotTo(CFrame.new(0, baseRadius * math.sin(angle), 0) * standing * CFrame.Angles(0, 0, -angle))
+		end), "fall cancelled")
+	end
 	assert(animate(s, CONFIG.ImpactPause, function() end), "impact cancelled")
 	detachJoints(tree, s.sections)
 	local leaves, details = {}, {}
@@ -154,20 +293,44 @@ local function runFall(s)
 			end
 		end
 	end
-	local _, standardSize = s.destination:GetBoundingBox()
-	local standardLength = math.max(standardSize.X, standardSize.Y, standardSize.Z)
-	local previousCenter, previousHalf
-	for index, item in ipairs(s.sections) do
-		local frame, size = item.model:GetBoundingBox()
-		local halfX = extentAlong(frame, size, Vector3.xAxis)
-		local bottom = frame.Position.Y - extentAlong(frame, size, Vector3.yAxis)
-		local targetX = frame.Position.X
-		if previousCenter then
-			targetX = math.max(targetX, previousCenter + math.max(previousHalf + halfX, standardLength) + 0.8)
+	if canopySupported then
+		local impactPivot = tree:GetPivot()
+		local previousCenter, previousHalf
+		for index, item in ipairs(s.sections) do
+			local startPivot = item.model:GetPivot()
+			local sectionBounds = collectVisibleBounds(item.model, startPivot)
+			local relativePivot = impactPivot:ToObjectSpace(startPivot)
+			local targetPivot = standing * CFrame.Angles(0, 0, -math.pi * 0.5) * relativePivot
+			local bounds = boundsAt(sectionBounds, targetPivot)
+			if bounds then
+				targetPivot = CFrame.new(0, s.groundY + CANOPY_FALL.GroundClearance - bounds.MinY, 0) * targetPivot
+				bounds = boundsAt(sectionBounds, targetPivot)
+				local halfX = (bounds.MaxX - bounds.MinX) * 0.5
+				local targetCenter = (bounds.MinX + bounds.MaxX) * 0.5
+				if previousCenter then
+					targetCenter = math.max(targetCenter, previousCenter + previousHalf + halfX + CANOPY_FALL.SectionGap)
+				end
+				targetPivot = CFrame.new(targetCenter - (bounds.MinX + bounds.MaxX) * 0.5, 0, 0) * targetPivot
+				previousCenter, previousHalf = targetCenter, halfX
+			end
+			details[index] = { Pivot = startPivot, Target = targetPivot, Bounds = sectionBounds }
 		end
-		details[index] = { Pivot = item.model:GetPivot(),
-			Offset = Vector3.new(targetX - frame.Position.X, math.max(0, s.groundY + 0.04 - bottom), 0) }
-		previousCenter, previousHalf = targetX, halfX
+	else
+		local _, standardSize = s.destination:GetBoundingBox()
+		local standardLength = math.max(standardSize.X, standardSize.Y, standardSize.Z)
+		local previousCenter, previousHalf
+		for index, item in ipairs(s.sections) do
+			local frame, size = item.model:GetBoundingBox()
+			local halfX = extentAlong(frame, size, Vector3.xAxis)
+			local bottom = frame.Position.Y - extentAlong(frame, size, Vector3.yAxis)
+			local targetX = frame.Position.X
+			if previousCenter then
+				targetX = math.max(targetX, previousCenter + math.max(previousHalf + halfX, standardLength) + 0.8)
+			end
+			details[index] = { Pivot = item.model:GetPivot(),
+				Offset = Vector3.new(targetX - frame.Position.X, math.max(0, s.groundY + 0.04 - bottom), 0) }
+			previousCenter, previousHalf = targetX, halfX
+		end
 	end
 	local duration = math.max(CONFIG.Foliage, CONFIG.Breakup + (#s.sections - 1) * CONFIG.BreakupStagger)
 	assert(animate(s, duration, function(_, elapsed)
@@ -181,9 +344,17 @@ local function runFall(s)
 		for index, item in ipairs(s.sections) do
 			local p = math.clamp((elapsed - (index - 1) * CONFIG.BreakupStagger) / CONFIG.Breakup, 0, 1)
 			local detail = details[index]
-			local movement = detail.Offset * smooth(p) + Vector3.yAxis * (math.sin(math.pi * p) * CONFIG.BreakupPop)
-			local spin = CFrame.fromAxisAngle(Vector3.yAxis, 2 * math.pi * CONFIG.BreakupTurns * p)
-			item.model:PivotTo(CFrame.new(movement) * detail.Pivot * spin)
+			if canopySupported then
+				local candidate = detail.Pivot:Lerp(detail.Target, smooth(p))
+				local floorCorrection = math.max(0, s.groundY + CANOPY_FALL.GroundClearance
+					- minimumYAt(detail.Bounds, candidate))
+				local settlePop = math.sin(math.pi * p) * CANOPY_FALL.SectionSettlePop
+				item.model:PivotTo(CFrame.new(0, floorCorrection + settlePop, 0) * candidate)
+			else
+				local movement = detail.Offset * smooth(p) + Vector3.yAxis * (math.sin(math.pi * p) * CONFIG.BreakupPop)
+				local spin = CFrame.fromAxisAngle(Vector3.yAxis, 2 * math.pi * CONFIG.BreakupTurns * p)
+				item.model:PivotTo(CFrame.new(movement) * detail.Pivot * spin)
+			end
 		end
 	end), "breakup cancelled")
 	s.phase = "ready"
@@ -277,6 +448,12 @@ local function pileTarget(s, root, index)
 	local stage = s.playground:FindFirstChild("ShowcaseStage")
 	assert(body and body:IsA("BasePart") and stage and stage:IsA("BasePart"), "standard log body or gallery stage missing")
 	local length, diameter = body.Size.X, body.Size.Y
+	if s.playground:GetAttribute("FallStyle") == "CanopySupported" then
+		local outerLength = s.destination:GetAttribute("NormalizedOuterLength")
+		local outerDiameter = s.destination:GetAttribute("NormalizedOuterDiameter")
+		if typeof(outerLength) == "number" and outerLength > 0 then length = outerLength end
+		if typeof(outerDiameter) == "number" and outerDiameter > 0 then diameter = outerDiameter end
+	end
 	if not s.pileOrigin then
 		local right = Vector3.new(root.CFrame.RightVector.X, 0, root.CFrame.RightVector.Z)
 		right = if right.Magnitude > 1e-4 then right.Unit else Vector3.xAxis
@@ -409,7 +586,7 @@ local function runPickup(s, item, mode)
 		table.insert(s.pile, model)
 		debugEvent("SETTLEMENT_COMPLETE", ("section=%d pileCount=%d position=%s"):format(
 			item.index, #s.pile, tostring(model:GetPivot().Position)))
-		status(("Overflow complete — pile: %d/3"):format(#s.pile))
+		status(("Overflow complete — pile: %d/%d"):format(#s.pile, #s.sections))
 	end
 	item.state = "collected"
 	item.prompt:Destroy()
