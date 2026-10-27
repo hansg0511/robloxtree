@@ -91,9 +91,22 @@ local function updateControls()
 		end
 	end
 end
-local function reset()
+local function reset(targetControls)
 	local s = session
-	if not s then return end
+	if not s then
+		if targetControls then
+			controls = targetControls
+			for _, prompt in ipairs(targetControls.playground:GetDescendants()) do
+				if prompt:IsA("ProximityPrompt") and prompt:GetAttribute("DevTreeGalleryTransformationPrompt") == true then
+					prompt.Enabled = true
+				end
+			end
+		end
+		updateControls()
+		status("Ready — press E at the tree")
+		return
+	end
+	controls = controlsByPlayground[s.playground] or controls
 	session = nil
 	s.cancelled = true
 	if s.controller then s.controller:Cancel() end
@@ -546,7 +559,7 @@ local function setupControls(playground)
 	statusLabel.Size, statusLabel.Font = UDim2.fromScale(1, 1), Enum.Font.GothamBold
 	statusLabel.TextColor3, statusLabel.TextScaled = Color3.new(1, 1, 1), true
 	statusLabel.Parent = billboard
-	local playgroundControls = { folder = folder, labels = { Backpack = backpack, Overflow = overflow }, status = statusLabel }
+	local playgroundControls = { playground = playground, folder = folder, labels = { Backpack = backpack, Overflow = overflow }, status = statusLabel }
 	controlsByPlayground[playground] = playgroundControls
 	if not controls then controls = playgroundControls end
 	updateControls()
@@ -590,12 +603,15 @@ PromptService.PromptTriggered:Connect(function(prompt)
 	if action and promptControls then
 		controls = promptControls
 		if action == "Reset" then
-			reset()
+			reset(promptControls)
 		elseif (action == "Backpack" or action == "Overflow") and (not session or session.phase == "ready") then
+			local wasSelected = selectedMode == action
 			selectedMode = action
 			debugEvent("MODE_SELECTED", action)
 			updateControls()
-			status("Approach a section and press E")
+		status(if wasSelected
+			then action .. " is already selected — press E at the tree"
+			else action .. " selected — press E at the tree")
 		else
 			debugEvent("MODE_SELECTION_IGNORED", ("action=%s phase=%s"):format(action, session and session.phase or "none"))
 		end
