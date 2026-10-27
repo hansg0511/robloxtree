@@ -22,6 +22,7 @@ local CONFIG = {
 	CarrySettleDuration = 0.22, OverflowSettleDuration = 0.45, PileSpacing = 0.08,
 }
 local session, controls
+local controlsByPlayground = setmetatable({}, { __mode = "k" })
 local selectedMode = "Backpack"
 
 local function debugEvent(event, detail)
@@ -74,9 +75,11 @@ local function restore(saved)
 	end
 end
 local function updateControls()
-	if controls and controls.folder.Parent then
-		for mode, label in pairs(controls.labels) do
-			label.Text = mode:upper() .. (selectedMode == mode and " [SELECTED]" or "")
+	for _, candidate in pairs(controlsByPlayground) do
+		if candidate.folder.Parent then
+			for mode, label in pairs(candidate.labels) do
+				label.Text = mode:upper() .. (selectedMode == mode and " [SELECTED]" or "")
+			end
 		end
 	end
 	if session then
@@ -128,10 +131,14 @@ local function runFall(s)
 	assert(animate(s, CONFIG.ImpactPause, function() end), "impact cancelled")
 	detachJoints(tree, s.sections)
 	local leaves, details = {}, {}
-	local leafFolder = tree:FindFirstChild("Leaves")
-	if leafFolder then
-		for _, part in ipairs(leafFolder:GetDescendants()) do
-			if part:IsA("BasePart") then table.insert(leaves, { part, part.Size, part.Transparency }) end
+	-- Starter Oak branches are decorative, just like its foliage. Fade both
+	-- before its bare trunk sections settle so no bough can look like a support.
+	for _, folderName in ipairs({ "Leaves", "FoliageDecorations", "DecorativeBranches" }) do
+		local decorationFolder = tree:FindFirstChild(folderName)
+		if decorationFolder then
+			for _, part in ipairs(decorationFolder:GetDescendants()) do
+				if part:IsA("BasePart") then table.insert(leaves, { part, part.Size, part.Transparency }) end
+			end
 		end
 	end
 	local _, standardSize = s.destination:GetBoundingBox()
@@ -314,7 +321,12 @@ local function runPickup(s, item, mode)
 	s.pickupStage = "FX.Play"
 	debugEvent("TRANSFORMATION_STARTING", ("mode=%s section=%d"):format(mode, item.index))
 	if mode == "Overflow" then status("Overflow pickup started") end
-	local controller, message = FX.Play(item.model, s.destination, {
+	local destination = item.destination or s.destination
+	assert(destination and destination:IsA("Model"), "normalized log template missing for section " .. item.index)
+	-- The same normalized model becomes the homing and pile/carry visual. This
+	-- is intentionally not a generic global Oak log substitution.
+	s.destination = destination
+	local controller, message = FX.Play(item.model, destination, {
 		LiftDuration = CONFIG.LiftDuration, CompressionDuration = CONFIG.CompressionDuration,
 		RevealDuration = CONFIG.RevealDuration, FinishDuration = 3,
 		LiftHeight = CONFIG.LiftHeight, RotationTurns = CONFIG.RotationTurns,
@@ -394,33 +406,63 @@ local function runPickup(s, item, mode)
 	updateControls()
 end
 local function start(playground, fallPrompt)
-	local source = playground:FindFirstChild("ShowcaseTree")
+	local sourceName = playground:GetAttribute("SourceTreeName") or "ShowcaseTree"
+	local sectionFolderName = playground:GetAttribute("SectionFolderName") or "OakHarvestSections"
+	local templateFolderName = playground:GetAttribute("NormalizationTemplateFolder")
+	local source = playground:FindFirstChild(sourceName)
 	local destination = playground:FindFirstChild("TransformationDestinationTemplate")
 	local slot = playground:FindFirstChild("DemoSlot")
-	assert(source and source:IsA("Model") and destination and destination:IsA("Model")
-		and slot and slot:IsA("BasePart"), "showcase templates missing")
-	local body = destination:WaitForChild("LogHandle", 5)
-	assert(body and body:IsA("BasePart"), "standard log body was not streamed in")
+	local templateFolder = if type(templateFolderName) == "string"
+		then playground:FindFirstChild(templateFolderName) else nil
+	assert(source and source:IsA("Model") and slot and slot:IsA("BasePart"), "showcase source or slot missing")
+	if destination then
+		assert(destination:IsA("Model"), "standardized destination is not a Model")
+		local body = destination:WaitForChild("LogHandle", 5)
+		assert(body and body:IsA("BasePart"), "standard log body was not streamed in")
+	elseif not templateFolder then
+		error("showcase has no normalized log template")
+	end
 	local tree = source:Clone()
 	assert(tree, "could not clone showcase tree")
-	local sectionFolder, sections = tree:FindFirstChild("OakHarvestSections"), {}
-	for index, name in ipairs({ "Base", "Middle", "Top" }) do
-		local model = sectionFolder and sectionFolder:FindFirstChild(name)
-		if not model or not model:IsA("Model") or not model.PrimaryPart then
+	local sectionFolder, sections = tree:FindFirstChild(sectionFolderName), {}
+	local authoredSections = {}
+	for _, model in ipairs(sectionFolder and sectionFolder:GetChildren() or {}) do
+		if model:IsA("Model") then
+			local index = model:GetAttribute("HarvestSectionIndex")
+			if typeof(index) == "number" then
+				table.insert(authoredSections, { index = index, model = model })
+			end
+		end
+	end
+	table.sort(authoredSections, function(a, b) return a.index < b.index end)
+	if #authoredSections == 0 then
+		tree:Destroy()
+		error("showcase has no authored harvest sections")
+	end
+	for visualIndex, authored in ipairs(authoredSections) do
+		local model = authored.model
+		if not model.PrimaryPart then
 			tree:Destroy()
-			error("missing authored section " .. name)
+			error("authored section has no PrimaryPart: " .. model.Name)
+		end
+		local sectionDestination = destination
+		if templateFolder then
+			sectionDestination = templateFolder:WaitForChild("Section" .. visualIndex, 5)
+			assert(sectionDestination and sectionDestination:IsA("Model"), "normalized template missing for section " .. visualIndex)
+			local body = sectionDestination:WaitForChild("LogHandle", 5)
+			assert(body and body:IsA("BasePart"), "normalized log body was not streamed in for section " .. visualIndex)
 		end
 		local prompt = Instance.new("ProximityPrompt")
 		prompt.Name = "DevCollectSection"
 		prompt.ActionText = "Preview " .. selectedMode .. " Pickup"
-		prompt.ObjectText = "Oak section " .. index
+		prompt.ObjectText = "Oak section " .. visualIndex
 		prompt.KeyboardKeyCode = Enum.KeyCode.E
 		prompt.MaxActivationDistance = 5
 		prompt.RequiresLineOfSight = false
 		prompt.Enabled = false
-		prompt:SetAttribute("DevShowcaseSection", index)
+		prompt:SetAttribute("DevShowcaseSection", visualIndex)
 		prompt.Parent = model.PrimaryPart
-		table.insert(sections, { index = index, model = model, state = "available", prompt = prompt })
+		table.insert(sections, { index = visualIndex, model = model, state = "available", prompt = prompt, destination = sectionDestination })
 	end
 	local folder = Instance.new("Folder")
 	folder.Name = "ClientFullHarvestShowcase"
@@ -432,7 +474,8 @@ local function start(playground, fallPrompt)
 	local saved = hide(source)
 	local groundY = slot:GetAttribute("GroundY")
 	if typeof(groundY) ~= "number" then groundY = slot.Position.Y - 1.5 end
-	local s = { playground = playground, folder = folder, tree = tree, destination = destination,
+	controls = controlsByPlayground[playground] or controls
+	local s = { playground = playground, folder = folder, tree = tree, destination = destination or sections[1].destination,
 		sections = sections, saved = saved, fallPrompt = fallPrompt, groundY = groundY,
 		phase = "falling", carries = {}, pile = {} }
 	session = s
@@ -478,11 +521,11 @@ local function makeControl(folder, position, action, title)
 	label.Parent = billboard
 	return label
 end
-local function setupControls(gallery)
-	local playground = gallery:WaitForChild("TransformationPlayground", 15)
+local function setupControls(playground)
 	local slot = playground and playground:WaitForChild("DemoSlot", 15)
-	if not gallery.Parent or not slot or not slot:IsA("BasePart") then return end
-	if controls and controls.folder.Parent then controls.folder:Destroy() end
+	if not playground or not playground.Parent or not slot or not slot:IsA("BasePart") then return end
+	local existingControls = controlsByPlayground[playground]
+	if existingControls and existingControls.folder.Parent then return end
 	local folder = Instance.new("Folder")
 	folder.Name, folder.Parent = "ClientShowcaseControls", playground
 	-- Keep controls outside the fall prompt's radius and apart from each other.
@@ -503,20 +546,49 @@ local function setupControls(gallery)
 	statusLabel.Size, statusLabel.Font = UDim2.fromScale(1, 1), Enum.Font.GothamBold
 	statusLabel.TextColor3, statusLabel.TextScaled = Color3.new(1, 1, 1), true
 	statusLabel.Parent = billboard
-	controls = { folder = folder, labels = { Backpack = backpack, Overflow = overflow }, status = statusLabel }
+	local playgroundControls = { folder = folder, labels = { Backpack = backpack, Overflow = overflow }, status = statusLabel }
+	controlsByPlayground[playground] = playgroundControls
+	if not controls then controls = playgroundControls end
 	updateControls()
-	status("Select a mode, then collect a section")
+	if controls == playgroundControls then status("Select a mode, then collect a section") end
 end
+
+local function setupGallery(gallery)
+	for _, descendant in ipairs(gallery:GetDescendants()) do
+		if descendant:GetAttribute("DevHarvestShowcase") == true then
+			task.spawn(setupControls, descendant)
+		end
+	end
+end
+
+local function controlsForPrompt(prompt)
+	for _, candidate in pairs(controlsByPlayground) do
+		if prompt:IsDescendantOf(candidate.folder) then return candidate end
+	end
+	return nil
+end
+
+local function findHarvestPlayground(instance)
+	local current = instance
+	while current and current ~= Workspace do
+		if current:GetAttribute("DevHarvestShowcase") == true then return current end
+		current = current.Parent
+	end
+	return nil
+end
+
 Workspace.ChildAdded:Connect(function(child)
-	if child.Name == "DevTreeGallery" then task.defer(setupControls, child) end
+	if child.Name == "DevTreeGallery" then task.defer(setupGallery, child) end
 end)
 local existing = Workspace:FindFirstChild("DevTreeGallery")
-if existing then task.spawn(setupControls, existing) end
+if existing then task.spawn(setupGallery, existing) end
 
 PromptService.PromptTriggered:Connect(function(prompt)
 	if not prompt then return end
 	local action = prompt:GetAttribute("DevShowcaseAction")
-	if action and controls and prompt:IsDescendantOf(controls.folder) then
+	local promptControls = controlsForPrompt(prompt)
+	if action and promptControls then
+		controls = promptControls
 		if action == "Reset" then
 			reset()
 		elseif (action == "Backpack" or action == "Overflow") and (not session or session.phase == "ready") then
@@ -530,7 +602,7 @@ PromptService.PromptTriggered:Connect(function(prompt)
 		return
 	end
 	if prompt:GetAttribute("DevTreeGalleryTransformationPrompt") == true then
-		local playground = prompt:FindFirstAncestor("TransformationPlayground")
+		local playground = findHarvestPlayground(prompt)
 		local gallery = Workspace:FindFirstChild("DevTreeGallery")
 		if session or not playground or playground.Parent ~= gallery or not gallery then return end
 		local ok, err = pcall(start, playground, prompt)

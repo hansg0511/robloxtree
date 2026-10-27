@@ -23,6 +23,9 @@ local MIN_PLATFORM_SIZE = 24
 local PLATFORM_PADDING = 12
 local COLUMN_GAP = 20
 local ROW_GAP = 46
+-- Change only this Studio-gallery value to inspect the one-, two-, or
+-- three-section construction. Production yield rules remain untouched.
+local STARTER_OAK_HARVEST_SHOWCASE_YIELD = 3
 
 if not ENABLED then
 	-- Turning the Studio tool off removes a gallery created during an earlier
@@ -118,13 +121,144 @@ local function makeStarterOakPrototype()
 		{ "CanopyMiddle", Vector3.new(8.7, 3.9, 8.1), Vector3.new(0, 16.7, 0), palette.Leaf },
 		{ "CanopyMiddleLeft", Vector3.new(4.7, 3.5, 5.4), Vector3.new(-2.85, 17.1, 0.85), palette.LeafHighlight },
 		{ "CanopyMiddleBack", Vector3.new(5.6, 3.4, 4.5), Vector3.new(1.85, 17.4, 2.75), palette.LeafShadow },
-		{ "CanopyUpper", Vector3.new(6.8, 3.8, 6.5), Vector3.new(-0.15, 19.5, 0.1), palette.LeafHighlight },
-		{ "CanopyCrown", Vector3.new(3.9, 2.6, 3.8), Vector3.new(0.45, 22.1, -0.15), palette.Leaf },
+		-- The upper two blocks sit 1–2 studs lower than the first concept pass,
+		-- preserving the broad silhouette while making this a shorter starter tree.
+		{ "CanopyUpper", Vector3.new(6.8, 3.8, 6.5), Vector3.new(-0.15, 18.4, 0.1), palette.LeafHighlight },
+		{ "CanopyCrown", Vector3.new(3.9, 2.6, 3.8), Vector3.new(0.45, 20.5, -0.15), palette.Leaf },
 	}
 	for _, definition in ipairs(foliage) do
 		createStarterOakBlock(foliageGroup, definition[1], definition[2], definition[3], definition[4])
 	end
 
+	return model
+end
+
+local STARTER_OAK_NORMALIZED_LOG_LENGTH = 4.6
+local STARTER_OAK_NORMALIZED_LOG_DIAMETER = 2.1
+
+-- Gallery-only authored version of the approved Starter Oak. The sections are
+-- actual pieces of its trunk; canopy and branch blocks deliberately remain
+-- outside them so they cannot prop a fallen section above the ground.
+local function makeStarterOakHarvestTree(sectionCount)
+	local rangesByYield = {
+		[1] = { { 1, 3 } },
+		[2] = { { 1, 1 }, { 2, 3 } },
+		[3] = { { 1, 1 }, { 2, 2 }, { 3, 3 } },
+	}
+	local ranges = rangesByYield[sectionCount]
+	assert(ranges, "Starter Oak supports only 1, 2, or 3 harvest sections")
+
+	local palette = SpeciesVisuals.GetPalette("Oak")
+	local model = Instance.new("Model")
+	model.Name = "StarterOakHarvestTree"
+	model:SetAttribute("DevTreeGalleryPreview", true)
+	model:SetAttribute("VisualOnly", true)
+	model:SetAttribute("PrototypeOnly", true)
+	model:SetAttribute("SpeciesId", "Oak")
+	model:SetAttribute("SupportedHarvestYields", "1,2,3")
+	model:SetAttribute("HarvestYieldPreview", sectionCount)
+
+	local pivot = createStarterOakBlock(model, "StarterOakPivot", Vector3.new(0.2, 0.2, 0.2), Vector3.new(0, 0.1, 0), palette.Bark)
+	pivot.Transparency = 1
+	pivot.CastShadow = false
+	pivot:SetAttribute("AlwaysInvisible", true)
+	pivot.PivotOffset = CFrame.new(0, -0.1, 0)
+	model.PrimaryPart = pivot
+
+	local sectionsFolder = Instance.new("Folder")
+	sectionsFolder.Name = "StarterOakHarvestSections"
+	sectionsFolder.Parent = model
+	local components = {
+		{
+			{ "BaseCore", Vector3.new(3.2, 3.34, 3.2), Vector3.new(0, 1.67, 0), palette.Bark },
+			{ "BaseWarmFace", Vector3.new(0.28, 2.2, 2.45), Vector3.new(-1.47, 1.85, -0.1), palette.BarkHighlight },
+			{ "BaseShadowFace", Vector3.new(2.45, 1.25, 0.28), Vector3.new(0.08, 0.9, 1.47), palette.BarkShadow },
+		},
+		{
+			{ "MiddleCore", Vector3.new(3.2, 3.33, 3.2), Vector3.new(0, 5.005, 0), palette.Bark },
+			{ "MiddleWarmFace", Vector3.new(0.28, 1.8, 2.45), Vector3.new(1.47, 5.25, 0.1), palette.BarkHighlight },
+		},
+		{
+			{ "TopCore", Vector3.new(3.2, 3.33, 3.2), Vector3.new(0, 8.335, 0), palette.Bark },
+			{ "TrunkCrown", Vector3.new(3.8, 3.4, 3.8), Vector3.new(0, 10.5, 0), palette.Bark },
+			{ "TopShadowFace", Vector3.new(2.45, 1.55, 0.28), Vector3.new(-0.08, 8.1, -1.47), palette.BarkShadow },
+		},
+	}
+
+	for sectionIndex, range in ipairs(ranges) do
+		local section = Instance.new("Model")
+		section.Name = "Section" .. sectionIndex
+		section:SetAttribute("AuthoredHarvestSection", true)
+		section:SetAttribute("HarvestSectionIndex", sectionIndex)
+		section:SetAttribute("SpeciesId", "Oak")
+		section.Parent = sectionsFolder
+		for componentIndex = range[1], range[2] do
+			for _, definition in ipairs(components[componentIndex]) do
+				local part = createStarterOakBlock(section, definition[1], definition[2], definition[3], definition[4])
+				if not section.PrimaryPart then section.PrimaryPart = part end
+			end
+		end
+	end
+
+	local branches = Instance.new("Folder")
+	branches.Name = "DecorativeBranches"
+	branches.Parent = model
+	createStarterOakBlock(branches, "BranchLeft", Vector3.new(3.5, 2.1, 2.8), Vector3.new(-2.5, 11.7, 0.2), palette.BarkHighlight)
+	createStarterOakBlock(branches, "BranchRight", Vector3.new(3.3, 2.1, 2.8), Vector3.new(2.4, 12.0, -0.15), palette.BarkHighlight)
+	createStarterOakBlock(branches, "BranchFront", Vector3.new(2.7, 1.9, 3.2), Vector3.new(0.15, 12.3, -2.25), palette.Bark)
+
+	local foliage = Instance.new("Folder")
+	foliage.Name = "FoliageDecorations"
+	foliage.Parent = model
+	for _, definition in ipairs({
+		{ "CanopyLowCenter", Vector3.new(8.4, 3.8, 8.6), Vector3.new(0, 13.7, 0.1), palette.LeafShadow },
+		{ "CanopyLowLeft", Vector3.new(4.8, 3.7, 5.8), Vector3.new(-4.15, 13.9, 0.35), palette.LeafShadow },
+		{ "CanopyLowRight", Vector3.new(4.8, 3.7, 5.8), Vector3.new(4.15, 14.1, -0.2), palette.Leaf },
+		{ "CanopyFront", Vector3.new(6.8, 3.5, 4.1), Vector3.new(0.2, 14.4, -3.65), palette.Leaf },
+		{ "CanopyMiddle", Vector3.new(8.7, 3.9, 8.1), Vector3.new(0, 16.7, 0), palette.Leaf },
+		{ "CanopyMiddleLeft", Vector3.new(4.7, 3.5, 5.4), Vector3.new(-2.85, 17.1, 0.85), palette.LeafHighlight },
+		{ "CanopyMiddleBack", Vector3.new(5.6, 3.4, 4.5), Vector3.new(1.85, 17.4, 2.75), palette.LeafShadow },
+		{ "CanopyUpper", Vector3.new(6.8, 3.8, 6.5), Vector3.new(-0.15, 18.4, 0.1), palette.LeafHighlight },
+		{ "CanopyCrown", Vector3.new(3.9, 2.6, 3.8), Vector3.new(0.45, 20.5, -0.15), palette.Leaf },
+	}) do
+		createStarterOakBlock(foliage, definition[1], definition[2], definition[3], definition[4])
+	end
+
+	return model
+end
+
+-- Compact, smooth logs carry a shared 4.6 x 2.1 x 2.1 outer footprint. The
+-- source section determines the bark accent placement, preserving its visual
+-- identity while removing branches and uneven geometry that would stack badly.
+local function makeStarterOakNormalizedLogTemplate(sectionIndex)
+	local palette = SpeciesVisuals.GetPalette("Oak")
+	local model = Instance.new("Model")
+	model.Name = "StarterOakNormalizedLog" .. sectionIndex
+	model:SetAttribute("DevTreeGalleryPreview", true)
+	model:SetAttribute("VisualOnly", true)
+	model:SetAttribute("PrototypeOnly", true)
+	model:SetAttribute("SpeciesId", "Oak")
+	model:SetAttribute("NormalizedFromSection", sectionIndex)
+	model:SetAttribute("NormalizedOuterLength", STARTER_OAK_NORMALIZED_LOG_LENGTH)
+	model:SetAttribute("NormalizedOuterDiameter", STARTER_OAK_NORMALIZED_LOG_DIAMETER)
+
+	local length = STARTER_OAK_NORMALIZED_LOG_LENGTH
+	local diameter = STARTER_OAK_NORMALIZED_LOG_DIAMETER
+	local handle = createStarterOakBlock(model, "LogHandle", Vector3.new(length, diameter, diameter), Vector3.zero, palette.Bark)
+	model.PrimaryPart = handle
+	createStarterOakBlock(model, "CutEndLeft", Vector3.new(0.18, diameter * 0.82, diameter * 0.82), Vector3.new(-length * 0.5 + 0.09, 0, 0), palette.CutEnd)
+	createStarterOakBlock(model, "CutEndRight", Vector3.new(0.18, diameter * 0.82, diameter * 0.82), Vector3.new(length * 0.5 - 0.09, 0, 0), palette.CutEnd)
+
+	if sectionIndex == 1 then
+		createStarterOakBlock(model, "BaseWarmBark", Vector3.new(length * 0.52, 0.12, diameter * 0.72), Vector3.new(-0.38, diameter * 0.5 + 0.04, -0.12), palette.BarkHighlight)
+		createStarterOakBlock(model, "BaseShadowBark", Vector3.new(length * 0.32, diameter * 0.56, 0.12), Vector3.new(0.85, -0.12, diameter * 0.5 + 0.04), palette.BarkShadow)
+	elseif sectionIndex == 2 then
+		createStarterOakBlock(model, "MiddleWarmBark", Vector3.new(length * 0.42, 0.12, diameter * 0.74), Vector3.new(0.36, diameter * 0.5 + 0.04, 0.08), palette.BarkHighlight)
+		createStarterOakBlock(model, "MiddleShadowBark", Vector3.new(length * 0.2, diameter * 0.48, 0.12), Vector3.new(-1.0, 0.12, -diameter * 0.5 - 0.04), palette.BarkShadow)
+	else
+		createStarterOakBlock(model, "TopWarmBark", Vector3.new(length * 0.30, 0.12, diameter * 0.72), Vector3.new(0.8, diameter * 0.5 + 0.04, 0), palette.BarkHighlight)
+		createStarterOakBlock(model, "TopBarkKnot", Vector3.new(0.48, 0.38, 0.12), Vector3.new(-0.72, 0.12, -diameter * 0.5 - 0.04), palette.BarkShadow)
+	end
 	return model
 end
 
@@ -311,6 +445,7 @@ local function addTransformationPlayground(gallery)
 	playground.Name = "TransformationPlayground"
 	playground:SetAttribute("DevOnly", true)
 	playground:SetAttribute("VisualOnly", true)
+	playground:SetAttribute("DevHarvestShowcase", true)
 	playground:SetAttribute("SpeciesId", "Oak")
 	playground.Parent = gallery
 
@@ -376,6 +511,67 @@ local function addTransformationPlayground(gallery)
 	prompt.Name = "TransformationPreviewPrompt"
 	prompt.ActionText = "Preview Full Harvest"
 	prompt.ObjectText = "Large Oak"
+	prompt.KeyboardKeyCode = Enum.KeyCode.E
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = 12
+	prompt.RequiresLineOfSight = false
+	prompt:SetAttribute("DevTreeGalleryTransformationPrompt", true)
+	prompt.Parent = demoSlot
+end
+
+local function addStarterOakHarvestPlayground(gallery)
+	local playground = Instance.new("Folder")
+	playground.Name = "StarterOakHarvestPlayground"
+	playground:SetAttribute("DevOnly", true)
+	playground:SetAttribute("VisualOnly", true)
+	playground:SetAttribute("DevHarvestShowcase", true)
+	playground:SetAttribute("SpeciesId", "Oak")
+	playground:SetAttribute("SourceTreeName", "StarterOakHarvestTree")
+	playground:SetAttribute("SectionFolderName", "StarterOakHarvestSections")
+	playground:SetAttribute("NormalizationTemplateFolder", "StarterOakNormalizedLogTemplates")
+	playground:SetAttribute("SupportedHarvestYields", "1,2,3")
+	playground.Parent = gallery
+
+	local center = GALLERY_ORIGIN + Vector3.new(75, 0, 485)
+	local demoSlotCFrame = CFrame.new(center.X - 15, GALLERY_ORIGIN.Y + 1.5, center.Z - 13)
+	addSign(gallery, "STARTER OAK — TREE-DERIVED LOG SHOWCASE", Vector3.new(center.X, 0, center.Z - 25), 58, "StarterOakHarvestHeader")
+	addPlatform(playground, "ShowcaseStage", center, Vector3.new(82, 1, 44))
+
+	assert(STARTER_OAK_HARVEST_SHOWCASE_YIELD >= 1 and STARTER_OAK_HARVEST_SHOWCASE_YIELD <= 3,
+		"Starter Oak gallery yield must be 1, 2, or 3")
+	local tree = makeStarterOakHarvestTree(STARTER_OAK_HARVEST_SHOWCASE_YIELD)
+	configureVisualOnlyModel(tree)
+	tree.Name = "StarterOakHarvestTree"
+	tree:PivotTo(CFrame.new(center.X - 15, GALLERY_ORIGIN.Y + 0.04, center.Z))
+	tree.Parent = playground
+
+	local templateFolder = Instance.new("Folder")
+	templateFolder.Name = "StarterOakNormalizedLogTemplates"
+	templateFolder.Parent = playground
+	for index = 1, STARTER_OAK_HARVEST_SHOWCASE_YIELD do
+		local template = makeStarterOakNormalizedLogTemplate(index)
+		template.Name = "Section" .. index
+		template.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
+		template:PivotTo(demoSlotCFrame)
+		hideTemplateForClientClone(template, "StarterOakSection" .. index)
+		template.Parent = templateFolder
+	end
+
+	local demoSlot = createPart(
+		playground,
+		"DemoSlot",
+		Vector3.new(1, 1, 1),
+		demoSlotCFrame,
+		Color3.new(1, 1, 1)
+	)
+	demoSlot.Transparency = 1
+	demoSlot:SetAttribute("GroundY", GALLERY_ORIGIN.Y)
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "StarterOakHarvestPreviewPrompt"
+	prompt.ActionText = "Preview Starter Oak Harvest"
+	prompt.ObjectText = "Starter Oak (" .. STARTER_OAK_HARVEST_SHOWCASE_YIELD
+		.. (STARTER_OAK_HARVEST_SHOWCASE_YIELD == 1 and " log)" or " logs)")
 	prompt.KeyboardKeyCode = Enum.KeyCode.E
 	prompt.HoldDuration = 0
 	prompt.MaxActivationDistance = 12
@@ -515,6 +711,7 @@ local function createGallery()
 		makeStaticEntry(makeStarterOakPrototype(), "Approved Starter Oak Direction"),
 	})
 
+	addStarterOakHarvestPlayground(gallery)
 	addTransformationPlayground(gallery)
 
 	return gallery
