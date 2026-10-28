@@ -97,35 +97,25 @@ local function createStarterOakBlock(parent, name, size, position, color)
 end
 
 -- One gallery-only foliage recipe keeps the visual prototype and harvest
--- showcase aligned. The arrangement returns to the previously approved Oak:
--- offset low, middle, upper, and crown blocks retain visible stepped lobes.
+-- showcase aligned. Seven overlapping, smooth blocks create a layered crown
+-- with a 10-stud width, 9-stud depth, and 7.35-stud height.
 local function addStarterOakCanopy(parent, palette)
-	local originalCanopyAnchorY = 13.7
-	local canopyAnchorY = 13.25
-	local canopyScale = 0.8
 	local foliage = {
-		{ "CanopyLowCenter", Vector3.new(8.4, 3.8, 8.6), Vector3.new(0, 13.7, 0.1), palette.LeafShadow },
-		{ "CanopyLowLeft", Vector3.new(4.8, 3.7, 5.8), Vector3.new(-4.15, 13.9, 0.35), palette.LeafShadow },
-		{ "CanopyLowRight", Vector3.new(4.8, 3.7, 5.8), Vector3.new(4.15, 14.1, -0.2), palette.Leaf },
-		{ "CanopyFront", Vector3.new(6.8, 3.5, 4.1), Vector3.new(0.2, 14.4, -3.65), palette.Leaf },
-		{ "CanopyMiddle", Vector3.new(8.7, 3.9, 8.1), Vector3.new(0, 16.7, 0), palette.Leaf },
-		{ "CanopyMiddleLeft", Vector3.new(4.7, 3.5, 5.4), Vector3.new(-2.85, 17.1, 0.85), palette.LeafHighlight },
-		{ "CanopyMiddleBack", Vector3.new(5.6, 3.4, 4.5), Vector3.new(1.85, 17.4, 2.75), palette.LeafShadow },
-		{ "CanopyUpper", Vector3.new(6.8, 3.8, 6.5), Vector3.new(-0.15, 19.5, 0.1), palette.LeafHighlight },
-		{ "CanopyCrown", Vector3.new(3.9, 2.6, 3.8), Vector3.new(0.45, 22.1, -0.15), palette.Leaf },
+		{ "CanopyLowLeft", Vector3.new(4.8, 3.0, 4.4), Vector3.new(-2.6, 8.25, -1.4), palette.LeafShadow },
+		{ "CanopyLowRight", Vector3.new(4.8, 3.0, 4.4), Vector3.new(2.6, 8.25, 1.4), palette.Leaf },
+		{ "CanopyLowFront", Vector3.new(4.2, 3.0, 4.6), Vector3.new(0, 8.25, -1.0), palette.LeafHighlight },
+		{ "CanopyMiddleCore", Vector3.new(6.6, 3.2, 6.1), Vector3.new(0, 9.8, 0), palette.Leaf },
+		{ "CanopyMiddleBack", Vector3.new(4.4, 3.0, 5.8), Vector3.new(-1.3, 10.4, 2.5), palette.LeafShadow },
+		{ "CanopyUpper", Vector3.new(5.2, 3.0, 5.3), Vector3.new(0.25, 11.5, 0.15), palette.LeafHighlight },
+		{ "CanopyCrown", Vector3.new(3.8, 2.2, 3.8), Vector3.new(0.1, 13.0, 0), palette.Leaf },
 	}
 	for _, definition in ipairs(foliage) do
-		local originalPosition = definition[3]
-		local position = Vector3.new(
-			originalPosition.X * canopyScale,
-			canopyAnchorY + (originalPosition.Y - originalCanopyAnchorY) * canopyScale,
-			originalPosition.Z * canopyScale
-		)
-		createStarterOakBlock(parent, definition[1], definition[2] * canopyScale, position, definition[4])
+		createStarterOakBlock(parent, definition[1], definition[2], definition[3], definition[4])
 	end
-	-- With the base section's 1.19-stud half-width, the low-right block reaches
-	-- the ground at about 71.48 degrees. Its lowest corner contacts first; at
-	-- that angle the closest decorative branch remains roughly 0.77 studs higher.
+	-- The 6.75-stud underside leaves 6.75 studs of the 12-stud trunk visible.
+	-- Under the shared CanopySupported solver, CanopyLowRight contacts with the
+	-- base at 60.56 degrees; BranchRight stays 3.80 studs above that contact,
+	-- exceeding the solver's 0.08-stud minimum branch clearance.
 end
 
 -- The static prototype and the harvest showcase use the same six trunk
@@ -149,9 +139,11 @@ local function getStarterOakTrunkComponents(palette)
 end
 
 local function addStarterOakBranches(parent, palette)
-	createStarterOakBlock(parent, "BranchLeft", Vector3.new(3.5, 2.1, 2.8), Vector3.new(-2.5, 11.7, 0.2), palette.BarkHighlight)
-	createStarterOakBlock(parent, "BranchRight", Vector3.new(3.3, 2.1, 2.8), Vector3.new(2.4, 12.0, -0.15), palette.BarkHighlight)
-	createStarterOakBlock(parent, "BranchFront", Vector3.new(2.7, 1.9, 3.2), Vector3.new(0.15, 12.3, -2.25), palette.Bark)
+	createStarterOakBlock(parent, "BranchLeft", Vector3.new(1.2, 0.45, 1.0), Vector3.new(-1.4, 9.4, 0), palette.BarkHighlight)
+	createStarterOakBlock(parent, "BranchRight", Vector3.new(1.2, 0.45, 1.0), Vector3.new(1.4, 9.4, 0), palette.BarkHighlight)
+	createStarterOakBlock(parent, "BranchFront", Vector3.new(1.1, 0.4, 1.0), Vector3.new(0, 9.4, -1.2), palette.Bark)
+	-- Keep the small branch junctions well inside CanopyMiddleCore's bounds
+	-- (x +/-3.3, y 8.2..11.4, z +/-3.05) so none can show outside the foliage.
 end
 
 -- A static visual study for the next Starter Oak direction. It intentionally
