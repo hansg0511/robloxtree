@@ -97,25 +97,32 @@ local function createStarterOakBlock(parent, name, size, position, color)
 end
 
 -- One gallery-only foliage recipe keeps the visual prototype and harvest
--- showcase aligned. Seven overlapping, smooth blocks create a layered crown
--- with a 10-stud width, 9-stud depth, and 7.35-stud height.
+-- showcase aligned. Seven overlapping, smooth blocks create a compact crown
+-- with a 10.05-stud width, 9.1-stud depth, and 7.35-stud height. Front is -Z;
+-- viewed toward +Z, screen-left is +X, so the medium-green left lobe is on +X
+-- and the dark right lobe is on -X. They frame a smaller center block, while
+-- the lime highlight stays in the upper crown.
 local function addStarterOakCanopy(parent, palette)
 	local foliage = {
-		{ "CanopyLowLeft", Vector3.new(4.8, 3.0, 4.4), Vector3.new(-2.6, 8.25, -1.4), palette.LeafShadow },
-		{ "CanopyLowRight", Vector3.new(4.8, 3.0, 4.4), Vector3.new(2.6, 8.25, 1.4), palette.Leaf },
-		{ "CanopyLowFront", Vector3.new(4.2, 3.0, 4.6), Vector3.new(0, 8.25, -1.0), palette.LeafHighlight },
+		{ "CanopyLowLeft", Vector3.new(5.0, 3.2, 4.4), Vector3.new(2.55, 8.43, -1.5), palette.Leaf },
+		{ "CanopyLowRight", Vector3.new(4.8, 3.0, 4.4), Vector3.new(-2.6, 8.25, -1.4), palette.LeafShadow },
+		{ "CanopyLowFront", Vector3.new(3.8, 2.6, 3.8), Vector3.new(0, 8.1, -1.4), palette.Leaf },
 		{ "CanopyMiddleCore", Vector3.new(6.6, 3.2, 6.1), Vector3.new(0, 9.8, 0), palette.Leaf },
 		{ "CanopyMiddleBack", Vector3.new(4.4, 3.0, 5.8), Vector3.new(-1.3, 10.4, 2.5), palette.LeafShadow },
 		{ "CanopyUpper", Vector3.new(5.2, 3.0, 5.3), Vector3.new(0.25, 11.5, 0.15), palette.LeafHighlight },
-		{ "CanopyCrown", Vector3.new(3.8, 2.2, 3.8), Vector3.new(0.1, 13.0, 0), palette.Leaf },
+		{ "CanopyCrown", Vector3.new(3.8, 2.1, 3.8), Vector3.new(0.1, 13.05, 0), palette.LeafHighlight },
 	}
 	for _, definition in ipairs(foliage) do
 		createStarterOakBlock(parent, definition[1], definition[2], definition[3], definition[4])
 	end
-	-- The 6.75-stud underside leaves 6.75 studs of the 12-stud trunk visible.
-	-- Under the shared CanopySupported solver, CanopyLowRight contacts with the
-	-- base at 60.56 degrees; BranchRight stays 3.80 studs above that contact,
-	-- exceeding the solver's 0.08-stud minimum branch clearance.
+	-- The 6.75-stud underside leaves 6.75 studs of the 12-stud trunk visible;
+	-- LowFront covers the trunk center from y=6.8. Its front face is recessed
+	-- 0.3-0.4 studs behind the two larger left/right faces, which stay distinct.
+	-- LowLeft supports the fall: with the 2.38-stud base width, their box
+	-- corners meet at atan(6.83 / (5.05 - 1.19)) = 60.53 degrees.
+	-- BranchRight stays 3.81 studs above that contact, exceeding the solver's
+	-- 0.08-stud minimum branch clearance. The lower blocks use distinct top
+	-- and bottom planes and the overlap is stepped to avoid coplanar faces.
 end
 
 -- The static prototype and the harvest showcase use the same six trunk
