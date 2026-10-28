@@ -118,11 +118,11 @@ local function addStarterOakCanopy(parent, palette)
 	-- The 6.75-stud underside leaves 6.75 studs of the 12-stud trunk visible;
 	-- LowFront covers the trunk center from y=6.8. Its front face is recessed
 	-- 0.3-0.4 studs behind the two larger left/right faces, which stay distinct.
-	-- LowLeft supports the fall: with the 2.38-stud base width, their box
+	-- LowLeft supports a +X fall: with the 2.38-stud base width, its box
 	-- corners meet at atan(6.83 / (5.05 - 1.19)) = 60.53 degrees.
-	-- BranchRight stays 3.81 studs above that contact, exceeding the solver's
-	-- 0.08-stud minimum branch clearance. The lower blocks use distinct top
-	-- and bottom planes and the overlap is stepped to avoid coplanar faces.
+	-- At that contact angle, BranchRight's lowest outer corner stays 1.67
+	-- studs above ground; BranchFront stays 4.28 studs above. The lower blocks
+	-- use distinct top and bottom planes and overlap in steps to avoid coplanar faces.
 end
 
 -- The static prototype and the harvest showcase use the same six trunk
@@ -146,11 +146,16 @@ local function getStarterOakTrunkComponents(palette)
 end
 
 local function addStarterOakBranches(parent, palette)
-	createStarterOakBlock(parent, "BranchLeft", Vector3.new(1.2, 0.45, 1.0), Vector3.new(-1.4, 9.4, 0), palette.BarkHighlight)
-	createStarterOakBlock(parent, "BranchRight", Vector3.new(1.2, 0.45, 1.0), Vector3.new(1.4, 9.4, 0), palette.BarkHighlight)
-	createStarterOakBlock(parent, "BranchFront", Vector3.new(1.1, 0.4, 1.0), Vector3.new(0, 9.4, -1.2), palette.Bark)
-	-- Keep the small branch junctions well inside CanopyMiddleCore's bounds
-	-- (x +/-3.3, y 8.2..11.4, z +/-3.05) so none can show outside the foliage.
+	-- Each beam overlaps the 2.38-stud trunk by about 1.1 studs and reaches
+	-- roughly 1.8 studs past its edge. Their low faces peek below the lower
+	-- leaves, while their outer ends remain inside the foliage silhouette.
+	createStarterOakBlock(parent, "BranchLeft", Vector3.new(2.9, 0.8, 0.78), Vector3.new(-1.55, 6.75, 0.15), palette.BarkHighlight)
+	createStarterOakBlock(parent, "BranchRight", Vector3.new(2.9, 0.7, 0.72), Vector3.new(1.55, 6.95, -0.15), palette.BarkHighlight)
+	createStarterOakBlock(parent, "BranchFront", Vector3.new(0.7, 0.6, 2.9), Vector3.new(-0.35, 6.9, -1.55), palette.Bark)
+	-- The side beams end at x = +/-3.0; BranchFront ends at z = -3.0,
+	-- inside CanopyLowFront. At the authored +X canopy contact angle of
+	-- 60.53 degrees, BranchRight has the smallest clearance at 1.67 studs.
+	-- These parts stay in DecorativeBranches, outside harvest sections.
 end
 
 -- A static visual study for the next Starter Oak direction. It intentionally
