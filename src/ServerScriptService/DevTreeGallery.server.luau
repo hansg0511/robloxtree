@@ -97,21 +97,50 @@ local function createStarterOakBlock(parent, name, size, position, color)
 end
 
 -- One gallery-only foliage recipe keeps the visual prototype and harvest
--- showcase aligned. The broad lower cushion is the intended ground support
--- during the canopy-supported fall; upper layers stay compact and overlap it.
+-- showcase aligned. Each block is a full, overlapping volume so the crown
+-- reads as a compact, rounded Oak from more than one camera angle.
 local function addStarterOakCanopy(parent, palette)
 	local foliage = {
-		{ "CanopyLowerCenter", Vector3.new(8.8, 3.4, 8.8), Vector3.new(0, 13.55, 0.1), palette.LeafShadow },
-		{ "CanopyLowerLeft", Vector3.new(5.3, 3.2, 6.6), Vector3.new(-4.95, 13.55, 0.15), palette.LeafShadow },
-		{ "CanopyLowerRight", Vector3.new(5.2, 3.2, 6.5), Vector3.new(4.8, 13.65, -0.25), palette.Leaf },
-		{ "CanopyLowerFront", Vector3.new(7.5, 3.2, 5.4), Vector3.new(0.25, 13.6, -4.1), palette.Leaf },
-		{ "CanopyLowerBack", Vector3.new(7.1, 3.2, 5.0), Vector3.new(-0.3, 13.45, 4.0), palette.LeafShadow },
-		{ "CanopyMiddle", Vector3.new(8.7, 3.3, 8.2), Vector3.new(0.1, 15.4, 0.2), palette.Leaf },
-		{ "CanopyUpper", Vector3.new(6.6, 2.7, 6.2), Vector3.new(-0.35, 17.05, 0.35), palette.LeafHighlight },
+		{ "CanopyCore", Vector3.new(6.4, 5.8, 6.4), Vector3.new(0, 14.45, 0), palette.LeafShadow },
+		{ "CanopyLeftShoulder", Vector3.new(5.0, 5.0, 5.5), Vector3.new(-3.0, 14.1, 0.1), palette.LeafShadow },
+		{ "CanopyRightShoulder", Vector3.new(5.0, 5.0, 5.5), Vector3.new(2.9, 14.15, -0.15), palette.Leaf },
+		{ "CanopyFrontLobe", Vector3.new(5.6, 4.6, 4.5), Vector3.new(0.2, 13.9, -2.3), palette.Leaf },
+		{ "CanopyBackLobe", Vector3.new(5.3, 4.7, 4.4), Vector3.new(-0.35, 13.85, 2.35), palette.LeafShadow },
+		{ "CanopyTop", Vector3.new(5.2, 4.8, 5.2), Vector3.new(-0.45, 16.55, 0.45), palette.LeafHighlight },
 	}
+	-- The right shoulder's bottom is 11.65 studs high and its +X edge is 5.4.
+	-- Against the 1.19-stud half-width base, it meets the ground at
+	-- atan(11.65 / (5.4 - 1.19)) ~= 70.1 degrees; the nearest branch stays
+	-- about 1.03 studs above that contact, so foliage remains the first support.
 	for _, definition in ipairs(foliage) do
 		createStarterOakBlock(parent, definition[1], definition[2], definition[3], definition[4])
 	end
+end
+
+-- The static prototype and the harvest showcase use the same six trunk
+-- components, so their visible 12 x 2.4 proportions and bark accents agree.
+local function getStarterOakTrunkComponents(palette)
+	local halfTrunkLength = STARTER_OAK_HARVEST_TRUNK_LENGTH * 0.5
+	local halfTrunkThickness = STARTER_OAK_HARVEST_TRUNK_THICKNESS * 0.5
+	local trunkCoreThickness = STARTER_OAK_HARVEST_TRUNK_THICKNESS - 0.02
+	return {
+		{
+			{ "BaseCore", Vector3.new(trunkCoreThickness, halfTrunkLength, trunkCoreThickness), Vector3.new(0, halfTrunkLength * 0.5, 0), palette.Bark },
+			{ "BaseWarmFace", Vector3.new(0.12, halfTrunkLength * 0.7, 1.75), Vector3.new(-halfTrunkThickness + 0.06, halfTrunkLength * 0.517, -0.08), palette.BarkHighlight },
+			{ "BaseShadowFace", Vector3.new(1.75, halfTrunkLength * 0.467, 0.12), Vector3.new(0.08, halfTrunkLength * 0.317, halfTrunkThickness - 0.06), palette.BarkShadow },
+		},
+		{
+			{ "TopCore", Vector3.new(trunkCoreThickness, halfTrunkLength, trunkCoreThickness), Vector3.new(0, halfTrunkLength * 1.5, 0), palette.Bark },
+			{ "TopWarmFace", Vector3.new(0.12, halfTrunkLength * 0.65, 1.75), Vector3.new(halfTrunkThickness - 0.06, halfTrunkLength * 1.467, 0.08), palette.BarkHighlight },
+			{ "TopShadowFace", Vector3.new(1.75, halfTrunkLength * 0.433, 0.12), Vector3.new(-0.08, halfTrunkLength * 1.683, -halfTrunkThickness + 0.06), palette.BarkShadow },
+		},
+	}
+end
+
+local function addStarterOakBranches(parent, palette)
+	createStarterOakBlock(parent, "BranchLeft", Vector3.new(3.5, 2.1, 2.8), Vector3.new(-2.5, 11.7, 0.2), palette.BarkHighlight)
+	createStarterOakBlock(parent, "BranchRight", Vector3.new(3.3, 2.1, 2.8), Vector3.new(2.4, 12.0, -0.15), palette.BarkHighlight)
+	createStarterOakBlock(parent, "BranchFront", Vector3.new(2.7, 1.9, 3.2), Vector3.new(0.15, 12.3, -2.25), palette.Bark)
 end
 
 -- A static visual study for the next Starter Oak direction. It intentionally
@@ -138,22 +167,22 @@ local function makeStarterOakPrototype()
 	foliageGroup.Name = "FoliageDecorations"
 	foliageGroup.Parent = model
 
-	-- A sturdy, straight starter trunk. The two shallow shade blocks add only
-	-- enough definition to avoid a flat brown column.
-	local trunk = createStarterOakBlock(trunkGroup, "TrunkCore", Vector3.new(3.2, 10, 3.2), Vector3.new(0, 5, 0), palette.Bark)
-	model.PrimaryPart = trunk
-	createStarterOakBlock(trunkGroup, "TrunkWarmFace", Vector3.new(0.28, 4.3, 2.45), Vector3.new(-1.47, 6.1, -0.1), palette.BarkHighlight)
-	createStarterOakBlock(trunkGroup, "TrunkShadowFace", Vector3.new(2.45, 3.2, 0.28), Vector3.new(0.08, 3.0, 1.47), palette.BarkShadow)
-	createStarterOakBlock(trunkGroup, "TrunkCrown", Vector3.new(3.8, 3.4, 3.8), Vector3.new(0, 10.5, 0), palette.Bark)
+	-- Keep the static trunk identical to the harvest trunk, including the slim
+	-- two-section proportions, instead of displaying a separate chunky column.
+	local trunkCore
+	for _, component in ipairs(getStarterOakTrunkComponents(palette)) do
+		for _, definition in ipairs(component) do
+			local part = createStarterOakBlock(trunkGroup, definition[1], definition[2], definition[3], definition[4])
+			if definition[1] == "BaseCore" then trunkCore = part end
+		end
+	end
+	model.PrimaryPart = trunkCore
 
 	-- These small, embedded blocks read as simple branch junctions without
 	-- becoming roots, sprawling boughs, or separate collectible geometry.
-	createStarterOakBlock(branchGroup, "BranchLeft", Vector3.new(3.5, 2.1, 2.8), Vector3.new(-2.5, 11.7, 0.2), palette.BarkHighlight)
-	createStarterOakBlock(branchGroup, "BranchRight", Vector3.new(3.3, 2.1, 2.8), Vector3.new(2.4, 12.0, -0.15), palette.BarkHighlight)
-	createStarterOakBlock(branchGroup, "BranchFront", Vector3.new(2.7, 1.9, 3.2), Vector3.new(0.15, 12.3, -2.25), palette.Bark)
+	addStarterOakBranches(branchGroup, palette)
 
-	-- The wide lower tier makes the tree read as a compact Oak rather than a
-	-- staircase, while two overlapping tiers keep the crown substantial.
+	-- Shared chunky volumes give both Oak versions the same compact crown.
 	addStarterOakCanopy(foliageGroup, palette)
 
 	return model
@@ -194,21 +223,7 @@ local function makeStarterOakHarvestTree(sectionCount)
 	local sectionsFolder = Instance.new("Folder")
 	sectionsFolder.Name = "StarterOakHarvestSections"
 	sectionsFolder.Parent = model
-	local halfTrunkLength = STARTER_OAK_HARVEST_TRUNK_LENGTH * 0.5
-	local halfTrunkThickness = STARTER_OAK_HARVEST_TRUNK_THICKNESS * 0.5
-	local trunkCoreThickness = STARTER_OAK_HARVEST_TRUNK_THICKNESS - 0.02
-	local components = {
-		{
-			{ "BaseCore", Vector3.new(trunkCoreThickness, halfTrunkLength, trunkCoreThickness), Vector3.new(0, halfTrunkLength * 0.5, 0), palette.Bark },
-			{ "BaseWarmFace", Vector3.new(0.12, halfTrunkLength * 0.7, 1.75), Vector3.new(-halfTrunkThickness + 0.06, halfTrunkLength * 0.517, -0.08), palette.BarkHighlight },
-			{ "BaseShadowFace", Vector3.new(1.75, halfTrunkLength * 0.467, 0.12), Vector3.new(0.08, halfTrunkLength * 0.317, halfTrunkThickness - 0.06), palette.BarkShadow },
-		},
-		{
-			{ "TopCore", Vector3.new(trunkCoreThickness, halfTrunkLength, trunkCoreThickness), Vector3.new(0, halfTrunkLength * 1.5, 0), palette.Bark },
-			{ "TopWarmFace", Vector3.new(0.12, halfTrunkLength * 0.65, 1.75), Vector3.new(halfTrunkThickness - 0.06, halfTrunkLength * 1.467, 0.08), palette.BarkHighlight },
-			{ "TopShadowFace", Vector3.new(1.75, halfTrunkLength * 0.433, 0.12), Vector3.new(-0.08, halfTrunkLength * 1.683, -halfTrunkThickness + 0.06), palette.BarkShadow },
-		},
-	}
+	local components = getStarterOakTrunkComponents(palette)
 
 	for sectionIndex, range in ipairs(ranges) do
 		local section = Instance.new("Model")
@@ -228,9 +243,7 @@ local function makeStarterOakHarvestTree(sectionCount)
 	local branches = Instance.new("Folder")
 	branches.Name = "DecorativeBranches"
 	branches.Parent = model
-	createStarterOakBlock(branches, "BranchLeft", Vector3.new(3.5, 2.1, 2.8), Vector3.new(-2.5, 11.7, 0.2), palette.BarkHighlight)
-	createStarterOakBlock(branches, "BranchRight", Vector3.new(3.3, 2.1, 2.8), Vector3.new(2.4, 12.0, -0.15), palette.BarkHighlight)
-	createStarterOakBlock(branches, "BranchFront", Vector3.new(2.7, 1.9, 3.2), Vector3.new(0.15, 12.3, -2.25), palette.Bark)
+	addStarterOakBranches(branches, palette)
 
 	local foliage = Instance.new("Folder")
 	foliage.Name = "FoliageDecorations"

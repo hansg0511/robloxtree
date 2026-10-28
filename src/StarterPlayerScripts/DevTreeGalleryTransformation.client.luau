@@ -59,6 +59,57 @@ local function extentAlong(frame, size, axis)
 		+ math.abs(frame.UpVector:Dot(axis)) * size.Y
 		+ math.abs(frame.LookVector:Dot(axis)) * size.Z)
 end
+local function getLongitudinalAxis(frame, size)
+	if size.X >= size.Y and size.X >= size.Z then
+		return frame.RightVector, 1
+	elseif size.Y >= size.Z then
+		return frame.UpVector, 2
+	end
+	return frame.LookVector, 3
+end
+local function getHorizontalTumbleAxis(frame, size)
+	local longitudinalAxis, longitudinalIndex = getLongitudinalAxis(frame, size)
+	local axis = Vector3.yAxis:Cross(longitudinalAxis)
+	if axis.Magnitude <= 1e-8 then
+		-- A vertical log has no unique horizontal perpendicular. Use one of its
+		-- actual cross-section axes, projected onto the horizontal plane.
+		local frameAxes = { frame.RightVector, frame.UpVector, frame.LookVector }
+		local bestMagnitude = 0
+		for index, frameAxis in ipairs(frameAxes) do
+			if index ~= longitudinalIndex then
+				local horizontal = Vector3.new(frameAxis.X, 0, frameAxis.Z)
+				if horizontal.Magnitude > bestMagnitude then
+					axis, bestMagnitude = horizontal, horizontal.Magnitude
+				end
+			end
+		end
+	end
+	assert(axis.Magnitude > 1e-8, "could not determine a horizontal tumble axis")
+	return axis.Unit, longitudinalAxis
+end
+local function getTumbleLiftHeight(frame, size, axis, liftDuration, compressionDuration, turns, groundY, safetyMargin)
+	local frameAxes = { frame.RightVector, frame.UpVector, frame.LookVector }
+	local dimensions = { size.X, size.Y, size.Z }
+	local maximumHalfHeight = 0
+	for index, frameAxis in ipairs(frameAxes) do
+		-- Under a horizontal-axis rotation, a vector's vertical component is
+		-- A*cos(theta) + B*sin(theta), so this is a safe swept half-height bound.
+		local cosineTerm = frameAxis.Y
+		local sineTerm = axis:Cross(frameAxis).Y
+		maximumHalfHeight += 0.5 * dimensions[index]
+			* math.sqrt(cosineTerm * cosineTerm + sineTerm * sineTerm)
+	end
+	local initialHalfHeight = extentAlong(frame, size, Vector3.yAxis)
+	local initialFloorClearance = frame.Position.Y - initialHalfHeight - groundY
+	assert(initialFloorClearance >= 0, "Starter Oak section starts below the gallery floor")
+	local maximumAdditionalHeight = math.max(0, maximumHalfHeight - initialHalfHeight - initialFloorClearance)
+	local liftFractionAtEnd = smooth(liftDuration / (liftDuration + compressionDuration))
+	-- FX eases the full rotation over lift + compression and reaches full lift
+	-- at liftDuration. The ratio of rotation progress to lift progress is
+	-- greatest then, so this bound keeps every earlier pose above the floor too.
+	local earlyClearanceHeight = maximumHalfHeight * 2 * math.pi * turns * liftFractionAtEnd
+	return math.max(maximumAdditionalHeight, earlyClearanceHeight) + safetyMargin, initialFloorClearance
+end
 local CANOPY_FALL = {
 	MinimumAngle = math.rad(60), MaximumAngle = math.rad(82),
 	GroundClearance = 0.025, BranchClearance = 0.08,
@@ -303,9 +354,10 @@ local function runFall(s)
 		local previousCenter, previousHalf
 		for index, item in ipairs(s.sections) do
 			local startPivot = item.model:GetPivot()
-			local boundsFrame = item.model:GetBoundingBox()
+			local boundsFrame, boundsSize = item.model:GetBoundingBox()
 			local boundsCenterLocal = startPivot:PointToObjectSpace(boundsFrame.Position)
 			local sectionBounds = collectVisibleBounds(item.model, startPivot)
+			local boundsFrameLocal = startPivot:ToObjectSpace(boundsFrame)
 			local relativePivot = impactPivot:ToObjectSpace(startPivot)
 			local targetPivot = standing * CFrame.Angles(0, 0, -math.pi * 0.5) * relativePivot
 			local bounds = boundsAt(sectionBounds, targetPivot)
@@ -322,7 +374,8 @@ local function runFall(s)
 			end
 			details[index] = {
 				Pivot = startPivot, Target = targetPivot, Bounds = sectionBounds,
-				BoundsCenterLocal = boundsCenterLocal,
+				BoundsCenterLocal = boundsCenterLocal, BoundsFrameLocal = boundsFrameLocal,
+				BoundsSize = boundsSize,
 			}
 		end
 	else
@@ -337,8 +390,13 @@ local function runFall(s)
 			if previousCenter then
 				targetX = math.max(targetX, previousCenter + math.max(previousHalf + halfX, standardLength) + 0.8)
 			end
-			details[index] = { Pivot = item.model:GetPivot(),
-				Offset = Vector3.new(targetX - frame.Position.X, math.max(0, s.groundY + 0.04 - bottom), 0) }
+			local pivot = item.model:GetPivot()
+			local bounds = if starterOak then collectVisibleBounds(item.model, pivot) else nil
+			details[index] = { Pivot = pivot,
+				Offset = Vector3.new(targetX - frame.Position.X, math.max(0, s.groundY + 0.04 - bottom), 0),
+				Bounds = bounds,
+				BoundsFrameLocal = if starterOak then pivot:ToObjectSpace(frame) else nil,
+				BoundsSize = if starterOak then size else nil }
 			previousCenter, previousHalf = targetX, halfX
 		end
 	end
@@ -357,28 +415,37 @@ local function runFall(s)
 			local p = math.clamp((elapsed - (index - 1) * CONFIG.BreakupStagger) / breakupDuration, 0, 1)
 			local detail = details[index]
 			if canopySupported then
-				if p >= 1 then
-					-- End on the authored target exactly; the closed full turn returns
-					-- to this pose, avoiding any quaternion shortest-path loss.
-					item.model:PivotTo(detail.Target)
-				else
-					local path = detail.Pivot:Lerp(detail.Target, smooth(p))
-					local candidate = path
-					if starterOak then
-						local center = path:PointToWorldSpace(detail.BoundsCenterLocal)
-						local spin = CFrame.fromAxisAngle(
-							Vector3.yAxis, 2 * math.pi * CONFIG.BreakupTurns * smooth(p))
-						candidate = CFrame.new(center) * spin * CFrame.new(-center) * path
-					end
-					local floorCorrection = math.max(0,
-						s.groundY + CANOPY_FALL.GroundClearance - minimumYAt(detail.Bounds, candidate))
-					local settlePop = math.sin(math.pi * p) * CANOPY_FALL.SectionSettlePop
-					item.model:PivotTo(CFrame.new(0, floorCorrection + settlePop, 0) * candidate)
+				local path = detail.Pivot:Lerp(detail.Target, smooth(p))
+				local candidate = path
+				if starterOak then
+					local boundsFrame = path * detail.BoundsFrameLocal
+					local tumbleAxis = getHorizontalTumbleAxis(boundsFrame, detail.BoundsSize)
+					local center = boundsFrame.Position
+					local spin = CFrame.fromAxisAngle(tumbleAxis, 2 * math.pi * CONFIG.BreakupTurns * smooth(p))
+					candidate = CFrame.new(center) * spin * CFrame.new(-center) * path
 				end
+				-- Apply floor clearance after the full-turn transform so every
+				-- intermediate end-over-end pose stays above the gallery floor.
+				local floorCorrection = math.max(0,
+					s.groundY + CANOPY_FALL.GroundClearance - minimumYAt(detail.Bounds, candidate))
+				local settlePop = math.sin(math.pi * p) * CANOPY_FALL.SectionSettlePop
+				item.model:PivotTo(CFrame.new(0, floorCorrection + settlePop, 0) * candidate)
 			else
 				local movement = detail.Offset * smooth(p) + Vector3.yAxis * (math.sin(math.pi * p) * CONFIG.BreakupPop)
-				local spin = CFrame.fromAxisAngle(Vector3.yAxis, 2 * math.pi * CONFIG.BreakupTurns * p)
-				item.model:PivotTo(CFrame.new(movement) * detail.Pivot * spin)
+				if starterOak then
+					local path = CFrame.new(movement) * detail.Pivot
+					local boundsFrame = path * detail.BoundsFrameLocal
+					local tumbleAxis = getHorizontalTumbleAxis(boundsFrame, detail.BoundsSize)
+					local center = boundsFrame.Position
+					local spin = CFrame.fromAxisAngle(tumbleAxis, 2 * math.pi * CONFIG.BreakupTurns * smooth(p))
+					local candidate = CFrame.new(center) * spin * CFrame.new(-center) * path
+					local floorCorrection = math.max(0,
+						s.groundY + 0.04 - minimumYAt(detail.Bounds, candidate))
+					item.model:PivotTo(CFrame.new(0, floorCorrection, 0) * candidate)
+				else
+					local spin = CFrame.fromAxisAngle(Vector3.yAxis, 2 * math.pi * CONFIG.BreakupTurns * p)
+					item.model:PivotTo(CFrame.new(movement) * detail.Pivot * spin)
+				end
 			end
 		end
 	end), "breakup cancelled")
@@ -542,8 +609,8 @@ local function runPickup(s, item, mode)
 	-- is intentionally not a generic global Oak log substitution.
 	s.destination = destination
 	local starterOak = isStarterOakShowcase(s.playground)
-	local liftDuration = if starterOak then 0.28 else CONFIG.LiftDuration
-	local compressionDuration = if starterOak then 0.62 else CONFIG.CompressionDuration
+	local liftDuration = if starterOak then 0.30 else CONFIG.LiftDuration
+	local compressionDuration = if starterOak then 1.20 else CONFIG.CompressionDuration
 	local revealDuration = CONFIG.RevealDuration
 	local transformOptions = {
 		LiftDuration = liftDuration, CompressionDuration = compressionDuration,
@@ -553,8 +620,18 @@ local function runPickup(s, item, mode)
 		ChipCount = CONFIG.ChipCount, HoverHeight = 0, HoldLift = true, AlignLongAxis = true,
 	}
 	if starterOak then
-		transformOptions.SpinAxisWorld = Vector3.yAxis
+		local sourceBoundsFrame, sourceBoundsSize = item.model:GetBoundingBox()
+		local tumbleAxis = getHorizontalTumbleAxis(sourceBoundsFrame, sourceBoundsSize)
+		transformOptions.SpinAxisWorld = tumbleAxis
+		local liftHeight, initialFloorClearance = getTumbleLiftHeight(
+			sourceBoundsFrame, sourceBoundsSize, tumbleAxis,
+			liftDuration, compressionDuration, transformOptions.RotationTurns,
+			s.groundY, CANOPY_FALL.GroundClearance)
+		assert(liftHeight <= 8, "Starter Oak tumble exceeds the transformation FX lift limit")
+		transformOptions.LiftHeight = liftHeight
 		transformOptions.SourceEndScale = 0.35
+		debugEvent("TUMBLE_PLANNED", ("axis=%s lift=%.2f floorClearance=%.3f sourceSize=%s"):format(
+			tostring(tumbleAxis), transformOptions.LiftHeight, initialFloorClearance, tostring(sourceBoundsSize)))
 	end
 	local controller, message = FX.Play(item.model, destination, transformOptions)
 	assert(controller, "could not transform section: " .. tostring(message))
