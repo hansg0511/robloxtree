@@ -15,6 +15,7 @@ local CONFIG = {
 	Fall = 1.35, ImpactPause = 0.12, Foliage = 0.48,
 	Breakup = 0.52, BreakupStagger = 0.14, BreakupPop = 1.5, BreakupTurns = 1,
 	LiftDuration = 0.16, CompressionDuration = 0.24, RevealDuration = 0.18,
+	StarterOakPickup = { LiftDuration = 0.22, CompressionDuration = 0.63, RotationTurns = 1 },
 	LiftHeight = 1.1, RotationTurns = 0.35, ChipCount = 8,
 	HomingSpeed = 24, HomingAcceleration = 4, AccelerationDelay = 1,
 	MaxHomingSpeed = 60, MaxHomingDuration = 8, OverflowHomingDuration = 60,
@@ -67,26 +68,7 @@ local function getLongitudinalAxis(frame, size)
 	end
 	return frame.LookVector, 3
 end
-local function getHorizontalTumbleAxis(frame, size)
-	local longitudinalAxis, longitudinalIndex = getLongitudinalAxis(frame, size)
-	local axis = Vector3.yAxis:Cross(longitudinalAxis)
-	if axis.Magnitude <= 1e-8 then
-		-- A vertical log has no unique horizontal perpendicular. Use one of its
-		-- actual cross-section axes, projected onto the horizontal plane.
-		local frameAxes = { frame.RightVector, frame.UpVector, frame.LookVector }
-		local bestMagnitude = 0
-		for index, frameAxis in ipairs(frameAxes) do
-			if index ~= longitudinalIndex then
-				local horizontal = Vector3.new(frameAxis.X, 0, frameAxis.Z)
-				if horizontal.Magnitude > bestMagnitude then
-					axis, bestMagnitude = horizontal, horizontal.Magnitude
-				end
-			end
-		end
-	end
-	assert(axis.Magnitude > 1e-8, "could not determine a horizontal tumble axis")
-	return axis.Unit, longitudinalAxis
-end
+
 local CANOPY_FALL = {
 	MinimumAngle = math.rad(60), MaximumAngle = math.rad(82),
 	GroundClearance = 0.025, BranchClearance = 0.08,
@@ -396,13 +378,13 @@ local function runFall(s)
 				local candidate = path
 				if starterOak then
 					local boundsFrame = path * detail.BoundsFrameLocal
-					local tumbleAxis = getHorizontalTumbleAxis(boundsFrame, detail.BoundsSize)
+					local longitudinalAxis = getLongitudinalAxis(boundsFrame, detail.BoundsSize)
 					local center = boundsFrame.Position
-					local spin = CFrame.fromAxisAngle(tumbleAxis, 2 * math.pi * CONFIG.BreakupTurns * smooth(p))
+					local spin = CFrame.fromAxisAngle(longitudinalAxis, 2 * math.pi * CONFIG.BreakupTurns * smooth(p))
 					candidate = CFrame.new(center) * spin * CFrame.new(-center) * path
 				end
 				-- Apply floor clearance after the full-turn transform so every
-				-- intermediate end-over-end pose stays above the gallery floor.
+				-- intermediate barrel-roll pose stays above the gallery floor.
 				local floorCorrection = math.max(0,
 					s.groundY + CANOPY_FALL.GroundClearance - minimumYAt(detail.Bounds, candidate))
 				local settlePop = math.sin(math.pi * p) * CANOPY_FALL.SectionSettlePop
@@ -412,9 +394,9 @@ local function runFall(s)
 				if starterOak then
 					local path = CFrame.new(movement) * detail.Pivot
 					local boundsFrame = path * detail.BoundsFrameLocal
-					local tumbleAxis = getHorizontalTumbleAxis(boundsFrame, detail.BoundsSize)
+					local longitudinalAxis = getLongitudinalAxis(boundsFrame, detail.BoundsSize)
 					local center = boundsFrame.Position
-					local spin = CFrame.fromAxisAngle(tumbleAxis, 2 * math.pi * CONFIG.BreakupTurns * smooth(p))
+					local spin = CFrame.fromAxisAngle(longitudinalAxis, 2 * math.pi * CONFIG.BreakupTurns * smooth(p))
 					local candidate = CFrame.new(center) * spin * CFrame.new(-center) * path
 					local floorCorrection = math.max(0,
 						s.groundY + 0.04 - minimumYAt(detail.Bounds, candidate))
@@ -586,14 +568,14 @@ local function runPickup(s, item, mode)
 	-- is intentionally not a generic global Oak log substitution.
 	s.destination = destination
 	local starterOak = isStarterOakShowcase(s.playground)
-	local liftDuration = if starterOak then 0.30 else CONFIG.LiftDuration
-	local compressionDuration = if starterOak then 1.20 else CONFIG.CompressionDuration
+	local liftDuration = if starterOak then CONFIG.StarterOakPickup.LiftDuration else CONFIG.LiftDuration
+	local compressionDuration = if starterOak then CONFIG.StarterOakPickup.CompressionDuration else CONFIG.CompressionDuration
 	local revealDuration = CONFIG.RevealDuration
 	local transformOptions = {
 		LiftDuration = liftDuration, CompressionDuration = compressionDuration,
 		RevealDuration = revealDuration, FinishDuration = 3,
 		LiftHeight = CONFIG.LiftHeight,
-		RotationTurns = if starterOak then 1 else CONFIG.RotationTurns,
+		RotationTurns = if starterOak then CONFIG.StarterOakPickup.RotationTurns else CONFIG.RotationTurns,
 		ChipCount = CONFIG.ChipCount, HoverHeight = 0, HoldLift = true, AlignLongAxis = true,
 	}
 	if starterOak then
