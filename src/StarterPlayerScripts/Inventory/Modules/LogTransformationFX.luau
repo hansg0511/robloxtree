@@ -162,6 +162,20 @@ local function getLongAxis(boundsCFrame, boundsSize, requestedAxis)
 	return boundsCFrame.LookVector
 end
 
+local function normalizedFiniteAxis(value)
+	if typeof(value) ~= "Vector3" then return nil end
+	local x, y, z = value.X, value.Y, value.Z
+	if x ~= x or y ~= y or z ~= z
+		or math.abs(x) == math.huge or math.abs(y) == math.huge or math.abs(z) == math.huge then
+		return nil
+	end
+	local magnitude = value.Magnitude
+	if magnitude ~= magnitude or magnitude == math.huge or magnitude <= 0.0001 then
+		return nil
+	end
+	return value / magnitude
+end
+
 local function rotationBetween(from, to)
 	local dot = math.clamp(from:Dot(to), -1, 1)
 	local axis = from:Cross(to)
@@ -477,7 +491,7 @@ function LogTransformationFX.Play(sourceTemplate, destinationTemplate, options)
 	end
 	local destinationFinalPivot = destinationClone:GetPivot()
 	local sourceInitialScale = originalSourceScale
-	local transformAxis = axis
+	local transformAxis = normalizedFiniteAxis(options.SpinAxisWorld) or axis
 	local rotationRadians = math.pi * 2 * settings.RotationTurns
 	local sourceDestroyed = false
 

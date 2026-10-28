@@ -61,7 +61,8 @@ local function extentAlong(frame, size, axis)
 end
 local CANOPY_FALL = {
 	MinimumAngle = math.rad(60), MaximumAngle = math.rad(82),
-	GroundClearance = 0.025, SectionGap = 0.5, SectionSettlePop = 0.25,
+	GroundClearance = 0.025, BranchClearance = 0.08,
+	SectionGap = 0.5, SectionSettlePop = 0.25, BreakupDuration = 0.75,
 }
 local CORNER_SIGNS = { -1, 1 }
 local function collectVisibleBounds(root, referencePivot)
@@ -103,74 +104,77 @@ local function minimumYAt(bounds, pivot)
 	local result = boundsAt(bounds, pivot)
 	return result and result.MinY or math.huge
 end
+local function isStarterOakShowcase(playground)
+	return playground:GetAttribute("SourceTreeName") == "StarterOakHarvestTree"
+end
 local function solveCanopyLandingAngle(tree, sections, standing)
 	local baseBounds = collectVisibleBounds(sections[1].model, standing)
 	local foliageBounds = {}
-	local supportBounds = {}
+	local branchBounds = {}
 	for _, folderName in ipairs({ "FoliageDecorations", "DecorativeBranches", "Leaves" }) do
 		local folder = tree:FindFirstChild(folderName)
 		if folder then
 			local folderBounds = collectVisibleBounds(folder, standing)
-			appendBounds(supportBounds, folderBounds)
 			if folderName == "FoliageDecorations" or folderName == "Leaves" then
 				appendBounds(foliageBounds, folderBounds)
+			elseif folderName == "DecorativeBranches" then
+				appendBounds(branchBounds, folderBounds)
 			end
 		end
 	end
-	if #baseBounds == 0 or #supportBounds == 0 then
+	if #baseBounds == 0 or #foliageBounds == 0 then
 		return nil
 	end
 	local function contactGap(angle, bounds)
 		local rotatedPivot = standing * CFrame.Angles(0, 0, -angle)
 		return minimumYAt(bounds, rotatedPivot) - minimumYAt(baseBounds, rotatedPivot)
 	end
-	local function supportGap(angle)
-		return contactGap(angle, supportBounds)
+	local function branchGap(angle)
+		if #branchBounds == 0 then return math.huge end
+		return contactGap(angle, branchBounds)
 	end
 	local low, high = CANOPY_FALL.MinimumAngle, CANOPY_FALL.MaximumAngle
-	local lowGap = supportGap(low)
-	local previousAngle, previousGap = low, lowGap
-	local bracketLow, bracketHigh
-	local exactAngle
+	local previousAngle, previousGap = low, contactGap(low, foliageBounds)
+	local validLandings = {}
+	local function addLanding(angle)
+		local foliageGap = contactGap(angle, foliageBounds)
+		local clearance = branchGap(angle)
+		if clearance >= CANOPY_FALL.BranchClearance then
+			table.insert(validLandings, { Angle = angle, FoliageGap = foliageGap, BranchGap = clearance })
+		end
+	end
 	for sample = 1, 88 do
 		local angle = low + (high - low) * sample / 88
-		local gap = supportGap(angle)
+		local gap = contactGap(angle, foliageBounds)
 		if previousGap == 0 then
-			exactAngle = previousAngle
-			break
+			addLanding(previousAngle)
 		elseif gap == 0 then
-			exactAngle = angle
-			break
+			addLanding(angle)
 		elseif (previousGap < 0 and gap > 0) or (previousGap > 0 and gap < 0) then
-			bracketLow, bracketHigh = previousAngle, angle
-			break
+			local left, right = previousAngle, angle
+			local leftGap = previousGap
+			for _ = 1, 32 do
+				local middle = (left + right) * 0.5
+				local middleGap = contactGap(middle, foliageBounds)
+				if middleGap == 0 then
+					left, right = middle, middle
+					break
+				elseif (leftGap < 0 and middleGap > 0) or (leftGap > 0 and middleGap < 0) then
+					right = middle
+				else
+					left, leftGap = middle, middleGap
+				end
+			end
+			addLanding((left + right) * 0.5)
 		end
 		previousAngle, previousGap = angle, gap
 	end
-	local landingAngle
-	if exactAngle then
-		landingAngle = exactAngle
-	elseif bracketLow then
-		local left, right = bracketLow, bracketHigh
-		local leftGap = supportGap(left)
-		for _ = 1, 32 do
-			local middle = (left + right) * 0.5
-			local middleGap = supportGap(middle)
-			if middleGap == 0 then
-				left, right = middle, middle
-				break
-			elseif (leftGap < 0 and middleGap > 0) or (leftGap > 0 and middleGap < 0) then
-				right = middle
-			else
-				left, leftGap = middle, middleGap
-			end
-		end
-		landingAngle = (left + right) * 0.5
-	else
-		return nil
-	end
-	local foliageGap = if #foliageBounds > 0 then contactGap(landingAngle, foliageBounds) else nil
-	return landingAngle, foliageGap, supportGap(landingAngle)
+	if #validLandings == 0 then return nil end
+	-- Prefer a foliage contact angle with the greatest clearance over branches,
+	-- so decorative wood cannot become the first visible support.
+	table.sort(validLandings, function(a, b) return a.BranchGap > b.BranchGap end)
+	local landing = validLandings[1]
+	return landing.Angle, landing.FoliageGap, landing.BranchGap
 end
 local function hide(tree, saved)
 	saved = saved or {}
@@ -249,6 +253,7 @@ end
 local function runFall(s)
 	local tree = s.tree
 	local standing = tree:GetPivot()
+	local starterOak = isStarterOakShowcase(s.playground)
 	local canopySupported = s.playground:GetAttribute("FallStyle") == "CanopySupported"
 	local treeBounds = if canopySupported then collectVisibleBounds(tree, standing) else nil
 	if canopySupported and #treeBounds == 0 then
@@ -256,11 +261,11 @@ local function runFall(s)
 		canopySupported = false
 	end
 	if canopySupported then
-		local landingAngle, foliageGap, supportGap = solveCanopyLandingAngle(tree, s.sections, standing)
+		local landingAngle, foliageGap, branchGap = solveCanopyLandingAngle(tree, s.sections, standing)
 		if landingAngle then
 			s.standing = standing
-			debugEvent("CANOPY_LANDING_SOLVED", ("angle=%.2f foliageGap=%.3f supportGap=%.3f"):format(
-				math.deg(landingAngle), foliageGap or -1, supportGap or -1))
+			debugEvent("CANOPY_LANDING_SOLVED", ("angle=%.2f foliageGap=%.3f branchGap=%.3f"):format(
+				math.deg(landingAngle), foliageGap or -1, branchGap or -1))
 			assert(animate(s, CONFIG.Fall, function(progress)
 				local angle = landingAngle * smooth(progress)
 				local rotatedPivot = standing * CFrame.Angles(0, 0, -angle)
@@ -298,6 +303,8 @@ local function runFall(s)
 		local previousCenter, previousHalf
 		for index, item in ipairs(s.sections) do
 			local startPivot = item.model:GetPivot()
+			local boundsFrame = item.model:GetBoundingBox()
+			local boundsCenterLocal = startPivot:PointToObjectSpace(boundsFrame.Position)
 			local sectionBounds = collectVisibleBounds(item.model, startPivot)
 			local relativePivot = impactPivot:ToObjectSpace(startPivot)
 			local targetPivot = standing * CFrame.Angles(0, 0, -math.pi * 0.5) * relativePivot
@@ -313,7 +320,10 @@ local function runFall(s)
 				targetPivot = CFrame.new(targetCenter - (bounds.MinX + bounds.MaxX) * 0.5, 0, 0) * targetPivot
 				previousCenter, previousHalf = targetCenter, halfX
 			end
-			details[index] = { Pivot = startPivot, Target = targetPivot, Bounds = sectionBounds }
+			details[index] = {
+				Pivot = startPivot, Target = targetPivot, Bounds = sectionBounds,
+				BoundsCenterLocal = boundsCenterLocal,
+			}
 		end
 	else
 		local _, standardSize = s.destination:GetBoundingBox()
@@ -332,7 +342,9 @@ local function runFall(s)
 			previousCenter, previousHalf = targetX, halfX
 		end
 	end
-	local duration = math.max(CONFIG.Foliage, CONFIG.Breakup + (#s.sections - 1) * CONFIG.BreakupStagger)
+	local breakupDuration = if canopySupported and starterOak
+		then math.max(CONFIG.Breakup, CANOPY_FALL.BreakupDuration) else CONFIG.Breakup
+	local duration = math.max(CONFIG.Foliage, breakupDuration + (#s.sections - 1) * CONFIG.BreakupStagger)
 	assert(animate(s, duration, function(_, elapsed)
 		local leafAlpha = smooth(elapsed / CONFIG.Foliage)
 		for _, leaf in ipairs(leaves) do
@@ -342,14 +354,27 @@ local function runFall(s)
 			end
 		end
 		for index, item in ipairs(s.sections) do
-			local p = math.clamp((elapsed - (index - 1) * CONFIG.BreakupStagger) / CONFIG.Breakup, 0, 1)
+			local p = math.clamp((elapsed - (index - 1) * CONFIG.BreakupStagger) / breakupDuration, 0, 1)
 			local detail = details[index]
 			if canopySupported then
-				local candidate = detail.Pivot:Lerp(detail.Target, smooth(p))
-				local floorCorrection = math.max(0, s.groundY + CANOPY_FALL.GroundClearance
-					- minimumYAt(detail.Bounds, candidate))
-				local settlePop = math.sin(math.pi * p) * CANOPY_FALL.SectionSettlePop
-				item.model:PivotTo(CFrame.new(0, floorCorrection + settlePop, 0) * candidate)
+				if p >= 1 then
+					-- End on the authored target exactly; the closed full turn returns
+					-- to this pose, avoiding any quaternion shortest-path loss.
+					item.model:PivotTo(detail.Target)
+				else
+					local path = detail.Pivot:Lerp(detail.Target, smooth(p))
+					local candidate = path
+					if starterOak then
+						local center = path:PointToWorldSpace(detail.BoundsCenterLocal)
+						local spin = CFrame.fromAxisAngle(
+							Vector3.yAxis, 2 * math.pi * CONFIG.BreakupTurns * smooth(p))
+						candidate = CFrame.new(center) * spin * CFrame.new(-center) * path
+					end
+					local floorCorrection = math.max(0,
+						s.groundY + CANOPY_FALL.GroundClearance - minimumYAt(detail.Bounds, candidate))
+					local settlePop = math.sin(math.pi * p) * CANOPY_FALL.SectionSettlePop
+					item.model:PivotTo(CFrame.new(0, floorCorrection + settlePop, 0) * candidate)
+				end
 			else
 				local movement = detail.Offset * smooth(p) + Vector3.yAxis * (math.sin(math.pi * p) * CONFIG.BreakupPop)
 				local spin = CFrame.fromAxisAngle(Vector3.yAxis, 2 * math.pi * CONFIG.BreakupTurns * p)
@@ -516,12 +541,22 @@ local function runPickup(s, item, mode)
 	-- The same normalized model becomes the homing and pile/carry visual. This
 	-- is intentionally not a generic global Oak log substitution.
 	s.destination = destination
-	local controller, message = FX.Play(item.model, destination, {
-		LiftDuration = CONFIG.LiftDuration, CompressionDuration = CONFIG.CompressionDuration,
-		RevealDuration = CONFIG.RevealDuration, FinishDuration = 3,
-		LiftHeight = CONFIG.LiftHeight, RotationTurns = CONFIG.RotationTurns,
+	local starterOak = isStarterOakShowcase(s.playground)
+	local liftDuration = if starterOak then 0.28 else CONFIG.LiftDuration
+	local compressionDuration = if starterOak then 0.62 else CONFIG.CompressionDuration
+	local revealDuration = CONFIG.RevealDuration
+	local transformOptions = {
+		LiftDuration = liftDuration, CompressionDuration = compressionDuration,
+		RevealDuration = revealDuration, FinishDuration = 3,
+		LiftHeight = CONFIG.LiftHeight,
+		RotationTurns = if starterOak then 1 else CONFIG.RotationTurns,
 		ChipCount = CONFIG.ChipCount, HoverHeight = 0, HoldLift = true, AlignLongAxis = true,
-	})
+	}
+	if starterOak then
+		transformOptions.SpinAxisWorld = Vector3.yAxis
+		transformOptions.SourceEndScale = 0.35
+	end
+	local controller, message = FX.Play(item.model, destination, transformOptions)
 	assert(controller, "could not transform section: " .. tostring(message))
 	s.controller = controller
 	s.pickupStage = "transformation"
@@ -529,7 +564,7 @@ local function runPickup(s, item, mode)
 	item.saved = {}
 	hide(item.model, item.saved)
 	debugEvent("SOURCE_HIDDEN", ("section=%d parts=%d"):format(item.index, #item.model:GetDescendants()))
-	local deadline = os.clock() + CONFIG.LiftDuration + CONFIG.CompressionDuration + CONFIG.RevealDuration + 1
+	local deadline = os.clock() + liftDuration + compressionDuration + revealDuration + 1
 	while alive(s) and controller.Active and not controller.Ready and os.clock() < deadline do
 		RunService.Heartbeat:Wait()
 	end

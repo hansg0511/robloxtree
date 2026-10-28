@@ -96,6 +96,24 @@ local function createStarterOakBlock(parent, name, size, position, color)
 	return part
 end
 
+-- One gallery-only foliage recipe keeps the visual prototype and harvest
+-- showcase aligned. The broad lower cushion is the intended ground support
+-- during the canopy-supported fall; upper layers stay compact and overlap it.
+local function addStarterOakCanopy(parent, palette)
+	local foliage = {
+		{ "CanopyLowerCenter", Vector3.new(8.8, 3.4, 8.8), Vector3.new(0, 13.55, 0.1), palette.LeafShadow },
+		{ "CanopyLowerLeft", Vector3.new(5.3, 3.2, 6.6), Vector3.new(-4.95, 13.55, 0.15), palette.LeafShadow },
+		{ "CanopyLowerRight", Vector3.new(5.2, 3.2, 6.5), Vector3.new(4.8, 13.65, -0.25), palette.Leaf },
+		{ "CanopyLowerFront", Vector3.new(7.5, 3.2, 5.4), Vector3.new(0.25, 13.6, -4.1), palette.Leaf },
+		{ "CanopyLowerBack", Vector3.new(7.1, 3.2, 5.0), Vector3.new(-0.3, 13.45, 4.0), palette.LeafShadow },
+		{ "CanopyMiddle", Vector3.new(8.7, 3.3, 8.2), Vector3.new(0.1, 15.4, 0.2), palette.Leaf },
+		{ "CanopyUpper", Vector3.new(6.6, 2.7, 6.2), Vector3.new(-0.35, 17.05, 0.35), palette.LeafHighlight },
+	}
+	for _, definition in ipairs(foliage) do
+		createStarterOakBlock(parent, definition[1], definition[2], definition[3], definition[4])
+	end
+end
+
 -- A static visual study for the next Starter Oak direction. It intentionally
 -- lives in the gallery rather than TreeObject: it creates no Tree instance,
 -- hitbox, rewards, or harvesting registration. The named groups provide an
@@ -134,24 +152,9 @@ local function makeStarterOakPrototype()
 	createStarterOakBlock(branchGroup, "BranchRight", Vector3.new(3.3, 2.1, 2.8), Vector3.new(2.4, 12.0, -0.15), palette.BarkHighlight)
 	createStarterOakBlock(branchGroup, "BranchFront", Vector3.new(2.7, 1.9, 3.2), Vector3.new(0.15, 12.3, -2.25), palette.Bark)
 
-	-- Layered, axis-aligned canopy: broad at the base, compact through the
-	-- middle, and visibly stepped into a soft Oak silhouette from all sides.
-	local foliage = {
-		{ "CanopyLowCenter", Vector3.new(8.4, 3.8, 8.6), Vector3.new(0, 13.7, 0.1), palette.LeafShadow },
-		{ "CanopyLowLeft", Vector3.new(4.8, 3.7, 5.8), Vector3.new(-4.15, 13.9, 0.35), palette.LeafShadow },
-		{ "CanopyLowRight", Vector3.new(4.8, 3.7, 5.8), Vector3.new(4.15, 14.1, -0.2), palette.Leaf },
-		{ "CanopyFront", Vector3.new(6.8, 3.5, 4.1), Vector3.new(0.2, 14.4, -3.65), palette.Leaf },
-		{ "CanopyMiddle", Vector3.new(8.7, 3.9, 8.1), Vector3.new(0, 16.7, 0), palette.Leaf },
-		{ "CanopyMiddleLeft", Vector3.new(4.7, 3.5, 5.4), Vector3.new(-2.85, 17.1, 0.85), palette.LeafHighlight },
-		{ "CanopyMiddleBack", Vector3.new(5.6, 3.4, 4.5), Vector3.new(1.85, 17.4, 2.75), palette.LeafShadow },
-		-- The upper two blocks sit 1–2 studs lower than the first concept pass,
-		-- preserving the broad silhouette while making this a shorter starter tree.
-		{ "CanopyUpper", Vector3.new(6.8, 3.8, 6.5), Vector3.new(-0.15, 18.4, 0.1), palette.LeafHighlight },
-		{ "CanopyCrown", Vector3.new(3.9, 2.6, 3.8), Vector3.new(0.45, 20.5, -0.15), palette.Leaf },
-	}
-	for _, definition in ipairs(foliage) do
-		createStarterOakBlock(foliageGroup, definition[1], definition[2], definition[3], definition[4])
-	end
+	-- The wide lower tier makes the tree read as a compact Oak rather than a
+	-- staircase, while two overlapping tiers keep the crown substantial.
+	addStarterOakCanopy(foliageGroup, palette)
 
 	return model
 end
@@ -232,19 +235,7 @@ local function makeStarterOakHarvestTree(sectionCount)
 	local foliage = Instance.new("Folder")
 	foliage.Name = "FoliageDecorations"
 	foliage.Parent = model
-	for _, definition in ipairs({
-		{ "CanopyLowCenter", Vector3.new(8.4, 3.8, 8.6), Vector3.new(0, 13.7, 0.1), palette.LeafShadow },
-		{ "CanopyLowLeft", Vector3.new(4.8, 3.7, 5.8), Vector3.new(-4.15, 13.9, 0.35), palette.LeafShadow },
-		{ "CanopyLowRight", Vector3.new(4.8, 3.7, 5.8), Vector3.new(4.15, 14.1, -0.2), palette.Leaf },
-		{ "CanopyFront", Vector3.new(6.8, 3.5, 4.1), Vector3.new(0.2, 14.4, -3.65), palette.Leaf },
-		{ "CanopyMiddle", Vector3.new(8.7, 3.9, 8.1), Vector3.new(0, 16.7, 0), palette.Leaf },
-		{ "CanopyMiddleLeft", Vector3.new(4.7, 3.5, 5.4), Vector3.new(-2.85, 17.1, 0.85), palette.LeafHighlight },
-		{ "CanopyMiddleBack", Vector3.new(5.6, 3.4, 4.5), Vector3.new(1.85, 17.4, 2.75), palette.LeafShadow },
-		{ "CanopyUpper", Vector3.new(6.8, 3.8, 6.5), Vector3.new(-0.15, 18.4, 0.1), palette.LeafHighlight },
-		{ "CanopyCrown", Vector3.new(3.9, 2.6, 3.8), Vector3.new(0.45, 20.5, -0.15), palette.Leaf },
-	}) do
-		createStarterOakBlock(foliage, definition[1], definition[2], definition[3], definition[4])
-	end
+	addStarterOakCanopy(foliage, palette)
 
 	return model
 end
