@@ -87,29 +87,6 @@ local function getHorizontalTumbleAxis(frame, size)
 	assert(axis.Magnitude > 1e-8, "could not determine a horizontal tumble axis")
 	return axis.Unit, longitudinalAxis
 end
-local function getTumbleLiftHeight(frame, size, axis, liftDuration, compressionDuration, turns, groundY, safetyMargin)
-	local frameAxes = { frame.RightVector, frame.UpVector, frame.LookVector }
-	local dimensions = { size.X, size.Y, size.Z }
-	local maximumHalfHeight = 0
-	for index, frameAxis in ipairs(frameAxes) do
-		-- Under a horizontal-axis rotation, a vector's vertical component is
-		-- A*cos(theta) + B*sin(theta), so this is a safe swept half-height bound.
-		local cosineTerm = frameAxis.Y
-		local sineTerm = axis:Cross(frameAxis).Y
-		maximumHalfHeight += 0.5 * dimensions[index]
-			* math.sqrt(cosineTerm * cosineTerm + sineTerm * sineTerm)
-	end
-	local initialHalfHeight = extentAlong(frame, size, Vector3.yAxis)
-	local initialFloorClearance = frame.Position.Y - initialHalfHeight - groundY
-	assert(initialFloorClearance >= 0, "Starter Oak section starts below the gallery floor")
-	local maximumAdditionalHeight = math.max(0, maximumHalfHeight - initialHalfHeight - initialFloorClearance)
-	local liftFractionAtEnd = smooth(liftDuration / (liftDuration + compressionDuration))
-	-- FX eases the full rotation over lift + compression and reaches full lift
-	-- at liftDuration. The ratio of rotation progress to lift progress is
-	-- greatest then, so this bound keeps every earlier pose above the floor too.
-	local earlyClearanceHeight = maximumHalfHeight * 2 * math.pi * turns * liftFractionAtEnd
-	return math.max(maximumAdditionalHeight, earlyClearanceHeight) + safetyMargin, initialFloorClearance
-end
 local CANOPY_FALL = {
 	MinimumAngle = math.rad(60), MaximumAngle = math.rad(82),
 	GroundClearance = 0.025, BranchClearance = 0.08,
@@ -620,18 +597,8 @@ local function runPickup(s, item, mode)
 		ChipCount = CONFIG.ChipCount, HoverHeight = 0, HoldLift = true, AlignLongAxis = true,
 	}
 	if starterOak then
-		local sourceBoundsFrame, sourceBoundsSize = item.model:GetBoundingBox()
-		local tumbleAxis = getHorizontalTumbleAxis(sourceBoundsFrame, sourceBoundsSize)
-		transformOptions.SpinAxisWorld = tumbleAxis
-		local liftHeight, initialFloorClearance = getTumbleLiftHeight(
-			sourceBoundsFrame, sourceBoundsSize, tumbleAxis,
-			liftDuration, compressionDuration, transformOptions.RotationTurns,
-			s.groundY, CANOPY_FALL.GroundClearance)
-		assert(liftHeight <= 8, "Starter Oak tumble exceeds the transformation FX lift limit")
-		transformOptions.LiftHeight = liftHeight
+		-- Let LogTransformationFX derive the barrel-roll axis from the section's longest bounds axis.
 		transformOptions.SourceEndScale = 0.35
-		debugEvent("TUMBLE_PLANNED", ("axis=%s lift=%.2f floorClearance=%.3f sourceSize=%s"):format(
-			tostring(tumbleAxis), transformOptions.LiftHeight, initialFloorClearance, tostring(sourceBoundsSize)))
 	end
 	local controller, message = FX.Play(item.model, destination, transformOptions)
 	assert(controller, "could not transform section: " .. tostring(message))

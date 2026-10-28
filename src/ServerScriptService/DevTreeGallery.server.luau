@@ -97,24 +97,35 @@ local function createStarterOakBlock(parent, name, size, position, color)
 end
 
 -- One gallery-only foliage recipe keeps the visual prototype and harvest
--- showcase aligned. Each block is a full, overlapping volume so the crown
--- reads as a compact, rounded Oak from more than one camera angle.
+-- showcase aligned. The arrangement returns to the previously approved Oak:
+-- offset low, middle, upper, and crown blocks retain visible stepped lobes.
 local function addStarterOakCanopy(parent, palette)
+	local originalCanopyAnchorY = 13.7
+	local canopyAnchorY = 13.25
+	local canopyScale = 0.8
 	local foliage = {
-		{ "CanopyCore", Vector3.new(6.4, 5.8, 6.4), Vector3.new(0, 14.45, 0), palette.LeafShadow },
-		{ "CanopyLeftShoulder", Vector3.new(5.0, 5.0, 5.5), Vector3.new(-3.0, 14.1, 0.1), palette.LeafShadow },
-		{ "CanopyRightShoulder", Vector3.new(5.0, 5.0, 5.5), Vector3.new(2.9, 14.15, -0.15), palette.Leaf },
-		{ "CanopyFrontLobe", Vector3.new(5.6, 4.6, 4.5), Vector3.new(0.2, 13.9, -2.3), palette.Leaf },
-		{ "CanopyBackLobe", Vector3.new(5.3, 4.7, 4.4), Vector3.new(-0.35, 13.85, 2.35), palette.LeafShadow },
-		{ "CanopyTop", Vector3.new(5.2, 4.8, 5.2), Vector3.new(-0.45, 16.55, 0.45), palette.LeafHighlight },
+		{ "CanopyLowCenter", Vector3.new(8.4, 3.8, 8.6), Vector3.new(0, 13.7, 0.1), palette.LeafShadow },
+		{ "CanopyLowLeft", Vector3.new(4.8, 3.7, 5.8), Vector3.new(-4.15, 13.9, 0.35), palette.LeafShadow },
+		{ "CanopyLowRight", Vector3.new(4.8, 3.7, 5.8), Vector3.new(4.15, 14.1, -0.2), palette.Leaf },
+		{ "CanopyFront", Vector3.new(6.8, 3.5, 4.1), Vector3.new(0.2, 14.4, -3.65), palette.Leaf },
+		{ "CanopyMiddle", Vector3.new(8.7, 3.9, 8.1), Vector3.new(0, 16.7, 0), palette.Leaf },
+		{ "CanopyMiddleLeft", Vector3.new(4.7, 3.5, 5.4), Vector3.new(-2.85, 17.1, 0.85), palette.LeafHighlight },
+		{ "CanopyMiddleBack", Vector3.new(5.6, 3.4, 4.5), Vector3.new(1.85, 17.4, 2.75), palette.LeafShadow },
+		{ "CanopyUpper", Vector3.new(6.8, 3.8, 6.5), Vector3.new(-0.15, 19.5, 0.1), palette.LeafHighlight },
+		{ "CanopyCrown", Vector3.new(3.9, 2.6, 3.8), Vector3.new(0.45, 22.1, -0.15), palette.Leaf },
 	}
-	-- The right shoulder's bottom is 11.65 studs high and its +X edge is 5.4.
-	-- Against the 1.19-stud half-width base, it meets the ground at
-	-- atan(11.65 / (5.4 - 1.19)) ~= 70.1 degrees; the nearest branch stays
-	-- about 1.03 studs above that contact, so foliage remains the first support.
 	for _, definition in ipairs(foliage) do
-		createStarterOakBlock(parent, definition[1], definition[2], definition[3], definition[4])
+		local originalPosition = definition[3]
+		local position = Vector3.new(
+			originalPosition.X * canopyScale,
+			canopyAnchorY + (originalPosition.Y - originalCanopyAnchorY) * canopyScale,
+			originalPosition.Z * canopyScale
+		)
+		createStarterOakBlock(parent, definition[1], definition[2] * canopyScale, position, definition[4])
 	end
+	-- With the base section's 1.19-stud half-width, the low-right block reaches
+	-- the ground at about 71.48 degrees. Its lowest corner contacts first; at
+	-- that angle the closest decorative branch remains roughly 0.77 studs higher.
 end
 
 -- The static prototype and the harvest showcase use the same six trunk
