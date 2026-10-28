@@ -17,8 +17,10 @@ local SpeciesVisuals = require(ServerStorage:WaitForChild("SpeciesVisuals"))
 
 local GALLERY_NAME = "DevTreeGallery"
 local GALLERY_ORIGIN = Vector3.new(6000, 120, 6000)
-local GALLERY_FLOOR_SIZE = Vector3.new(360, 1, 620)
-local GALLERY_FLOOR_OFFSET = Vector3.new(180, -1, 210)
+local GALLERY_FLOOR_SIZE = Vector3.new(360, 1, 750)
+local GALLERY_FLOOR_OFFSET = Vector3.new(180, -1, 275)
+local STARTER_OAK_FAMILY_ROW_START_X = 130
+local STARTER_OAK_FAMILY_ROW_Z = 600
 local MIN_PLATFORM_SIZE = 24
 local PLATFORM_PADDING = 12
 local COLUMN_GAP = 20
@@ -96,34 +98,161 @@ local function createStarterOakBlock(parent, name, size, position, color)
 	return part
 end
 
--- One gallery-only foliage recipe keeps the visual prototype and harvest
--- showcase aligned. Seven overlapping, smooth blocks create a compact crown
--- with a 10.05-stud width, 9.1-stud depth, and 7.35-stud height. Front is -Z;
--- viewed toward +Z, screen-left is +X, so the medium-green left lobe is on +X
--- and the dark right lobe is on -X. They frame a smaller center block, while
--- the lime highlight stays in the upper crown.
-local function addStarterOakCanopy(parent, palette)
-	local foliage = {
-		{ "CanopyLowLeft", Vector3.new(5.0, 3.2, 4.4), Vector3.new(2.55, 8.43, -1.5), palette.Leaf },
-		{ "CanopyLowRight", Vector3.new(4.8, 3.0, 4.4), Vector3.new(-2.6, 8.25, -1.4), palette.LeafShadow },
-		{ "CanopyLowFront", Vector3.new(3.8, 2.6, 3.8), Vector3.new(0, 8.1, -1.4), palette.Leaf },
-		{ "CanopyMiddleCore", Vector3.new(6.6, 3.2, 6.1), Vector3.new(0, 9.8, 0), palette.Leaf },
-		{ "CanopyMiddleBack", Vector3.new(4.4, 3.0, 5.8), Vector3.new(-1.3, 10.4, 2.5), palette.LeafShadow },
-		{ "CanopyUpper", Vector3.new(5.2, 3.0, 5.3), Vector3.new(0.25, 11.5, 0.15), palette.LeafHighlight },
-		{ "CanopyCrown", Vector3.new(3.8, 2.1, 3.8), Vector3.new(0.1, 13.05, 0), palette.LeafHighlight },
-	}
-	for _, definition in ipairs(foliage) do
-		createStarterOakBlock(parent, definition[1], definition[2], definition[3], definition[4])
-	end
-	-- The 6.75-stud underside leaves 6.75 studs of the 12-stud trunk visible;
-	-- LowFront covers the trunk center from y=6.8. Its front face is recessed
-	-- 0.3-0.4 studs behind the two larger left/right faces, which stay distinct.
-	-- LowLeft supports a +X fall: with the 2.38-stud base width, its box
-	-- corners meet at atan(6.83 / (5.05 - 1.19)) = 60.53 degrees.
-	-- At that contact angle, BranchRight's lowest outer corner stays 1.67
-	-- studs above ground; BranchFront stays 4.28 studs above. The lower blocks
-	-- use distinct top and bottom planes and overlap in steps to avoid coplanar faces.
+-- Five intentionally authored Starter Oak arrangements share one trunk,
+-- palette, and part builder. Positions are relative to the trunk base; front
+-- is -Z. The overlaps are planned in X, Y, and Z so the rear and side views
+-- retain the same leafy structure as the front.
+local STARTER_OAK_VARIANTS = {
+	A = {
+		Name = "Balanced",
+		Foliage = {
+			{ Name = "LowerLeftFront", Size = Vector3.new(5.0, 3.0, 4.6), Position = Vector3.new(2.5, 8.35, -1.4), ColorRole = "Leaf" },
+			{ Name = "LowerRightFront", Size = Vector3.new(4.8, 2.8, 4.4), Position = Vector3.new(-2.5, 8.15, -1.3), ColorRole = "Leaf" },
+			{ Name = "LowerLeftBack", Size = Vector3.new(4.4, 2.8, 4.8), Position = Vector3.new(-2.8, 8.35, 2.6), ColorRole = "LeafShadow" },
+			{ Name = "LowerRightBack", Size = Vector3.new(4.4, 2.8, 4.4), Position = Vector3.new(2.1, 8.6, 2.35), ColorRole = "LeafShadow" },
+			{ Name = "FrontAccent", Size = Vector3.new(3.4, 2.4, 3.8), Position = Vector3.new(1.0, 9.1, -2.6), ColorRole = "Leaf" },
+			{ Name = "MiddleCore", Size = Vector3.new(6.2, 3.2, 5.8), Position = Vector3.new(0, 9.8, 0.1), ColorRole = "Leaf" },
+			{ Name = "MiddleBack", Size = Vector3.new(4.8, 2.8, 4.8), Position = Vector3.new(0.4, 10.4, 2.2), ColorRole = "LeafShadow" },
+			{ Name = "UpperCanopy", Size = Vector3.new(5.1, 2.8, 5.0), Position = Vector3.new(0.1, 11.9, 0.1), ColorRole = "LeafHighlight" },
+			{ Name = "Crown", Size = Vector3.new(3.8, 2.0, 3.8), Position = Vector3.new(0.1, 13.45, 0.2), ColorRole = "LeafHighlight" },
+		},
+		Branches = {
+			{ Name = "BranchLeft", Size = Vector3.new(2.75, 0.68, 0.72), Position = Vector3.new(-1.4, 6.95, 0), ColorRole = "BarkHighlight" },
+			{ Name = "BranchRight", Size = Vector3.new(2.75, 0.7, 0.72), Position = Vector3.new(1.4, 7.2, 0.15), ColorRole = "BarkHighlight" },
+			{ Name = "BranchFront", Size = Vector3.new(0.72, 0.62, 2.45), Position = Vector3.new(-0.35, 6.9, -1.45), RotationY = -18, ColorRole = "Bark" },
+			{ Name = "BranchBack", Size = Vector3.new(0.72, 0.62, 2.4), Position = Vector3.new(0.9, 7.6, 1.3), RotationY = 16, ColorRole = "BarkHighlight" },
+		},
+	},
+	B = {
+		Name = "Left-Heavy",
+		Foliage = {
+			{ Name = "LeftWingFront", Size = Vector3.new(4.8, 3.2, 4.6), Position = Vector3.new(3.8, 10.5, -1.5), ColorRole = "Leaf" },
+			{ Name = "LeftWingBack", Size = Vector3.new(4.6, 3.4, 5.2), Position = Vector3.new(3.2, 11.3, 2.3), ColorRole = "LeafShadow" },
+			{ Name = "LeftShoulder", Size = Vector3.new(4.8, 3.6, 4.6), Position = Vector3.new(2.5, 9.9, 0.1), ColorRole = "Leaf" },
+			{ Name = "RightCounterFront", Size = Vector3.new(4.2, 3.0, 5.0), Position = Vector3.new(-2.4, 8.5, -1.8), ColorRole = "LeafShadow" },
+			{ Name = "RightCounterBack", Size = Vector3.new(3.8, 3.0, 5.0), Position = Vector3.new(-2.3, 9.2, 2.1), ColorRole = "Leaf" },
+			{ Name = "MiddleCore", Size = Vector3.new(5.8, 3.4, 5.6), Position = Vector3.new(0.65, 10.0, 0), ColorRole = "Leaf" },
+			{ Name = "FrontCore", Size = Vector3.new(3.8, 2.6, 3.6), Position = Vector3.new(0.1, 8.6, -1.8), ColorRole = "Leaf" },
+			{ Name = "UpperCanopy", Size = Vector3.new(4.8, 3.1, 4.8), Position = Vector3.new(0.5, 12.5, 0.1), ColorRole = "LeafHighlight" },
+			{ Name = "Crown", Size = Vector3.new(3.6, 2.2, 3.8), Position = Vector3.new(0.2, 14.2, 0.2), ColorRole = "LeafHighlight" },
+		},
+		Branches = {
+			{ Name = "BranchRightCounter", Size = Vector3.new(2.6, 0.68, 0.72), Position = Vector3.new(-1.4, 7.0, -0.2), ColorRole = "Bark" },
+			{ Name = "BranchLeftFront", Size = Vector3.new(2.35, 0.7, 0.72), Position = Vector3.new(2.15, 7.85, -0.7), ColorRole = "BarkHighlight" },
+			{ Name = "BranchLeftBack", Size = Vector3.new(2.2, 0.66, 0.72), Position = Vector3.new(2.0, 7.95, 1.15), ColorRole = "BarkHighlight" },
+			{ Name = "BranchFront", Size = Vector3.new(0.72, 0.62, 2.6), Position = Vector3.new(0, 7.15, -1.4), RotationY = -15, ColorRole = "Bark" },
+			{ Name = "BranchBack", Size = Vector3.new(0.72, 0.62, 2.7), Position = Vector3.new(-0.55, 7.65, 1.35), RotationY = 15, ColorRole = "BarkHighlight" },
+		},
+	},
+	C = {
+		Name = "Tall & Slim",
+		Foliage = {
+			{ Name = "LowerLeftFront", Size = Vector3.new(4.4, 2.8, 4.6), Position = Vector3.new(2.3, 8.3, -1.5), ColorRole = "Leaf" },
+			{ Name = "LowerRightBack", Size = Vector3.new(4.8, 2.8, 5.8), Position = Vector3.new(-2.1, 8.35, 2.5), ColorRole = "LeafShadow" },
+			{ Name = "MiddleLeftFront", Size = Vector3.new(4.4, 3.0, 4.0), Position = Vector3.new(1.6, 10.4, -1.0), ColorRole = "Leaf" },
+			{ Name = "MiddleRightBack", Size = Vector3.new(4.4, 3.2, 4.2), Position = Vector3.new(-1.45, 10.7, 1.5), ColorRole = "LeafShadow" },
+			{ Name = "MiddleCore", Size = Vector3.new(5.0, 3.0, 5.0), Position = Vector3.new(0, 9.8, 0), ColorRole = "Leaf" },
+			{ Name = "UpperShoulder", Size = Vector3.new(4.8, 3.0, 4.8), Position = Vector3.new(0.4, 12.2, 0.2), ColorRole = "Leaf" },
+			{ Name = "UpperLeft", Size = Vector3.new(3.6, 3.0, 4.2), Position = Vector3.new(-0.9, 13.5, -1.1), ColorRole = "LeafShadow" },
+			{ Name = "UpperRight", Size = Vector3.new(3.8, 3.2, 4.0), Position = Vector3.new(1.15, 13.8, 1.2), ColorRole = "LeafHighlight" },
+			{ Name = "Crown", Size = Vector3.new(3.0, 2.2, 3.4), Position = Vector3.new(0.15, 15.45, 0.2), ColorRole = "LeafHighlight" },
+		},
+		Branches = {
+			{ Name = "BranchLeft", Size = Vector3.new(2.7, 0.64, 0.72), Position = Vector3.new(-1.4, 6.95, -0.1), ColorRole = "Bark" },
+			{ Name = "BranchRight", Size = Vector3.new(2.6, 0.66, 0.72), Position = Vector3.new(1.4, 7.2, 0.1), ColorRole = "BarkHighlight" },
+			{ Name = "BranchFront", Size = Vector3.new(0.72, 0.62, 2.35), Position = Vector3.new(0.15, 7.05, -1.35), RotationY = -16, ColorRole = "BarkHighlight" },
+			{ Name = "BranchBack", Size = Vector3.new(0.72, 0.62, 2.35), Position = Vector3.new(0.45, 7.55, 1.25), RotationY = 18, ColorRole = "Bark" },
+		},
+	},
+	D = {
+		Name = "Wide Canopy",
+		Foliage = {
+			{ Name = "LeftWideFront", Size = Vector3.new(4.8, 3.2, 4.8), Position = Vector3.new(-4.2, 9.1, -1.7), ColorRole = "Leaf" },
+			{ Name = "LeftWideBack", Size = Vector3.new(4.6, 3.2, 5.6), Position = Vector3.new(-4.0, 9.35, 2.1), ColorRole = "LeafShadow" },
+			{ Name = "RightOuterFront", Size = Vector3.new(4.8, 3.6, 5.4), Position = Vector3.new(3.95, 11.1, -2.0), ColorRole = "Leaf" },
+			{ Name = "RightOuterBack", Size = Vector3.new(4.8, 3.6, 5.6), Position = Vector3.new(3.0, 11.9, 2.55), ColorRole = "LeafShadow" },
+			{ Name = "LowerCore", Size = Vector3.new(6.0, 3.0, 5.6), Position = Vector3.new(0, 8.4, 0), ColorRole = "LeafShadow" },
+			{ Name = "MiddleCore", Size = Vector3.new(6.6, 3.3, 6.0), Position = Vector3.new(0, 10.0, 0), ColorRole = "Leaf" },
+			{ Name = "LeftMiddle", Size = Vector3.new(5.0, 3.2, 5.0), Position = Vector3.new(-2.7, 10.4, -0.1), ColorRole = "Leaf" },
+			{ Name = "RightMiddleFront", Size = Vector3.new(4.8, 3.2, 4.6), Position = Vector3.new(2.6, 10.5, -1.5), ColorRole = "LeafShadow" },
+			{ Name = "UpperCanopy", Size = Vector3.new(5.8, 3.4, 5.7), Position = Vector3.new(0.1, 12.5, 0.1), ColorRole = "LeafHighlight" },
+			{ Name = "Crown", Size = Vector3.new(4.0, 2.4, 4.1), Position = Vector3.new(0, 14.4, 0.1), ColorRole = "LeafHighlight" },
+		},
+		Branches = {
+			{ Name = "BranchLeft", Size = Vector3.new(2.8, 0.68, 0.72), Position = Vector3.new(-1.45, 6.9, -0.1), ColorRole = "Bark" },
+			{ Name = "BranchRight", Size = Vector3.new(2.9, 0.7, 0.72), Position = Vector3.new(1.5, 7.25, 0.2), ColorRole = "BarkHighlight" },
+			{ Name = "BranchFront", Size = Vector3.new(0.72, 0.62, 2.5), Position = Vector3.new(-0.1, 6.95, -1.45), RotationY = -20, ColorRole = "BarkHighlight" },
+			{ Name = "BranchBack", Size = Vector3.new(0.72, 0.62, 2.35), Position = Vector3.new(0.4, 7.55, 1.4), RotationY = 18, ColorRole = "Bark" },
+		},
+	},
+	E = {
+		Name = "Sparse & Chunky",
+		Foliage = {
+			{ Name = "LowerLeftFront", Size = Vector3.new(4.4, 3.0, 4.8), Position = Vector3.new(-2.85, 8.55, -1.9), ColorRole = "Leaf" },
+			{ Name = "LowerRightFront", Size = Vector3.new(4.0, 2.8, 4.4), Position = Vector3.new(2.2, 8.55, -1.3), ColorRole = "Leaf" },
+			{ Name = "OuterRight", Size = Vector3.new(3.0, 3.2, 4.0), Position = Vector3.new(3.6, 10.4, 0.3), ColorRole = "LeafHighlight" },
+			{ Name = "BackLeft", Size = Vector3.new(4.2, 3.0, 5.4), Position = Vector3.new(-2.5, 9.6, 2.4), ColorRole = "LeafShadow" },
+			{ Name = "BackRight", Size = Vector3.new(3.6, 2.8, 4.8), Position = Vector3.new(2.3, 9.5, 2.0), ColorRole = "Leaf" },
+			{ Name = "MiddleCore", Size = Vector3.new(4.8, 3.4, 4.8), Position = Vector3.new(0, 10.05, 0), ColorRole = "Leaf" },
+			{ Name = "UpperLeft", Size = Vector3.new(3.8, 3.2, 4.4), Position = Vector3.new(-1.3, 12.2, -0.6), ColorRole = "LeafShadow" },
+			{ Name = "UpperRight", Size = Vector3.new(3.7, 3.0, 4.0), Position = Vector3.new(1.2, 12.55, 1.0), ColorRole = "LeafHighlight" },
+			{ Name = "Crown", Size = Vector3.new(3.0, 2.2, 3.4), Position = Vector3.new(0, 14.35, 0.1), ColorRole = "LeafHighlight" },
+		},
+		Branches = {
+			{ Name = "BranchLeft", Size = Vector3.new(2.6, 0.66, 0.72), Position = Vector3.new(-1.35, 6.9, -0.15), ColorRole = "Bark" },
+			{ Name = "BranchRight", Size = Vector3.new(2.9, 0.65, 0.72), Position = Vector3.new(1.35, 7.2, 0.1), ColorRole = "BarkHighlight" },
+			{ Name = "BranchFront", Size = Vector3.new(0.72, 0.62, 2.3), Position = Vector3.new(0.8, 7.05, -1.3), RotationY = -15, ColorRole = "Bark" },
+			{ Name = "BranchBack", Size = Vector3.new(0.72, 0.62, 2.3), Position = Vector3.new(0.8, 7.95, 1.3), RotationY = 20, ColorRole = "BarkHighlight" },
+		},
+	},
+}
+
+local STARTER_OAK_VARIANT_KEYS = { "A", "B", "C", "D", "E" }
+-- Change this one gallery-only value to preview another authored layout during harvesting.
+local STARTER_OAK_HARVEST_VARIANT = "B"
+
+local function getStarterOakVariant(variantKey)
+	local variant = STARTER_OAK_VARIANTS[variantKey]
+	assert(variant, "Unknown Starter Oak gallery variant: " .. tostring(variantKey))
+	return variant
 end
+
+local function starterOakVariantLabel(variantKey)
+	return variantKey .. " — " .. getStarterOakVariant(variantKey).Name
+end
+
+local function starterOakVariantModelName(prefix, variantKey)
+	local variant = getStarterOakVariant(variantKey)
+	return prefix .. "_" .. variantKey .. "_" .. string.gsub(variant.Name, "%W+", "_")
+end
+
+local function addStarterOakCanopy(parent, palette, variantKey)
+	local variant = getStarterOakVariant(variantKey)
+	for _, definition in ipairs(variant.Foliage) do
+		local color = palette[definition.ColorRole]
+		assert(color, "Missing Oak palette role " .. definition.ColorRole)
+		createStarterOakBlock(parent, definition.Name, definition.Size, definition.Position, color)
+	end
+end
+
+local function addStarterOakBranches(parent, palette, variantKey)
+	local variant = getStarterOakVariant(variantKey)
+	for _, definition in ipairs(variant.Branches) do
+		local color = palette[definition.ColorRole]
+		assert(color, "Missing Oak palette role " .. definition.ColorRole)
+		local branch = createStarterOakBlock(parent, definition.Name, definition.Size, definition.Position, color)
+		if definition.RotationY then
+			-- RotationY is authored in degrees to break up the cardinal branch cross.
+			branch.CFrame = CFrame.new(definition.Position) * CFrame.Angles(0, math.rad(definition.RotationY), 0)
+		end
+	end
+end
+
+-- The common base, shared by all variants, remains the same harvestable
+-- twelve-stud trunk. The deliberate support edges are: A (x=5.0, y=6.85),
+-- B (6.2, 8.9), C (4.5, 6.9), D (6.35, 9.3), and E (5.1, 8.8).
+-- Those are the first foliage contacts in the current 60–82 degree solver;
+-- each layout's branches stay clear of the base at those angles.
 
 -- The static prototype and the harvest showcase use the same six trunk
 -- components, so their visible 12 x 2.4 proportions and bark accents agree.
@@ -145,32 +274,23 @@ local function getStarterOakTrunkComponents(palette)
 	}
 end
 
-local function addStarterOakBranches(parent, palette)
-	-- Each beam overlaps the 2.38-stud trunk by about 1.1 studs and reaches
-	-- roughly 1.8 studs past its edge. Their low faces peek below the lower
-	-- leaves, while their outer ends remain inside the foliage silhouette.
-	createStarterOakBlock(parent, "BranchLeft", Vector3.new(2.9, 0.8, 0.78), Vector3.new(-1.55, 6.75, 0.15), palette.BarkHighlight)
-	createStarterOakBlock(parent, "BranchRight", Vector3.new(2.9, 0.7, 0.72), Vector3.new(1.55, 6.95, -0.15), palette.BarkHighlight)
-	createStarterOakBlock(parent, "BranchFront", Vector3.new(0.7, 0.6, 2.9), Vector3.new(-0.35, 6.9, -1.55), palette.Bark)
-	-- The side beams end at x = +/-3.0; BranchFront ends at z = -3.0,
-	-- inside CanopyLowFront. At the authored +X canopy contact angle of
-	-- 60.53 degrees, BranchRight has the smallest clearance at 1.67 studs.
-	-- These parts stay in DecorativeBranches, outside harvest sections.
-end
-
--- A static visual study for the next Starter Oak direction. It intentionally
--- lives in the gallery rather than TreeObject: it creates no Tree instance,
--- hitbox, rewards, or harvesting registration. The named groups provide an
--- obvious future seam for authored trunk sections and decorative foliage.
-local function makeStarterOakPrototype()
+-- Static previews and the harvest tree use these same authored layout tables.
+-- The preview remains gallery-only: it creates no Tree instance, hitbox, rewards,
+-- or harvesting registration.
+local function makeStarterOakPrototype(variantKey)
+	variantKey = variantKey or "A"
+	local variant = getStarterOakVariant(variantKey)
 	local palette = SpeciesVisuals.GetPalette("Oak")
 	local model = Instance.new("Model")
-	model.Name = "StarterOakPrototype"
+	model.Name = starterOakVariantModelName("StarterOakPreview", variantKey)
 	model:SetAttribute("DevTreeGalleryPreview", true)
 	model:SetAttribute("VisualOnly", true)
 	model:SetAttribute("PrototypeOnly", true)
 	model:SetAttribute("SpeciesId", "Oak")
-	model:SetAttribute("DesignDirection", "StarterOakStudFree")
+	model:SetAttribute("DesignDirection", "StarterOakFamily")
+	model:SetAttribute("StarterOakVariant", variantKey)
+	model:SetAttribute("StarterOakVariantName", variant.Name)
+	model:SetAttribute("DevTreeGalleryLabel", starterOakVariantLabel(variantKey))
 
 	local trunkGroup = Instance.new("Folder")
 	trunkGroup.Name = "FutureHarvestTrunk"
@@ -182,8 +302,6 @@ local function makeStarterOakPrototype()
 	foliageGroup.Name = "FoliageDecorations"
 	foliageGroup.Parent = model
 
-	-- Keep the static trunk identical to the harvest trunk, including the slim
-	-- two-section proportions, instead of displaying a separate chunky column.
 	local trunkCore
 	for _, component in ipairs(getStarterOakTrunkComponents(palette)) do
 		for _, definition in ipairs(component) do
@@ -193,13 +311,8 @@ local function makeStarterOakPrototype()
 	end
 	model.PrimaryPart = trunkCore
 
-	-- These small, embedded blocks read as simple branch junctions without
-	-- becoming roots, sprawling boughs, or separate collectible geometry.
-	addStarterOakBranches(branchGroup, palette)
-
-	-- Shared chunky volumes give both Oak versions the same compact crown.
-	addStarterOakCanopy(foliageGroup, palette)
-
+	addStarterOakBranches(branchGroup, palette, variantKey)
+	addStarterOakCanopy(foliageGroup, palette, variantKey)
 	return model
 end
 
@@ -207,10 +320,11 @@ local STARTER_OAK_NORMALIZED_LOG_LENGTH = 7
 local STARTER_OAK_NORMALIZED_LOG_DIAMETER = 1.8
 local STARTER_OAK_NORMALIZED_LOG_BODY_DIAMETER = STARTER_OAK_NORMALIZED_LOG_DIAMETER - 0.02
 
--- Gallery-only authored version of the approved Starter Oak. The sections are
--- actual pieces of its trunk; canopy and branch blocks deliberately remain
--- outside them so they cannot prop a fallen section above the ground.
-local function makeStarterOakHarvestTree(sectionCount)
+-- Gallery-only harvest tree. Its trunk sections stay identical for every
+-- visual layout; only the shared foliage and decorative branch recipe vary.
+local function makeStarterOakHarvestTree(sectionCount, variantKey)
+	variantKey = variantKey or STARTER_OAK_HARVEST_VARIANT
+	local variant = getStarterOakVariant(variantKey)
 	local rangesByYield = {
 		[1] = { { 1, 2 } },
 		[2] = { { 1, 1 }, { 2, 2 } },
@@ -220,6 +334,7 @@ local function makeStarterOakHarvestTree(sectionCount)
 
 	local palette = SpeciesVisuals.GetPalette("Oak")
 	local model = Instance.new("Model")
+	-- The client bridge depends on this exact name; the selected layout is in attributes.
 	model.Name = "StarterOakHarvestTree"
 	model:SetAttribute("DevTreeGalleryPreview", true)
 	model:SetAttribute("VisualOnly", true)
@@ -227,6 +342,9 @@ local function makeStarterOakHarvestTree(sectionCount)
 	model:SetAttribute("SpeciesId", "Oak")
 	model:SetAttribute("SupportedHarvestYields", "1,2")
 	model:SetAttribute("HarvestYieldPreview", sectionCount)
+	model:SetAttribute("StarterOakVariant", variantKey)
+	model:SetAttribute("StarterOakVariantName", variant.Name)
+	model:SetAttribute("DevTreeGalleryLabel", starterOakVariantLabel(variantKey))
 
 	local pivot = createStarterOakBlock(model, "StarterOakPivot", Vector3.new(0.2, 0.2, 0.2), Vector3.new(0, 0.1, 0), palette.Bark)
 	pivot.Transparency = 1
@@ -258,12 +376,12 @@ local function makeStarterOakHarvestTree(sectionCount)
 	local branches = Instance.new("Folder")
 	branches.Name = "DecorativeBranches"
 	branches.Parent = model
-	addStarterOakBranches(branches, palette)
+	addStarterOakBranches(branches, palette, variantKey)
 
 	local foliage = Instance.new("Folder")
 	foliage.Name = "FoliageDecorations"
 	foliage.Parent = model
-	addStarterOakCanopy(foliage, palette)
+	addStarterOakCanopy(foliage, palette, variantKey)
 
 	return model
 end
@@ -404,10 +522,9 @@ end
 
 local function makeStaticEntry(model, label)
 	local _, bounds = model:GetBoundingBox()
-	model.Name = "Preview_StarterOakPrototype"
 	model:SetAttribute("DevTreeGalleryLabel", label)
 	return {
-		Kind = "StarterOakPrototype",
+		Kind = model.Name,
 		Label = label,
 		Model = model,
 		PlatformSize = Vector3.new(
@@ -569,6 +686,8 @@ local function addStarterOakHarvestPlayground(gallery)
 	playground:SetAttribute("DevHarvestShowcase", true)
 	playground:SetAttribute("SpeciesId", "Oak")
 	playground:SetAttribute("SourceTreeName", "StarterOakHarvestTree")
+	playground:SetAttribute("StarterOakVariant", STARTER_OAK_HARVEST_VARIANT)
+	playground:SetAttribute("StarterOakVariantName", getStarterOakVariant(STARTER_OAK_HARVEST_VARIANT).Name)
 	playground:SetAttribute("SectionFolderName", "StarterOakHarvestSections")
 	playground:SetAttribute("NormalizationTemplateFolder", "StarterOakNormalizedLogTemplates")
 	playground:SetAttribute("SupportedHarvestYields", "1,2")
@@ -582,9 +701,11 @@ local function addStarterOakHarvestPlayground(gallery)
 
 	assert(STARTER_OAK_HARVEST_SHOWCASE_YIELD >= 1 and STARTER_OAK_HARVEST_SHOWCASE_YIELD <= 2,
 		"Starter Oak gallery yield must be 1 or 2")
-	local tree = makeStarterOakHarvestTree(STARTER_OAK_HARVEST_SHOWCASE_YIELD)
+	local tree = makeStarterOakHarvestTree(
+		STARTER_OAK_HARVEST_SHOWCASE_YIELD,
+		STARTER_OAK_HARVEST_VARIANT
+	)
 	configureVisualOnlyModel(tree)
-	tree.Name = "StarterOakHarvestTree"
 	tree:PivotTo(CFrame.new(center.X - 15, GALLERY_ORIGIN.Y + 0.04, center.Z))
 	tree.Parent = playground
 
@@ -613,7 +734,8 @@ local function addStarterOakHarvestPlayground(gallery)
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = "StarterOakHarvestPreviewPrompt"
 	prompt.ActionText = "Preview Starter Oak Harvest"
-	prompt.ObjectText = "Starter Oak (" .. STARTER_OAK_HARVEST_SHOWCASE_YIELD
+	prompt.ObjectText = "Starter Oak " .. starterOakVariantLabel(STARTER_OAK_HARVEST_VARIANT)
+		.. " (" .. STARTER_OAK_HARVEST_SHOWCASE_YIELD
 		.. (STARTER_OAK_HARVEST_SHOWCASE_YIELD == 1 and " log)" or " logs)")
 	prompt.KeyboardKeyCode = Enum.KeyCode.E
 	prompt.HoldDuration = 0
@@ -623,7 +745,7 @@ local function addStarterOakHarvestPlayground(gallery)
 	prompt.Parent = demoSlot
 end
 
-local function arrangeRow(gallery, title, entries, rowZ)
+local function arrangeRow(gallery, title, entries, rowZ, startXOffset)
 	local rowDepth = MIN_PLATFORM_SIZE
 	local rowWidth = 0
 	for index, entry in ipairs(entries) do
@@ -634,7 +756,7 @@ local function arrangeRow(gallery, title, entries, rowZ)
 		end
 	end
 
-	local cursorX = GALLERY_ORIGIN.X
+	local cursorX = GALLERY_ORIGIN.X + (startXOffset or 0)
 	for index, entry in ipairs(entries) do
 		local width = entry.PlatformSize.X
 		local depth = entry.PlatformSize.Z
@@ -655,7 +777,7 @@ local function arrangeRow(gallery, title, entries, rowZ)
 		cursorX += width + COLUMN_GAP
 	end
 
-	local rowCenterX = GALLERY_ORIGIN.X + rowWidth * 0.5
+	local rowCenterX = GALLERY_ORIGIN.X + (startXOffset or 0) + rowWidth * 0.5
 	local headerZ = GALLERY_ORIGIN.Z + rowZ - rowDepth * 0.5 - 21
 	addSign(gallery, title, Vector3.new(rowCenterX, 0, headerZ), math.clamp(rowWidth * 0.42, 28, 46), "Header_" .. title)
 
@@ -750,9 +872,36 @@ local function createGallery()
 		makeEntry("GroveOak", "Oak", "mature", {}, "Grove Oak"),
 	})
 
-	addRow("STARTER OAK — STUD-FREE VISUAL PROTOTYPE", {
-		makeStaticEntry(makeStarterOakPrototype(), "Approved Starter Oak Direction"),
-	})
+	local familyEntries = {}
+	for _, variantKey in ipairs(STARTER_OAK_VARIANT_KEYS) do
+		table.insert(familyEntries, makeStaticEntry(
+			makeStarterOakPrototype(variantKey),
+			starterOakVariantLabel(variantKey)
+		))
+	end
+
+	-- A dedicated patch behind the existing rows keeps the five trees clear of
+	-- both harvest stages. The floor extends from its old -100 edge to +650;
+	-- prior row and showcase coordinates stay fixed.
+	local familyRowDepth, familyRowWidth = arrangeRow(
+		gallery,
+		"STARTER OAK FAMILY — A / B / C / D / E",
+		familyEntries,
+		STARTER_OAK_FAMILY_ROW_Z,
+		STARTER_OAK_FAMILY_ROW_START_X
+	)
+	assert(STARTER_OAK_FAMILY_ROW_START_X + familyRowWidth <= GALLERY_FLOOR_SIZE.X - 8,
+		"Starter Oak family row exceeds the gallery floor width")
+	assert(STARTER_OAK_FAMILY_ROW_Z + familyRowDepth * 0.5
+		<= GALLERY_FLOOR_OFFSET.Z + GALLERY_FLOOR_SIZE.Z * 0.5 - 8,
+		"Starter Oak family row exceeds the gallery floor depth")
+	assert(STARTER_OAK_FAMILY_ROW_Z - familyRowDepth * 0.5
+		>= GALLERY_FLOOR_OFFSET.Z - GALLERY_FLOOR_SIZE.Z * 0.5 + 8,
+		"Starter Oak family row crosses the gallery floor's front edge")
+	assert(STARTER_OAK_FAMILY_ROW_START_X >= 75 + 82 * 0.5 + 12,
+		"Starter Oak family row is too close to the Starter Oak harvest stage")
+	assert(STARTER_OAK_FAMILY_ROW_Z - familyRowDepth * 0.5 >= 485 + 44 * 0.5 + 12,
+		"Starter Oak family row is too close to the full-tree harvest stage")
 
 	addStarterOakHarvestPlayground(gallery)
 	addTransformationPlayground(gallery)
