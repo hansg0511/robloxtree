@@ -26,11 +26,13 @@ local CONFIG = {
 	ArrivalRadius = 2.5, OverflowArrivalRadius = 0.5,
 	CarrySettleDuration = 0.22, OverflowSettleDuration = 0.45, PileSpacing = 0.08,
 }
-local session, controls
+local sessionsByPlayground = setmetatable({}, { __mode = "k" })
+local sessionsBySectionPrompt = setmetatable({}, { __mode = "k" })
 local controlsByPlayground = setmetatable({}, { __mode = "k" })
 local controlsSetup = setmetatable({}, { __mode = "k" })
 local startingByPlayground = setmetatable({}, { __mode = "k" })
 local galleryConnections = setmetatable({}, { __mode = "k" })
+local carrySlotOwners = {}
 local selectedMode = "Backpack"
 
 local function debugEvent(event, detail)
@@ -39,9 +41,11 @@ local function debugEvent(event, detail)
 	end
 end
 
-local function status(message)
-	if controls and controls.status and controls.status.Parent then
-		controls.status.Text = "MODE: " .. selectedMode:upper() .. "\n" .. message
+local function status(playground, message)
+	local targetControls = controlsByPlayground[playground]
+	if targetControls and targetControls.status and targetControls.status.Parent then
+		targetControls.message = message
+		targetControls.status.Text = "MODE: " .. selectedMode:upper() .. "\n" .. message
 	end
 end
 
@@ -58,7 +62,8 @@ local function quadOut(t)
 	return 1 - (1 - t) * (1 - t)
 end
 local function alive(s)
-	return session == s and not s.cancelled and s.folder.Parent ~= nil and s.playground.Parent ~= nil
+	return sessionsByPlayground[s.playground] == s and not s.cancelled
+		and s.folder.Parent ~= nil and s.playground.Parent ~= nil
 end
 local function animate(s, duration, callback)
 	local start = os.clock()
@@ -383,60 +388,75 @@ local function restore(saved)
 		if part.Parent then part.LocalTransparencyModifier = transparency end
 	end
 end
+local function releaseCarrySlots(s)
+	for slot in pairs(s.carrySlots or {}) do
+		if carrySlotOwners[slot] == s then carrySlotOwners[slot] = nil end
+		s.carrySlots[slot] = nil
+	end
+end
+local function forgetSessionPrompts(s)
+	for _, item in ipairs(s.sections or {}) do
+		if item.prompt and sessionsBySectionPrompt[item.prompt] == s then
+			sessionsBySectionPrompt[item.prompt] = nil
+		end
+	end
+end
 local function updateControls()
 	for _, candidate in pairs(controlsByPlayground) do
 		if candidate.folder.Parent then
 			for mode, label in pairs(candidate.labels) do
 				label.Text = mode:upper() .. (selectedMode == mode and " [SELECTED]" or "")
 			end
+			if candidate.message and candidate.status and candidate.status.Parent then
+				candidate.status.Text = "MODE: " .. selectedMode:upper() .. "\n" .. candidate.message
+			end
 		end
 	end
-	if session then
-		for _, item in ipairs(session.sections) do
+	for _, s in pairs(sessionsByPlayground) do
+		for _, item in ipairs(s.sections) do
 			if item.prompt and item.prompt.Parent then
 				item.prompt.ActionText = "Preview " .. selectedMode .. " Pickup"
-				item.prompt.Enabled = session.phase == "ready" and item.state == "available"
+				item.prompt.Enabled = s.phase == "ready" and item.state == "available"
 			end
 		end
 	end
 end
-local function reset(targetControls)
-	local s = session
-	if not s then
-		if targetControls then
-			controls = targetControls
-			local pending = startingByPlayground[targetControls.playground]
-			if pending then pending.cancelled = true end
-			for _, prompt in ipairs(targetControls.playground:GetDescendants()) do
-				if prompt:IsA("ProximityPrompt") and prompt:GetAttribute("DevTreeGalleryTransformationPrompt") == true then
-					prompt.Enabled = true
-				end
-			end
-		end
-		updateControls()
-		local invalidReason = targetControls and targetControls.playground:GetAttribute("HarvestSectionInvalidReason")
-		if targetControls and targetControls.playground:GetAttribute("GeneratedStarterOak") == true
-			and targetControls.playground:GetAttribute("HarvestSectionValid") == false then
-			status("Harvest unavailable — " .. tostring(invalidReason or "generated trunk dimensions do not meet the harvest limits"))
-		else
-			status("Ready — press E at the tree")
-		end
-		return
+
+local function reset(playground)
+	if not playground then return end
+	local pending = startingByPlayground[playground]
+	local s = sessionsByPlayground[playground]
+	local hadState = pending ~= nil or s ~= nil
+	if pending then
+		pending.cancelled = true
+		if startingByPlayground[playground] == pending then startingByPlayground[playground] = nil end
+		if pending.galleryConnection then pending.galleryConnection:Disconnect(); pending.galleryConnection = nil end
+		if pending.characterConnection then pending.characterConnection:Disconnect(); pending.characterConnection = nil end
+		if pending.fallPrompt and pending.fallPrompt.Parent then pending.fallPrompt.Enabled = true end
 	end
-	controls = controlsByPlayground[s.playground] or controls
-	local pending = startingByPlayground[s.playground]
-	if pending then pending.cancelled = true end
-	session = nil
-	s.cancelled = true
-	if s.controller then s.controller:Cancel() end
-	if s.follow then s.follow:Disconnect() end
-	if s.galleryConnection then s.galleryConnection:Disconnect() end
-	if s.characterConnection then s.characterConnection:Disconnect() end
-	if s.folder then s.folder:Destroy() end
-	restore(s.saved)
-	if s.fallPrompt.Parent then s.fallPrompt.Enabled = true end
+	if s then
+		if sessionsByPlayground[playground] == s then sessionsByPlayground[playground] = nil end
+		s.cancelled = true
+		if s.controller then s.controller:Cancel() end
+		if s.follow then s.follow:Disconnect(); s.follow = nil end
+		if s.galleryConnection then s.galleryConnection:Disconnect(); s.galleryConnection = nil end
+		if s.characterConnection then s.characterConnection:Disconnect(); s.characterConnection = nil end
+		forgetSessionPrompts(s)
+		if s.folder then s.folder:Destroy() end
+		restore(s.saved)
+		if s.fallPrompt and s.fallPrompt.Parent then s.fallPrompt.Enabled = true end
+		releaseCarrySlots(s)
+	end
 	updateControls()
-	status("Showcase reset — press E at the tree")
+	local invalidReason = playground:GetAttribute("HarvestSectionInvalidReason")
+	if playground:GetAttribute("GeneratedStarterOak") == true
+		and playground:GetAttribute("HarvestSectionValid") == false then
+		status(playground, "Harvest unavailable — " .. tostring(invalidReason or "generated trunk dimensions do not meet the harvest limits"))
+	elseif hadState then
+		status(playground, "Showcase reset — press E at the tree")
+	else
+		status(playground, "Ready — press E at the tree")
+	end
 end
 local function collectJointsToDetach(tree, sections)
 	local membership = {}
@@ -768,13 +788,24 @@ local function carryTarget(index)
 	local offset = CarryLayout.GetTorsoRelativeTargetCFrame("Normal", index, table.create(index, 1))
 	return offset and torso.CFrame * offset or nil
 end
+local function reserveCarrySlot(s)
+	s.carrySlots = s.carrySlots or {}
+	for slot = 1, CarryLayout.MAX_CARRIED_LOGS do
+		if not carrySlotOwners[slot] then
+			carrySlotOwners[slot] = s
+			s.carrySlots[slot] = true
+			return slot
+		end
+	end
+	error("gallery carry visual limit reached")
+end
 local function followCarries(s)
 	if s.follow then return end
 	s.follow = RunService.RenderStepped:Connect(function()
 		if not alive(s) then return end
-		for index, model in ipairs(s.carries) do
-			local target = carryTarget(index)
-			if target and model.Parent then model:PivotTo(target) end
+		for _, carry in ipairs(s.carries) do
+			local target = carryTarget(carry.slot)
+			if target and carry.model.Parent then carry.model:PivotTo(target) end
 		end
 	end)
 end
@@ -906,7 +937,7 @@ end
 local function runPickup(s, item, mode)
 	s.pickupStage = "FX.Play"
 	debugEvent("TRANSFORMATION_STARTING", ("mode=%s section=%d"):format(mode, item.index))
-	if mode == "Overflow" then status("Overflow pickup started") end
+	if mode == "Overflow" then status(s.playground, "Overflow pickup started") end
 	local destination = item.destination or s.destination
 	assert(destination and destination:IsA("Model"), "normalized log template missing for section " .. item.index)
 	-- The same normalized model becomes the homing and pile/carry visual. This
@@ -973,10 +1004,10 @@ local function runPickup(s, item, mode)
 	s.pickupStage = "homing"
 	assert(home(s, model, mode), "pickup homing timed out or was cancelled")
 	if mode == "Backpack" then
-		local index = #s.carries + 1
-		assert(settle(s, model, CONFIG.CarrySettleDuration, function() return carryTarget(index) end,
+		local carrySlot = reserveCarrySlot(s)
+		assert(settle(s, model, CONFIG.CarrySettleDuration, function() return carryTarget(carrySlot) end,
 			model:GetScale() / 4), "carry settle cancelled")
-		table.insert(s.carries, model)
+		table.insert(s.carries, { model = model, slot = carrySlot })
 		followCarries(s)
 	else
 		s.pickupStage = "pile allocation"
@@ -992,9 +1023,10 @@ local function runPickup(s, item, mode)
 		table.insert(s.pile, model)
 		debugEvent("SETTLEMENT_COMPLETE", ("section=%d pileCount=%d position=%s"):format(
 			item.index, #s.pile, tostring(model:GetPivot().Position)))
-		status(("Overflow complete — pile: %d/%d"):format(#s.pile, #s.sections))
+		status(s.playground, ("Overflow complete — pile: %d/%d"):format(#s.pile, #s.sections))
 	end
 	item.state = "collected"
+	if sessionsBySectionPrompt[item.prompt] == s then sessionsBySectionPrompt[item.prompt] = nil end
 	item.prompt:Destroy()
 	s.activeModel = nil
 	s.pickupStage = nil
@@ -1077,15 +1109,21 @@ local function validateProceduralSections(tree, authoredSections)
 end
 
 local function start(playground, fallPrompt)
-	if session or startingByPlayground[playground] then return end
-	for _, pending in pairs(startingByPlayground) do
-		if pending then return end
-	end
-	local token = { cancelled = false, fallPrompt = fallPrompt }
+	if sessionsByPlayground[playground] or startingByPlayground[playground] then return end
+	local gallery = Workspace:FindFirstChild("DevTreeGallery")
+	if not gallery or not playground:IsDescendantOf(gallery) then return end
+	local token = { cancelled = false, fallPrompt = fallPrompt, gallery = gallery }
 	startingByPlayground[playground] = token
-	controls = controlsByPlayground[playground] or controls
+	token.galleryConnection = playground.AncestryChanged:Connect(function()
+		if not playground:IsDescendantOf(gallery) and startingByPlayground[playground] == token then
+			reset(playground)
+		end
+	end)
+	token.characterConnection = player.CharacterRemoving:Connect(function()
+		if startingByPlayground[playground] == token then reset(playground) end
+	end)
 	if fallPrompt.Parent then fallPrompt.Enabled = false end
-	status("Loading the generated tree and log templates…")
+	status(playground, "Loading the generated tree and log templates…")
 	local source, tree, folder, saved, s
 	local ok, failure = xpcall(function()
 		local sourceName = playground:GetAttribute("SourceTreeName") or "ShowcaseTree"
@@ -1142,7 +1180,7 @@ local function start(playground, fallPrompt)
 			local body, bodyError = waitForChild(sectionDestination, "LogHandle", CONFIG.StreamingTimeout, token, "BasePart")
 			assert(body, bodyError)
 		end
-		if token.cancelled then error("showcase load cancelled") end
+		if token.cancelled or startingByPlayground[playground] ~= token then error("showcase load cancelled") end
 		tree = source:Clone()
 		assert(tree, "could not clone showcase tree")
 		local clonedFolder, clonedAuthoredSections = readAuthoredSections(tree, sectionFolderName)
@@ -1174,6 +1212,7 @@ local function start(playground, fallPrompt)
 			prompt.Parent = model.PrimaryPart
 			table.insert(sections, { index = visualIndex, model = model, state = "available", prompt = prompt, destination = sectionDestination })
 		end
+		if token.cancelled or startingByPlayground[playground] ~= token then error("showcase load cancelled") end
 		folder = Instance.new("Folder")
 		folder.Name = "ClientFullHarvestShowcase"
 		folder.Parent = Workspace
@@ -1192,41 +1231,49 @@ local function start(playground, fallPrompt)
 			debugEvent("PROCEDURAL_TREE_READY", ("seed=%s trunk=%.2fx%.2f sections=%d parts=%d"):format(
 				tostring(seed or "n/a"), coreHeight, thickness, #sections, countBaseParts(tree)))
 		end
-		local gallery = Workspace:FindFirstChild("DevTreeGallery")
 		s = { playground = playground, folder = folder, tree = tree, destination = destination or sections[1].destination,
 			sections = sections, saved = saved, fallPrompt = fallPrompt, groundY = groundY,
-			phase = "falling", carries = {}, pile = {}, proceduralStarterOak = proceduralStarterOak, seed = seed,
+			phase = "falling", carries = {}, carrySlots = {}, pile = {}, proceduralStarterOak = proceduralStarterOak, seed = seed,
 			gallery = gallery }
-		session = s
+		sessionsByPlayground[playground] = s
+		for _, item in ipairs(sections) do sessionsBySectionPrompt[item.prompt] = s end
 		s.galleryConnection = playground.AncestryChanged:Connect(function()
-			if not playground:IsDescendantOf(Workspace) and session == s then reset() end
+			if not playground:IsDescendantOf(gallery) and sessionsByPlayground[playground] == s then
+				reset(playground)
+			end
 		end)
 		s.characterConnection = player.CharacterRemoving:Connect(function()
-			if session == s then reset() end
+			if sessionsByPlayground[playground] == s then reset(playground) end
 		end)
 	end, debug.traceback)
-	startingByPlayground[playground] = nil
+	local tokenIsCurrent = startingByPlayground[playground] == token
+	if tokenIsCurrent then startingByPlayground[playground] = nil end
+	if token.galleryConnection then token.galleryConnection:Disconnect(); token.galleryConnection = nil end
+	if token.characterConnection then token.characterConnection:Disconnect(); token.characterConnection = nil end
 	if not ok then
 		if s and s.galleryConnection then s.galleryConnection:Disconnect() end
 		if s and s.characterConnection then s.characterConnection:Disconnect() end
-		if session == s then session = nil end
+		if s then
+			forgetSessionPrompts(s)
+			if sessionsByPlayground[playground] == s then sessionsByPlayground[playground] = nil end
+		end
 		if folder and folder.Parent then folder:Destroy() elseif tree then tree:Destroy() end
 		if saved then restore(saved) end
-		if fallPrompt.Parent then fallPrompt.Enabled = true end
-		if token.cancelled then
-			status("Showcase load cancelled — press E at the tree")
-		else
+		if s then releaseCarrySlots(s) end
+		if not startingByPlayground[playground] and not sessionsByPlayground[playground]
+			and fallPrompt.Parent then fallPrompt.Enabled = true end
+		if not token.cancelled and tokenIsCurrent then
 			local conciseFailure = tostring(failure):match("^[^\n]+") or tostring(failure)
-			status("Showcase could not load: " .. conciseFailure)
+			status(playground, "Showcase could not load: " .. conciseFailure)
 			warn("[DevTreeGallery] Could not start showcase: " .. tostring(failure))
 		end
 		return
 	end
 	task.spawn(function()
 		local success, err = pcall(runFall, s)
-		if not success and session == s then
+		if not success and sessionsByPlayground[playground] == s then
 			warn("[DevTreeGallery] Showcase reset after fall error: " .. tostring(err))
-			reset()
+			reset(playground)
 		end
 	end)
 end
@@ -1261,11 +1308,16 @@ local function setupControls(playground)
 	if not playground or not playground.Parent or controlsSetup[playground] then return end
 	local existingControls = controlsByPlayground[playground]
 	if existingControls and existingControls.folder.Parent then return end
-	controlsSetup[playground] = true
-	local slot, slotError = waitForChild(playground, "DemoSlot", CONFIG.StreamingTimeout, nil, "BasePart")
-	controlsSetup[playground] = nil
-	if not playground.Parent or not slot then
-		if playground.Parent and slotError then warn("[DevTreeGallery] Showcase controls unavailable: " .. slotError) end
+	local gallery = Workspace:FindFirstChild("DevTreeGallery")
+	if not gallery or not playground:IsDescendantOf(gallery) then return end
+	local token = { cancelled = false, gallery = gallery }
+	controlsSetup[playground] = token
+	local slot, slotError = waitForChild(playground, "DemoSlot", CONFIG.StreamingTimeout, token, "BasePart")
+	if controlsSetup[playground] == token then controlsSetup[playground] = nil end
+	if token.cancelled or not playground:IsDescendantOf(gallery) or not slot then
+		if not token.cancelled and playground:IsDescendantOf(gallery) and slotError then
+			warn("[DevTreeGallery] Showcase controls unavailable: " .. slotError)
+		end
 		return
 	end
 	local folder = Instance.new("Folder")
@@ -1290,29 +1342,28 @@ local function setupControls(playground)
 	statusLabel.Parent = billboard
 	local playgroundControls = { playground = playground, folder = folder, labels = { Backpack = backpack, Overflow = overflow }, status = statusLabel }
 	controlsByPlayground[playground] = playgroundControls
-	if not controls then controls = playgroundControls end
 	updateControls()
 	if playground:GetAttribute("GeneratedStarterOak") == true
 		and playground:GetAttribute("HarvestSectionValid") == false then
 		local reason = playground:GetAttribute("HarvestSectionInvalidReason") or "generated trunk dimensions do not meet the harvest limits"
-		statusLabel.Text = "MODE: " .. selectedMode:upper() .. "\nHarvest unavailable — " .. tostring(reason)
-	elseif controls == playgroundControls then
-		status("Select a mode, then collect a section")
+		status(playground, "Harvest unavailable — " .. tostring(reason))
+	elseif startingByPlayground[playground] then
+		status(playground, "Loading the generated tree and log templates…")
+	elseif sessionsByPlayground[playground] then
+		status(playground, "Showcase active")
+	else
+		status(playground, "Select a mode, then collect a section")
 	end
 end
 
 local function discardShowcaseControls(playground)
-	controlsSetup[playground] = nil
+	local setupToken = controlsSetup[playground]
+	if setupToken then setupToken.cancelled = true; controlsSetup[playground] = nil end
+	if sessionsByPlayground[playground] or startingByPlayground[playground] then reset(playground) end
 	local candidate = controlsByPlayground[playground]
 	if candidate then
-		if controls == candidate then controls = nil end
 		if candidate.folder and candidate.folder.Parent then candidate.folder:Destroy() end
 		controlsByPlayground[playground] = nil
-	end
-	if not controls then
-		for _, remaining in pairs(controlsByPlayground) do
-			if remaining.folder and remaining.folder.Parent then controls = remaining; break end
-		end
 	end
 end
 
@@ -1328,7 +1379,6 @@ local function setupGallery(gallery)
 	end
 	local function remove(instance)
 		if instance:GetAttribute("DevHarvestShowcase") == true then
-			if session and session.playground == instance then reset() end
 			discardShowcaseControls(instance)
 		end
 	end
@@ -1343,7 +1393,26 @@ local function setupGallery(gallery)
 			connections.Ancestry:Disconnect()
 			galleryConnections[gallery] = nil
 		end
-		if session and session.gallery == gallery then reset() end
+		local affectedPlaygrounds = {}
+		for playground, token in pairs(controlsSetup) do
+			if token.gallery == gallery then table.insert(affectedPlaygrounds, playground) end
+		end
+		for playground, s in pairs(sessionsByPlayground) do
+			if s.gallery == gallery and not table.find(affectedPlaygrounds, playground) then
+				table.insert(affectedPlaygrounds, playground)
+			end
+		end
+		for playground, token in pairs(startingByPlayground) do
+			if token.gallery == gallery and not table.find(affectedPlaygrounds, playground) then
+				table.insert(affectedPlaygrounds, playground)
+			end
+		end
+		for playground, candidate in pairs(controlsByPlayground) do
+			if playground:IsDescendantOf(gallery) and not table.find(affectedPlaygrounds, playground) then
+				table.insert(affectedPlaygrounds, playground)
+			end
+		end
+		for _, playground in ipairs(affectedPlaygrounds) do discardShowcaseControls(playground) end
 	end)
 	galleryConnections[gallery] = { Added = added, Removing = removing, Ancestry = ancestry }
 	for _, descendant in ipairs(gallery:GetDescendants()) do consider(descendant) end
@@ -1376,34 +1445,31 @@ PromptService.PromptTriggered:Connect(function(prompt)
 	local action = prompt:GetAttribute("DevShowcaseAction")
 	local promptControls = controlsForPrompt(prompt)
 	if action and promptControls then
-		controls = promptControls
 		if action == "Reset" then
-			reset(promptControls)
-		elseif (action == "Backpack" or action == "Overflow") and (not session or session.phase == "ready") then
+			reset(promptControls.playground)
+		elseif action == "Backpack" or action == "Overflow" then
 			local wasSelected = selectedMode == action
 			selectedMode = action
 			debugEvent("MODE_SELECTED", action)
 			updateControls()
-		status(if wasSelected
-			then action .. " is already selected — press E at the tree"
-			else action .. " selected — press E at the tree")
-		else
-			debugEvent("MODE_SELECTION_IGNORED", ("action=%s phase=%s"):format(action, session and session.phase or "none"))
+			status(promptControls.playground, if wasSelected
+				then action .. " is already selected — press E at the tree"
+				else action .. " selected — press E at the tree")
 		end
 		return
 	end
 	if prompt:GetAttribute("DevTreeGalleryTransformationPrompt") == true then
 		local playground = findHarvestPlayground(prompt)
 		local gallery = Workspace:FindFirstChild("DevTreeGallery")
-		if session or not playground or not gallery or not playground:IsDescendantOf(gallery) then return end
+		if not playground or not gallery or not playground:IsDescendantOf(gallery) then return end
 		local ok, err = pcall(start, playground, prompt)
 		if not ok then warn("[DevTreeGallery] Could not start showcase: " .. tostring(err)) end
 		return
 	end
 	local index = prompt:GetAttribute("DevShowcaseSection")
-	local s = session
+	local s = sessionsBySectionPrompt[prompt]
 	if typeof(index) ~= "number" then return end
-	if not s or s.phase ~= "ready" then
+	if not s or sessionsByPlayground[s.playground] ~= s or s.phase ~= "ready" then
 		debugEvent("SECTION_SELECTION_IGNORED", ("index=%s phase=%s"):format(tostring(index), s and s.phase or "none"))
 		return
 	end
@@ -1418,7 +1484,7 @@ PromptService.PromptTriggered:Connect(function(prompt)
 	debugEvent("PROMPT_ACCEPTED", ("mode=%s section=%d"):format(mode, index))
 	task.spawn(function()
 		local ok, err = pcall(runPickup, s, item, mode)
-		if not ok and session == s then
+		if not ok and sessionsByPlayground[s.playground] == s then
 			local reason = ("%s: %s"):format(s.pickupStage or "unknown stage", tostring(err))
 			debugEvent("PICKUP_FAILED", ("mode=%s section=%d reason=%s"):format(mode, index, reason))
 			warn("[DevTreeGallery] " .. mode .. " pickup failed: " .. reason)
@@ -1440,9 +1506,9 @@ PromptService.PromptTriggered:Connect(function(prompt)
 				if #s.pile == 0 then s.pileOrigin = nil end
 				item.state, s.phase, s.pickupStage = "available", "ready", nil
 				updateControls()
-				status("Overflow failed — section restored, try again")
+				status(s.playground, "Overflow failed — section restored, try again")
 			else
-				reset()
+				reset(s.playground)
 			end
 		end
 	end)
