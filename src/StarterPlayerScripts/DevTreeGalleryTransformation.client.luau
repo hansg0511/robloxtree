@@ -14,6 +14,7 @@ local DEBUG_OVERFLOW_SHOWCASE = false
 local CONFIG = {
 	Fall = 1.35, ImpactPause = 0.12, Foliage = 0.48,
 	Breakup = 0.52, BreakupStagger = 0.14, BreakupPop = 1.5, BreakupTurns = 1,
+	StreamingTimeout = 12, FallbackDecorationFade = 0.32,
 	LiftDuration = 0.16, CompressionDuration = 0.24, RevealDuration = 0.18,
 	StarterOakPickup = { LiftDuration = 0.22, CompressionDuration = 0.63, RotationTurns = 1 },
 	LiftHeight = 1.1, RotationTurns = 0.35, ChipCount = 8,
@@ -24,6 +25,9 @@ local CONFIG = {
 }
 local session, controls
 local controlsByPlayground = setmetatable({}, { __mode = "k" })
+local controlsSetup = setmetatable({}, { __mode = "k" })
+local startingByPlayground = setmetatable({}, { __mode = "k" })
+local galleryConnections = setmetatable({}, { __mode = "k" })
 local selectedMode = "Backpack"
 
 local function debugEvent(event, detail)
@@ -54,6 +58,50 @@ local function animate(s, duration, callback)
 		RunService.Heartbeat:Wait()
 	end
 	return false
+end
+local function waitForChild(parent, name, timeout, token, className)
+	local deadline = os.clock() + timeout
+	repeat
+		if token and token.cancelled then return nil, "cancelled while waiting for " .. name end
+		if not parent or not parent.Parent then return nil, "parent streamed out while waiting for " .. name end
+		local child = parent:FindFirstChild(name)
+		if child and (not className or child:IsA(className)) then return child end
+		if os.clock() >= deadline then break end
+		RunService.Heartbeat:Wait()
+	until false
+	return nil, "timed out waiting for " .. name
+end
+local function waitForAttribute(instance, name, timeout, token)
+	local deadline = os.clock() + timeout
+	repeat
+		if token and token.cancelled then return nil, "cancelled while waiting for " .. name end
+		if not instance or not instance.Parent then return nil, "instance streamed out while waiting for " .. name end
+		local value = instance:GetAttribute(name)
+		if value ~= nil then return value end
+		if os.clock() >= deadline then break end
+		RunService.Heartbeat:Wait()
+	until false
+	return nil, "timed out waiting for attribute " .. name
+end
+local function countBaseParts(root)
+	local count = 0
+	for _, descendant in ipairs(root:GetDescendants()) do
+		if descendant:IsA("BasePart") then count += 1 end
+	end
+	return count
+end
+local function waitForTreeGeometry(tree, timeout, token)
+	local expected = tree:GetAttribute("PartCount")
+	if typeof(expected) ~= "number" or expected < 1 then return true end
+	local deadline = os.clock() + timeout
+	repeat
+		if token and token.cancelled then return false, "cancelled while waiting for generated tree geometry" end
+		if not tree.Parent then return false, "generated tree streamed out while waiting for geometry" end
+		if countBaseParts(tree) >= expected then return true end
+		if os.clock() >= deadline then break end
+		RunService.Heartbeat:Wait()
+	until false
+	return false, ("generated tree geometry timed out (%d/%d parts)"):format(countBaseParts(tree), expected)
 end
 local function extentAlong(frame, size, axis)
 	return 0.5 * (math.abs(frame.RightVector:Dot(axis)) * size.X
@@ -114,8 +162,16 @@ local function minimumYAt(bounds, pivot)
 	local result = boundsAt(bounds, pivot)
 	return result and result.MinY or math.huge
 end
-local function isStarterOakShowcase(playground)
+local function isProceduralStarterOak(playground, tree)
+	if tree and tree:GetAttribute("GeneratedStarterOak") == true then return true end
+	if playground:GetAttribute("SourceTreeName") == "ProceduralStarterOakHarvestTree" then return true end
+	local sourceName = playground:GetAttribute("SourceTreeName")
+	local source = if type(sourceName) == "string" then playground:FindFirstChild(sourceName) else nil
+	return source ~= nil and source:GetAttribute("GeneratedStarterOak") == true
+end
+local function isStarterOakShowcase(playground, tree)
 	return playground:GetAttribute("SourceTreeName") == "StarterOakHarvestTree"
+		or isProceduralStarterOak(playground, tree)
 end
 local function solveCanopyLandingAngle(tree, sections, standing)
 	local baseBounds = collectVisibleBounds(sections[1].model, standing)
@@ -139,8 +195,11 @@ local function solveCanopyLandingAngle(tree, sections, standing)
 			end
 		end
 	end
-	if #baseBounds == 0 or #foliageBounds == 0 then
-		return nil
+	if #baseBounds == 0 then
+		return nil, nil, nil, "no visible trunk or root-support bounds"
+	end
+	if #foliageBounds == 0 then
+		return nil, nil, nil, "no visible foliage bounds"
 	end
 	local function contactGap(angle, bounds)
 		local rotatedPivot = standing * CFrame.Angles(0, 0, -angle)
@@ -186,12 +245,14 @@ local function solveCanopyLandingAngle(tree, sections, standing)
 		end
 		previousAngle, previousGap = angle, gap
 	end
-	if #validLandings == 0 then return nil end
+	if #validLandings == 0 then
+		return nil, nil, nil, "no foliage contact angle retained the required branch clearance"
+	end
 	-- Prefer a foliage contact angle with the greatest clearance over branches,
 	-- so decorative wood cannot become the first visible support.
 	table.sort(validLandings, function(a, b) return a.BranchGap > b.BranchGap end)
 	local landing = validLandings[1]
-	return landing.Angle, landing.FoliageGap, landing.BranchGap
+	return landing.Angle, landing.FoliageGap, landing.BranchGap, "foliage contact with branch clearance"
 end
 local function hide(tree, saved)
 	saved = saved or {}
@@ -230,6 +291,8 @@ local function reset(targetControls)
 	if not s then
 		if targetControls then
 			controls = targetControls
+			local pending = startingByPlayground[targetControls.playground]
+			if pending then pending.cancelled = true end
 			for _, prompt in ipairs(targetControls.playground:GetDescendants()) do
 				if prompt:IsA("ProximityPrompt") and prompt:GetAttribute("DevTreeGalleryTransformationPrompt") == true then
 					prompt.Enabled = true
@@ -237,10 +300,18 @@ local function reset(targetControls)
 			end
 		end
 		updateControls()
-		status("Ready — press E at the tree")
+		local invalidReason = targetControls and targetControls.playground:GetAttribute("HarvestSectionInvalidReason")
+		if targetControls and targetControls.playground:GetAttribute("GeneratedStarterOak") == true
+			and targetControls.playground:GetAttribute("HarvestSectionValid") == false then
+			status("Harvest unavailable — " .. tostring(invalidReason or "generated trunk dimensions do not meet the harvest limits"))
+		else
+			status("Ready — press E at the tree")
+		end
 		return
 	end
 	controls = controlsByPlayground[s.playground] or controls
+	local pending = startingByPlayground[s.playground]
+	if pending then pending.cancelled = true end
 	session = nil
 	s.cancelled = true
 	if s.controller then s.controller:Cancel() end
@@ -267,40 +338,125 @@ local function detachJoints(tree, sections)
 		end
 	end
 end
+local function fadeFallbackCanopy(s, tree)
+	local records = {}
+	for _, folderName in ipairs({ "FoliageDecorations", "DecorativeBranches", "Leaves" }) do
+		local folder = tree:FindFirstChild(folderName)
+		if folder then
+			for _, part in ipairs(folder:GetDescendants()) do
+				if part:IsA("BasePart") then
+					table.insert(records, { Part = part, Size = part.Size, Transparency = part.Transparency })
+				end
+			end
+		end
+	end
+	if #records == 0 then return end
+	assert(animate(s, CONFIG.FallbackDecorationFade, function(progress)
+		local alpha = smooth(progress)
+		for _, record in ipairs(records) do
+			if record.Part.Parent then
+				record.Part.Size = record.Size * (1 - 0.9 * alpha)
+				record.Part.Transparency = record.Transparency + (1 - record.Transparency) * alpha
+			end
+		end
+	end), "fallback canopy fade cancelled")
+end
 local function runFall(s)
 	local tree = s.tree
 	local standing = tree:GetPivot()
-	local starterOak = isStarterOakShowcase(s.playground)
-	local canopySupported = s.playground:GetAttribute("FallStyle") == "CanopySupported"
-	local treeBounds = if canopySupported then collectVisibleBounds(tree, standing) else nil
-	if canopySupported and #treeBounds == 0 then
-		warn("[DevTreeGallery] CanopySupported fall has no visible bounds; using the legacy fall")
-		canopySupported = false
-	end
-	if canopySupported then
-		local landingAngle, foliageGap, branchGap = solveCanopyLandingAngle(tree, s.sections, standing)
-		if landingAngle then
-			s.standing = standing
-			debugEvent("CANOPY_LANDING_SOLVED", ("angle=%.2f foliageGap=%.3f branchGap=%.3f"):format(
-				math.deg(landingAngle), foliageGap or -1, branchGap or -1))
-			assert(animate(s, CONFIG.Fall, function(progress)
-				local angle = landingAngle * smooth(progress)
-				local rotatedPivot = standing * CFrame.Angles(0, 0, -angle)
-				local minimumY = minimumYAt(treeBounds, rotatedPivot)
-				local groundOffset = s.groundY + CANOPY_FALL.GroundClearance - minimumY
-				tree:PivotTo(CFrame.new(0, groundOffset, 0) * rotatedPivot)
-			end), "fall cancelled")
-		else
-			warn("[DevTreeGallery] CanopySupported fall has no reliable contact; using the legacy fall")
+	local proceduralStarterOak = isProceduralStarterOak(s.playground, tree)
+	local starterOak = isStarterOakShowcase(s.playground, tree)
+	local requestsCanopySupport = s.playground:GetAttribute("FallStyle") == "CanopySupported"
+	local canopySupported = false
+	local landingAngle, foliageGap, branchGap
+	if proceduralStarterOak then
+		local landingReason = if requestsCanopySupport then "canopy contact not yet solved" else "showcase did not request canopy support"
+		local treeBounds = collectVisibleBounds(tree, standing)
+		local supportBounds = collectVisibleBounds(s.sections[1].model, standing)
+		local barkSupport = tree:FindFirstChild("DecorativeBark")
+		if barkSupport then appendBounds(supportBounds, collectVisibleBounds(barkSupport, standing)) end
+		if requestsCanopySupport then
+			if #treeBounds == 0 then
+				landingReason = "no visible bounds were available for the fall"
+			else
+				landingAngle, foliageGap, branchGap, landingReason = solveCanopyLandingAngle(tree, s.sections, standing)
+				canopySupported = landingAngle ~= nil
+			end
+		end
+		if not canopySupported and requestsCanopySupport then
+			-- If the generated canopy cannot provide a stable, branch-clear contact,
+			-- dissolve its decorative crown first and land the trunk on its own bounds.
+			fadeFallbackCanopy(s, tree)
+			treeBounds = collectVisibleBounds(tree, standing)
+			landingReason = landingReason or "generated canopy could not provide a stable landing"
+		end
+		if #treeBounds == 0 then
+			local sectionBounds = {}
+			for _, item in ipairs(s.sections) do appendBounds(sectionBounds, collectVisibleBounds(item.model, standing)) end
+			treeBounds = sectionBounds
+		end
+		if #treeBounds == 0 then error("fall has no visible trunk bounds to keep above the ground") end
+		local seed = tree:GetAttribute("SourceTreeSeed") or tree:GetAttribute("DevTreeGallerySeed") or tree:GetAttribute("Seed")
+		local coreHeight = tree:GetAttribute("SourceCoreHeight") or tree:GetAttribute("CoreHeight") or 0
+		local thickness = tree:GetAttribute("SourceBaseThickness") or tree:GetAttribute("TrunkThickness") or 0
+		local canopyOffset = tree:GetAttribute("CanopyCentroidOffset") or 0
+		local canopyAsymmetry = tree:GetAttribute("CanopyAsymmetryRatio") or 0
+		local landingStyle = if canopySupported then "CanopySupported" else "TrunkSideFallback"
+		local diagnostic = ("seed=%s style=%s reason=%s angle=%s foliageGap=%s branchGap=%s trunk=%.2fx%.2f canopyOffset=%.2f asymmetry=%.2f sections=%d"):format(
+			tostring(seed or "n/a"), landingStyle, landingReason or "canopy contact",
+			landingAngle and ("%.2fdeg"):format(math.deg(landingAngle)) or "90deg",
+			foliageGap and ("%.3f"):format(foliageGap) or "n/a",
+			branchGap and ("%.3f"):format(branchGap) or "n/a", coreHeight, thickness,
+			canopyOffset, canopyAsymmetry, #s.sections)
+		print("[DevTreeGallery] LANDING_STYLE_SELECTED " .. diagnostic)
+		if requestsCanopySupport and not canopySupported then
+			warn(("[DevTreeGallery] %s"):format(diagnostic))
+		end
+		assert(animate(s, CONFIG.Fall, function(progress)
+			local angle = (if canopySupported then landingAngle else math.pi * 0.5) * smooth(progress)
+			local rotatedPivot = standing * CFrame.Angles(0, 0, -angle)
+			-- Keep both the complete visible shape and the lower trunk support above
+			-- the floor while accommodating unusually wide generated crowns.
+			local minimumY = math.min(minimumYAt(treeBounds, rotatedPivot), minimumYAt(supportBounds, rotatedPivot))
+			local groundOffset = s.groundY + CANOPY_FALL.GroundClearance - minimumY
+			tree:PivotTo(CFrame.new(0, groundOffset, 0) * rotatedPivot)
+		end), "fall cancelled")
+		if canopySupported then s.standing = standing end
+	else
+		-- Keep the established Structural Study and full-tree fall exactly as the
+		-- regression reference; procedural-only geometry uses the adapted path above.
+		canopySupported = requestsCanopySupport
+		local treeBounds = if canopySupported then collectVisibleBounds(tree, standing) else nil
+		if canopySupported and #treeBounds == 0 then
+			warn("[DevTreeGallery] CanopySupported fall has no visible bounds; using the legacy fall")
 			canopySupported = false
 		end
-	end
-	if not canopySupported then
-		local baseRadius = s.sections[1].model.PrimaryPart.Size.X * 0.5
-		assert(animate(s, CONFIG.Fall, function(progress)
-			local angle = smooth(progress) * math.pi * 0.5
-			tree:PivotTo(CFrame.new(0, baseRadius * math.sin(angle), 0) * standing * CFrame.Angles(0, 0, -angle))
-		end), "fall cancelled")
+		if canopySupported then
+			local reason
+			landingAngle, foliageGap, branchGap, reason = solveCanopyLandingAngle(tree, s.sections, standing)
+			if landingAngle then
+				s.standing = standing
+				debugEvent("CANOPY_LANDING_SOLVED", ("angle=%.2f foliageGap=%.3f branchGap=%.3f reason=%s"):format(
+					math.deg(landingAngle), foliageGap or -1, branchGap or -1, reason or "canopy contact"))
+				assert(animate(s, CONFIG.Fall, function(progress)
+					local angle = landingAngle * smooth(progress)
+					local rotatedPivot = standing * CFrame.Angles(0, 0, -angle)
+					local minimumY = minimumYAt(treeBounds, rotatedPivot)
+					local groundOffset = s.groundY + CANOPY_FALL.GroundClearance - minimumY
+					tree:PivotTo(CFrame.new(0, groundOffset, 0) * rotatedPivot)
+				end), "fall cancelled")
+			else
+				warn("[DevTreeGallery] CanopySupported fall has no reliable contact; using the legacy fall: " .. tostring(reason))
+				canopySupported = false
+			end
+		end
+		if not canopySupported then
+			local baseRadius = s.sections[1].model.PrimaryPart.Size.X * 0.5
+			assert(animate(s, CONFIG.Fall, function(progress)
+				local angle = smooth(progress) * math.pi * 0.5
+				tree:PivotTo(CFrame.new(0, baseRadius * math.sin(angle), 0) * standing * CFrame.Angles(0, 0, -angle))
+			end), "fall cancelled")
+		end
 	end
 	assert(animate(s, CONFIG.ImpactPause, function() end), "impact cancelled")
 	detachJoints(tree, s.sections)
@@ -315,7 +471,7 @@ local function runFall(s)
 			end
 		end
 	end
-	if canopySupported then
+	if canopySupported or proceduralStarterOak then
 		local impactPivot = tree:GetPivot()
 		local previousCenter, previousHalf
 		for index, item in ipairs(s.sections) do
@@ -366,7 +522,7 @@ local function runFall(s)
 			previousCenter, previousHalf = targetX, halfX
 		end
 	end
-	local breakupDuration = if canopySupported and starterOak
+	local breakupDuration = if (canopySupported and starterOak) or proceduralStarterOak
 		then math.max(CONFIG.Breakup, CANOPY_FALL.BreakupDuration) else CONFIG.Breakup
 	local duration = math.max(CONFIG.Foliage, breakupDuration + (#s.sections - 1) * CONFIG.BreakupStagger)
 	assert(animate(s, duration, function(_, elapsed)
@@ -380,7 +536,7 @@ local function runFall(s)
 		for index, item in ipairs(s.sections) do
 			local p = math.clamp((elapsed - (index - 1) * CONFIG.BreakupStagger) / breakupDuration, 0, 1)
 			local detail = details[index]
-			if canopySupported then
+			if canopySupported or proceduralStarterOak then
 				local path = detail.Pivot:Lerp(detail.Target, smooth(p))
 				local candidate = path
 				if starterOak then
@@ -663,26 +819,8 @@ local function runPickup(s, item, mode)
 	s.phase = "ready"
 	updateControls()
 end
-local function start(playground, fallPrompt)
-	local sourceName = playground:GetAttribute("SourceTreeName") or "ShowcaseTree"
-	local sectionFolderName = playground:GetAttribute("SectionFolderName") or "OakHarvestSections"
-	local templateFolderName = playground:GetAttribute("NormalizationTemplateFolder")
-	local source = playground:FindFirstChild(sourceName)
-	local destination = playground:FindFirstChild("TransformationDestinationTemplate")
-	local slot = playground:FindFirstChild("DemoSlot")
-	local templateFolder = if type(templateFolderName) == "string"
-		then playground:FindFirstChild(templateFolderName) else nil
-	assert(source and source:IsA("Model") and slot and slot:IsA("BasePart"), "showcase source or slot missing")
-	if destination then
-		assert(destination:IsA("Model"), "standardized destination is not a Model")
-		local body = destination:WaitForChild("LogHandle", 5)
-		assert(body and body:IsA("BasePart"), "standard log body was not streamed in")
-	elseif not templateFolder then
-		error("showcase has no normalized log template")
-	end
-	local tree = source:Clone()
-	assert(tree, "could not clone showcase tree")
-	local sectionFolder, sections = tree:FindFirstChild(sectionFolderName), {}
+local function readAuthoredSections(tree, sectionFolderName)
+	local sectionFolder = tree:FindFirstChild(sectionFolderName)
 	local authoredSections = {}
 	for _, model in ipairs(sectionFolder and sectionFolder:GetChildren() or {}) do
 		if model:IsA("Model") then
@@ -693,60 +831,218 @@ local function start(playground, fallPrompt)
 		end
 	end
 	table.sort(authoredSections, function(a, b) return a.index < b.index end)
-	if #authoredSections == 0 then
-		tree:Destroy()
-		error("showcase has no authored harvest sections")
+	return sectionFolder, authoredSections
+end
+
+local function waitForAuthoredSections(tree, sectionFolderName, expectedCount, token)
+	local sectionFolder, folderError = waitForChild(tree, sectionFolderName, CONFIG.StreamingTimeout, token, "Folder")
+	assert(sectionFolder, folderError)
+	local deadline = os.clock() + CONFIG.StreamingTimeout
+	repeat
+		if token.cancelled then error("showcase load cancelled while waiting for authored sections") end
+		local _, authoredSections = readAuthoredSections(tree, sectionFolderName)
+		local countMatches = expectedCount == nil and #authoredSections > 0 or #authoredSections == expectedCount
+		local sectionsReady = countMatches
+		for _, authored in ipairs(authoredSections) do
+			if not authored.model.PrimaryPart or countBaseParts(authored.model) == 0 then
+				sectionsReady = false
+				break
+			end
+		end
+		if sectionsReady then return authoredSections end
+		if os.clock() >= deadline then break end
+		RunService.Heartbeat:Wait()
+	until false
+	local _, authoredSections = readAuthoredSections(tree, sectionFolderName)
+	return nil, ("authored section models timed out (%d found; expected %s)"):format(
+		#authoredSections, expectedCount and tostring(expectedCount) or "at least one")
+end
+
+local function validateProceduralSections(tree, authoredSections)
+	if tree:GetAttribute("GeneratedStarterOak") ~= true then return end
+	local valid = tree:GetAttribute("HarvestSectionValid")
+	if valid ~= true then
+		local reason = tree:GetAttribute("HarvestSectionInvalidReason") or "the generator marked the harvest geometry invalid"
+		error("procedural harvest unavailable: " .. tostring(reason))
 	end
+	local declaredCount = tree:GetAttribute("HarvestSectionCount")
+	assert(typeof(declaredCount) == "number" and declaredCount >= 1 and declaredCount <= 2,
+		"procedural tree has no supported one- or two-section harvest count")
+	assert(#authoredSections == declaredCount,
+		("procedural section metadata mismatch (declared %d, found %d)"):format(declaredCount, #authoredSections))
+	local minimumLength = tree:GetAttribute("HarvestMinimumSectionLength")
+	local minimumRatio = tree:GetAttribute("HarvestMinimumLengthToThicknessRatio")
+	assert(typeof(minimumLength) == "number" and minimumLength > 0,
+		"procedural tree is missing its minimum harvest section length")
+	assert(typeof(minimumRatio) == "number" and minimumRatio > 0,
+		"procedural tree is missing its minimum length/thickness ratio")
 	for visualIndex, authored in ipairs(authoredSections) do
-		local model = authored.model
-		if not model.PrimaryPart then
-			tree:Destroy()
-			error("authored section has no PrimaryPart: " .. model.Name)
+		assert(authored.index == visualIndex and authored.model.Name == "Section" .. visualIndex,
+			"procedural section order or name is inconsistent at section " .. visualIndex)
+		local length = authored.model:GetAttribute("SourceSectionLength")
+		local thickness = authored.model:GetAttribute("SourceSectionThickness")
+		assert(typeof(length) == "number" and length > 0 and typeof(thickness) == "number" and thickness > 0,
+			"procedural section is missing its source dimensions: " .. authored.model.Name)
+		if length + 1e-3 < minimumLength then
+			error(("procedural section %d is shorter than its configured minimum (%.2f < %.2f)"):format(
+				visualIndex, length, minimumLength))
 		end
-		local sectionDestination = destination
-		if templateFolder then
-			sectionDestination = templateFolder:WaitForChild("Section" .. visualIndex, 5)
-			assert(sectionDestination and sectionDestination:IsA("Model"), "normalized template missing for section " .. visualIndex)
-			local body = sectionDestination:WaitForChild("LogHandle", 5)
-			assert(body and body:IsA("BasePart"), "normalized log body was not streamed in for section " .. visualIndex)
+		if length / thickness + 1e-3 < minimumRatio then
+			error(("procedural section %d is below its configured length/thickness ratio (%.2f < %.2f)"):format(
+				visualIndex, length / thickness, minimumRatio))
 		end
-		local prompt = Instance.new("ProximityPrompt")
-		prompt.Name = "DevCollectSection"
-		prompt.ActionText = "Preview " .. selectedMode .. " Pickup"
-		prompt.ObjectText = "Oak section " .. visualIndex
-		prompt.KeyboardKeyCode = Enum.KeyCode.E
-		prompt.MaxActivationDistance = 5
-		prompt.RequiresLineOfSight = false
-		prompt.Enabled = false
-		prompt:SetAttribute("DevShowcaseSection", visualIndex)
-		prompt.Parent = model.PrimaryPart
-		table.insert(sections, { index = visualIndex, model = model, state = "available", prompt = prompt, destination = sectionDestination })
 	end
-	local folder = Instance.new("Folder")
-	folder.Name = "ClientFullHarvestShowcase"
-	folder.Parent = Workspace
-	for _, part in ipairs(tree:GetDescendants()) do
-		if part:IsA("BasePart") then part.LocalTransparencyModifier = 0 end
+end
+
+local function start(playground, fallPrompt)
+	if session or startingByPlayground[playground] then return end
+	for _, pending in pairs(startingByPlayground) do
+		if pending then return end
 	end
-	tree.Parent = folder
-	local saved = hide(source)
-	local groundY = slot:GetAttribute("GroundY")
-	if typeof(groundY) ~= "number" then groundY = slot.Position.Y - 1.5 end
+	local token = { cancelled = false, fallPrompt = fallPrompt }
+	startingByPlayground[playground] = token
 	controls = controlsByPlayground[playground] or controls
-	local s = { playground = playground, folder = folder, tree = tree, destination = destination or sections[1].destination,
-		sections = sections, saved = saved, fallPrompt = fallPrompt, groundY = groundY,
-		phase = "falling", carries = {}, pile = {} }
-	session = s
-	fallPrompt.Enabled = false
-	s.galleryConnection = playground.AncestryChanged:Connect(function()
-		if not playground:IsDescendantOf(Workspace) and session == s then reset() end
-	end)
-	s.characterConnection = player.CharacterRemoving:Connect(function()
-		if session == s then reset() end
-	end)
+	if fallPrompt.Parent then fallPrompt.Enabled = false end
+	status("Loading the generated tree and log templates…")
+	local source, tree, folder, saved, s
+	local ok, failure = xpcall(function()
+		local sourceName = playground:GetAttribute("SourceTreeName") or "ShowcaseTree"
+		local sectionFolderName = playground:GetAttribute("SectionFolderName") or "OakHarvestSections"
+		local templateFolderName = playground:GetAttribute("NormalizationTemplateFolder")
+		local sourceError
+		source, sourceError = waitForChild(playground, sourceName, CONFIG.StreamingTimeout, token, "Model")
+		assert(source, sourceError)
+		local slot, slotError = waitForChild(playground, "DemoSlot", CONFIG.StreamingTimeout, token, "BasePart")
+		assert(slot, slotError)
+		local proceduralStarterOak = source:GetAttribute("GeneratedStarterOak") == true
+		local expectedCount
+		if proceduralStarterOak then
+			local valid, attributeError = waitForAttribute(source, "HarvestSectionValid", CONFIG.StreamingTimeout, token)
+			assert(valid ~= nil, attributeError)
+			if valid ~= true then
+				local reason = source:GetAttribute("HarvestSectionInvalidReason") or "the generator marked the harvest geometry invalid"
+				error("procedural harvest unavailable: " .. tostring(reason))
+			end
+			expectedCount = source:GetAttribute("HarvestSectionCount")
+			assert(typeof(expectedCount) == "number" and expectedCount >= 1 and expectedCount <= 2,
+				"procedural tree has no supported one- or two-section harvest count")
+			local complete, geometryError = waitForTreeGeometry(source, CONFIG.StreamingTimeout, token)
+			assert(complete, geometryError)
+		else
+			local publishedCount = source:GetAttribute("ExpectedAuthoredSectionCount")
+			if typeof(publishedCount) == "number" and publishedCount >= 1 and publishedCount % 1 == 0 then
+				expectedCount = publishedCount
+			end
+		end
+		local authoredSections, sectionError = waitForAuthoredSections(source, sectionFolderName, expectedCount, token)
+		assert(authoredSections, sectionError)
+		validateProceduralSections(source, authoredSections)
+		local destination
+		local templateFolder
+		if type(templateFolderName) == "string" then
+			templateFolder, sourceError = waitForChild(playground, templateFolderName, CONFIG.StreamingTimeout, token, "Folder")
+			assert(templateFolder, sourceError)
+		else
+			destination, sourceError = waitForChild(playground, "TransformationDestinationTemplate", CONFIG.StreamingTimeout, token, "Model")
+			assert(destination, sourceError)
+		end
+		if destination then
+			local body, bodyError = waitForChild(destination, "LogHandle", CONFIG.StreamingTimeout, token, "BasePart")
+			assert(body, bodyError)
+		end
+		for visualIndex = 1, #authoredSections do
+			local sectionDestination = destination
+			if templateFolder then
+				sectionDestination, sourceError = waitForChild(templateFolder, "Section" .. visualIndex,
+					CONFIG.StreamingTimeout, token, "Model")
+				assert(sectionDestination, sourceError)
+			end
+			local body, bodyError = waitForChild(sectionDestination, "LogHandle", CONFIG.StreamingTimeout, token, "BasePart")
+			assert(body, bodyError)
+		end
+		if token.cancelled then error("showcase load cancelled") end
+		tree = source:Clone()
+		assert(tree, "could not clone showcase tree")
+		local clonedFolder, clonedAuthoredSections = readAuthoredSections(tree, sectionFolderName)
+		assert(clonedFolder and #clonedAuthoredSections == #authoredSections,
+			"cloned showcase is missing its authored sections")
+		local sections = {}
+		for visualIndex, authored in ipairs(clonedAuthoredSections) do
+			local model = authored.model
+			assert(authored.index == visualIndex, "authored harvest sections must be ordered by their section index")
+			if proceduralStarterOak then
+				assert(model.Name == "Section" .. visualIndex,
+					"procedural sections must be named Section1, Section2")
+			end
+			assert(model.PrimaryPart and model.PrimaryPart:IsA("BasePart"),
+				"authored section has no PrimaryPart: " .. model.Name)
+			local sectionDestination = destination
+			if templateFolder then sectionDestination = templateFolder:FindFirstChild("Section" .. visualIndex) end
+			assert(sectionDestination and sectionDestination:IsA("Model"),
+				"normalized template missing for section " .. visualIndex)
+			local prompt = Instance.new("ProximityPrompt")
+			prompt.Name = "DevCollectSection"
+			prompt.ActionText = "Preview " .. selectedMode .. " Pickup"
+			prompt.ObjectText = "Oak section " .. visualIndex
+			prompt.KeyboardKeyCode = Enum.KeyCode.E
+			prompt.MaxActivationDistance = 5
+			prompt.RequiresLineOfSight = false
+			prompt.Enabled = false
+			prompt:SetAttribute("DevShowcaseSection", visualIndex)
+			prompt.Parent = model.PrimaryPart
+			table.insert(sections, { index = visualIndex, model = model, state = "available", prompt = prompt, destination = sectionDestination })
+		end
+		folder = Instance.new("Folder")
+		folder.Name = "ClientFullHarvestShowcase"
+		folder.Parent = Workspace
+		for _, part in ipairs(tree:GetDescendants()) do
+			if part:IsA("BasePart") then part.LocalTransparencyModifier = 0 end
+		end
+		tree.Parent = folder
+		saved = {}
+		hide(source, saved)
+		local groundY = slot:GetAttribute("GroundY")
+		if typeof(groundY) ~= "number" then groundY = slot.Position.Y - 1.5 end
+		local seed = source:GetAttribute("SourceTreeSeed") or source:GetAttribute("DevTreeGallerySeed") or source:GetAttribute("Seed")
+		local coreHeight = source:GetAttribute("SourceCoreHeight") or source:GetAttribute("CoreHeight") or 0
+		local thickness = source:GetAttribute("SourceBaseThickness") or source:GetAttribute("TrunkThickness") or 0
+		if proceduralStarterOak then
+			debugEvent("PROCEDURAL_TREE_READY", ("seed=%s trunk=%.2fx%.2f sections=%d parts=%d"):format(
+				tostring(seed or "n/a"), coreHeight, thickness, #sections, countBaseParts(tree)))
+		end
+		local gallery = Workspace:FindFirstChild("DevTreeGallery")
+		s = { playground = playground, folder = folder, tree = tree, destination = destination or sections[1].destination,
+			sections = sections, saved = saved, fallPrompt = fallPrompt, groundY = groundY,
+			phase = "falling", carries = {}, pile = {}, proceduralStarterOak = proceduralStarterOak, seed = seed,
+			gallery = gallery }
+		session = s
+		s.galleryConnection = playground.AncestryChanged:Connect(function()
+			if not playground:IsDescendantOf(Workspace) and session == s then reset() end
+		end)
+		s.characterConnection = player.CharacterRemoving:Connect(function()
+			if session == s then reset() end
+		end)
+	end, debug.traceback)
+	startingByPlayground[playground] = nil
+	if not ok then
+		if s and s.galleryConnection then s.galleryConnection:Disconnect() end
+		if s and s.characterConnection then s.characterConnection:Disconnect() end
+		if session == s then session = nil end
+		if folder and folder.Parent then folder:Destroy() elseif tree then tree:Destroy() end
+		if saved then restore(saved) end
+		if fallPrompt.Parent then fallPrompt.Enabled = true end
+		if token.cancelled then
+			status("Showcase load cancelled — press E at the tree")
+		else
+			local conciseFailure = tostring(failure):match("^[^\n]+") or tostring(failure)
+			status("Showcase could not load: " .. conciseFailure)
+			warn("[DevTreeGallery] Could not start showcase: " .. tostring(failure))
+		end
+		return
+	end
 	task.spawn(function()
-		local ok, err = pcall(runFall, s)
-		if not ok and session == s then
+		local success, err = pcall(runFall, s)
+		if not success and session == s then
 			warn("[DevTreeGallery] Showcase reset after fall error: " .. tostring(err))
 			reset()
 		end
@@ -780,10 +1076,16 @@ local function makeControl(folder, position, action, title)
 	return label
 end
 local function setupControls(playground)
-	local slot = playground and playground:WaitForChild("DemoSlot", 15)
-	if not playground or not playground.Parent or not slot or not slot:IsA("BasePart") then return end
+	if not playground or not playground.Parent or controlsSetup[playground] then return end
 	local existingControls = controlsByPlayground[playground]
 	if existingControls and existingControls.folder.Parent then return end
+	controlsSetup[playground] = true
+	local slot, slotError = waitForChild(playground, "DemoSlot", CONFIG.StreamingTimeout, nil, "BasePart")
+	controlsSetup[playground] = nil
+	if not playground.Parent or not slot then
+		if playground.Parent and slotError then warn("[DevTreeGallery] Showcase controls unavailable: " .. slotError) end
+		return
+	end
 	local folder = Instance.new("Folder")
 	folder.Name, folder.Parent = "ClientShowcaseControls", playground
 	-- Keep controls outside the fall prompt's radius and apart from each other.
@@ -808,15 +1110,61 @@ local function setupControls(playground)
 	controlsByPlayground[playground] = playgroundControls
 	if not controls then controls = playgroundControls end
 	updateControls()
-	if controls == playgroundControls then status("Select a mode, then collect a section") end
+	if playground:GetAttribute("GeneratedStarterOak") == true
+		and playground:GetAttribute("HarvestSectionValid") == false then
+		local reason = playground:GetAttribute("HarvestSectionInvalidReason") or "generated trunk dimensions do not meet the harvest limits"
+		statusLabel.Text = "MODE: " .. selectedMode:upper() .. "\nHarvest unavailable — " .. tostring(reason)
+	elseif controls == playgroundControls then
+		status("Select a mode, then collect a section")
+	end
+end
+
+local function discardShowcaseControls(playground)
+	controlsSetup[playground] = nil
+	local candidate = controlsByPlayground[playground]
+	if candidate then
+		if controls == candidate then controls = nil end
+		if candidate.folder and candidate.folder.Parent then candidate.folder:Destroy() end
+		controlsByPlayground[playground] = nil
+	end
+	if not controls then
+		for _, remaining in pairs(controlsByPlayground) do
+			if remaining.folder and remaining.folder.Parent then controls = remaining; break end
+		end
+	end
 end
 
 local function setupGallery(gallery)
-	for _, descendant in ipairs(gallery:GetDescendants()) do
-		if descendant:GetAttribute("DevHarvestShowcase") == true then
-			task.spawn(setupControls, descendant)
+	if not gallery or galleryConnections[gallery] then return end
+	local function consider(instance)
+		if instance:GetAttribute("DevHarvestShowcase") == true then
+			task.spawn(setupControls, instance)
+		elseif instance.Name == "DemoSlot" and instance.Parent
+			and instance.Parent:GetAttribute("DevHarvestShowcase") == true then
+			task.spawn(setupControls, instance.Parent)
 		end
 	end
+	local function remove(instance)
+		if instance:GetAttribute("DevHarvestShowcase") == true then
+			if session and session.playground == instance then reset() end
+			discardShowcaseControls(instance)
+		end
+	end
+	local added = gallery.DescendantAdded:Connect(consider)
+	local removing = gallery.DescendantRemoving:Connect(remove)
+	local ancestry = gallery.AncestryChanged:Connect(function()
+		if gallery:IsDescendantOf(Workspace) then return end
+		local connections = galleryConnections[gallery]
+		if connections then
+			connections.Added:Disconnect()
+			connections.Removing:Disconnect()
+			connections.Ancestry:Disconnect()
+			galleryConnections[gallery] = nil
+		end
+		if session and session.gallery == gallery then reset() end
+	end)
+	galleryConnections[gallery] = { Added = added, Removing = removing, Ancestry = ancestry }
+	for _, descendant in ipairs(gallery:GetDescendants()) do consider(descendant) end
 end
 
 local function controlsForPrompt(prompt)
@@ -865,7 +1213,7 @@ PromptService.PromptTriggered:Connect(function(prompt)
 	if prompt:GetAttribute("DevTreeGalleryTransformationPrompt") == true then
 		local playground = findHarvestPlayground(prompt)
 		local gallery = Workspace:FindFirstChild("DevTreeGallery")
-		if session or not playground or playground.Parent ~= gallery or not gallery then return end
+		if session or not playground or not gallery or not playground:IsDescendantOf(gallery) then return end
 		local ok, err = pcall(start, playground, prompt)
 		if not ok then warn("[DevTreeGallery] Could not start showcase: " .. tostring(err)) end
 		return

@@ -72,6 +72,63 @@ end
 -- shortened later, it falls back to one rather than creating cubic pieces.
 local STARTER_OAK_HARVEST_SHOWCASE_YIELD = chooseStarterOakHarvestSectionCount()
 
+-- Procedural harvest samples are still gallery-only. Change each Seed to move
+-- the bounded deterministic search to a different reproducible seed range.
+-- A sample is shown only when its generated dimensions match the requested
+-- profile; the actual selected seed is written to the model and its sign.
+-- RequiredHarvestSectionCount filters candidate seeds for coverage only; the
+-- accepted count is always computed from the generated trunk dimensions.
+local PROCEDURAL_STARTER_OAK_HARVEST = {
+	MinimumSectionLength = 4.5,
+	MinimumLengthToThicknessRatio = 2.5,
+	SeedSearchCandidates = 512,
+	StageCenterZ = 560,
+	StageWidth = 66,
+	StageDepth = 44,
+	StageGap = 8,
+	Samples = {
+		{
+			Key = "Short",
+			Label = "SHORT / SMALL OAK",
+			Seed = 20261030,
+			ExactSeed = nil, -- Set an integer here to preview exactly that seed without category substitution.
+			Extreme = true,
+			MinimumCoreHeight = 8.5,
+			MaximumCoreHeight = 8.99,
+			RequiredHarvestSectionCount = 1,
+		},
+		{
+			Key = "Normal",
+			Label = "NORMAL OAK",
+			Seed = 20261030,
+			ExactSeed = nil,
+			Extreme = false,
+			MinimumCoreHeight = 12,
+			MaximumCoreHeight = 17,
+			RequiredHarvestSectionCount = 2,
+		},
+		{
+			Key = "Tall",
+			Label = "TALL OAK",
+			Seed = 20261030,
+			ExactSeed = nil,
+			Extreme = true,
+			MinimumCoreHeight = 18.5,
+			MaximumCoreHeight = 22,
+		},
+		{
+			Key = "ExtremeAsymmetrical",
+			Label = "EXTREME / ASYMMETRICAL OAK",
+			Seed = 20261030,
+			ExactSeed = nil,
+			Extreme = true,
+			MinimumCanopyAsymmetryRatio = 0.12,
+		},
+	},
+}
+local PROCEDURAL_STARTER_OAK_MIN_SEED = -2147483647
+local PROCEDURAL_STARTER_OAK_MAX_SEED = 2147483647
+
 if not ENABLED then
 	-- Turning the Studio tool off removes a gallery created during an earlier
 	-- inspection session, while published servers never reach this code path.
@@ -807,6 +864,8 @@ local function addTransformationPlayground(gallery)
 	end
 	configureVisualOnlyModel(tree)
 	tree.Name = "ShowcaseTree"
+	tree:SetAttribute("ExpectedAuthoredSectionCount", 3)
+	tree.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
 	tree:PivotTo(CFrame.new(center.X - 24, GALLERY_ORIGIN.Y + 0.04, center.Z))
 	tree.Parent = playground
 
@@ -873,6 +932,8 @@ local function addStarterOakHarvestPlayground(gallery)
 		"Starter Oak gallery yield must be 1 or 2")
 	local tree = makeStarterOakHarvestTree(STARTER_OAK_HARVEST_SHOWCASE_YIELD)
 	configureVisualOnlyModel(tree)
+	tree:SetAttribute("ExpectedAuthoredSectionCount", STARTER_OAK_HARVEST_SHOWCASE_YIELD)
+	tree.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
 	tree:PivotTo(CFrame.new(center.X - 15, GALLERY_ORIGIN.Y + 0.04, center.Z))
 	tree.Parent = playground
 
@@ -910,6 +971,672 @@ local function addStarterOakHarvestPlayground(gallery)
 	prompt.RequiresLineOfSight = false
 	prompt:SetAttribute("DevTreeGalleryTransformationPrompt", true)
 	prompt.Parent = demoSlot
+end
+
+local function isAcceptableProceduralStarterOakSection(sectionLength, thickness)
+	return sectionLength >= PROCEDURAL_STARTER_OAK_HARVEST.MinimumSectionLength
+		and thickness > 0
+		and sectionLength / thickness
+			>= PROCEDURAL_STARTER_OAK_HARVEST.MinimumLengthToThicknessRatio
+end
+
+local function chooseProceduralStarterOakHarvestSectionCount(coreHeight, baseThickness)
+	local twoSectionLength = coreHeight * 0.5
+	if isAcceptableProceduralStarterOakSection(twoSectionLength, baseThickness) then
+		return 2, "Both generated halves meet the configured minimum length and length-to-thickness ratio"
+	end
+	if isAcceptableProceduralStarterOakSection(coreHeight, baseThickness) then
+		return 1, "Two halves fail the configured limits; the full generated trunk meets them"
+	end
+	return 0, string.format(
+		"Full generated trunk is too short or too thick (length %.2f, base thickness %.2f; requires length >= %.2f and ratio >= %.2f)",
+		coreHeight,
+		baseThickness,
+		PROCEDURAL_STARTER_OAK_HARVEST.MinimumSectionLength,
+		PROCEDURAL_STARTER_OAK_HARVEST.MinimumLengthToThicknessRatio
+	)
+end
+
+local function measureProceduralStarterOakCanopyAsymmetry(tree)
+	local foliage = tree:FindFirstChild("FoliageDecorations")
+	if not foliage then return 0, 0 end
+
+	local treePivot = tree:GetPivot()
+	local weightedX, weightedZ, totalWeight = 0, 0, 0
+	local positiveXWeight, negativeXWeight = 0, 0
+	local positiveZWeight, negativeZWeight = 0, 0
+	local canopyRadius = 0
+	local centerDeadZone = (tree:GetAttribute("TrunkThickness") or 1) * 0.15
+	for _, descendant in ipairs(foliage:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			local localPosition = treePivot:PointToObjectSpace(descendant.Position)
+			local weight = math.max(0.001, descendant.Size.X * descendant.Size.Y * descendant.Size.Z)
+			weightedX += localPosition.X * weight
+			weightedZ += localPosition.Z * weight
+			totalWeight += weight
+			if localPosition.X > centerDeadZone then
+				positiveXWeight += weight
+			elseif localPosition.X < -centerDeadZone then
+				negativeXWeight += weight
+			else
+				positiveXWeight += weight * 0.5
+				negativeXWeight += weight * 0.5
+			end
+			if localPosition.Z > centerDeadZone then
+				positiveZWeight += weight
+			elseif localPosition.Z < -centerDeadZone then
+				negativeZWeight += weight
+			else
+				positiveZWeight += weight * 0.5
+				negativeZWeight += weight * 0.5
+			end
+			local partRadius = Vector2.new(localPosition.X, localPosition.Z).Magnitude
+				+ Vector2.new(descendant.Size.X, descendant.Size.Z).Magnitude * 0.5
+			canopyRadius = math.max(canopyRadius, partRadius)
+		end
+	end
+
+	if totalWeight <= 0 then return 0, 0 end
+	local centroidOffset = Vector2.new(weightedX / totalWeight, weightedZ / totalWeight).Magnitude
+	local xImbalance = math.abs(positiveXWeight - negativeXWeight) / totalWeight
+	local zImbalance = math.abs(positiveZWeight - negativeZWeight) / totalWeight
+	local asymmetryRatio = math.max(
+		centroidOffset / math.max(canopyRadius, 0.001),
+		xImbalance,
+		zImbalance
+	)
+	return centroidOffset, asymmetryRatio
+end
+
+local function matchesProceduralStarterOakSample(tree, sample, asymmetryRatio)
+	local isExtreme = tree:GetAttribute("Extreme") == true
+	if isExtreme ~= sample.Extreme then return false end
+
+	local coreHeight = tree:GetAttribute("CoreHeight")
+	if type(coreHeight) ~= "number" then return false end
+	if sample.MinimumCoreHeight and coreHeight < sample.MinimumCoreHeight then return false end
+	if sample.MaximumCoreHeight and coreHeight > sample.MaximumCoreHeight then return false end
+	if sample.MinimumCanopyAsymmetryRatio
+		and asymmetryRatio < sample.MinimumCanopyAsymmetryRatio then
+		return false
+	end
+	return true
+end
+
+local function proceduralStarterOakSeedAt(startSeed, offset)
+	local seedCount = PROCEDURAL_STARTER_OAK_MAX_SEED - PROCEDURAL_STARTER_OAK_MIN_SEED + 1
+	return PROCEDURAL_STARTER_OAK_MIN_SEED
+		+ ((startSeed - PROCEDURAL_STARTER_OAK_MIN_SEED + offset) % seedCount)
+end
+
+local function makeProceduralStarterOakSampleData(tree, sample, seed, searchAttempts, customSeed)
+	local coreHeight = tree:GetAttribute("CoreHeight") or 0
+	local baseThickness = tree:GetAttribute("TrunkThickness") or 0
+	local canopyOffset, canopyAsymmetryRatio = measureProceduralStarterOakCanopyAsymmetry(tree)
+	local sectionCount, sectionReason = chooseProceduralStarterOakHarvestSectionCount(coreHeight, baseThickness)
+	local categoryMatched = not customSeed
+		and matchesProceduralStarterOakSample(tree, sample, canopyAsymmetryRatio)
+	local sectionCountMatched = customSeed
+		or not sample.RequiredHarvestSectionCount
+		or sectionCount == sample.RequiredHarvestSectionCount
+	local profileMatched = if customSeed
+		then sectionCount > 0
+		else categoryMatched and sectionCountMatched
+	return {
+		Tree = tree,
+		Key = sample.Key,
+		Seed = seed,
+		CoreHeight = coreHeight,
+		BaseThickness = baseThickness,
+		TopThickness = tree:GetAttribute("TopThickness") or baseThickness,
+		TaperRatio = tree:GetAttribute("TaperRatio") or 1,
+		CanopyCentroidOffset = canopyOffset,
+		CanopyAsymmetryRatio = canopyAsymmetryRatio,
+		SectionCount = sectionCount,
+		SectionReason = sectionReason,
+		CategoryMatched = categoryMatched,
+		ProfileMatched = profileMatched,
+		SectionCountMatched = sectionCountMatched,
+		CustomSeed = customSeed,
+		SearchAttempts = searchAttempts,
+	}
+end
+
+local function findProceduralStarterOakHarvestSample(sample, usedSeeds)
+	local seedToValidate = if sample.ExactSeed ~= nil then sample.ExactSeed else sample.Seed
+	assert(
+		type(seedToValidate) == "number"
+			and seedToValidate % 1 == 0
+			and seedToValidate >= PROCEDURAL_STARTER_OAK_MIN_SEED
+			and seedToValidate <= PROCEDURAL_STARTER_OAK_MAX_SEED,
+		"Procedural Starter Oak sample " .. sample.Key .. " needs an integer seed in generator range"
+	)
+	if sample.ExactSeed ~= nil then
+		local exactTree = DevStarterOakGenerator.Generate(sample.ExactSeed, { Extreme = sample.Extreme })
+		return makeProceduralStarterOakSampleData(exactTree, sample, sample.ExactSeed, 1, true)
+	end
+
+	local fallbackInvalidProfile
+	local fallbackSectionCountMismatch
+	local fallbackFirst
+	for offset = 0, PROCEDURAL_STARTER_OAK_HARVEST.SeedSearchCandidates - 1 do
+		local seed = proceduralStarterOakSeedAt(sample.Seed, offset)
+		if not usedSeeds[seed] then
+			local tree = DevStarterOakGenerator.Generate(seed, { Extreme = sample.Extreme })
+			local result = makeProceduralStarterOakSampleData(tree, sample, seed, offset + 1, false)
+			local categoryMatched = result.CategoryMatched
+			local sectionCount = result.SectionCount
+			local sectionCountMatched = result.SectionCountMatched
+			local profileMatched = result.ProfileMatched
+
+			if profileMatched and sectionCountMatched and sectionCount > 0 then
+				if fallbackFirst and fallbackFirst.Tree ~= result.Tree then fallbackFirst.Tree:Destroy() end
+				if fallbackInvalidProfile and fallbackInvalidProfile.Tree ~= result.Tree then fallbackInvalidProfile.Tree:Destroy() end
+				if fallbackSectionCountMismatch and fallbackSectionCountMismatch.Tree ~= result.Tree then
+					fallbackSectionCountMismatch.Tree:Destroy()
+				end
+				return result
+			end
+
+			if categoryMatched and sectionCount == 0 then
+				if not fallbackInvalidProfile then
+					fallbackInvalidProfile = result
+					if fallbackFirst and fallbackFirst.Tree ~= result.Tree then
+						fallbackFirst.Tree:Destroy()
+						fallbackFirst = nil
+					end
+					if fallbackSectionCountMismatch and fallbackSectionCountMismatch.Tree ~= result.Tree then
+						fallbackSectionCountMismatch.Tree:Destroy()
+						fallbackSectionCountMismatch = nil
+					end
+				else
+					result.Tree:Destroy()
+				end
+			elseif categoryMatched and sectionCount > 0 and not sectionCountMatched then
+				if not fallbackSectionCountMismatch then
+					fallbackSectionCountMismatch = result
+					if fallbackFirst and fallbackFirst.Tree ~= result.Tree then
+						fallbackFirst.Tree:Destroy()
+						fallbackFirst = nil
+					end
+				else
+					result.Tree:Destroy()
+				end
+			elseif not fallbackFirst then
+				fallbackFirst = result
+			else
+				result.Tree:Destroy()
+			end
+		end
+	end
+
+	local fallback = fallbackInvalidProfile or fallbackSectionCountMismatch or fallbackFirst
+	if fallback then
+		if fallbackFirst and fallbackFirst.Tree ~= fallback.Tree then fallbackFirst.Tree:Destroy() end
+		if fallbackSectionCountMismatch and fallbackSectionCountMismatch.Tree ~= fallback.Tree then
+			fallbackSectionCountMismatch.Tree:Destroy()
+		end
+		if fallbackInvalidProfile and fallbackInvalidProfile.Tree ~= fallback.Tree then
+			fallbackInvalidProfile.Tree:Destroy()
+		end
+		fallback.SearchAttempts = PROCEDURAL_STARTER_OAK_HARVEST.SeedSearchCandidates
+		if not fallback.ProfileMatched then
+			warn(string.format(
+				"[DevTreeGallery] No seed in %d candidates fully matched sample %s (categoryMatched=%s, sectionCount=%d, sectionCountMatched=%s); showing a disabled diagnostic tree",
+				PROCEDURAL_STARTER_OAK_HARVEST.SeedSearchCandidates,
+				sample.Key,
+				tostring(fallback.CategoryMatched),
+				fallback.SectionCount,
+				tostring(fallback.SectionCountMatched)
+			))
+		end
+		return fallback
+	end
+	warn(string.format(
+		"[DevTreeGallery] No unused seed candidate was available for sample %s; the configured sample will be skipped",
+		sample.Key
+	))
+	return nil
+end
+
+local function annotateProceduralStarterOakSection(section, sectionIndex, fullCoreHeight)
+	local sectionLength = section:GetAttribute("CoreHeight") or 0
+	local sectionThickness = section:GetAttribute("CoreThickness") or 0
+	section:SetAttribute("AuthoredHarvestSection", true)
+	section:SetAttribute("HarvestSectionIndex", sectionIndex)
+	section:SetAttribute("SourceCoreHeight", fullCoreHeight)
+	section:SetAttribute("SourceSectionLength", sectionLength)
+	section:SetAttribute("SourceSectionThickness", sectionThickness)
+	section.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
+end
+
+local function adaptProceduralStarterOakHarvestHierarchy(tree, sampleData)
+	local trunkStructure = tree:FindFirstChild("TrunkStructure")
+	local sourceFolder = trunkStructure and trunkStructure:FindFirstChild("HarvestableCore")
+	assert(sourceFolder, "Generated Starter Oak is missing TrunkStructure/HarvestableCore")
+	local authoredSections = {}
+	for _, child in ipairs(sourceFolder:GetChildren()) do
+		if child:IsA("Model") and child:GetAttribute("AuthoredHarvestSection") == true then
+			table.insert(authoredSections, child)
+		end
+	end
+	table.sort(authoredSections, function(a, b)
+			return (a:GetAttribute("HarvestSectionIndex") or math.huge)
+				< (b:GetAttribute("HarvestSectionIndex") or math.huge)
+		end)
+	assert(#authoredSections == 2, "Generated Starter Oak must retain its two authored source sections")
+
+	sourceFolder.Name = "StarterOakHarvestSections"
+	sourceFolder.Parent = tree
+	local sectionFolder = sourceFolder
+	local harvestSectionCount = sampleData.SectionCount
+	if harvestSectionCount == 2 then
+		for index, section in ipairs(authoredSections) do
+			annotateProceduralStarterOakSection(section, index, sampleData.CoreHeight)
+		end
+	elseif harvestSectionCount == 1 then
+		local mergedSection = Instance.new("Model")
+		mergedSection.Name = "Section1"
+		mergedSection:SetAttribute("AuthoredHarvestSection", true)
+		mergedSection:SetAttribute("HarvestSectionIndex", 1)
+		mergedSection:SetAttribute("CoreBottomY", 0)
+		mergedSection:SetAttribute("CoreTopY", sampleData.CoreHeight)
+		mergedSection:SetAttribute("CoreHeight", sampleData.CoreHeight)
+		mergedSection:SetAttribute("CoreThickness", sampleData.BaseThickness)
+		mergedSection:SetAttribute("MergedGeneratedSections", true)
+		mergedSection.Parent = sectionFolder
+		for index, section in ipairs(authoredSections) do
+			section.Name = "SourceAuthoredSection" .. index
+			section.Parent = mergedSection
+		end
+		mergedSection.PrimaryPart = authoredSections[1].PrimaryPart
+		annotateProceduralStarterOakSection(mergedSection, 1, sampleData.CoreHeight)
+	elseif harvestSectionCount == 0 then
+		-- Keep the generated visual intact for inspection, but do not present its
+		-- two source halves as collectible logs when neither satisfies policy.
+		for index, section in ipairs(authoredSections) do
+			section:SetAttribute("DisplayOnlyUnacceptableSection", true)
+			annotateProceduralStarterOakSection(section, index, sampleData.CoreHeight)
+		end
+	else
+		error("Unsupported procedural Starter Oak harvest section count " .. tostring(harvestSectionCount))
+	end
+
+	tree:SetAttribute("GeneratedStarterOak", true)
+	tree:SetAttribute("SourceTreeSeed", sampleData.Seed)
+	tree:SetAttribute("DevTreeGallerySeed", sampleData.Seed)
+	tree:SetAttribute("DevTreeGalleryExtreme", tree:GetAttribute("Extreme") == true)
+	tree:SetAttribute("DevTreeGalleryHarvestSample", sampleData.Key)
+	tree:SetAttribute("DevTreeGalleryCustomSeed", sampleData.CustomSeed)
+	tree:SetAttribute("HarvestSectionCount", harvestSectionCount)
+	tree:SetAttribute("HarvestSectionValid", harvestSectionCount > 0)
+	tree:SetAttribute("HarvestSectionInvalidReason", if harvestSectionCount == 0 then sampleData.SectionReason else "")
+	tree:SetAttribute("HarvestSectionSelectionReason", sampleData.SectionReason)
+	tree:SetAttribute("SourceCoreHeight", sampleData.CoreHeight)
+	tree:SetAttribute("SourceBaseThickness", sampleData.BaseThickness)
+	tree:SetAttribute("HarvestMinimumSectionLength", PROCEDURAL_STARTER_OAK_HARVEST.MinimumSectionLength)
+	tree:SetAttribute(
+		"HarvestMinimumLengthToThicknessRatio",
+		PROCEDURAL_STARTER_OAK_HARVEST.MinimumLengthToThicknessRatio
+	)
+	tree:SetAttribute("CanopyCentroidOffset", sampleData.CanopyCentroidOffset)
+	tree:SetAttribute("CanopyAsymmetryRatio", sampleData.CanopyAsymmetryRatio)
+	tree:SetAttribute("HarvestSampleCategoryMatched", sampleData.CategoryMatched)
+	tree:SetAttribute("HarvestSampleProfileMatched", sampleData.ProfileMatched)
+	tree:SetAttribute("HarvestSampleSectionCountMatched", sampleData.SectionCountMatched)
+	tree:SetAttribute("HarvestShowcaseReady", sampleData.ProfileMatched and harvestSectionCount > 0)
+	tree:SetAttribute("HarvestSeedSearchAttempts", sampleData.SearchAttempts)
+	tree:SetAttribute("HarvestYieldPreview", harvestSectionCount)
+	tree:SetAttribute("SupportedHarvestYields", "1,2")
+
+	return sectionFolder
+end
+
+local function makeProceduralStarterOakNormalizedLogTemplate(sectionIndex, sourceTree, sourceSection, sectionCount)
+	local palette = SpeciesVisuals.GetPalette("Oak")
+	local length = STARTER_OAK_NORMALIZED_LOG_LENGTH
+	local diameter = STARTER_OAK_NORMALIZED_LOG_DIAMETER
+	local bodyDiameter = STARTER_OAK_NORMALIZED_LOG_BODY_DIAMETER
+	local sourceLength = sourceSection:GetAttribute("SourceSectionLength") or sourceSection:GetAttribute("CoreHeight") or 0
+	local sourceThickness = sourceSection:GetAttribute("SourceSectionThickness") or sourceSection:GetAttribute("CoreThickness") or 0
+	local core = sourceSection.PrimaryPart
+	assert(core and core:IsA("BasePart"), "Procedural harvest section " .. sectionIndex .. " has no source core")
+	assert(sourceLength > 0 and sourceThickness > 0, "Procedural harvest section has invalid source dimensions")
+
+	local model = Instance.new("Model")
+	model.Name = "ProceduralStarterOakNormalizedLog" .. sectionIndex
+	model:SetAttribute("DevTreeGalleryPreview", true)
+	model:SetAttribute("VisualOnly", true)
+	model:SetAttribute("PrototypeOnly", true)
+	model:SetAttribute("SpeciesId", "Oak")
+	model:SetAttribute("GeneratedStarterOak", true)
+	model:SetAttribute("NormalizedFromSection", sectionIndex)
+	model:SetAttribute("NormalizedOuterLength", length)
+	model:SetAttribute("NormalizedOuterDiameter", diameter)
+	model:SetAttribute("SourceTreeSeed", sourceTree:GetAttribute("SourceTreeSeed"))
+	model:SetAttribute("SourceSectionLength", sourceLength)
+	model:SetAttribute("SourceSectionThickness", sourceThickness)
+	model:SetAttribute("NormalizationLengthScale", length / sourceLength)
+	model:SetAttribute("NormalizationDiameterScale", diameter / sourceThickness)
+
+	local handle = createStarterOakBlock(
+		model,
+		"LogHandle",
+		Vector3.new(length, bodyDiameter, bodyDiameter),
+		Vector3.zero,
+		core.Color
+	)
+	handle.Material = core.Material
+	model.PrimaryPart = handle
+	createStarterOakBlock(
+		model,
+		"CutEndLeft",
+		Vector3.new(0.18, diameter * 0.82, diameter * 0.82),
+		Vector3.new(-length * 0.5 + 0.09, 0, 0),
+		palette.CutEnd
+	)
+	createStarterOakBlock(
+		model,
+		"CutEndRight",
+		Vector3.new(0.18, diameter * 0.82, diameter * 0.82),
+		Vector3.new(length * 0.5 - 0.09, 0, 0),
+		palette.CutEnd
+	)
+
+	local barkFolder = sourceTree:FindFirstChild("DecorativeBark")
+	local sourcePivot = sourceSection:GetPivot()
+	local accentsCreated = 0
+	if barkFolder then
+		for _, sourceAccent in ipairs(barkFolder:GetChildren()) do
+			if sourceAccent:IsA("BasePart") then
+				local authoredIndex = sourceAccent:GetAttribute("CoreSectionIndex")
+				local isWarmAccent = string.find(sourceAccent.Name, "WarmBarkAccent", 1, true) ~= nil
+				local isShadowAccent = string.find(sourceAccent.Name, "RecessedBarkAccent", 1, true) ~= nil
+				local belongsToSection = (isWarmAccent or isShadowAccent)
+					and (sectionCount == 1 or authoredIndex == sectionIndex)
+				if belongsToSection then
+					local localPosition = sourcePivot:PointToObjectSpace(sourceAccent.Position)
+					local alongLength = math.clamp(sourceAccent.Size.Y / sourceLength * length, 0.3, length * 0.78)
+					local positionX = math.clamp(
+						(localPosition.Y / sourceLength - 0.5) * length,
+						-(length - alongLength) * 0.5,
+						(length - alongLength) * 0.5
+					)
+					local accentCrossScale = math.clamp(
+						(sourceAccent.Size.X / sourceThickness) * diameter,
+						0.08,
+						diameter * 0.64
+					)
+					local accent
+					if isWarmAccent then
+						local accentDepth = math.clamp(
+							sourceAccent.Size.Z / sourceThickness * diameter,
+							0.04,
+							0.12
+						)
+						accent = createStarterOakBlock(
+							model,
+							"TreeDerivedWarmBark" .. tostring(authoredIndex),
+							Vector3.new(alongLength, accentCrossScale, accentDepth),
+							Vector3.new(positionX, 0, -diameter * 0.5 + accentDepth * 0.5),
+							sourceAccent.Color
+						)
+					else
+						local accentDepth = math.clamp(
+							sourceAccent.Size.X / sourceThickness * diameter,
+							0.04,
+							0.12
+						)
+						local sideCrossScale = math.clamp(
+							(sourceAccent.Size.Z / sourceThickness) * diameter,
+							0.08,
+							diameter * 0.64
+						)
+						accent = createStarterOakBlock(
+							model,
+							"TreeDerivedShadowBark" .. tostring(authoredIndex),
+							Vector3.new(alongLength, accentDepth, sideCrossScale),
+							Vector3.new(positionX, diameter * 0.5 - accentDepth * 0.5, 0),
+							sourceAccent.Color
+						)
+					end
+					accent.Material = sourceAccent.Material
+					accentsCreated += 1
+				end
+			end
+		end
+	end
+	model:SetAttribute("TreeDerivedBarkAccentCount", accentsCreated)
+	if accentsCreated == 0 then
+		-- Keep a recognizable bark surface even if a future generator version
+		-- omits the decorative strips; colors still come from the generated core.
+		createStarterOakBlock(
+			model,
+			"TreeDerivedWarmBarkFallback",
+			Vector3.new(length * 0.52, 0.08, diameter * 0.08),
+			Vector3.new(-0.1, diameter * 0.5 - 0.04, 0),
+			core.Color:Lerp(palette.BarkHighlight, 0.45)
+		)
+	end
+
+	if length / sourceLength > 2 or sourceLength / length > 2
+		or diameter / sourceThickness > 2 or sourceThickness / diameter > 2 then
+		model:SetAttribute("NormalizationScaleWarning", true)
+		warn(string.format(
+			"[DevTreeGallery] Severe normalization scale for seed %s section %d (source %.2f x %.2f, standardized %.2f x %.2f)",
+			tostring(sourceTree:GetAttribute("SourceTreeSeed")),
+			sectionIndex,
+			sourceLength,
+			sourceThickness,
+			length,
+			diameter
+		))
+	else
+		model:SetAttribute("NormalizationScaleWarning", false)
+	end
+	return model
+end
+
+local function addProceduralStarterOakHarvestShowcase(gallery)
+	local config = PROCEDURAL_STARTER_OAK_HARVEST
+	local sampleCount = #config.Samples
+	local totalWidth = sampleCount * config.StageWidth + (sampleCount - 1) * config.StageGap
+	local firstStageX = GALLERY_ORIGIN.X + (GALLERY_FLOOR_SIZE.X - totalWidth) * 0.5 + config.StageWidth * 0.5
+	local rowCenterX = GALLERY_ORIGIN.X + GALLERY_FLOOR_SIZE.X * 0.5
+	local rowCenterZ = GALLERY_ORIGIN.Z + config.StageCenterZ
+	local area = Instance.new("Folder")
+	area.Name = "ProceduralStarterOakHarvestArea"
+	area:SetAttribute("DevOnly", true)
+	area:SetAttribute("VisualOnly", true)
+	area.Parent = gallery
+
+	addSign(
+		gallery,
+		"PROCEDURAL STARTER OAK HARVEST — SEEDED GEOMETRY TESTS",
+		Vector3.new(rowCenterX, 0, rowCenterZ - config.StageDepth * 0.5 - 21),
+		math.min(totalWidth - 8, 68),
+		"ProceduralStarterOakHarvestHeader"
+	)
+
+	local usedSeeds = {}
+	local firstDemoSlot
+	for sampleIndex, sample in ipairs(config.Samples) do
+		local sampleData = findProceduralStarterOakHarvestSample(sample, usedSeeds)
+		local stageCenterX = firstStageX + (sampleIndex - 1) * (config.StageWidth + config.StageGap)
+		local stageCenter = Vector3.new(stageCenterX, GALLERY_ORIGIN.Y, rowCenterZ)
+		if not sampleData then
+			local skippedPlayground = Instance.new("Folder")
+			skippedPlayground.Name = "ProceduralStarterOakHarvestPlayground_" .. sample.Key
+			skippedPlayground:SetAttribute("DevOnly", true)
+			skippedPlayground:SetAttribute("VisualOnly", true)
+			skippedPlayground:SetAttribute("HarvestSampleSkipped", true)
+			skippedPlayground.Parent = area
+			addPlatform(skippedPlayground, "ShowcaseStage",
+				Vector3.new(stageCenter.X, GALLERY_ORIGIN.Y - 0.5, stageCenter.Z),
+				Vector3.new(config.StageWidth, 1, config.StageDepth))
+			addSign(gallery, sample.Label .. " | SAMPLE SKIPPED: NO UNUSED SEED CANDIDATE",
+				Vector3.new(stageCenter.X, 0, stageCenter.Z - config.StageDepth * 0.5 - 2),
+				config.StageWidth - 2, "ProceduralStarterOakHarvestSample" .. sampleIndex)
+			continue
+		end
+		usedSeeds[sampleData.Seed] = true
+		local tree = sampleData.Tree
+		local sectionFolder = adaptProceduralStarterOakHarvestHierarchy(tree, sampleData)
+		local demoSlotCFrame = CFrame.new(stageCenterX, GALLERY_ORIGIN.Y + 1.5, rowCenterZ - 13)
+		local sampleDisplayLabel = if sampleData.CustomSeed then "CUSTOM SEED" else sample.Label
+		local profileStatus = if sampleData.CustomSeed then "EXACT SEED"
+			elseif not sampleData.CategoryMatched then "PROFILE SEARCH FAILED"
+			elseif sampleData.SectionCount == 0 then "PROFILE MATCH / UNSPLITTABLE"
+			elseif sampleData.ProfileMatched then "PROFILE + SECTION TARGET MATCH"
+			else "PROFILE MATCH / SECTION TARGET NOT MET"
+		local countStatus = if sampleData.SectionCount > 0
+			then tostring(sampleData.SectionCount)
+				.. " section(s)"
+				.. (sampleData.SectionCountMatched and "" or " — TARGET NOT MET")
+			else "UNSPLITTABLE — HARVEST DISABLED"
+		local dimensionLabel = string.format(
+			"%s | SEED %d | H %.1f / BASE %.2f / TOP %.2f | %s | %s",
+			sampleDisplayLabel,
+			sampleData.Seed,
+			sampleData.CoreHeight,
+			sampleData.BaseThickness,
+			sampleData.TopThickness,
+			countStatus,
+			profileStatus
+		)
+
+		local playground = Instance.new("Folder")
+		playground.Name = "ProceduralStarterOakHarvestPlayground_" .. sample.Key
+		playground:SetAttribute("DevOnly", true)
+		playground:SetAttribute("VisualOnly", true)
+		playground:SetAttribute("DevHarvestShowcase", true)
+		playground:SetAttribute("GeneratedStarterOak", true)
+		playground:SetAttribute("SpeciesId", "Oak")
+		playground:SetAttribute("SourceTreeName", "ProceduralStarterOakHarvestTree")
+		playground:SetAttribute("SectionFolderName", "StarterOakHarvestSections")
+		playground:SetAttribute("NormalizationTemplateFolder", "StarterOakNormalizedLogTemplates")
+		playground:SetAttribute("FallStyle", "CanopySupported")
+		playground:SetAttribute("StarterOakVariant", "Procedural")
+		playground:SetAttribute("StarterOakVariantName", sampleDisplayLabel)
+		playground:SetAttribute("StarterOakLayout", "DevStarterOakGenerator")
+		playground:SetAttribute("DesignDirection", "ProceduralStarterOak")
+		playground:SetAttribute("DevTreeGalleryLabel", dimensionLabel)
+		playground:SetAttribute("DevTreeGallerySeed", sampleData.Seed)
+		playground:SetAttribute("DevTreeGalleryExtreme", sampleData.Tree:GetAttribute("Extreme") == true)
+		playground:SetAttribute("DevTreeGalleryCustomSeed", sampleData.CustomSeed)
+		playground:SetAttribute("HarvestSectionCount", sampleData.SectionCount)
+		playground:SetAttribute("HarvestSectionValid", sampleData.SectionCount > 0)
+		playground:SetAttribute("HarvestSectionInvalidReason", if sampleData.SectionCount == 0 then sampleData.SectionReason else "")
+		playground:SetAttribute("HarvestSectionSelectionReason", sampleData.SectionReason)
+		playground:SetAttribute("HarvestSampleCategoryMatched", sampleData.CategoryMatched)
+		playground:SetAttribute("HarvestSampleProfileMatched", sampleData.ProfileMatched)
+		playground:SetAttribute("HarvestSampleSectionCountMatched", sampleData.SectionCountMatched)
+		playground:SetAttribute("HarvestShowcaseReady", sampleData.ProfileMatched and sampleData.SectionCount > 0)
+		playground:SetAttribute("HarvestMinimumSectionLength", config.MinimumSectionLength)
+		playground:SetAttribute("HarvestMinimumLengthToThicknessRatio", config.MinimumLengthToThicknessRatio)
+		playground:SetAttribute("SourceCoreHeight", sampleData.CoreHeight)
+		playground:SetAttribute("SourceBaseThickness", sampleData.BaseThickness)
+		playground:SetAttribute("SourceTopThickness", sampleData.TopThickness)
+		playground:SetAttribute("CanopyCentroidOffset", sampleData.CanopyCentroidOffset)
+		playground:SetAttribute("CanopyAsymmetryRatio", sampleData.CanopyAsymmetryRatio)
+		playground:SetAttribute("SeedSearchAttempts", sampleData.SearchAttempts)
+		playground:SetAttribute("SupportedHarvestYields", "1,2")
+		playground.Parent = area
+
+		addPlatform(playground, "ShowcaseStage", Vector3.new(stageCenter.X, GALLERY_ORIGIN.Y - 0.5, stageCenter.Z),
+			Vector3.new(config.StageWidth, 1, config.StageDepth))
+		addSign(gallery, dimensionLabel,
+			Vector3.new(stageCenter.X, 0, stageCenter.Z - config.StageDepth * 0.5 - 2),
+			config.StageWidth - 2, "ProceduralStarterOakHarvestSample" .. sampleIndex)
+
+		tree.Name = "ProceduralStarterOakHarvestTree"
+		tree:SetAttribute("DevTreeGalleryLabel", dimensionLabel)
+		tree.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
+		configureVisualOnlyModel(tree)
+		tree:PivotTo(CFrame.new(stageCenter.X, GALLERY_ORIGIN.Y + 0.04, stageCenter.Z))
+		tree.Parent = playground
+
+		local templateFolder = Instance.new("Folder")
+		templateFolder.Name = "StarterOakNormalizedLogTemplates"
+		templateFolder.Parent = playground
+		if sampleData.ProfileMatched and sampleData.SectionCount > 0 then
+			local sourceSections = {}
+			for _, child in ipairs(sectionFolder:GetChildren()) do
+				if child:IsA("Model") and child:GetAttribute("AuthoredHarvestSection") == true then
+					table.insert(sourceSections, child)
+				end
+			end
+			table.sort(sourceSections, function(a, b)
+				return (a:GetAttribute("HarvestSectionIndex") or math.huge)
+					< (b:GetAttribute("HarvestSectionIndex") or math.huge)
+			end)
+			assert(#sourceSections == sampleData.SectionCount,
+				"Procedural Starter Oak adapted section count does not match the selected count")
+			for index, sourceSection in ipairs(sourceSections) do
+				local template = makeProceduralStarterOakNormalizedLogTemplate(
+					index,
+					tree,
+					sourceSection,
+					sampleData.SectionCount
+				)
+				template.Name = "Section" .. index
+				template.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
+				template:PivotTo(demoSlotCFrame)
+				hideTemplateForClientClone(template, "ProceduralStarterOakSection" .. index)
+				template.Parent = templateFolder
+			end
+		end
+
+		local demoSlot = createPart(playground, "DemoSlot", Vector3.new(1, 1, 1), demoSlotCFrame, Color3.new(1, 1, 1))
+		demoSlot.Transparency = 1
+		demoSlot:SetAttribute("GroundY", GALLERY_ORIGIN.Y)
+		if not firstDemoSlot then firstDemoSlot = demoSlot end
+
+		if sampleData.ProfileMatched and sampleData.SectionCount > 0 then
+			local prompt = Instance.new("ProximityPrompt")
+			prompt.Name = "ProceduralStarterOakHarvestPreviewPrompt"
+			prompt.ActionText = "Harvest Test Tree"
+			prompt.ObjectText = sampleDisplayLabel
+			prompt.KeyboardKeyCode = Enum.KeyCode.E
+			prompt.HoldDuration = 0
+			prompt.MaxActivationDistance = 12
+			prompt.RequiresLineOfSight = false
+			prompt:SetAttribute("DevTreeGalleryTransformationPrompt", true)
+			prompt.Parent = demoSlot
+		else
+			warn(string.format(
+				"[DevTreeGallery] Procedural harvest sample %s is visible but disabled: categoryMatched=%s; sectionTargetMatched=%s; sections=%d; reason=%s",
+				sample.Key,
+				tostring(sampleData.CategoryMatched),
+				tostring(sampleData.SectionCountMatched),
+				sampleData.SectionCount,
+				sampleData.SectionReason
+			))
+		end
+
+		print(string.format(
+			"[DevTreeGallery] Harvest sample %s: seed=%d height=%.2f baseThickness=%.2f topThickness=%.2f canopyOffset=%.2f asymmetry=%.3f sections=%d categoryMatched=%s sectionTargetMatched=%s profileMatched=%s searchAttempts=%d selection=%s",
+			sample.Key,
+			sampleData.Seed,
+			sampleData.CoreHeight,
+			sampleData.BaseThickness,
+			sampleData.TopThickness,
+			sampleData.CanopyCentroidOffset,
+			sampleData.CanopyAsymmetryRatio,
+			sampleData.SectionCount,
+			tostring(sampleData.CategoryMatched),
+			tostring(sampleData.SectionCountMatched),
+			tostring(sampleData.ProfileMatched),
+			sampleData.SearchAttempts,
+			sampleData.SectionReason
+		))
+	end
+
+	if firstDemoSlot then
+		gallery:SetAttribute("ProceduralHarvestShowcaseTeleportCFrame", firstDemoSlot.CFrame + Vector3.new(0, 4, 0))
+	else
+		warn("[DevTreeGallery] Procedural harvest area has no generated sample slots")
+	end
 end
 
 local function arrangeRow(gallery, title, entries, rowZ, startXOffset)
@@ -1115,6 +1842,7 @@ local function createGallery()
 	end
 	addStarterOakHarvestPlayground(gallery)
 	addTransformationPlayground(gallery)
+	addProceduralStarterOakHarvestShowcase(gallery)
 
 	return gallery
 end
