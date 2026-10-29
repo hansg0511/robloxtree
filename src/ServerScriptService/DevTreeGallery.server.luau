@@ -21,6 +21,7 @@ local GALLERY_FLOOR_SIZE = Vector3.new(360, 1, 750)
 local GALLERY_FLOOR_OFFSET = Vector3.new(180, -1, 275)
 local STARTER_OAK_FAMILY_ROW_START_X = 130
 local STARTER_OAK_FAMILY_ROW_Z = 600
+local STARTER_OAK_STRUCTURE_ROW_START_X = 4
 local MIN_PLATFORM_SIZE = 24
 local PLATFORM_PADDING = 12
 local COLUMN_GAP = 20
@@ -313,6 +314,109 @@ local function makeStarterOakPrototype(variantKey)
 
 	addStarterOakBranches(branchGroup, palette, variantKey)
 	addStarterOakCanopy(foliageGroup, palette, variantKey)
+	return model
+end
+
+-- A gallery-only structural study keeps the current twelve-stud, two-section
+-- Starter Oak trunk proportions while using smooth rectangular bark and foliage.
+local function makeStarterOakStructuralStudy()
+	local palette = SpeciesVisuals.GetPalette("Oak")
+	local model = Instance.new("Model")
+	model.Name = "StarterOakStructuralStudy"
+	model:SetAttribute("DevTreeGalleryPreview", true)
+	model:SetAttribute("VisualOnly", true)
+	model:SetAttribute("PrototypeOnly", true)
+	model:SetAttribute("SpeciesId", "Oak")
+	model:SetAttribute("DesignDirection", "StarterOakStructuralStudy")
+	model:SetAttribute("VisualTrunkLength", 12)
+	model:SetAttribute("VisualTrunkSectionCount", 2)
+	model:SetAttribute("DevTreeGalleryLabel", "Starter Oak Structural Study")
+
+	local trunk = Instance.new("Folder")
+	trunk.Name = "TrunkStructure"
+	trunk.Parent = model
+	local branches = Instance.new("Folder")
+	branches.Name = "DecorativeBranches"
+	branches.Parent = model
+	local foliage = Instance.new("Folder")
+	foliage.Name = "LayeredFoliage"
+	foliage.Parent = model
+
+	-- Keep both future harvest cores identical to the established two-section
+	-- Starter Oak geometry. The wider sleeve and root foot are display decoration;
+	-- harvest-section attachments and harvesting behavior are not implemented.
+	local baseCore
+	for sectionIndex, component in ipairs(getStarterOakTrunkComponents(palette)) do
+		for _, definition in ipairs(component) do
+			local position = definition[3]
+			if sectionIndex == 1 and definition[1] == "BaseWarmFace" then
+				position += Vector3.new(-0.40, 0, 0)
+			elseif sectionIndex == 1 and definition[1] == "BaseShadowFace" then
+				position += Vector3.new(0, 0, 0.40)
+			end
+			local part = createStarterOakBlock(
+				trunk,
+				definition[1],
+				definition[2],
+				position,
+				definition[4]
+			)
+			if definition[1] == "BaseCore" then
+				part.PivotOffset = CFrame.new(0, -3, 0)
+				baseCore = part
+			end
+		end
+	end
+	assert(baseCore, "Starter Oak structural study is missing its base core")
+	model.PrimaryPart = baseCore
+
+	createStarterOakBlock(
+		trunk,
+		"LowerDecorativeSleeve",
+		Vector3.new(2.98, 6, 2.98),
+		Vector3.new(0, 3, 0),
+		palette.Bark
+	)
+	createStarterOakBlock(
+		trunk,
+		"RootFoot",
+		Vector3.new(3.6, 1.4, 3.6),
+		Vector3.new(0, 0.7, 0),
+		palette.BarkShadow
+	)
+
+	for _, definition in ipairs({
+		{ "BranchLeft", Vector3.new(3.45, 0.62, 0.78), Vector3.new(-1.65, 7.58, 0), palette.BarkHighlight },
+		{ "BranchRight", Vector3.new(3.35, 0.62, 0.78), Vector3.new(1.62, 7.62, 0.15), palette.Bark },
+		{ "BranchFront", Vector3.new(0.78, 0.58, 3.05), Vector3.new(-0.15, 7.58, -1.48), palette.Bark },
+		{ "BranchBack", Vector3.new(0.78, 0.58, 2.85), Vector3.new(0.2, 7.62, 1.38), palette.BarkHighlight },
+	}) do
+		createStarterOakBlock(branches, definition[1], definition[2], definition[3], definition[4])
+	end
+
+	for _, definition in ipairs({
+		{ "LowerCanopyCore", Vector3.new(8.0, 3.0, 7.2), Vector3.new(0, 9.2, 0), "Leaf" },
+		{ "LowerFrontLeft", Vector3.new(5.6, 2.8, 5.0), Vector3.new(-3.2, 9.0, -1.85), "LeafHighlight" },
+		{ "LowerBackRight", Vector3.new(5.8, 3.0, 5.2), Vector3.new(3.1, 9.35, 1.9), "LeafShadow" },
+		{ "LowerFrontRight", Vector3.new(5.0, 2.6, 4.6), Vector3.new(3.0, 9.2, -1.9), "Leaf" },
+		{ "LowerBackLeft", Vector3.new(5.0, 2.7, 5.0), Vector3.new(-3.0, 9.35, 1.95), "LeafHighlight" },
+
+		{ "MiddleCanopyCore", Vector3.new(7.5, 3.2, 6.6), Vector3.new(0.1, 11.4, 0), "Leaf" },
+		{ "MiddleLeftBack", Vector3.new(5.2, 2.8, 4.8), Vector3.new(-3.0, 11.55, 2.0), "LeafShadow" },
+		{ "MiddleRightFront", Vector3.new(5.2, 2.7, 4.8), Vector3.new(3.1, 11.5, -2.0), "LeafHighlight" },
+		{ "MiddleRightBack", Vector3.new(4.6, 2.6, 4.5), Vector3.new(2.8, 11.25, 2.15), "Leaf" },
+		{ "MiddleLeftFront", Vector3.new(4.8, 2.7, 4.6), Vector3.new(-2.8, 11.2, -2.1), "LeafHighlight" },
+
+		{ "UpperCanopyCore", Vector3.new(6.5, 3.0, 6.2), Vector3.new(0, 14.0, 0), "Leaf" },
+		{ "UpperLeftBack", Vector3.new(4.6, 2.5, 4.7), Vector3.new(-1.5, 14.0, 1.7), "Leaf" },
+		{ "UpperRightFront", Vector3.new(4.8, 2.6, 4.5), Vector3.new(1.6, 14.1, -1.6), "LeafHighlight" },
+		{ "Crown", Vector3.new(4.0, 2.2, 3.8), Vector3.new(0.2, 16.0, 0.2), "Leaf" },
+	}) do
+		local color = palette[definition[4]]
+		assert(color, "Missing Oak palette role " .. definition[4])
+		createStarterOakBlock(foliage, definition[1], definition[2], definition[3], color)
+	end
+
 	return model
 end
 
@@ -902,6 +1006,45 @@ local function createGallery()
 		"Starter Oak family row is too close to the Starter Oak harvest stage")
 	assert(STARTER_OAK_FAMILY_ROW_Z - familyRowDepth * 0.5 >= 485 + 44 * 0.5 + 12,
 		"Starter Oak family row is too close to the full-tree harvest stage")
+
+	local structuralStudy = makeStarterOakStructuralStudy()
+	local _, structuralStudyBounds = structuralStudy:GetBoundingBox()
+	local wildOakReference = buildPreview("WildOak", "Oak", "mature", {}, "Wild Oak (size matched)")
+	local _, wildOakBounds = wildOakReference:GetBoundingBox()
+	local wildOakScale = wildOakReference:GetScale() * structuralStudyBounds.Y / wildOakBounds.Y
+	wildOakReference:ScaleTo(wildOakScale)
+	wildOakReference.Name = "WildOakComparableScale"
+	wildOakReference:SetAttribute("ComparisonUniformScale", wildOakScale)
+	wildOakReference:SetAttribute("ComparisonTargetHeight", structuralStudyBounds.Y)
+
+	local starterOakBReference = makeStarterOakPrototype("B")
+	starterOakBReference.Name = "StarterOakBReference"
+
+	local structuralComparisonEntries = {
+		makeStaticEntry(wildOakReference, "Wild Oak — size matched"),
+		makeStaticEntry(starterOakBReference, "Starter Oak B — current"),
+		makeStaticEntry(structuralStudy, "Starter Oak Structural Study"),
+	}
+	local structuralRowDepth, structuralRowWidth = arrangeRow(
+		gallery,
+		"STARTER OAK STRUCTURE STUDY — WILD OAK / B / STUDY",
+		structuralComparisonEntries,
+		STARTER_OAK_FAMILY_ROW_Z,
+		STARTER_OAK_STRUCTURE_ROW_START_X
+	)
+	assert(STARTER_OAK_STRUCTURE_ROW_START_X >= 4,
+		"Starter Oak structure row has too little floor margin")
+	assert(STARTER_OAK_STRUCTURE_ROW_START_X + structuralRowWidth <= GALLERY_FLOOR_SIZE.X - 8,
+		"Starter Oak structure row exceeds the gallery floor width")
+	assert(STARTER_OAK_FAMILY_ROW_START_X
+		- (STARTER_OAK_STRUCTURE_ROW_START_X + structuralRowWidth) >= 12,
+		"Starter Oak structure row is too close to the Starter Oak family row")
+	assert(STARTER_OAK_FAMILY_ROW_Z + structuralRowDepth * 0.5
+		<= GALLERY_FLOOR_OFFSET.Z + GALLERY_FLOOR_SIZE.Z * 0.5 - 8,
+		"Starter Oak structure row exceeds the gallery floor depth")
+	assert(STARTER_OAK_FAMILY_ROW_Z - structuralRowDepth * 0.5
+		>= GALLERY_FLOOR_OFFSET.Z - GALLERY_FLOOR_SIZE.Z * 0.5 + 8,
+		"Starter Oak structure row crosses the gallery floor's front edge")
 
 	addStarterOakHarvestPlayground(gallery)
 	addTransformationPlayground(gallery)
