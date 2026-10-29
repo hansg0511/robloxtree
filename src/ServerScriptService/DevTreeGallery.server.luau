@@ -12,15 +12,34 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local ServerStorage = game:GetService("ServerStorage")
 
 local TreeObject = require(ServerScriptService:WaitForChild("Trees"):WaitForChild("TreeObject"))
+local DevStarterOakGenerator = require(ServerScriptService:WaitForChild("DevStarterOakGenerator"))
 local TreeVisualModifiers = require(ServerStorage:WaitForChild("TreeVisualModifiers"))
 local SpeciesVisuals = require(ServerStorage:WaitForChild("SpeciesVisuals"))
 
 local GALLERY_NAME = "DevTreeGallery"
 local GALLERY_ORIGIN = Vector3.new(6000, 120, 6000)
-local GALLERY_FLOOR_SIZE = Vector3.new(360, 1, 750)
-local GALLERY_FLOOR_OFFSET = Vector3.new(180, -1, 275)
-local STARTER_OAK_FAMILY_ROW_START_X = 130
-local STARTER_OAK_FAMILY_ROW_Z = 600
+local GALLERY_FLOOR_SIZE = Vector3.new(360, 1, 1000)
+local GALLERY_FLOOR_OFFSET = Vector3.new(180, -1, 400)
+local STARTER_OAK_REFERENCE_ROW_Z = 600
+local STARTER_OAK_PROCEDURAL_ROW_START_Z = 680
+-- Change this Studio-only seed and restart the server to build a new reproducible set.
+local STARTER_OAK_GALLERY_SEED = 20261030
+local STARTER_OAK_GALLERY_SAMPLE_COUNT = 12
+local STARTER_OAK_GALLERY_TREES_PER_ROW = 4
+local STARTER_OAK_GALLERY_EXTREME_SAMPLES = {
+	[4] = true,
+	[8] = true,
+	[12] = true,
+}
+local STARTER_OAK_GALLERY_ROW_GAP = 34
+assert(
+	type(STARTER_OAK_GALLERY_SEED) == "number"
+		and STARTER_OAK_GALLERY_SEED % 1 == 0
+		and STARTER_OAK_GALLERY_SEED >= -2147483647
+		and STARTER_OAK_GALLERY_SEED <= 2147483647 - (STARTER_OAK_GALLERY_SAMPLE_COUNT - 1),
+	"Starter Oak gallery seed must be an integer in range so all sample seeds stay unique"
+)
+local STARTER_OAK_PROCEDURAL_ROW_START_X = 56
 local STARTER_OAK_STRUCTURE_ROW_START_X = 4
 local MIN_PLATFORM_SIZE = 24
 local PLATFORM_PADDING = 12
@@ -705,6 +724,33 @@ local function configureVisualOnlyModel(model)
 	end
 end
 
+local function makeProceduralStarterOakEntry(seed, extreme)
+	local model = DevStarterOakGenerator.Generate(seed, { Extreme = extreme })
+	assert(model and model:IsA("Model"), "Starter Oak generator returned no Model for seed " .. tostring(seed))
+	configureVisualOnlyModel(model)
+	model:SetAttribute("DevTreeGalleryPreview", true)
+	model:SetAttribute("VisualOnly", true)
+	model:SetAttribute("PrototypeOnly", true)
+	model:SetAttribute("SpeciesId", "Oak")
+	model:SetAttribute("DesignDirection", "ProceduralStarterOak")
+	model:SetAttribute("DevTreeGallerySeed", seed)
+	model:SetAttribute("DevTreeGalleryExtreme", extreme)
+	local label = "SEED " .. tostring(seed) .. " | " .. (extreme and "EXTREME" or "NORMAL")
+	model:SetAttribute("DevTreeGalleryLabel", label)
+
+	local _, bounds = model:GetBoundingBox()
+	return {
+		Kind = "ProceduralStarterOak",
+		Label = label,
+		Model = model,
+		PlatformSize = Vector3.new(
+			math.max(MIN_PLATFORM_SIZE, bounds.X + PLATFORM_PADDING),
+			1,
+			math.max(MIN_PLATFORM_SIZE, bounds.Z + PLATFORM_PADDING)
+		),
+	}
+end
+
 local function hideTemplateForClientClone(model, role)
 	configureVisualOnlyModel(model)
 	model:SetAttribute("DevTreeGalleryTemplate", true)
@@ -911,6 +957,8 @@ local function createGallery()
 	gallery:SetAttribute("DevOnly", true)
 	gallery:SetAttribute("VisualOnly", true)
 	gallery:SetAttribute("GalleryOrigin", GALLERY_ORIGIN)
+	gallery:SetAttribute("StarterOakGallerySeed", STARTER_OAK_GALLERY_SEED)
+	gallery:SetAttribute("StarterOakGallerySampleCount", STARTER_OAK_GALLERY_SAMPLE_COUNT)
 
 	-- Preview trees remain completely non-colliding. This Studio-only floor is
 	-- the sole walkable utility surface so a manually teleported tester can
@@ -993,37 +1041,6 @@ local function createGallery()
 		makeEntry("GroveOak", "Oak", "mature", {}, "Grove Oak"),
 	})
 
-	local familyEntries = {}
-	for _, variantKey in ipairs(STARTER_OAK_VARIANT_KEYS) do
-		table.insert(familyEntries, makeStaticEntry(
-			makeStarterOakPrototype(variantKey),
-			starterOakVariantLabel(variantKey)
-		))
-	end
-
-	-- A dedicated patch behind the existing rows keeps the five trees clear of
-	-- both harvest stages. The floor extends from its old -100 edge to +650;
-	-- prior row and showcase coordinates stay fixed.
-	local familyRowDepth, familyRowWidth = arrangeRow(
-		gallery,
-		"STARTER OAK FAMILY — A / B / C / D / E",
-		familyEntries,
-		STARTER_OAK_FAMILY_ROW_Z,
-		STARTER_OAK_FAMILY_ROW_START_X
-	)
-	assert(STARTER_OAK_FAMILY_ROW_START_X + familyRowWidth <= GALLERY_FLOOR_SIZE.X - 8,
-		"Starter Oak family row exceeds the gallery floor width")
-	assert(STARTER_OAK_FAMILY_ROW_Z + familyRowDepth * 0.5
-		<= GALLERY_FLOOR_OFFSET.Z + GALLERY_FLOOR_SIZE.Z * 0.5 - 8,
-		"Starter Oak family row exceeds the gallery floor depth")
-	assert(STARTER_OAK_FAMILY_ROW_Z - familyRowDepth * 0.5
-		>= GALLERY_FLOOR_OFFSET.Z - GALLERY_FLOOR_SIZE.Z * 0.5 + 8,
-		"Starter Oak family row crosses the gallery floor's front edge")
-	assert(STARTER_OAK_FAMILY_ROW_START_X >= 75 + 82 * 0.5 + 12,
-		"Starter Oak family row is too close to the Starter Oak harvest stage")
-	assert(STARTER_OAK_FAMILY_ROW_Z - familyRowDepth * 0.5 >= 485 + 44 * 0.5 + 12,
-		"Starter Oak family row is too close to the full-tree harvest stage")
-
 	local structuralStudy = makeStarterOakStructuralStudy()
 	local structuralComparisonEntries = {
 		makeStaticEntry(structuralStudy, "Starter Oak Structural Study"),
@@ -1032,23 +1049,70 @@ local function createGallery()
 		gallery,
 		"STARTER OAK STRUCTURAL STUDY",
 		structuralComparisonEntries,
-		STARTER_OAK_FAMILY_ROW_Z,
+		STARTER_OAK_REFERENCE_ROW_Z,
 		STARTER_OAK_STRUCTURE_ROW_START_X
 	)
 	assert(STARTER_OAK_STRUCTURE_ROW_START_X >= 4,
 		"Starter Oak structure row has too little floor margin")
 	assert(STARTER_OAK_STRUCTURE_ROW_START_X + structuralRowWidth <= GALLERY_FLOOR_SIZE.X - 8,
 		"Starter Oak structure row exceeds the gallery floor width")
-	assert(STARTER_OAK_FAMILY_ROW_START_X
-		- (STARTER_OAK_STRUCTURE_ROW_START_X + structuralRowWidth) >= 12,
-		"Starter Oak structure row is too close to the Starter Oak family row")
-	assert(STARTER_OAK_FAMILY_ROW_Z + structuralRowDepth * 0.5
+	assert(STARTER_OAK_REFERENCE_ROW_Z + structuralRowDepth * 0.5
 		<= GALLERY_FLOOR_OFFSET.Z + GALLERY_FLOOR_SIZE.Z * 0.5 - 8,
 		"Starter Oak structure row exceeds the gallery floor depth")
-	assert(STARTER_OAK_FAMILY_ROW_Z - structuralRowDepth * 0.5
+	assert(STARTER_OAK_REFERENCE_ROW_Z - structuralRowDepth * 0.5
 		>= GALLERY_FLOOR_OFFSET.Z - GALLERY_FLOOR_SIZE.Z * 0.5 + 8,
 		"Starter Oak structure row crosses the gallery floor's front edge")
 
+	local proceduralEntries = {}
+	for sampleIndex = 1, STARTER_OAK_GALLERY_SAMPLE_COUNT do
+		local seed = STARTER_OAK_GALLERY_SEED + sampleIndex - 1
+		local extreme = STARTER_OAK_GALLERY_EXTREME_SAMPLES[sampleIndex] == true
+		table.insert(proceduralEntries, makeProceduralStarterOakEntry(seed, extreme))
+	end
+
+	assert(STARTER_OAK_GALLERY_SAMPLE_COUNT % STARTER_OAK_GALLERY_TREES_PER_ROW == 0,
+		"Procedural Starter Oak sample count must fill complete rows")
+	local proceduralRowZ = STARTER_OAK_PROCEDURAL_ROW_START_Z
+	local proceduralRowCount = STARTER_OAK_GALLERY_SAMPLE_COUNT / STARTER_OAK_GALLERY_TREES_PER_ROW
+	local staticReferenceBackZ = STARTER_OAK_REFERENCE_ROW_Z + structuralRowDepth * 0.5
+	local previousProceduralBackZ
+	for rowIndex = 1, proceduralRowCount do
+		local rowEntries = {}
+		for columnIndex = 1, STARTER_OAK_GALLERY_TREES_PER_ROW do
+			local entryIndex = (rowIndex - 1) * STARTER_OAK_GALLERY_TREES_PER_ROW + columnIndex
+			table.insert(rowEntries, proceduralEntries[entryIndex])
+		end
+
+		local rowDepth, rowWidth = arrangeRow(
+			gallery,
+			"PROCEDURAL STARTER OAKS / ROW " .. rowIndex,
+			rowEntries,
+			proceduralRowZ,
+			STARTER_OAK_PROCEDURAL_ROW_START_X
+		)
+		assert(STARTER_OAK_PROCEDURAL_ROW_START_X + rowWidth <= GALLERY_FLOOR_SIZE.X - 8,
+			"Procedural Starter Oak row exceeds the gallery floor width")
+		assert(proceduralRowZ + rowDepth * 0.5
+			<= GALLERY_FLOOR_OFFSET.Z + GALLERY_FLOOR_SIZE.Z * 0.5 - 8,
+			"Procedural Starter Oak row exceeds the gallery floor depth")
+		assert(proceduralRowZ - rowDepth * 0.5
+			>= GALLERY_FLOOR_OFFSET.Z - GALLERY_FLOOR_SIZE.Z * 0.5 + 8,
+			"Procedural Starter Oak row crosses the gallery floor front edge")
+		assert(proceduralRowZ - rowDepth * 0.5
+			>= 485 + 44 * 0.5 + 12,
+			"Procedural Starter Oak row is too close to the harvest showcase stages")
+		local rowHeaderZ = proceduralRowZ - rowDepth * 0.5 - 21
+		if rowIndex == 1 then
+			assert(rowHeaderZ >= staticReferenceBackZ + 2,
+				"Procedural Starter Oak header overlaps the Structural Study")
+		elseif previousProceduralBackZ then
+			assert(rowHeaderZ >= previousProceduralBackZ + 2,
+				"Procedural Starter Oak header overlaps the previous generated row")
+		end
+
+		previousProceduralBackZ = proceduralRowZ + rowDepth * 0.5
+		proceduralRowZ += rowDepth + STARTER_OAK_GALLERY_ROW_GAP
+	end
 	addStarterOakHarvestPlayground(gallery)
 	addTransformationPlayground(gallery)
 
