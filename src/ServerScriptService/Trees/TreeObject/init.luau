@@ -9,6 +9,7 @@ local TreeVisualModifiers = require(ServerStorage:WaitForChild("TreeVisualModifi
 local ChopFX = game.ReplicatedStorage.Chop.ChopFX
 local DamageEvent = game.ReplicatedStorage.DamageEvent
 local FXService = require(game.ReplicatedStorage.FXService)
+local HarvestVisualConfig = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("HarvestVisualConfig"))
 local Definitions = require(script.Parent.TreeDefinitions)
 local MutationDefinitions = require(game.ServerScriptService.Grove.MutationDefinitions)
 local WorldProgressService = require(game.ServerScriptService.WorldProgressService)
@@ -853,12 +854,12 @@ local function leavesForHP(hp, maxHP, totalLeaves)
 	return math.ceil(math.clamp(hp / maxHP, 0, 1) * totalLeaves)
 end
 
-local OAK_HARVEST_WAVE_INTERVAL = 0.12
-local OAK_HARVEST_ARC_HEIGHT = 1.4
-local OAK_HARVEST_ANIMATION_DURATION = 0.45
-local HARVEST_AXIAL_ROTATION_TURNS = 1
+local OAK_HARVEST_WAVE_INTERVAL = HarvestVisualConfig.SectionStagger
+local OAK_HARVEST_ARC_HEIGHT = HarvestVisualConfig.SectionArcHeight
+local OAK_HARVEST_ANIMATION_DURATION = HarvestVisualConfig.SectionDuration
+local HARVEST_AXIAL_ROTATION_TURNS = HarvestVisualConfig.RotationTurns
 local HARVEST_AXIAL_ROTATION_DIRECTION = 1
-local HARVEST_AXIAL_ROTATION_SPEED_RADIANS_PER_SECOND = math.rad(800)
+local HARVEST_AXIAL_ROTATION_SPEED_RADIANS_PER_SECOND = HarvestVisualConfig.RotationSpeedRadiansPerSecond
 local HARVEST_GROUND_RAY_START_HEIGHT = 128
 local HARVEST_GROUND_RAY_LENGTH = 4096
 local HARVEST_GROUND_MAX_HEIGHT_VARIATION = 1.25

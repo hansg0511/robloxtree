@@ -5,8 +5,11 @@ local Workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local PromptService = game:GetService("ProximityPromptService")
+local TweenService = game:GetService("TweenService")
+local Debris = game:GetService("Debris")
 local FX = require(script.Parent:WaitForChild("Inventory"):WaitForChild("Modules"):WaitForChild("LogTransformationFX"))
 local CarryLayout = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CarryLayout"))
+local HarvestVisualConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("HarvestVisualConfig"))
 local player = Players.LocalPlayer
 local DEBUG_OVERFLOW_SHOWCASE = false
 
@@ -45,6 +48,14 @@ end
 local function smooth(t)
 	t = math.clamp(t, 0, 1)
 	return t * t * (3 - 2 * t)
+end
+local function quadIn(t)
+	t = math.clamp(t, 0, 1)
+	return t * t
+end
+local function quadOut(t)
+	t = math.clamp(t, 0, 1)
+	return 1 - (1 - t) * (1 - t)
 end
 local function alive(s)
 	return session == s and not s.cancelled and s.folder.Parent ~= nil and s.playground.Parent ~= nil
@@ -108,15 +119,6 @@ local function extentAlong(frame, size, axis)
 		+ math.abs(frame.UpVector:Dot(axis)) * size.Y
 		+ math.abs(frame.LookVector:Dot(axis)) * size.Z)
 end
-local function getLongitudinalAxis(frame, size)
-	if size.X >= size.Y and size.X >= size.Z then
-		return frame.RightVector, 1
-	elseif size.Y >= size.Z then
-		return frame.UpVector, 2
-	end
-	return frame.LookVector, 3
-end
-
 local CANOPY_FALL = {
 	MinimumAngle = math.rad(60), MaximumAngle = math.rad(82),
 	GroundClearance = 0.025, BranchClearance = 0.08,
@@ -163,6 +165,37 @@ end
 local function minimumYAt(bounds, pivot)
 	local result = boundsAt(bounds, pivot)
 	return result and result.MinY or math.huge
+end
+local function getRootHingeLocal(rootBounds)
+	if not rootBounds or #rootBounds == 0 then return nil end
+	-- The fall rotates toward local +X, so use section 1's downhill bottom edge.
+	local lowestY = math.huge
+	for _, partBounds in ipairs(rootBounds) do
+		for _, corner in ipairs(partBounds.Corners) do
+			local point = partBounds.Frame:PointToWorldSpace(corner)
+			lowestY = math.min(lowestY, point.Y)
+		end
+	end
+	local downhillX, minimumZ, maximumZ = -math.huge, math.huge, -math.huge
+	for _, partBounds in ipairs(rootBounds) do
+		for _, corner in ipairs(partBounds.Corners) do
+			local point = partBounds.Frame:PointToWorldSpace(corner)
+			if point.Y <= lowestY + 0.01 then
+				downhillX = math.max(downhillX, point.X)
+				minimumZ = math.min(minimumZ, point.Z)
+				maximumZ = math.max(maximumZ, point.Z)
+			end
+		end
+	end
+	if downhillX == -math.huge then return nil end
+	return Vector3.new(downhillX, lowestY, (minimumZ + maximumZ) * 0.5)
+end
+local function pivotAroundRootHinge(standing, hingeLocal, angle)
+	-- Keep this point fixed in world space for the whole fall; canopy bounds do
+	-- not contribute any vertical correction or change the selected angle.
+	return standing * CFrame.new(hingeLocal)
+		* CFrame.Angles(0, 0, -angle)
+		* CFrame.new(-hingeLocal)
 end
 local function isProceduralStarterOak(playground, tree)
 	if tree and tree:GetAttribute("GeneratedStarterOak") == true then return true end
@@ -256,6 +289,85 @@ local function solveCanopyLandingAngle(tree, sections, standing)
 	local landing = validLandings[1]
 	return landing.Angle, landing.FoliageGap, landing.BranchGap, "foliage contact with branch clearance"
 end
+local function prepareStarterOakSectionLayouts(sections, standing, groundY)
+	local layouts = table.create(#sections)
+	local previousCenter, previousHalf
+	for index, item in ipairs(sections) do
+		local sourcePivot = item.model:GetPivot()
+		local boundsFrame, boundsSize = item.model:GetBoundingBox()
+		local sectionBounds = collectVisibleBounds(item.model, sourcePivot)
+		local boundsFrameLocal = sourcePivot:ToObjectSpace(boundsFrame)
+		local relativePivot = standing:ToObjectSpace(sourcePivot)
+		local targetPivot = standing * CFrame.Angles(0, 0, -math.pi * 0.5) * relativePivot
+		local bounds = boundsAt(sectionBounds, targetPivot)
+		if bounds then
+			targetPivot = CFrame.new(0, groundY + CANOPY_FALL.GroundClearance - bounds.MinY, 0) * targetPivot
+			bounds = boundsAt(sectionBounds, targetPivot)
+			local halfX = (bounds.MaxX - bounds.MinX) * 0.5
+			local targetCenter = (bounds.MinX + bounds.MaxX) * 0.5
+			if previousCenter then
+				targetCenter = math.max(targetCenter, previousCenter + previousHalf + halfX + CANOPY_FALL.SectionGap)
+			end
+			targetPivot = CFrame.new(targetCenter - (bounds.MinX + bounds.MaxX) * 0.5, 0, 0) * targetPivot
+			previousCenter, previousHalf = targetCenter, halfX
+		end
+		layouts[index] = {
+			Target = targetPivot,
+			Bounds = sectionBounds,
+			BoundsFrameLocal = boundsFrameLocal,
+			BoundsSize = boundsSize,
+		}
+	end
+	return layouts
+end
+local function playStarterOakImpactSmoke(parent, position)
+	if not parent or not parent.Parent then return end
+	local duration = HarvestVisualConfig.ImpactSmokeDuration
+	local color = Color3.fromRGB(142, 133, 121)
+	local offsets = {
+		Vector3.new(-0.45, 0, -0.25),
+		Vector3.new(0.4, 0.05, -0.35),
+		Vector3.new(-0.15, 0.1, 0.45),
+		Vector3.new(0.45, -0.05, 0.35),
+	}
+	for index, offset in ipairs(offsets) do
+		local puff = Instance.new("Part")
+		puff.Name = "TreeImpactSmokePuff"
+		puff.Shape = Enum.PartType.Ball
+		puff.Material = Enum.Material.SmoothPlastic
+		puff.Color = color
+		puff.Transparency = 0.38
+		puff.Anchored = true
+		puff.CanCollide = false
+		puff.CanTouch = false
+		puff.CanQuery = false
+		puff.CastShadow = false
+		puff.Size = Vector3.new(1.2, 0.9, 1.2)
+		puff.CFrame = CFrame.new(position + offset)
+		puff.Parent = parent
+
+		local spread = offset.Unit * 1.1
+		local sizeScale = 1.8 + (index % 2) * 0.25
+		local tween = TweenService:Create(
+			puff,
+			TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{
+				Position = position + spread + Vector3.new(0, 0.8, 0),
+				Size = Vector3.new(1.2, 0.9, 1.2) * sizeScale,
+				Transparency = 1,
+			}
+		)
+		local completedConnection
+		completedConnection = tween.Completed:Connect(function()
+			completedConnection:Disconnect()
+			if puff.Parent then puff:Destroy() end
+			tween:Destroy()
+		end)
+		tween:Play()
+		Debris:AddItem(puff, duration + 0.25)
+		Debris:AddItem(tween, duration + 0.25)
+	end
+end
 local function hide(tree, saved)
 	saved = saved or {}
 	for _, part in ipairs(tree:GetDescendants()) do
@@ -326,18 +438,25 @@ local function reset(targetControls)
 	updateControls()
 	status("Showcase reset — press E at the tree")
 end
-local function detachJoints(tree, sections)
+local function collectJointsToDetach(tree, sections)
 	local membership = {}
 	for _, item in ipairs(sections) do
 		for _, part in ipairs(item.model:GetDescendants()) do
 			if part:IsA("BasePart") then membership[part] = item.model end
 		end
 	end
+	local joints = {}
 	for _, joint in ipairs(tree:GetDescendants()) do
 		if joint:IsA("WeldConstraint") or joint:IsA("JointInstance") then
 			local a, b = membership[joint.Part0], membership[joint.Part1]
-			if a ~= b and (a or b) then joint:Destroy() end
+			if a ~= b and (a or b) then table.insert(joints, joint) end
 		end
+	end
+	return joints
+end
+local function detachJoints(joints)
+	for _, joint in ipairs(joints) do
+		if joint.Parent then joint:Destroy() end
 	end
 end
 local function snapshotVisibleDecorations(tree)
@@ -378,22 +497,35 @@ local function runFall(s)
 	local standing = tree:GetPivot()
 	local proceduralStarterOak = isProceduralStarterOak(s.playground, tree)
 	local starterOak = isStarterOakShowcase(s.playground, tree)
+	local jointsToDetach = collectJointsToDetach(tree, s.sections)
 	local requestsCanopySupport = s.playground:GetAttribute("FallStyle") == "CanopySupported"
 	local canopySupported = false
 	local landingAngle, foliageGap, branchGap, landingReason
+	local oakRootBounds, oakRootHingeLocal, oakSectionLayouts
+	if starterOak then
+		oakRootBounds = collectVisibleBounds(s.sections[1].model, standing)
+		local barkSupport = tree:FindFirstChild("DecorativeBark")
+		if barkSupport then appendBounds(oakRootBounds, collectVisibleBounds(barkSupport, standing)) end
+		oakRootHingeLocal = assert(getRootHingeLocal(oakRootBounds), "Starter Oak fall needs visible root bounds")
+		-- Prepare the expensive section projections before the fall so impact can
+		-- flow directly into the first breakup frame without a geometry hitch.
+		oakSectionLayouts = prepareStarterOakSectionLayouts(s.sections, standing, s.groundY)
+	end
+	local leaves = {}
+	-- Cache decoration sizes before impact too; falling does not alter them, and
+	-- collecting them after the fall would add work before breakup can start.
+	for _, folderName in ipairs({ "Leaves", "FoliageDecorations", "DecorativeBranches", "DecorativeBark" }) do
+		local decorationFolder = tree:FindFirstChild(folderName)
+		if decorationFolder then
+			for _, part in ipairs(decorationFolder:GetDescendants()) do
+				if part:IsA("BasePart") then table.insert(leaves, { part, part.Size, part.Transparency }) end
+			end
+		end
+	end
 	if proceduralStarterOak then
 		landingAngle = PROCEDURAL_FALL_ROTATION
 		landingReason = "fixed trunk target; canopy dimensions do not affect angle"
-		local treeBounds = collectVisibleBounds(tree, standing)
-		local supportBounds = collectVisibleBounds(s.sections[1].model, standing)
-		local barkSupport = tree:FindFirstChild("DecorativeBark")
-		if barkSupport then appendBounds(supportBounds, collectVisibleBounds(barkSupport, standing)) end
-		if #treeBounds == 0 then
-			local sectionBounds = {}
-			for _, item in ipairs(s.sections) do appendBounds(sectionBounds, collectVisibleBounds(item.model, standing)) end
-			treeBounds = sectionBounds
-		end
-		if #treeBounds == 0 then error("fall has no visible trunk bounds to keep above the ground") end
+		if #oakRootBounds == 0 then error("fall has no visible root bounds to stay planted") end
 		local seed = tree:GetAttribute("SourceTreeSeed") or tree:GetAttribute("DevTreeGallerySeed") or tree:GetAttribute("Seed")
 		local coreHeight = tree:GetAttribute("SourceCoreHeight") or tree:GetAttribute("CoreHeight") or 0
 		local thickness = tree:GetAttribute("SourceBaseThickness") or tree:GetAttribute("TrunkThickness") or 0
@@ -403,21 +535,17 @@ local function runFall(s)
 		local targetTrunkAngle = PROCEDURAL_TARGET_TRUNK_ANGLE_ABOVE_HORIZONTAL
 		local decorationSnapshot, foliageSnapshot, decorationCount, foliageCount = snapshotVisibleDecorations(tree)
 		local fallAngle = landingAngle
-		assert(animate(s, CONFIG.Fall, function(progress)
-			local angle = fallAngle * smooth(progress)
-			local rotatedPivot = standing * CFrame.Angles(0, 0, -angle)
-			-- Keep the complete visible tree above the floor through impact. The
-			-- fixed trunk angle remains unchanged; large crowns may lift the tree.
-			local minimumY = math.min(minimumYAt(treeBounds, rotatedPivot), minimumYAt(supportBounds, rotatedPivot))
-			local groundOffset = s.groundY + CANOPY_FALL.GroundClearance - minimumY
-			tree:PivotTo(CFrame.new(0, groundOffset, 0) * rotatedPivot)
+		assert(animate(s, HarvestVisualConfig.FallDuration, function(progress)
+			local angle = fallAngle * quadIn(progress)
+			tree:PivotTo(pivotAroundRootHinge(standing, oakRootHingeLocal, angle))
 		end), "fall cancelled")
 		local finalRotation = math.acos(math.clamp(standing.UpVector:Dot(tree:GetPivot().UpVector), -1, 1))
 		local finalTrunkAngle = math.pi * 0.5 - finalRotation
-		local diagnostic = ("seed=%s style=%s reason=%s targetElevation=%.2fdeg finalTrunkAngle=%.2fdeg finalRotation=%.2fdegFromUpright groundClearance=%.3f trunk=%.2fx%.2f canopyOffset=%.2f asymmetry=%.2f sections=%d"):format(
+		local hingeWorld = standing:PointToWorldSpace(oakRootHingeLocal)
+		local diagnostic = ("seed=%s style=%s reason=%s targetElevation=%.2fdeg finalTrunkAngle=%.2fdeg finalRotation=%.2fdegFromUpright rootHingeY=%.3f trunk=%.2fx%.2f canopyOffset=%.2f asymmetry=%.2f sections=%d"):format(
 			tostring(seed or "n/a"), landingStyle, landingReason,
 			math.deg(targetTrunkAngle), math.deg(finalTrunkAngle), math.deg(finalRotation),
-			CANOPY_FALL.GroundClearance, coreHeight, thickness,
+			hingeWorld.Y, coreHeight, thickness,
 			canopyOffset, canopyAsymmetry, #s.sections)
 		local foliageIntact = decorationsIntactAtImpact(tree, foliageSnapshot)
 		local decorationsIntact = decorationsIntactAtImpact(tree, decorationSnapshot)
@@ -425,13 +553,13 @@ local function runFall(s)
 		local decorationsIntactText = if decorationCount > 0 then tostring(decorationsIntact) else "n/a"
 		print(("[DevTreeGallery] LANDING_STYLE_SELECTED %s foliageIntactUntilImpact=%s decorationsIntactUntilImpact=%s visibleFoliageParts=%d visibleDecorationParts=%d"):format(
 			diagnostic, foliageIntactText, decorationsIntactText, foliageCount, decorationCount))
-		if canopySupported or proceduralStarterOak then s.standing = standing end
+		if starterOak then s.standing = standing end
 	else
-		-- Keep the established Structural Study and full-tree fall exactly as the
-		-- regression reference; procedural-only geometry uses the adapted path above.
+		-- Fixed Starter Oak keeps its canopy-solved angle; other gallery trees
+		-- retain their established fall path.
 		canopySupported = requestsCanopySupport
-		local treeBounds = if canopySupported then collectVisibleBounds(tree, standing) else nil
-		if canopySupported and #treeBounds == 0 then
+		local treeBounds = if canopySupported and not starterOak then collectVisibleBounds(tree, standing) else nil
+		if canopySupported and not starterOak and #treeBounds == 0 then
 			warn("[DevTreeGallery] CanopySupported fall has no visible bounds; using the legacy fall")
 			canopySupported = false
 		end
@@ -442,42 +570,69 @@ local function runFall(s)
 				s.standing = standing
 				debugEvent("CANOPY_LANDING_SOLVED", ("angle=%.2f foliageGap=%.3f branchGap=%.3f reason=%s"):format(
 					math.deg(landingAngle), foliageGap or -1, branchGap or -1, reason or "canopy contact"))
-				assert(animate(s, CONFIG.Fall, function(progress)
-					local angle = landingAngle * smooth(progress)
-					local rotatedPivot = standing * CFrame.Angles(0, 0, -angle)
-					local minimumY = minimumYAt(treeBounds, rotatedPivot)
-					local groundOffset = s.groundY + CANOPY_FALL.GroundClearance - minimumY
-					tree:PivotTo(CFrame.new(0, groundOffset, 0) * rotatedPivot)
+				local fallDuration = if starterOak then HarvestVisualConfig.FallDuration else CONFIG.Fall
+				assert(animate(s, fallDuration, function(progress)
+					local angle = landingAngle * (if starterOak then quadIn(progress) else smooth(progress))
+					if starterOak then
+						tree:PivotTo(pivotAroundRootHinge(standing, oakRootHingeLocal, angle))
+					else
+						local rotatedPivot = standing * CFrame.Angles(0, 0, -angle)
+						local minimumY = minimumYAt(treeBounds, rotatedPivot)
+						local groundOffset = s.groundY + CANOPY_FALL.GroundClearance - minimumY
+						tree:PivotTo(CFrame.new(0, groundOffset, 0) * rotatedPivot)
+					end
 				end), "fall cancelled")
 			else
-				warn("[DevTreeGallery] CanopySupported fall has no reliable contact; using the legacy fall: " .. tostring(reason))
+				warn("[DevTreeGallery] CanopySupported fall has no reliable contact: " .. tostring(reason))
 				canopySupported = false
 			end
 		end
 		if not canopySupported then
-			local baseRadius = s.sections[1].model.PrimaryPart.Size.X * 0.5
-			assert(animate(s, CONFIG.Fall, function(progress)
-				local angle = smooth(progress) * math.pi * 0.5
-				tree:PivotTo(CFrame.new(0, baseRadius * math.sin(angle), 0) * standing * CFrame.Angles(0, 0, -angle))
-			end), "fall cancelled")
-		end
-	end
-	if CONFIG.ImpactPause > 0 then
-		assert(animate(s, CONFIG.ImpactPause, function() end), "impact cancelled")
-	end
-	detachJoints(tree, s.sections)
-	local leaves, details = {}, {}
-	-- Starter Oak branches are decorative, just like its foliage. Fade both
-	-- before its bare trunk sections settle so no bough can look like a support.
-	for _, folderName in ipairs({ "Leaves", "FoliageDecorations", "DecorativeBranches", "DecorativeBark" }) do
-		local decorationFolder = tree:FindFirstChild(folderName)
-		if decorationFolder then
-			for _, part in ipairs(decorationFolder:GetDescendants()) do
-				if part:IsA("BasePart") then table.insert(leaves, { part, part.Size, part.Transparency }) end
+			if starterOak then
+				warn("[DevTreeGallery] Starter Oak canopy solve failed; using fixed 20-degree trunk target")
+				s.standing = standing
+				assert(animate(s, HarvestVisualConfig.FallDuration, function(progress)
+					local angle = PROCEDURAL_FALL_ROTATION * quadIn(progress)
+					tree:PivotTo(pivotAroundRootHinge(standing, oakRootHingeLocal, angle))
+				end), "fall cancelled")
+			else
+				local baseRadius = s.sections[1].model.PrimaryPart.Size.X * 0.5
+				assert(animate(s, CONFIG.Fall, function(progress)
+					local angle = smooth(progress) * math.pi * 0.5
+					tree:PivotTo(CFrame.new(0, baseRadius * math.sin(angle), 0) * standing * CFrame.Angles(0, 0, -angle))
+				end), "fall cancelled")
 			end
 		end
 	end
-	if canopySupported or proceduralStarterOak then
+	local impactPause = if starterOak then 0 else CONFIG.ImpactPause
+	if impactPause > 0 then
+		assert(animate(s, impactPause, function() end), "impact cancelled")
+	end
+	if starterOak then
+		local primary = tree.PrimaryPart or s.sections[1].model.PrimaryPart
+		if primary then playStarterOakImpactSmoke(s.folder, primary.Position) end
+	end
+	detachJoints(jointsToDetach)
+	local details = {}
+	local rotationTurns = math.max(0, HarvestVisualConfig.RotationTurns)
+	local rotationSpeed = math.max(math.abs(HarvestVisualConfig.RotationSpeedRadiansPerSecond), math.rad(1))
+	local oakSectionDuration = if rotationTurns > 0
+		then math.abs(rotationTurns * 2 * math.pi) / rotationSpeed
+		else HarvestVisualConfig.SectionDuration
+	if starterOak then
+		for index, item in ipairs(s.sections) do
+			local layout = oakSectionLayouts[index]
+			local sourcePivot = item.model:GetPivot()
+			local inFlightPosition = sourcePivot.Position:Lerp(layout.Target.Position, 0.55)
+				+ Vector3.yAxis * HarvestVisualConfig.SectionArcHeight
+			details[index] = {
+				Pivot = sourcePivot,
+				Target = layout.Target,
+				InFlightPosition = inFlightPosition,
+				Bounds = layout.Bounds,
+			}
+		end
+	elseif canopySupported then
 		local impactPivot = tree:GetPivot()
 		local previousCenter, previousHalf
 		for index, item in ipairs(s.sections) do
@@ -528,30 +683,63 @@ local function runFall(s)
 			previousCenter, previousHalf = targetX, halfX
 		end
 	end
-	local breakupDuration = if (canopySupported and starterOak) or proceduralStarterOak
-		then math.max(CONFIG.Breakup, CANOPY_FALL.BreakupDuration) else CONFIG.Breakup
-	local duration = math.max(CONFIG.Foliage, breakupDuration + (#s.sections - 1) * CONFIG.BreakupStagger)
+	local foliageDuration = if starterOak then HarvestVisualConfig.LeafShrinkDuration else CONFIG.Foliage
+	local breakupDuration = if starterOak then oakSectionDuration
+		elseif canopySupported then math.max(CONFIG.Breakup, CANOPY_FALL.BreakupDuration)
+		else CONFIG.Breakup
+	local breakupStagger = if starterOak then HarvestVisualConfig.SectionStagger else CONFIG.BreakupStagger
+	local duration = math.max(foliageDuration, breakupDuration + (#s.sections - 1) * breakupStagger)
 	assert(animate(s, duration, function(_, elapsed)
-		local leafAlpha = smooth(elapsed / CONFIG.Foliage)
+		local leafAlpha = if starterOak
+			then quadIn(elapsed / foliageDuration)
+			else smooth(elapsed / foliageDuration)
 		for _, leaf in ipairs(leaves) do
 			if leaf[1].Parent then
-				leaf[1].Size = leaf[2] * math.max(0.03, 1 - leafAlpha)
+				if starterOak then
+					local targetSize = Vector3.new(
+						math.max(leaf[2].X * 0.02, 0.001),
+						math.max(leaf[2].Y * 0.02, 0.001),
+						math.max(leaf[2].Z * 0.02, 0.001)
+					)
+					leaf[1].Size = leaf[2]:Lerp(targetSize, leafAlpha)
+				else
+					leaf[1].Size = leaf[2] * math.max(0.03, 1 - leafAlpha)
+				end
 				leaf[1].Transparency = leaf[3] + (1 - leaf[3]) * leafAlpha
 			end
 		end
 		for index, item in ipairs(s.sections) do
-			local p = math.clamp((elapsed - (index - 1) * CONFIG.BreakupStagger) / breakupDuration, 0, 1)
+			local localElapsed = elapsed - (index - 1) * breakupStagger
+			local p = math.clamp(localElapsed / breakupDuration, 0, 1)
 			local detail = details[index]
-			if canopySupported or proceduralStarterOak then
+			if starterOak then
+				local movementProgress
+				local position
+				if p <= 0.4 then
+					movementProgress = 0.4 * quadOut(p / 0.4)
+					position = detail.Pivot.Position:Lerp(
+						detail.InFlightPosition,
+						movementProgress / 0.4)
+				else
+					movementProgress = 0.4 + 0.6 * quadIn((p - 0.4) / 0.6)
+					position = detail.InFlightPosition:Lerp(
+						detail.Target.Position,
+						(movementProgress - 0.4) / 0.6)
+				end
+				local baseRotation = detail.Pivot.Rotation:Lerp(detail.Target.Rotation, movementProgress)
+				local rotationProgress = math.clamp(localElapsed / oakSectionDuration, 0, 1)
+				-- Postmultiply local Y so the axis follows the log's long axis.
+				local spin = CFrame.fromAxisAngle(Vector3.yAxis,
+					rotationTurns * 2 * math.pi * rotationProgress)
+				local candidate = CFrame.new(position) * baseRotation * spin
+				-- Keep thick or tapered sections above the floor as the local-Y
+				-- longitudinal spin changes their vertical footprint.
+				local floorCorrection = math.max(0,
+					s.groundY + CANOPY_FALL.GroundClearance - minimumYAt(detail.Bounds, candidate))
+				item.model:PivotTo(CFrame.new(0, floorCorrection, 0) * candidate)
+			elseif canopySupported then
 				local path = detail.Pivot:Lerp(detail.Target, smooth(p))
 				local candidate = path
-				if starterOak then
-					local boundsFrame = path * detail.BoundsFrameLocal
-					local longitudinalAxis = getLongitudinalAxis(boundsFrame, detail.BoundsSize)
-					local center = boundsFrame.Position
-					local spin = CFrame.fromAxisAngle(longitudinalAxis, 2 * math.pi * CONFIG.BreakupTurns * smooth(p))
-					candidate = CFrame.new(center) * spin * CFrame.new(-center) * path
-				end
 				-- Apply floor clearance after the full-turn transform so every
 				-- intermediate barrel-roll pose stays above the gallery floor.
 				local floorCorrection = math.max(0,
@@ -560,20 +748,8 @@ local function runFall(s)
 				item.model:PivotTo(CFrame.new(0, floorCorrection + settlePop, 0) * candidate)
 			else
 				local movement = detail.Offset * smooth(p) + Vector3.yAxis * (math.sin(math.pi * p) * CONFIG.BreakupPop)
-				if starterOak then
-					local path = CFrame.new(movement) * detail.Pivot
-					local boundsFrame = path * detail.BoundsFrameLocal
-					local longitudinalAxis = getLongitudinalAxis(boundsFrame, detail.BoundsSize)
-					local center = boundsFrame.Position
-					local spin = CFrame.fromAxisAngle(longitudinalAxis, 2 * math.pi * CONFIG.BreakupTurns * smooth(p))
-					local candidate = CFrame.new(center) * spin * CFrame.new(-center) * path
-					local floorCorrection = math.max(0,
-						s.groundY + 0.04 - minimumYAt(detail.Bounds, candidate))
-					item.model:PivotTo(CFrame.new(0, floorCorrection, 0) * candidate)
-				else
-					local spin = CFrame.fromAxisAngle(Vector3.yAxis, 2 * math.pi * CONFIG.BreakupTurns * p)
-					item.model:PivotTo(CFrame.new(movement) * detail.Pivot * spin)
-				end
+				local spin = CFrame.fromAxisAngle(Vector3.yAxis, 2 * math.pi * CONFIG.BreakupTurns * p)
+				item.model:PivotTo(CFrame.new(movement) * detail.Pivot * spin)
 			end
 		end
 	end), "breakup cancelled")

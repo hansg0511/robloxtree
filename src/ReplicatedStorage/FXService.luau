@@ -1,6 +1,7 @@
 local FXService = {}
 local Debris = game:GetService("Debris")
 local TweenService = game:GetService("TweenService")
+local HarvestVisualConfig = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("HarvestVisualConfig"))
 
 local ContentProvider = game:GetService("ContentProvider")
 local sounds = game.ReplicatedStorage.LeavesSound:GetChildren()
@@ -19,12 +20,12 @@ ContentProvider:PreloadAsync(sounds)
 
 local HIT_KICK_DURATION = 0.06
 local HIT_REBOUND_DURATION = 0.13
-local TREE_FALL_DURATION = 1.0
+local TREE_FALL_DURATION = HarvestVisualConfig.FallDuration
 local POST_IMPACT_PAUSE = 0.15
 local TREE_FADE_DURATION = 0.65
 local DROP_REVEAL_FADE_OFFSET = 0.15
-local IMPACT_LEAF_SHRINK_DURATION = 0.18
-local IMPACT_SMOKE_DURATION = 0.42
+local IMPACT_LEAF_SHRINK_DURATION = HarvestVisualConfig.LeafShrinkDuration
+local IMPACT_SMOKE_DURATION = HarvestVisualConfig.ImpactSmokeDuration
 local activeHitByTree = setmetatable({}, { __mode = "k" })
 
 local function cancelHitTween(tree, restoreCFrame)
