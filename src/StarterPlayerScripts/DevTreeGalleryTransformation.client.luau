@@ -12,7 +12,7 @@ local DEBUG_OVERFLOW_SHOWCASE = false
 
 -- Prototype-only tuning. These values do not change production.
 local CONFIG = {
-	Fall = 1.35, ImpactPause = 0.12, Foliage = 0.48,
+	Fall = 1.20, ImpactPause = 0, Foliage = 0.48,
 	Breakup = 0.52, BreakupStagger = 0.14, BreakupPop = 1.5, BreakupTurns = 1,
 	StreamingTimeout = 12,
 	LiftDuration = 0.16, CompressionDuration = 0.24, RevealDuration = 0.18,
@@ -122,10 +122,8 @@ local CANOPY_FALL = {
 	GroundClearance = 0.025, BranchClearance = 0.08,
 	SectionGap = 0.5, SectionSettlePop = 0.25, BreakupDuration = 0.75,
 }
-local FALLBACK_CONTACT = {
-	MaximumAngle = math.pi * 0.5, SearchSamples = 90,
-	StandingIntersectionTolerance = 0.01, MinimumVisibleFallAngle = math.rad(5),
-}
+local PROCEDURAL_TARGET_TRUNK_ANGLE_ABOVE_HORIZONTAL = math.rad(20)
+local PROCEDURAL_FALL_ROTATION = math.pi * 0.5 - PROCEDURAL_TARGET_TRUNK_ANGLE_ABOVE_HORIZONTAL
 local CORNER_SIGNS = { -1, 1 }
 local function collectVisibleBounds(root, referencePivot)
 	local bounds = {}
@@ -258,80 +256,6 @@ local function solveCanopyLandingAngle(tree, sections, standing)
 	local landing = validLandings[1]
 	return landing.Angle, landing.FoliageGap, landing.BranchGap, "foliage contact with branch clearance"
 end
-local function solveFallbackContactAngle(tree, sections, standing)
-	local supportBounds = collectVisibleBounds(sections[1].model, standing)
-	local barkSupport = tree:FindFirstChild("DecorativeBark")
-	if barkSupport then appendBounds(supportBounds, collectVisibleBounds(barkSupport, standing)) end
-	if #supportBounds == 0 then
-		return nil, nil, nil, "no visible trunk or root-support bounds for fallback contact"
-	end
-	local foliageBounds, branchBounds, decorationBounds = {}, {}, {}
-	for _, folderName in ipairs({ "FoliageDecorations", "DecorativeBranches", "Leaves" }) do
-		local folder = tree:FindFirstChild(folderName)
-		if folder then
-			local folderBounds = collectVisibleBounds(folder, standing)
-			if folderName == "DecorativeBranches" then
-				appendBounds(branchBounds, folderBounds)
-			else
-				appendBounds(foliageBounds, folderBounds)
-			end
-			appendBounds(decorationBounds, folderBounds)
-		end
-	end
-	if #decorationBounds == 0 then
-		return nil, nil, nil, "no visible foliage or branch bounds for fallback contact"
-	end
-	local function contactGapAt(angle)
-		local rotatedPivot = standing * CFrame.Angles(0, 0, -angle)
-		local supportY = minimumYAt(supportBounds, rotatedPivot)
-		return minimumYAt(decorationBounds, rotatedPivot) - supportY
-	end
-	local function folderGapsAt(angle)
-		local rotatedPivot = standing * CFrame.Angles(0, 0, -angle)
-		local supportY = minimumYAt(supportBounds, rotatedPivot)
-		local foliageGap = if #foliageBounds > 0
-			then minimumYAt(foliageBounds, rotatedPivot) - supportY else nil
-		local branchGap = if #branchBounds > 0
-			then minimumYAt(branchBounds, rotatedPivot) - supportY else math.huge
-		return foliageGap, branchGap
-	end
-	local standingGap = contactGapAt(0)
-	if standingGap < -FALLBACK_CONTACT.StandingIntersectionTolerance then
-		return nil, nil, nil, ("visible decorations intersect root support while standing (gap=%.3f)"):format(standingGap)
-	end
-	if math.abs(standingGap) <= FALLBACK_CONTACT.StandingIntersectionTolerance then
-		local angle = FALLBACK_CONTACT.MinimumVisibleFallAngle
-		local foliageGap, branchGap = folderGapsAt(angle)
-		return angle, foliageGap, branchGap,
-			("decorations already contact root support while standing; using %.2fdeg minimum fall with full-bounds clearance"):format(math.deg(angle))
-	end
-	local previousAngle, previousGap = 0, standingGap
-	for sample = 1, FALLBACK_CONTACT.SearchSamples do
-		local angle = FALLBACK_CONTACT.MaximumAngle * sample / FALLBACK_CONTACT.SearchSamples
-		local gap = contactGapAt(angle)
-		if previousGap > 0 and gap <= 0 then
-			local left, right = previousAngle, angle
-			for _ = 1, 32 do
-				local middle = (left + right) * 0.5
-				local middleGap = contactGapAt(middle)
-				if middleGap == 0 then
-					left, right = middle, middle
-					break
-				elseif middleGap > 0 then
-					left = middle
-				else
-					right = middle
-				end
-			end
-			local contactAngle = (left + right) * 0.5
-			local foliageGap, branchGap = folderGapsAt(contactAngle)
-			return contactAngle, foliageGap, branchGap,
-				("first decoration/root-support contact at %.2fdeg"):format(math.deg(contactAngle))
-		end
-		previousAngle, previousGap = angle, gap
-	end
-	return nil, nil, nil, "no decoration/root-support contact found through 90deg"
-end
 local function hide(tree, saved)
 	saved = saved or {}
 	for _, part in ipairs(tree:GetDescendants()) do
@@ -458,43 +382,12 @@ local function runFall(s)
 	local canopySupported = false
 	local landingAngle, foliageGap, branchGap, landingReason
 	if proceduralStarterOak then
-		landingReason = if requestsCanopySupport then "canopy contact not yet solved" else "showcase did not request canopy support"
+		landingAngle = PROCEDURAL_FALL_ROTATION
+		landingReason = "fixed trunk target; canopy dimensions do not affect angle"
 		local treeBounds = collectVisibleBounds(tree, standing)
 		local supportBounds = collectVisibleBounds(s.sections[1].model, standing)
 		local barkSupport = tree:FindFirstChild("DecorativeBark")
 		if barkSupport then appendBounds(supportBounds, collectVisibleBounds(barkSupport, standing)) end
-		if requestsCanopySupport then
-			if #treeBounds == 0 then
-				landingReason = "no visible bounds were available for the fall"
-			else
-				landingAngle, foliageGap, branchGap, landingReason = solveCanopyLandingAngle(tree, s.sections, standing)
-				canopySupported = landingAngle ~= nil
-			end
-		end
-		if not canopySupported and requestsCanopySupport then
-			local canopyReason = landingReason or "generated canopy could not provide a stable landing"
-			local fallbackAngle, fallbackFoliageGap, fallbackBranchGap, fallbackReason =
-				solveFallbackContactAngle(tree, s.sections, standing)
-			if fallbackAngle then
-				landingAngle, foliageGap, branchGap = fallbackAngle, fallbackFoliageGap, fallbackBranchGap
-				landingReason = ("canopy solver: %s; fallback: %s"):format(canopyReason, fallbackReason)
-			else
-				landingAngle = FALLBACK_CONTACT.MaximumAngle
-				landingReason = ("canopy solver: %s; fallback: %s; using 90deg full-bounds clearance"):format(
-					canopyReason, fallbackReason)
-			end
-		elseif not canopySupported then
-			local fallbackAngle, fallbackFoliageGap, fallbackBranchGap, fallbackReason =
-				solveFallbackContactAngle(tree, s.sections, standing)
-			if fallbackAngle then
-				landingAngle, foliageGap, branchGap = fallbackAngle, fallbackFoliageGap, fallbackBranchGap
-				landingReason = ("showcase did not request canopy support; fallback: %s"):format(fallbackReason)
-			else
-				landingAngle = FALLBACK_CONTACT.MaximumAngle
-				landingReason = ("showcase did not request canopy support; fallback: %s; using 90deg full-bounds clearance"):format(
-					fallbackReason)
-			end
-		end
 		if #treeBounds == 0 then
 			local sectionBounds = {}
 			for _, item in ipairs(s.sections) do appendBounds(sectionBounds, collectVisibleBounds(item.model, standing)) end
@@ -506,31 +399,33 @@ local function runFall(s)
 		local thickness = tree:GetAttribute("SourceBaseThickness") or tree:GetAttribute("TrunkThickness") or 0
 		local canopyOffset = tree:GetAttribute("CanopyCentroidOffset") or 0
 		local canopyAsymmetry = tree:GetAttribute("CanopyAsymmetryRatio") or 0
-		local landingStyle = if canopySupported then "CanopySupported" else "TrunkSideFallback"
-		local diagnostic = ("seed=%s style=%s reason=%s finalAngle=%.2fdeg foliageGap=%s branchGap=%s trunk=%.2fx%.2f canopyOffset=%.2f asymmetry=%.2f sections=%d"):format(
-			tostring(seed or "n/a"), landingStyle, landingReason or "canopy contact",
-			math.deg(landingAngle or FALLBACK_CONTACT.MaximumAngle),
-			foliageGap and ("%.3f"):format(foliageGap) or "n/a",
-			branchGap and ("%.3f"):format(branchGap) or "n/a", coreHeight, thickness,
-			canopyOffset, canopyAsymmetry, #s.sections)
+		local landingStyle = "FixedAngle"
+		local targetTrunkAngle = PROCEDURAL_TARGET_TRUNK_ANGLE_ABOVE_HORIZONTAL
 		local decorationSnapshot, foliageSnapshot, decorationCount, foliageCount = snapshotVisibleDecorations(tree)
-		local fallAngle = landingAngle or FALLBACK_CONTACT.MaximumAngle
+		local fallAngle = landingAngle
 		assert(animate(s, CONFIG.Fall, function(progress)
-			local angle = (if canopySupported then landingAngle else fallAngle) * smooth(progress)
+			local angle = fallAngle * smooth(progress)
 			local rotatedPivot = standing * CFrame.Angles(0, 0, -angle)
-			-- Keep every visible part above the floor through impact, including the
-			-- intact fallback crown and any support parts outside the section model.
+			-- Keep the complete visible tree above the floor through impact. The
+			-- fixed trunk angle remains unchanged; large crowns may lift the tree.
 			local minimumY = math.min(minimumYAt(treeBounds, rotatedPivot), minimumYAt(supportBounds, rotatedPivot))
 			local groundOffset = s.groundY + CANOPY_FALL.GroundClearance - minimumY
 			tree:PivotTo(CFrame.new(0, groundOffset, 0) * rotatedPivot)
 		end), "fall cancelled")
+		local finalRotation = math.acos(math.clamp(standing.UpVector:Dot(tree:GetPivot().UpVector), -1, 1))
+		local finalTrunkAngle = math.pi * 0.5 - finalRotation
+		local diagnostic = ("seed=%s style=%s reason=%s targetElevation=%.2fdeg finalTrunkAngle=%.2fdeg finalRotation=%.2fdegFromUpright groundClearance=%.3f trunk=%.2fx%.2f canopyOffset=%.2f asymmetry=%.2f sections=%d"):format(
+			tostring(seed or "n/a"), landingStyle, landingReason,
+			math.deg(targetTrunkAngle), math.deg(finalTrunkAngle), math.deg(finalRotation),
+			CANOPY_FALL.GroundClearance, coreHeight, thickness,
+			canopyOffset, canopyAsymmetry, #s.sections)
 		local foliageIntact = decorationsIntactAtImpact(tree, foliageSnapshot)
 		local decorationsIntact = decorationsIntactAtImpact(tree, decorationSnapshot)
 		local foliageIntactText = if foliageCount > 0 then tostring(foliageIntact) else "n/a"
 		local decorationsIntactText = if decorationCount > 0 then tostring(decorationsIntact) else "n/a"
 		print(("[DevTreeGallery] LANDING_STYLE_SELECTED %s foliageIntactUntilImpact=%s decorationsIntactUntilImpact=%s visibleFoliageParts=%d visibleDecorationParts=%d"):format(
 			diagnostic, foliageIntactText, decorationsIntactText, foliageCount, decorationCount))
-		if canopySupported then s.standing = standing end
+		if canopySupported or proceduralStarterOak then s.standing = standing end
 	else
 		-- Keep the established Structural Study and full-tree fall exactly as the
 		-- regression reference; procedural-only geometry uses the adapted path above.
@@ -567,7 +462,9 @@ local function runFall(s)
 			end), "fall cancelled")
 		end
 	end
-	assert(animate(s, CONFIG.ImpactPause, function() end), "impact cancelled")
+	if CONFIG.ImpactPause > 0 then
+		assert(animate(s, CONFIG.ImpactPause, function() end), "impact cancelled")
+	end
 	detachJoints(tree, s.sections)
 	local leaves, details = {}, {}
 	-- Starter Oak branches are decorative, just like its foliage. Fade both
