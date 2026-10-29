@@ -16,6 +16,18 @@ local WorldProgressService = require(game.ServerScriptService.WorldProgressServi
 local LogService = require(game.ServerScriptService.Inventory.LogService)
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
 local SaplingDiscoveryService = require(game.ServerScriptService.Grove.SaplingDiscoveryService)
+local StarterOakGenerator
+local generatorFolder = game.ServerScriptService:FindFirstChild("Trees")
+local generatorModule = generatorFolder and generatorFolder:FindFirstChild("StarterOakGenerator")
+if generatorModule and generatorModule:IsA("ModuleScript") then
+	local generatorOk, generator = pcall(require, generatorModule)
+	if generatorOk and type(generator) == "table" and type(generator.Generate) == "function" then
+		StarterOakGenerator = generator
+	else
+		warn("Starter Oak generator module is unavailable; production Oaks will use the established builder", generator)
+	end
+end
+local WorldLayoutConfiguration = require(game.ServerScriptService.WorldLayout:WaitForChild("WorldLayoutConfiguration"))
 
 local treeRandom = Random.new()
 
@@ -296,6 +308,378 @@ local function makeStarterForestHarvestOak(sectionCount)
 	}, false)
 	addChopHitbox(model, carrier, Vector3.new(10, 22, 10), Vector3.new(0, 11, 0))
 	return model, sections
+end
+
+local PROCEDURAL_OAK_LEGACY_BASE_HEIGHT = 18
+local PROCEDURAL_OAK_NORMAL_MEAN_HEIGHT = 14.5
+local PROCEDURAL_OAK_MIN_SIZE_SCALE = 0.45
+local PROCEDURAL_OAK_MAX_SIZE_SCALE = 1.7
+
+local function isFiniteNumber(value)
+	return type(value) == "number"
+		and value == value
+		and value > -math.huge
+		and value < math.huge
+end
+
+local function getStableProceduralOakSeed(tree)
+	if isFiniteNumber(tree.ProceduralOakSeed) then
+		return tree.ProceduralOakSeed
+	end
+
+	local position = tree.CFrame.Position
+	local seedText = string.format(
+		"%s:%.3f:%.3f:%.3f",
+		tree.DefinitionId,
+		position.X,
+		position.Y,
+		position.Z
+	)
+	local seed = 0
+	for index = 1, #seedText do
+		seed = (seed * 31 + string.byte(seedText, index)) % 2147483647
+	end
+	if seed == 0 then seed = 1 end
+	tree.ProceduralOakSeed = seed
+	return seed
+end
+
+local function getProceduralOakVisualScale(coreHeight, sizeScale)
+	if not isFiniteNumber(coreHeight) or coreHeight <= 0
+		or not isFiniteNumber(sizeScale) or sizeScale <= 0 then
+		return nil
+	end
+
+	-- Keep the approved generator's shape variation while matching its mean
+	-- height to the legacy 18-stud Oak. Bound the actual trunk height to the
+	-- existing production scale envelope; HP and yield still use SizeScale.
+	local normalizedScale = sizeScale * PROCEDURAL_OAK_LEGACY_BASE_HEIGHT / PROCEDURAL_OAK_NORMAL_MEAN_HEIGHT
+	local minimumHeight = PROCEDURAL_OAK_LEGACY_BASE_HEIGHT * PROCEDURAL_OAK_MIN_SIZE_SCALE
+	local maximumHeight = PROCEDURAL_OAK_LEGACY_BASE_HEIGHT * PROCEDURAL_OAK_MAX_SIZE_SCALE
+	return math.clamp(normalizedScale, minimumHeight / coreHeight, maximumHeight / coreHeight)
+end
+
+local function setProceduralHarvestSectionMetadata(section, index)
+	section:SetAttribute("OakHarvestSection", true)
+	section:SetAttribute("AuthoredHarvestSection", true)
+	section:SetAttribute("HarvestSectionIndex", index)
+	section:SetAttribute("SpeciesId", "Oak")
+	for _, descendant in ipairs(section:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant:SetAttribute("HarvestSectionIndex", index)
+			descendant:SetAttribute("SpeciesId", "Oak")
+		end
+	end
+end
+
+local function makeProceduralOakCorePart(root, parent, template, name, sectionIndex, bottom, top, width, seed)
+	local height = top - bottom
+	local core = Instance.new("Part")
+	core.Name = name
+	core.Size = Vector3.new(width, height, width)
+	core.CFrame = CFrame.new(0, (bottom + top) * 0.5, 0)
+	core.PivotOffset = CFrame.new(0, -height * 0.5, 0)
+	core.Color = template.Color
+	core.Material = template.Material
+	core.Transparency = template.Transparency
+	core.Reflectance = template.Reflectance
+	core.CastShadow = template.CastShadow
+	core.TopSurface = template.TopSurface
+	core.BottomSurface = template.BottomSurface
+	core.FrontSurface = template.FrontSurface
+	core.BackSurface = template.BackSurface
+	core.LeftSurface = template.LeftSurface
+	core.RightSurface = template.RightSurface
+	core.Anchored = false
+	core.Massless = true
+	core.CanCollide = false
+	core.CanTouch = false
+	core.CanQuery = false
+	core:SetAttribute("HarvestableCore", true)
+	core:SetAttribute("HarvestSectionIndex", sectionIndex)
+	core:SetAttribute("CoreBottomY", bottom)
+	core:SetAttribute("CoreTopY", top)
+	core:SetAttribute("CoreThickness", width)
+	core:SetAttribute("SourceTreeSeed", seed)
+	core:SetAttribute("SpeciesId", "Oak")
+	core.Parent = parent
+
+	local weld = Instance.new("WeldConstraint")
+	weld.Name = "OakAssemblyWeld"
+	weld.Part0 = root
+	weld.Part1 = core
+	weld.Parent = core
+	return core
+end
+
+local function makeProceduralHarvestSection(parent, index, bottom, top, thickness)
+	local section = Instance.new("Model")
+	section.Name = "Section" .. index
+	section:SetAttribute("CoreBottomY", bottom)
+	section:SetAttribute("CoreTopY", top)
+	section:SetAttribute("CoreHeight", top - bottom)
+	section:SetAttribute("CoreThickness", thickness)
+	section.Parent = parent
+	setProceduralHarvestSectionMetadata(section, index)
+	return section
+end
+
+local function prepareProceduralOakHarvestSections(model, rewardCount, seed, visualScale)
+	local root = model.PrimaryPart or model:FindFirstChild("OakRootCarrier", true)
+	local trunkStructure = model:FindFirstChild("TrunkStructure")
+	local sectionFolder = trunkStructure and trunkStructure:FindFirstChild("HarvestableCore")
+	local coreHeight = model:GetAttribute("CoreHeight")
+	if not root or not root:IsA("BasePart")
+		or not sectionFolder or not sectionFolder:IsA("Folder")
+		or not isFiniteNumber(coreHeight) or coreHeight <= 0
+		or not isFiniteNumber(visualScale) or visualScale <= 0
+		or (rewardCount ~= 1 and rewardCount ~= 2 and rewardCount ~= 3) then
+		return nil, "invalid-generated-core"
+	end
+
+	local authored = {}
+	for _, child in ipairs(sectionFolder:GetChildren()) do
+		if child:IsA("Model") and child:GetAttribute("AuthoredHarvestSection") == true then
+			table.insert(authored, child)
+		end
+	end
+	table.sort(authored, function(a, b)
+		return (a:GetAttribute("HarvestSectionIndex") or math.huge)
+			< (b:GetAttribute("HarvestSectionIndex") or math.huge)
+	end)
+	if #authored ~= 2 then return nil, "missing-source-sections" end
+
+	local sourceCoreParts = {}
+	for index, section in ipairs(authored) do
+		if section:GetAttribute("HarvestSectionIndex") ~= index then
+			return nil, "invalid-source-section-index"
+		end
+		local sectionParts = {}
+		for _, descendant in ipairs(section:GetDescendants()) do
+			if descendant:IsA("BasePart") then table.insert(sectionParts, descendant) end
+		end
+		if #sectionParts ~= 1 or sectionParts[1]:GetAttribute("HarvestableCore") ~= true then
+			return nil, "unsupported-source-section-geometry"
+		end
+		sourceCoreParts[index] = sectionParts[1]
+	end
+	local baseCore = sourceCoreParts[1]
+	local topCore = sourceCoreParts[2]
+	local splitHeight = baseCore:GetAttribute("CoreTopY")
+	if not isFiniteNumber(splitHeight) or splitHeight <= 0 or splitHeight >= coreHeight then
+		splitHeight = coreHeight * 0.5
+	end
+	if math.abs(splitHeight - coreHeight * 0.5) > math.max(0.01, coreHeight * 1e-5) then
+		return nil, "unsupported-source-taper-seam"
+	end
+	local topBottom = topCore:GetAttribute("CoreBottomY")
+	if not isFiniteNumber(topBottom)
+		or math.abs(topBottom - splitHeight) > math.max(0.01, coreHeight * 1e-5) then
+		return nil, "disconnected-source-taper-seam"
+	end
+	local maximumScaledWidth = math.max(baseCore.Size.X, baseCore.Size.Z, topCore.Size.X, topCore.Size.Z) * visualScale
+	local minimumScaledSectionHeight = coreHeight / rewardCount * visualScale
+	if not isFiniteNumber(maximumScaledWidth) or maximumScaledWidth < 0.5 or maximumScaledWidth > 8
+		or not isFiniteNumber(minimumScaledSectionHeight) or minimumScaledSectionHeight < 2.5 then
+		return nil, "section-dimensions-outside-safe-bounds"
+	end
+
+	local sections = table.create(rewardCount)
+	if rewardCount == 1 then
+		local merged = Instance.new("Model")
+		merged.Name = "Section1"
+		merged:SetAttribute("CoreBottomY", 0)
+		merged:SetAttribute("CoreTopY", coreHeight)
+		merged:SetAttribute("CoreHeight", coreHeight)
+		merged:SetAttribute("CoreThickness", math.max(baseCore.Size.X, topCore.Size.X))
+		merged.Parent = sectionFolder
+		for _, source in ipairs(authored) do
+			for _, child in ipairs(source:GetChildren()) do
+				child.Parent = merged
+			end
+			source:Destroy()
+		end
+		merged.PrimaryPart = merged:FindFirstChildWhichIsA("BasePart", true)
+		if not merged.PrimaryPart then
+			merged:Destroy()
+			return nil, "merged-section-has-no-core"
+		end
+		setProceduralHarvestSectionMetadata(merged, 1)
+		sections[1] = merged
+	elseif rewardCount == 2 then
+		for index, section in ipairs(authored) do
+			if not section:FindFirstChildWhichIsA("BasePart", true) then return nil, "source-section-has-no-core" end
+			section:SetAttribute("CoreBottomY", if index == 1 then 0 else splitHeight)
+			section:SetAttribute("CoreTopY", if index == 1 then splitHeight else coreHeight)
+			section:SetAttribute("CoreHeight", if index == 1 then splitHeight else coreHeight - splitHeight)
+			setProceduralHarvestSectionMetadata(section, index)
+			sections[index] = section
+		end
+	else
+		-- Preserve the generator's exact two-step taper. The first and last
+		-- reward sections each contain one piece; the middle section straddles
+		-- the original half-height seam and therefore contains two pieces.
+		local temporarySections = Instance.new("Folder")
+		temporarySections.Name = "OakHarvestSectionBuild"
+		temporarySections.Parent = model
+		local definitions = {
+			{ Index = 1, Bottom = 0, Top = coreHeight / 3, Pieces = { { Template = baseCore, Bottom = 0, Top = coreHeight / 3 } } },
+			{ Index = 2, Bottom = coreHeight / 3, Top = coreHeight * 2 / 3, Pieces = {
+				{ Template = baseCore, Bottom = coreHeight / 3, Top = splitHeight },
+				{ Template = topCore, Bottom = splitHeight, Top = coreHeight * 2 / 3 },
+			} },
+			{ Index = 3, Bottom = coreHeight * 2 / 3, Top = coreHeight, Pieces = { { Template = topCore, Bottom = coreHeight * 2 / 3, Top = coreHeight } } },
+		}
+		for _, definition in ipairs(definitions) do
+			local sectionThickness = 0
+			for _, piece in ipairs(definition.Pieces) do
+				if piece.Top - piece.Bottom <= 0 then
+					temporarySections:Destroy()
+					return nil, "three-section-cut-collapsed"
+				end
+				sectionThickness = math.max(sectionThickness, piece.Template.Size.X)
+			end
+			local section = makeProceduralHarvestSection(
+				temporarySections,
+				definition.Index,
+				definition.Bottom,
+				definition.Top,
+				sectionThickness
+			)
+			for pieceIndex, piece in ipairs(definition.Pieces) do
+				local core = makeProceduralOakCorePart(
+					root,
+					section,
+					piece.Template,
+					if #definition.Pieces == 1 then "Core" else "Core" .. pieceIndex,
+					definition.Index,
+					piece.Bottom,
+					piece.Top,
+					piece.Template.Size.X,
+					seed
+				)
+				if not section.PrimaryPart then section.PrimaryPart = core end
+			end
+			sections[definition.Index] = section
+		end
+		for _, source in ipairs(authored) do source:Destroy() end
+		for _, section in ipairs(sections) do section.Parent = sectionFolder end
+		temporarySections:Destroy()
+	end
+
+	for index, section in ipairs(sections) do
+		section:SetAttribute("CoreBottomY", if index == 1 then 0 else (index - 1) * coreHeight / rewardCount)
+		section:SetAttribute("CoreTopY", if index == rewardCount then coreHeight else index * coreHeight / rewardCount)
+		section:SetAttribute("CoreHeight", coreHeight / rewardCount)
+		setProceduralHarvestSectionMetadata(section, index)
+		for _, descendant in ipairs(section:GetDescendants()) do
+			if descendant:IsA("BasePart") then
+				local bottom = descendant:GetAttribute("CoreBottomY")
+				descendant.CanCollide = bottom ~= nil and bottom <= 1e-4
+			end
+		end
+	end
+	sectionFolder:SetAttribute("HarvestSectionCount", rewardCount)
+	model:SetAttribute("HarvestSectionCount", rewardCount)
+	return sections
+end
+
+local function makeProceduralStarterOak(seed, rewardCount, sizeScale)
+	if type(StarterOakGenerator) ~= "table" or type(StarterOakGenerator.Generate) ~= "function" then
+		warn("Procedural Starter Oaks are enabled but their generator module is unavailable", seed)
+		return nil
+	end
+	local generatedOk, model = pcall(StarterOakGenerator.Generate, seed)
+	if not generatedOk or not model or not model:IsA("Model") then
+		warn("Could not generate production Starter Oak", seed, model)
+		return nil
+	end
+
+	local setupOk, sections, visualScale = pcall(function()
+		model.Name = "StarterForestTree"
+		model:SetAttribute("DevTreeGalleryPreview", nil)
+		model:SetAttribute("VisualOnly", nil)
+		model:SetAttribute("PrototypeOnly", nil)
+		model:SetAttribute("ProceduralStarterOak", true)
+		model:SetAttribute("GeneratedStarterOak", true)
+		model:SetAttribute("Seed", seed)
+		model:SetAttribute("SourceTreeSeed", seed)
+		model:SetAttribute("SpeciesId", "Oak")
+
+		local coreHeight = model:GetAttribute("CoreHeight")
+		local baseThickness = model:GetAttribute("TrunkThickness")
+		local modelVisualScale = getProceduralOakVisualScale(coreHeight, sizeScale)
+		local root = model.PrimaryPart or model:FindFirstChild("OakRootCarrier", true)
+		if not modelVisualScale or not isFiniteNumber(baseThickness) or baseThickness <= 0
+			or not root or not root:IsA("BasePart") then
+			error("Procedural Starter Oak did not meet the production tree contract")
+		end
+
+		local sectionsOk, authoredSections, sectionFallbackReason = pcall(
+			prepareProceduralOakHarvestSections,
+			model,
+			rewardCount,
+			seed,
+			modelVisualScale
+		)
+		if not sectionsOk then
+			warn("Procedural Oak section assembly failed; using registered standard-log rewards", seed, authoredSections)
+			local temporarySections = model:FindFirstChild("OakHarvestSectionBuild")
+			if temporarySections then temporarySections:Destroy() end
+			authoredSections = nil
+			sectionFallbackReason = "section-adapter-error"
+		end
+		if not authoredSections then
+			model:SetAttribute("HarvestSectionFallbackReason", sectionFallbackReason or "unsupported-generated-sections")
+		else
+			model:SetAttribute("HarvestSectionFallbackReason", nil)
+		end
+
+		local trunkStructure = model:FindFirstChild("TrunkStructure")
+		local sectionFolder = trunkStructure and trunkStructure:FindFirstChild("HarvestableCore")
+		if sectionFolder then
+			for _, descendant in ipairs(sectionFolder:GetDescendants()) do
+				if descendant:IsA("BasePart") and descendant:GetAttribute("HarvestableCore") == true then
+					local bottom = descendant:GetAttribute("CoreBottomY")
+					descendant.CanCollide = bottom ~= nil and bottom <= 1e-4
+				end
+			end
+		end
+
+		local hitboxHeight = math.max(coreHeight + 2, 8)
+		local hitboxWidth = math.max(baseThickness * 2.5, 6)
+		addChopHitbox(
+			model,
+			root,
+			Vector3.new(hitboxWidth, hitboxHeight, hitboxWidth),
+			Vector3.new(0, hitboxHeight * 0.5, 0)
+		)
+		local partCount = 0
+		for _, descendant in ipairs(model:GetDescendants()) do
+			if descendant:IsA("BasePart") then
+				partCount += 1
+			end
+		end
+		model:SetAttribute("PartCount", partCount)
+		model:SetAttribute("ProductionVisualScale", modelVisualScale)
+		model:SetAttribute("ProceduralSeedPolicy", "same-location-seed-on-respawn")
+		return authoredSections, modelVisualScale
+	end)
+	if not setupOk then
+		warn("Could not assemble production Starter Oak; using the established builder", seed, sections)
+		if model.Parent then model:Destroy() else model:Destroy() end
+		return nil
+	end
+	return model, sections, visualScale
+end
+
+local function shouldUseProceduralStarterOak(tree)
+	return WorldLayoutConfiguration.PROCEDURAL_STARTER_OAKS_ENABLED == true
+		and tree.DefinitionId == "StarterForestTree"
+		and tree.ForestId == "Forest1"
+		and tree.SpeciesId == "Oak"
+		and tree.YieldsLog == true
+		and not tree.IsPersistentGrove
 end
 
 local function makeForest2Tree(sectionCount)
@@ -694,8 +1078,32 @@ function Tree:Spawn()
 	local model
 	local oakHarvestSections
 	local authoredHarvestSections
+	local modelScale = self.SizeScale
+	if self.IsPersistentGrove then
+		modelScale *= GROVE_STAGE_SCALE[self.GroveStage]
+	end
 	if self.DefinitionId == "StarterForestTree" and oakHarvestCount then
-		model, oakHarvestSections = makeStarterForestHarvestOak(oakHarvestCount)
+		if shouldUseProceduralStarterOak(self) then
+			local seed = getStableProceduralOakSeed(self)
+			local generationOk, generatedModel, generatedSections, generatedScale = pcall(
+				makeProceduralStarterOak,
+				seed,
+				oakHarvestCount,
+				self.SizeScale
+			)
+			if generationOk and generatedModel and generatedModel:IsA("Model")
+				and isFiniteNumber(generatedScale) and generatedScale > 0 then
+				model = generatedModel
+				oakHarvestSections = generatedSections
+				modelScale = generatedScale
+			else
+				if generatedModel and generatedModel:IsA("Model") then generatedModel:Destroy() end
+				warn("Using established Starter Oak after procedural generation failure", seed, generatedModel)
+			end
+		end
+		if not model then
+			model, oakHarvestSections = makeStarterForestHarvestOak(oakHarvestCount)
+		end
 	elseif self.DefinitionId == "Forest2Tree" and hasLogDrop then
 		local harvestCount = LogService.GetTreeLogYieldCount(self)
 		if harvestCount then
@@ -717,10 +1125,6 @@ function Tree:Spawn()
 		model = template:Clone()
 	end
 	model.Name = "Tree"
-	local modelScale = self.SizeScale
-	if self.IsPersistentGrove then
-		modelScale *= GROVE_STAGE_SCALE[self.GroveStage]
-	end
 	model:ScaleTo(modelScale)
 	model:PivotTo(self.CFrame)
 	model.Parent = self.Parent
@@ -1410,8 +1814,13 @@ function Tree:Die(player)
 	-- The discovery service is server-only, uses the shared log-winner rule, and
 	-- marks this exact TreeObject death before rolling. It does not depend on
 	-- physical log creation, pickup, carry capacity, or tree-fall callbacks.
-	SaplingDiscoveryService.AwardForTreeDeath(self, self.DamageContributions, self.DeathGeneration)
+	local deathGeneration = self.DeathGeneration or 0
+	SaplingDiscoveryService.AwardForTreeDeath(self, self.DamageContributions, deathGeneration)
 	local fallenModel = self.model
+	local harvestSections = self.HarvestSections
+	local speciesId = self.SpeciesId
+	local proceduralStarterOak = fallenModel ~= nil
+		and fallenModel:GetAttribute("ProceduralStarterOak") == true
 	local fallRotation = FXService.GetTreeFallRotation(fallenModel, player)
 	local awardSnapshot = LogService.CaptureTreeLogAward(
 		self,
@@ -1426,14 +1835,16 @@ function Tree:Die(player)
 	end
 	local usesAuthoredHarvestSections = self.YieldsLog
 		and not self.IsPersistentGrove
-		and type(self.HarvestSections) == "table"
+		and type(harvestSections) == "table"
 	local legacyAwardAttempted = false
+	local rewardBatchRegistered = false
 	local function revealLegacyLogAward()
-		if legacyAwardAttempted then return nil end
+		if legacyAwardAttempted or rewardBatchRegistered then return nil end
 		legacyAwardAttempted = true
 		if awardSnapshot then
 			local harvestBatchId = LogService.AwardTreeLog(awardSnapshot, { Reveal = true })
 			if harvestBatchId then
+				rewardBatchRegistered = true
 				LogService.DebugHarvestPickupLifecycle(
 					"STANDARD_FALLBACK_REGISTERED",
 					self.SpeciesId,
@@ -1451,10 +1862,29 @@ function Tree:Die(player)
 		end
 		return nil
 	end
+	local function recoverProceduralOakFxFailure(operation, failure)
+		warn("Procedural Oak fall effect failed; checking reward recovery", operation, failure)
+		if not rewardBatchRegistered then pcall(revealLegacyLogAward) end
+		if fallenModel and fallenModel.Parent then
+			pcall(function() fallenModel:Destroy() end)
+		end
+	end
+	local function runProceduralOakLegacyFall()
+		local fallCallOk, fallError = pcall(FXService.TreeFall, FXService, fallenModel, player, fallRotation, revealLegacyLogAward)
+		if not fallCallOk then
+			recoverProceduralOakFxFailure("TreeFall", fallError)
+		elseif not legacyAwardAttempted then
+			-- A missing primary part or cancelled fall can return before reveal.
+			pcall(revealLegacyLogAward)
+		end
+	end
 	task.spawn(function()
 		if usesAuthoredHarvestSections then
-			local impactCompleted = FXService:TreeFallToImpact(fallenModel, player, fallRotation, {
+			local function performTreeFallToImpact()
+				return FXService:TreeFallToImpact(fallenModel, player, fallRotation, {
 				ConcurrentLeafShrink = true,
+				LeafShrinkDuration = if proceduralStarterOak then HarvestVisualConfig.LeafShrinkDuration else nil,
+				SmokeDuration = if proceduralStarterOak then HarvestVisualConfig.ImpactSmokeDuration else nil,
 				OnImpact = function(impactModel)
 					local preparedVisuals, sourcePivots, inFlightCFrames, targetCFrames, preparationFailure
 					local harvestBatchId
@@ -1472,14 +1902,14 @@ function Tree:Die(player)
 					end
 
 					local callbackOk, callbackError = pcall(function()
-						local rewardCount = LogService.GetTreeLogYieldCount(self)
+						local rewardCount = awardSnapshot and LogService.GetTreeLogYieldCount(awardSnapshot)
 						if awardSnapshot and rewardCount then
 							preparedVisuals, sourcePivots, inFlightCFrames, targetCFrames, preparationFailure = createPreparedAuthoredHarvestLogs(
 								impactModel,
-								self.HarvestSections,
+								harvestSections,
 								rewardCount,
 								fallRotation,
-								self.SpeciesId
+								speciesId
 							)
 						end
 						if preparedVisuals then
@@ -1488,13 +1918,14 @@ function Tree:Die(player)
 								PreparedVisuals = preparedVisuals,
 							})
 							if harvestBatchId then
+								rewardBatchRegistered = true
 								animateAuthoredHarvestSections(
 									preparedVisuals,
 									sourcePivots,
 									inFlightCFrames,
 									targetCFrames,
 									harvestBatchId,
-									self.SpeciesId
+									speciesId
 								)
 								movementScheduled = true
 								scheduleImpactCleanup()
@@ -1537,10 +1968,10 @@ function Tree:Die(player)
 						else
 							if preparedVisuals then
 								pcall(destroyPreparedAuthoredHarvestLogs, preparedVisuals)
-							elseif type(self.HarvestSections) == "table" then
+							elseif type(harvestSections) == "table" then
 								-- Preparation can fail partway through detaching. Remove only
 								-- sections already moved out of the impact tree.
-								for _, section in ipairs(self.HarvestSections) do
+								for _, section in ipairs(harvestSections) do
 									if section and section.Parent and not section:IsDescendantOf(impactModel) then
 										pcall(function() section:Destroy() end)
 									end
@@ -1551,14 +1982,39 @@ function Tree:Die(player)
 					end
 				end,
 			})
-			if not impactCompleted and fallenModel and fallenModel.Parent then
-				FXService:TreeFall(fallenModel, player, fallRotation, revealLegacyLogAward)
+			end
+			local impactCompleted
+			local impactFailureRecovered = false
+			if proceduralStarterOak then
+				local impactCallOk, result = pcall(performTreeFallToImpact)
+				impactCompleted = impactCallOk and result == true
+				if not impactCallOk then
+					recoverProceduralOakFxFailure("TreeFallToImpact", result)
+					impactFailureRecovered = true
+				end
+			else
+				impactCompleted = performTreeFallToImpact()
+			end
+			if not impactCompleted then
+				if proceduralStarterOak then
+					if not impactFailureRecovered then
+						recoverProceduralOakFxFailure("TreeFallToImpact returned false", nil)
+					end
+				elseif fallenModel and fallenModel.Parent then
+					FXService:TreeFall(fallenModel, player, fallRotation, revealLegacyLogAward)
+				end
 			end
 		else
-			FXService:TreeFall(fallenModel, player, fallRotation, revealLegacyLogAward)
+			if proceduralStarterOak then
+				runProceduralOakLegacyFall()
+			else
+				FXService:TreeFall(fallenModel, player, fallRotation, revealLegacyLogAward)
+			end
 		end
-		self.model = nil
-		self.InteractionPart = nil
+		if self.DeathGeneration == deathGeneration and self.model == fallenModel then
+			self.model = nil
+			self.InteractionPart = nil
+		end
 	end)
 	if self.RespawnSeconds then
 		task.delay(self.RespawnSeconds, function()

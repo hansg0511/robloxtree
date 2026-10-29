@@ -28,6 +28,9 @@ local STATION_USE_DISTANCES = {
 }
 
 local WorldLayoutConfiguration = {
+	-- Server-controlled rollout switch. Keep disabled until procedural Oak validation is complete.
+	PROCEDURAL_STARTER_OAKS_ENABLED = false,
+
 	ROOT_NAME = "SourceWorld",
 	VERSION = 7,
 	STATION_USE_DISTANCES = STATION_USE_DISTANCES,

@@ -116,32 +116,44 @@ function FXService.GetTreeFallRotation(model, player)
 		fallback = fallback.Unit
 		fallAxis = Vector3.new(-fallback.Z, 0, fallback.X)
 	end
-	return CFrame.fromAxisAngle(fallAxis.Unit, math.rad(75))
+	local fallAngle = if model:GetAttribute("ProceduralStarterOak") == true then math.rad(70) else math.rad(75)
+	return CFrame.fromAxisAngle(fallAxis.Unit, fallAngle)
 end
 
 local function shrinkAttachedLeaves(treeModel, duration)
-	local leavesFolder = treeModel:FindFirstChild("Leaves")
-	if not leavesFolder then return end
+	local folderNames = { "Leaves" }
+	if treeModel:GetAttribute("ProceduralStarterOak") == true then
+		table.insert(folderNames, "FoliageDecorations")
+		table.insert(folderNames, "DecorativeBranches")
+		table.insert(folderNames, "DecorativeBark")
+	end
 
 	local tweens = {}
-	for _, descendant in ipairs(leavesFolder:GetDescendants()) do
-		if descendant:IsA("BasePart") then
-			descendant.CanCollide = false
-			local size = descendant.Size
-			local tween = TweenService:Create(
-				descendant,
-				TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
-				{
-					Size = Vector3.new(
-						math.max(size.X * 0.02, 0.001),
-						math.max(size.Y * 0.02, 0.001),
-						math.max(size.Z * 0.02, 0.001)
-					),
-					Transparency = 1,
-				}
-			)
-			table.insert(tweens, tween)
-			tween:Play()
+	local seenParts = {}
+	for _, folderName in ipairs(folderNames) do
+		local folder = treeModel:FindFirstChild(folderName)
+		if folder then
+			for _, descendant in ipairs(folder:GetDescendants()) do
+				if descendant:IsA("BasePart") and not seenParts[descendant] then
+					seenParts[descendant] = true
+					descendant.CanCollide = false
+					local size = descendant.Size
+					local tween = TweenService:Create(
+						descendant,
+						TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+						{
+							Size = Vector3.new(
+								math.max(size.X * 0.02, 0.001),
+								math.max(size.Y * 0.02, 0.001),
+								math.max(size.Z * 0.02, 0.001)
+							),
+							Transparency = 1,
+						}
+					)
+					table.insert(tweens, tween)
+					tween:Play()
+				end
+			end
 		end
 	end
 
@@ -204,11 +216,165 @@ local function playImpactSmoke(position, options)
 	end
 end
 
+local function getProceduralOakHingeLocal(treeModel, startPivot, fallRotation)
+	local rootFolder = treeModel:FindFirstChild("DecorativeBark")
+	local rootFoot = rootFolder and rootFolder:FindFirstChild("RootFoot")
+	local supportParts = {}
+	if rootFoot and rootFoot:IsA("BasePart") then
+		table.insert(supportParts, rootFoot)
+	end
+
+	local trunkStructure = treeModel:FindFirstChild("TrunkStructure")
+	local harvestableCore = trunkStructure and trunkStructure:FindFirstChild("HarvestableCore")
+	local baseSection
+	if harvestableCore then
+		for _, child in ipairs(harvestableCore:GetChildren()) do
+			if child:IsA("Model") and child:GetAttribute("AuthoredHarvestSection") == true
+				and child:GetAttribute("HarvestSectionIndex") == 1 then
+				baseSection = child
+				break
+			end
+		end
+	end
+	if baseSection then
+		for _, descendant in ipairs(baseSection:GetDescendants()) do
+			if descendant:IsA("BasePart")
+				and descendant:GetAttribute("HarvestableCore") == true
+				and (descendant:GetAttribute("CoreBottomY") or 0) <= 1e-4 then
+				table.insert(supportParts, descendant)
+			end
+		end
+	end
+	if #supportParts == 0 then return nil end
+
+	local fallDirectionWorld = fallRotation:VectorToWorldSpace(Vector3.yAxis)
+	local flatDirectionWorld = Vector3.new(fallDirectionWorld.X, 0, fallDirectionWorld.Z)
+	if flatDirectionWorld.Magnitude <= 1e-4 then return nil end
+	local fallDirectionLocal = startPivot:VectorToObjectSpace(flatDirectionWorld.Unit)
+	fallDirectionLocal = Vector3.new(fallDirectionLocal.X, 0, fallDirectionLocal.Z)
+	if fallDirectionLocal.Magnitude <= 1e-4 then return nil end
+	fallDirectionLocal = fallDirectionLocal.Unit
+	local acrossDirectionLocal = Vector3.new(-fallDirectionLocal.Z, 0, fallDirectionLocal.X)
+
+	local corners = {}
+	local lowestY = math.huge
+	for _, part in ipairs(supportParts) do
+		local relativeFrame = startPivot:ToObjectSpace(part.CFrame)
+		local half = part.Size * 0.5
+		for _, xSign in ipairs({ -1, 1 }) do
+			for _, ySign in ipairs({ -1, 1 }) do
+				for _, zSign in ipairs({ -1, 1 }) do
+					local point = relativeFrame:PointToWorldSpace(Vector3.new(
+						xSign * half.X,
+						ySign * half.Y,
+						zSign * half.Z
+					))
+					table.insert(corners, point)
+					lowestY = math.min(lowestY, point.Y)
+				end
+			end
+		end
+	end
+
+	local downhillProjection = -math.huge
+	for _, point in ipairs(corners) do
+		if point.Y <= lowestY + 0.01 then
+			local projection = Vector3.new(point.X, 0, point.Z):Dot(fallDirectionLocal)
+			downhillProjection = math.max(downhillProjection, projection)
+		end
+	end
+	if downhillProjection == -math.huge then return nil end
+
+	local acrossMinimum = math.huge
+	local acrossMaximum = -math.huge
+	for _, point in ipairs(corners) do
+		if point.Y <= lowestY + 0.01 then
+			local horizontalPoint = Vector3.new(point.X, 0, point.Z)
+			local projection = horizontalPoint:Dot(fallDirectionLocal)
+			if projection >= downhillProjection - 0.01 then
+				local across = horizontalPoint:Dot(acrossDirectionLocal)
+				acrossMinimum = math.min(acrossMinimum, across)
+				acrossMaximum = math.max(acrossMaximum, across)
+			end
+		end
+	end
+	if acrossMinimum == math.huge then return nil end
+	return fallDirectionLocal * downhillProjection
+		+ acrossDirectionLocal * ((acrossMinimum + acrossMaximum) * 0.5)
+		+ Vector3.new(0, lowestY, 0)
+end
+
+local function tweenGroundedStarterOakFall(treeModel, fallRotation)
+	local progress
+	local connection
+	local completedConnection
+	local tween
+	local playbackState
+	local pivotError
+	local fallOk, landed, hingeWorld = pcall(function()
+		local startPivot = treeModel:GetPivot()
+		local hingeLocal = getProceduralOakHingeLocal(treeModel, startPivot, fallRotation)
+		if not hingeLocal then
+			error("Procedural Oak has no valid generated root hinge")
+		end
+		local hingeWorld = startPivot:PointToWorldSpace(hingeLocal)
+		local axis, angle = fallRotation:ToAxisAngle()
+		if axis.Magnitude <= 1e-4 or math.abs(angle) <= 1e-4 then
+			error("Procedural Oak fall rotation is invalid")
+		end
+
+		progress = Instance.new("NumberValue")
+		progress.Name = "StarterOakFallProgress"
+		progress.Value = 0
+		progress.Parent = treeModel
+		local function updatePivot()
+			if not treeModel.Parent then return end
+			local rotation = CFrame.fromAxisAngle(axis, angle * progress.Value)
+			local targetPivot = CFrame.new(hingeWorld) * rotation * CFrame.new(-hingeWorld) * startPivot
+			local moved, err = pcall(function() treeModel:PivotTo(targetPivot) end)
+			if not moved then pivotError = err end
+		end
+		connection = progress:GetPropertyChangedSignal("Value"):Connect(updatePivot)
+		tween = TweenService:Create(
+			progress,
+			TweenInfo.new(TREE_FALL_DURATION, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+			{ Value = 1 }
+		)
+		completedConnection = tween.Completed:Connect(function(state)
+			playbackState = state
+		end)
+		tween:Play()
+		local deadline = os.clock() + TREE_FALL_DURATION + 0.5
+		while playbackState == nil and os.clock() < deadline and treeModel.Parent and progress.Parent do
+			task.wait(0.03)
+		end
+		if playbackState ~= Enum.PlaybackState.Completed and treeModel.Parent and progress.Parent then
+			tween:Cancel()
+			progress.Value = 1
+		end
+		if treeModel.Parent and not pivotError then updatePivot() end
+		return treeModel.Parent ~= nil and pivotError == nil, hingeWorld
+	end)
+
+	if tween and playbackState ~= Enum.PlaybackState.Completed then
+		pcall(function() tween:Cancel() end)
+	end
+	if connection then pcall(function() connection:Disconnect() end) end
+	if completedConnection then pcall(function() completedConnection:Disconnect() end) end
+	if tween then pcall(function() tween:Destroy() end) end
+	if progress and progress.Parent then pcall(function() progress:Destroy() end) end
+	if not fallOk then
+		warn("Could not finish grounded procedural Oak fall", landed)
+		return false, nil
+	end
+	return landed == true, hingeWorld
+end
+
 -- Plays the fall through impact and hands the still-existing tree to the caller.
 -- By default, leaves shrink before OnImpact runs. Set ConcurrentLeafShrink to
 -- true to start leaf shrinking asynchronously and invoke OnImpact at impact.
--- Options: LeafShrinkDuration, SmokeEnabled, SmokeDuration, SmokeColor,
--- OnImpact, ConcurrentLeafShrink.
+-- Options: LeafShrinkDuration, PostImpactPause, SmokeEnabled, SmokeDuration,
+-- SmokeColor, OnImpact, ConcurrentLeafShrink.
 -- OnImpact receives (treeModel, impactCFrame) and is invoked inline after the
 -- shrink by default, or at impact in concurrent mode. If it yields, this
 -- function yields until it returns. Callback errors are warned and still
@@ -225,21 +391,29 @@ function FXService:TreeFallToImpact(model, player, fallRotation, options)
 		return false
 	end
 
-	local pivotCF = treeModel:GetPivot().Position + Vector3.new(0, primary.Size.Y / 8, 0)
 	local rotation = fallRotation or FXService.GetTreeFallRotation(treeModel, player)
-	local offset = primary.Position - pivotCF
-	local rotatedOffset = rotation:VectorToWorldSpace(offset)
-	local newPosition = pivotCF + rotatedOffset
-	local relativeRotation = primary.CFrame - primary.Position
-	local newCFrame = CFrame.new(newPosition) * (rotation * relativeRotation)
-	local fallTween = TweenService:Create(
-		primary,
-		TweenInfo.new(TREE_FALL_DURATION, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
-		{ CFrame = newCFrame }
-	)
-	fallTween:Play()
-	fallTween.Completed:Wait()
-	fallTween:Destroy()
+	local isProceduralStarterOak = treeModel:GetAttribute("ProceduralStarterOak") == true
+	local groundedHingeWorld
+	if isProceduralStarterOak then
+		local fallCompleted
+		fallCompleted, groundedHingeWorld = tweenGroundedStarterOakFall(treeModel, rotation)
+		if not fallCompleted then return false end
+	else
+		local pivotCF = treeModel:GetPivot().Position + Vector3.new(0, primary.Size.Y / 8, 0)
+		local offset = primary.Position - pivotCF
+		local rotatedOffset = rotation:VectorToWorldSpace(offset)
+		local newPosition = pivotCF + rotatedOffset
+		local relativeRotation = primary.CFrame - primary.Position
+		local newCFrame = CFrame.new(newPosition) * (rotation * relativeRotation)
+		local fallTween = TweenService:Create(
+			primary,
+			TweenInfo.new(TREE_FALL_DURATION, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+			{ CFrame = newCFrame }
+		)
+		fallTween:Play()
+		fallTween.Completed:Wait()
+		fallTween:Destroy()
+	end
 	if not treeModel.Parent then return false end
 
 	for _, descendant in ipairs(treeModel:GetDescendants()) do
@@ -247,7 +421,15 @@ function FXService:TreeFallToImpact(model, player, fallRotation, options)
 			descendant.CanCollide = false
 		end
 	end
-	local impactCFrame = primary.CFrame
+	local postImpactPause = options.PostImpactPause
+	if type(postImpactPause) ~= "number" or postImpactPause ~= postImpactPause or postImpactPause < 0 then
+		postImpactPause = if isProceduralStarterOak then 0.05 else 0
+	end
+	if postImpactPause > 0 then task.wait(math.clamp(postImpactPause, 0, 1)) end
+	if not treeModel.Parent then return false end
+	local impactCFrame = if isProceduralStarterOak and groundedHingeWorld
+		then CFrame.new(groundedHingeWorld)
+		else primary.CFrame
 	local leafDuration = math.clamp(
 		options.LeafShrinkDuration or IMPACT_LEAF_SHRINK_DURATION,
 		0.05,
@@ -280,36 +462,42 @@ function FXService:TreeFall(model, player, fallRotation, onDropReveal)
 	local treeModel = model
 	local primary = treeModel.PrimaryPart or treeModel:FindFirstChildWhichIsA("BasePart")
 	if not primary then treeModel:Destroy() return end
-	local pivotCF = treeModel:GetPivot().Position + Vector3.new(0,primary.Size.Y/8,0)
+	local isProceduralStarterOak = treeModel:GetAttribute("ProceduralStarterOak") == true
 	local rotation = fallRotation or FXService.GetTreeFallRotation(treeModel, player)
-	--local offset = rotatedPivot:ToObjectSpace(pivotCF)
-	local offset = primary.Position - pivotCF
-
-	-- 2️⃣ Rotate the vector
-	local rotatedOffset = rotation:VectorToWorldSpace(offset)
-
-	-- 3️⃣ New position
-	local newPosition = pivotCF + rotatedOffset
-
-	-- 4️⃣ Rotate the part’s orientation
-	local relativeRotation = primary.CFrame - primary.Position
-	local newCFrame = CFrame.new(newPosition) * (rotation * relativeRotation)
-
-	local fallTween = TweenService:Create(
-		primary,
-		TweenInfo.new(TREE_FALL_DURATION, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
-		{ CFrame = newCFrame }
-	)
-	fallTween:Play()
-	fallTween.Completed:Wait()
-	if not treeModel.Parent then return end
-	for _, descendant in ipairs(treeModel:GetDescendants()) do
-		if descendant:IsA("BasePart") then
-			descendant.CanCollide = false
+	if isProceduralStarterOak then
+		local impactCompleted = FXService:TreeFallToImpact(treeModel, player, rotation, {
+			ConcurrentLeafShrink = true,
+			LeafShrinkDuration = IMPACT_LEAF_SHRINK_DURATION,
+			SmokeDuration = IMPACT_SMOKE_DURATION,
+		})
+		if not impactCompleted then
+			if type(onDropReveal) == "function" then pcall(onDropReveal) end
+			if treeModel.Parent then treeModel:Destroy() end
+			return
 		end
+	else
+		local pivotCF = treeModel:GetPivot().Position + Vector3.new(0, primary.Size.Y / 8, 0)
+		local offset = primary.Position - pivotCF
+		local rotatedOffset = rotation:VectorToWorldSpace(offset)
+		local newPosition = pivotCF + rotatedOffset
+		local relativeRotation = primary.CFrame - primary.Position
+		local newCFrame = CFrame.new(newPosition) * (rotation * relativeRotation)
+		local fallTween = TweenService:Create(
+			primary,
+			TweenInfo.new(TREE_FALL_DURATION, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+			{ CFrame = newCFrame }
+		)
+		fallTween:Play()
+		fallTween.Completed:Wait()
+		if not treeModel.Parent then return end
+		for _, descendant in ipairs(treeModel:GetDescendants()) do
+			if descendant:IsA("BasePart") then
+				descendant.CanCollide = false
+			end
+		end
+		task.wait(POST_IMPACT_PAUSE)
+		if not treeModel.Parent then return end
 	end
-	task.wait(POST_IMPACT_PAUSE)
-	if not treeModel.Parent then return end
 
 	-- Fade the whole fallen tree and wait for that fade to finish before
 	-- returning, so callers can safely reveal its ground drops afterward.

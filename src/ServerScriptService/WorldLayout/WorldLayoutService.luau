@@ -445,15 +445,42 @@ local function spawnTreeRecord(forestFolder, forestId, record)
 	return tree
 end
 
+local function destroyTreesForExistingRoot(existing)
+	local treesToDestroy = {}
+	local seenTrees = {}
+	local function rememberTree(tree)
+		if tree and not seenTrees[tree] then
+			seenTrees[tree] = true
+			table.insert(treesToDestroy, tree)
+		end
+	end
+
+	for _, tree in ipairs(spawnedTreesByRoot[existing] or {}) do
+		rememberTree(tree)
+	end
+	-- A service reload can clear its ownership map while TreeObject still holds
+	-- active records. Snapshot matching records before Destroy mutates ActiveTrees.
+	for tree in pairs(TreeObject.ActiveTrees or {}) do
+		local treeParent = tree.Parent
+		if treeParent and (treeParent == existing or treeParent:IsDescendantOf(existing)) then
+			rememberTree(tree)
+		end
+	end
+	for _, tree in ipairs(treesToDestroy) do
+		tree:Destroy()
+	end
+end
+
 local function buildWorld()
 	local existing = Workspace:FindFirstChild(Configuration.ROOT_NAME)
-	if existing and existing:GetAttribute("WorldLayoutVersion") == Configuration.VERSION then
+	local proceduralStarterOaksEnabled = Configuration.PROCEDURAL_STARTER_OAKS_ENABLED == true
+	if existing
+		and existing:GetAttribute("WorldLayoutVersion") == Configuration.VERSION
+		and (existing:GetAttribute("ProceduralStarterOaksEnabled") == true) == proceduralStarterOaksEnabled then
 		return existing
 	end
 	if existing then
-		for _, tree in ipairs(spawnedTreesByRoot[existing] or {}) do
-			tree:Destroy()
-		end
+		destroyTreesForExistingRoot(existing)
 		spawnedTreesByRoot[existing] = nil
 		existing:Destroy()
 	end
@@ -499,6 +526,7 @@ local function buildWorld()
 	local barrier = spawnTreeRecord(starterForest, Configuration.BARRIER.ForestId, Configuration.BARRIER)
 	if barrier then table.insert(spawnedTrees, barrier) end
 	root:SetAttribute("WorldLayoutVersion", Configuration.VERSION)
+	root:SetAttribute("ProceduralStarterOaksEnabled", proceduralStarterOaksEnabled)
 	spawnedTreesByRoot[root] = spawnedTrees
 	return root, spawnedTrees
 end
