@@ -209,8 +209,9 @@ local STARTER_OAK_VARIANTS = {
 }
 
 local STARTER_OAK_VARIANT_KEYS = { "A", "B", "C", "D", "E" }
--- Change this one gallery-only value to preview another authored layout during harvesting.
-local STARTER_OAK_HARVEST_VARIANT = "B"
+-- The gallery harvest showcase uses the approved structural-study layout.
+local STARTER_OAK_HARVEST_LAYOUT = "StructuralStudy"
+local STARTER_OAK_HARVEST_LAYOUT_NAME = "Structural Study"
 
 local function getStarterOakVariant(variantKey)
 	local variant = STARTER_OAK_VARIANTS[variantKey]
@@ -317,72 +318,53 @@ local function makeStarterOakPrototype(variantKey)
 	return model
 end
 
--- A gallery-only structural study keeps the current twelve-stud, two-section
--- Starter Oak trunk proportions while using smooth rectangular bark and foliage.
-local function makeStarterOakStructuralStudy()
-	local palette = SpeciesVisuals.GetPalette("Oak")
-	local model = Instance.new("Model")
-	model.Name = "StarterOakStructuralStudy"
-	model:SetAttribute("DevTreeGalleryPreview", true)
-	model:SetAttribute("VisualOnly", true)
-	model:SetAttribute("PrototypeOnly", true)
-	model:SetAttribute("SpeciesId", "Oak")
-	model:SetAttribute("DesignDirection", "StarterOakStructuralStudy")
-	model:SetAttribute("VisualTrunkLength", 12)
-	model:SetAttribute("VisualTrunkSectionCount", 2)
-	model:SetAttribute("DevTreeGalleryLabel", "Starter Oak Structural Study")
+local function makeFolder(parent, name)
+	local folder = Instance.new("Folder")
+	folder.Name = name
+	folder.Parent = parent
+	return folder
+end
 
-	local trunk = Instance.new("Folder")
-	trunk.Name = "TrunkStructure"
-	trunk.Parent = model
-	local branches = Instance.new("Folder")
-	branches.Name = "DecorativeBranches"
-	branches.Parent = model
-	local foliage = Instance.new("Folder")
-	foliage.Name = "LayeredFoliage"
-	foliage.Parent = model
-
-	-- Keep both future harvest cores identical to the established two-section
-	-- Starter Oak geometry. The wider sleeve and root foot are display decoration;
-	-- harvest-section attachments and harvesting behavior are not implemented.
-	local baseCore
-	for sectionIndex, component in ipairs(getStarterOakTrunkComponents(palette)) do
-		for _, definition in ipairs(component) do
-			local position = definition[3]
-			if sectionIndex == 1 and definition[1] == "BaseWarmFace" then
-				position += Vector3.new(-0.40, 0, 0)
-			elseif sectionIndex == 1 and definition[1] == "BaseShadowFace" then
-				position += Vector3.new(0, 0, 0.40)
-			end
-			local part = createStarterOakBlock(
-				trunk,
-				definition[1],
-				definition[2],
-				position,
-				definition[4]
-			)
-			if definition[1] == "BaseCore" then
-				part.PivotOffset = CFrame.new(0, -3, 0)
-				baseCore = part
-			end
-		end
-	end
-	assert(baseCore, "Starter Oak structural study is missing its base core")
-	model.PrimaryPart = baseCore
+-- These gallery-only visuals are shared byte-for-byte by the static study and
+-- harvest preview. Harvestable sections stay the original two authored 6-stud
+-- components; bark, branches, and canopy are separate display decoration.
+local function addStarterOakStructuralVisuals(model, palette, foliageFolderName)
+	local bark = makeFolder(model, "DecorativeBark")
+	local branches = makeFolder(model, "DecorativeBranches")
+	local foliage = makeFolder(model, foliageFolderName)
 
 	createStarterOakBlock(
-		trunk,
+		bark,
 		"LowerDecorativeSleeve",
 		Vector3.new(2.98, 6, 2.98),
 		Vector3.new(0, 3, 0),
 		palette.Bark
 	)
 	createStarterOakBlock(
-		trunk,
+		bark,
 		"RootFoot",
 		Vector3.new(3.6, 1.4, 3.6),
 		Vector3.new(0, 0.7, 0),
 		palette.BarkShadow
+	)
+
+	-- Keep the original section faces untouched. These two small overlays preserve
+	-- the approved study's warm and shadow accents on the wider sleeve.
+	local baseDefinitions = getStarterOakTrunkComponents(palette)[1]
+	local warmFace, shadowFace = baseDefinitions[2], baseDefinitions[3]
+	createStarterOakBlock(
+		bark,
+		"LowerWarmAccent",
+		warmFace[2],
+		warmFace[3] + Vector3.new(-0.40, 0, 0),
+		warmFace[4]
+	)
+	createStarterOakBlock(
+		bark,
+		"LowerShadowAccent",
+		shadowFace[2],
+		shadowFace[3] + Vector3.new(0, 0, 0.40),
+		shadowFace[4]
 	)
 
 	for _, definition in ipairs({
@@ -417,6 +399,50 @@ local function makeStarterOakStructuralStudy()
 		createStarterOakBlock(foliage, definition[1], definition[2], definition[3], color)
 	end
 
+	return bark, branches, foliage
+end
+
+-- Gallery-only static counterpart of the harvest preview. The two section
+-- models use the same authored component definitions as the harvest tree.
+local function makeStarterOakStructuralStudy()
+	local palette = SpeciesVisuals.GetPalette("Oak")
+	local model = Instance.new("Model")
+	model.Name = "StarterOakStructuralStudy"
+	model:SetAttribute("DevTreeGalleryPreview", true)
+	model:SetAttribute("VisualOnly", true)
+	model:SetAttribute("PrototypeOnly", true)
+	model:SetAttribute("SpeciesId", "Oak")
+	model:SetAttribute("DesignDirection", "StarterOakStructuralStudy")
+	model:SetAttribute("StarterOakVariant", STARTER_OAK_HARVEST_LAYOUT)
+	model:SetAttribute("StarterOakVariantName", STARTER_OAK_HARVEST_LAYOUT_NAME)
+	model:SetAttribute("StarterOakLayout", STARTER_OAK_HARVEST_LAYOUT)
+	model:SetAttribute("VisualTrunkLength", 12)
+	model:SetAttribute("VisualTrunkSectionCount", 2)
+	model:SetAttribute("DevTreeGalleryLabel", "Starter Oak Structural Study")
+
+	local trunk = makeFolder(model, "TrunkStructure")
+	local baseCore
+	for sectionIndex, component in ipairs(getStarterOakTrunkComponents(palette)) do
+		local section = Instance.new("Model")
+		section.Name = "Section" .. sectionIndex
+		section:SetAttribute("AuthoredHarvestSection", true)
+		section:SetAttribute("HarvestSectionIndex", sectionIndex)
+		section.Parent = trunk
+		for _, definition in ipairs(component) do
+			local part = createStarterOakBlock(section, definition[1], definition[2], definition[3], definition[4])
+			if definition[1] == "BaseCore" then
+				part.PivotOffset = CFrame.new(0, -3, 0)
+				section.PrimaryPart = part
+				baseCore = part
+			elseif definition[1] == "TopCore" then
+				section.PrimaryPart = part
+			end
+		end
+	end
+	assert(baseCore, "Starter Oak structural study is missing its base core")
+	model.PrimaryPart = baseCore
+
+	addStarterOakStructuralVisuals(model, palette, "LayeredFoliage")
 	return model
 end
 
@@ -424,11 +450,9 @@ local STARTER_OAK_NORMALIZED_LOG_LENGTH = 7
 local STARTER_OAK_NORMALIZED_LOG_DIAMETER = 1.8
 local STARTER_OAK_NORMALIZED_LOG_BODY_DIAMETER = STARTER_OAK_NORMALIZED_LOG_DIAMETER - 0.02
 
--- Gallery-only harvest tree. Its trunk sections stay identical for every
--- visual layout; only the shared foliage and decorative branch recipe vary.
-local function makeStarterOakHarvestTree(sectionCount, variantKey)
-	variantKey = variantKey or STARTER_OAK_HARVEST_VARIANT
-	local variant = getStarterOakVariant(variantKey)
+-- Gallery-only harvest tree. Its authored trunk sections and structural-study
+-- decorations match makeStarterOakStructuralStudy exactly.
+local function makeStarterOakHarvestTree(sectionCount)
 	local rangesByYield = {
 		[1] = { { 1, 2 } },
 		[2] = { { 1, 1 }, { 2, 2 } },
@@ -446,9 +470,11 @@ local function makeStarterOakHarvestTree(sectionCount, variantKey)
 	model:SetAttribute("SpeciesId", "Oak")
 	model:SetAttribute("SupportedHarvestYields", "1,2")
 	model:SetAttribute("HarvestYieldPreview", sectionCount)
-	model:SetAttribute("StarterOakVariant", variantKey)
-	model:SetAttribute("StarterOakVariantName", variant.Name)
-	model:SetAttribute("DevTreeGalleryLabel", starterOakVariantLabel(variantKey))
+	model:SetAttribute("StarterOakVariant", STARTER_OAK_HARVEST_LAYOUT)
+	model:SetAttribute("StarterOakVariantName", STARTER_OAK_HARVEST_LAYOUT_NAME)
+	model:SetAttribute("StarterOakLayout", STARTER_OAK_HARVEST_LAYOUT)
+	model:SetAttribute("DesignDirection", "StarterOakStructuralStudy")
+	model:SetAttribute("DevTreeGalleryLabel", "Starter Oak " .. STARTER_OAK_HARVEST_LAYOUT_NAME)
 
 	local pivot = createStarterOakBlock(model, "StarterOakPivot", Vector3.new(0.2, 0.2, 0.2), Vector3.new(0, 0.1, 0), palette.Bark)
 	pivot.Transparency = 1
@@ -477,15 +503,7 @@ local function makeStarterOakHarvestTree(sectionCount, variantKey)
 		end
 	end
 
-	local branches = Instance.new("Folder")
-	branches.Name = "DecorativeBranches"
-	branches.Parent = model
-	addStarterOakBranches(branches, palette, variantKey)
-
-	local foliage = Instance.new("Folder")
-	foliage.Name = "FoliageDecorations"
-	foliage.Parent = model
-	addStarterOakCanopy(foliage, palette, variantKey)
+	addStarterOakStructuralVisuals(model, palette, "FoliageDecorations")
 
 	return model
 end
@@ -790,8 +808,10 @@ local function addStarterOakHarvestPlayground(gallery)
 	playground:SetAttribute("DevHarvestShowcase", true)
 	playground:SetAttribute("SpeciesId", "Oak")
 	playground:SetAttribute("SourceTreeName", "StarterOakHarvestTree")
-	playground:SetAttribute("StarterOakVariant", STARTER_OAK_HARVEST_VARIANT)
-	playground:SetAttribute("StarterOakVariantName", getStarterOakVariant(STARTER_OAK_HARVEST_VARIANT).Name)
+	playground:SetAttribute("StarterOakVariant", STARTER_OAK_HARVEST_LAYOUT)
+	playground:SetAttribute("StarterOakVariantName", STARTER_OAK_HARVEST_LAYOUT_NAME)
+	playground:SetAttribute("StarterOakLayout", STARTER_OAK_HARVEST_LAYOUT)
+	playground:SetAttribute("DesignDirection", "StarterOakStructuralStudy")
 	playground:SetAttribute("SectionFolderName", "StarterOakHarvestSections")
 	playground:SetAttribute("NormalizationTemplateFolder", "StarterOakNormalizedLogTemplates")
 	playground:SetAttribute("SupportedHarvestYields", "1,2")
@@ -805,10 +825,7 @@ local function addStarterOakHarvestPlayground(gallery)
 
 	assert(STARTER_OAK_HARVEST_SHOWCASE_YIELD >= 1 and STARTER_OAK_HARVEST_SHOWCASE_YIELD <= 2,
 		"Starter Oak gallery yield must be 1 or 2")
-	local tree = makeStarterOakHarvestTree(
-		STARTER_OAK_HARVEST_SHOWCASE_YIELD,
-		STARTER_OAK_HARVEST_VARIANT
-	)
+	local tree = makeStarterOakHarvestTree(STARTER_OAK_HARVEST_SHOWCASE_YIELD)
 	configureVisualOnlyModel(tree)
 	tree:PivotTo(CFrame.new(center.X - 15, GALLERY_ORIGIN.Y + 0.04, center.Z))
 	tree.Parent = playground
@@ -838,7 +855,7 @@ local function addStarterOakHarvestPlayground(gallery)
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = "StarterOakHarvestPreviewPrompt"
 	prompt.ActionText = "Preview Starter Oak Harvest"
-	prompt.ObjectText = "Starter Oak " .. starterOakVariantLabel(STARTER_OAK_HARVEST_VARIANT)
+	prompt.ObjectText = "Starter Oak " .. STARTER_OAK_HARVEST_LAYOUT_NAME
 		.. " (" .. STARTER_OAK_HARVEST_SHOWCASE_YIELD
 		.. (STARTER_OAK_HARVEST_SHOWCASE_YIELD == 1 and " log)" or " logs)")
 	prompt.KeyboardKeyCode = Enum.KeyCode.E
@@ -1008,26 +1025,12 @@ local function createGallery()
 		"Starter Oak family row is too close to the full-tree harvest stage")
 
 	local structuralStudy = makeStarterOakStructuralStudy()
-	local _, structuralStudyBounds = structuralStudy:GetBoundingBox()
-	local wildOakReference = buildPreview("WildOak", "Oak", "mature", {}, "Wild Oak (size matched)")
-	local _, wildOakBounds = wildOakReference:GetBoundingBox()
-	local wildOakScale = wildOakReference:GetScale() * structuralStudyBounds.Y / wildOakBounds.Y
-	wildOakReference:ScaleTo(wildOakScale)
-	wildOakReference.Name = "WildOakComparableScale"
-	wildOakReference:SetAttribute("ComparisonUniformScale", wildOakScale)
-	wildOakReference:SetAttribute("ComparisonTargetHeight", structuralStudyBounds.Y)
-
-	local starterOakBReference = makeStarterOakPrototype("B")
-	starterOakBReference.Name = "StarterOakBReference"
-
 	local structuralComparisonEntries = {
-		makeStaticEntry(wildOakReference, "Wild Oak — size matched"),
-		makeStaticEntry(starterOakBReference, "Starter Oak B — current"),
 		makeStaticEntry(structuralStudy, "Starter Oak Structural Study"),
 	}
 	local structuralRowDepth, structuralRowWidth = arrangeRow(
 		gallery,
-		"STARTER OAK STRUCTURE STUDY — WILD OAK / B / STUDY",
+		"STARTER OAK STRUCTURAL STUDY",
 		structuralComparisonEntries,
 		STARTER_OAK_FAMILY_ROW_Z,
 		STARTER_OAK_STRUCTURE_ROW_START_X

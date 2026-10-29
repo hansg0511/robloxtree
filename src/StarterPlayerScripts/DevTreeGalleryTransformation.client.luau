@@ -119,6 +119,13 @@ local function isStarterOakShowcase(playground)
 end
 local function solveCanopyLandingAngle(tree, sections, standing)
 	local baseBounds = collectVisibleBounds(sections[1].model, standing)
+	-- The widened Starter Oak sleeve and root foot are display-only, but they
+	-- form the visible base of this layout. Include them with section one so the
+	-- canopy contact and branch-clearance checks use the standing silhouette.
+	local barkSupport = tree:FindFirstChild("DecorativeBark")
+	if barkSupport then
+		appendBounds(baseBounds, collectVisibleBounds(barkSupport, standing))
+	end
 	local foliageBounds = {}
 	local branchBounds = {}
 	for _, folderName in ipairs({ "FoliageDecorations", "DecorativeBranches", "Leaves" }) do
@@ -300,7 +307,7 @@ local function runFall(s)
 	local leaves, details = {}, {}
 	-- Starter Oak branches are decorative, just like its foliage. Fade both
 	-- before its bare trunk sections settle so no bough can look like a support.
-	for _, folderName in ipairs({ "Leaves", "FoliageDecorations", "DecorativeBranches" }) do
+	for _, folderName in ipairs({ "Leaves", "FoliageDecorations", "DecorativeBranches", "DecorativeBark" }) do
 		local decorationFolder = tree:FindFirstChild(folderName)
 		if decorationFolder then
 			for _, part in ipairs(decorationFolder:GetDescendants()) do
