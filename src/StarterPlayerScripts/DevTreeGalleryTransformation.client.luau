@@ -604,7 +604,7 @@ local function runFall(s)
 			end
 		end
 	end
-	local impactPause = if starterOak then 0.1 else CONFIG.ImpactPause
+	local impactPause = if starterOak then 0.05 else CONFIG.ImpactPause
 	if impactPause > 0 then
 		assert(animate(s, impactPause, function() end), "impact cancelled")
 	end
