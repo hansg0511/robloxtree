@@ -175,7 +175,7 @@ local function createForestEntrance(parent, forestConfiguration)
 			forestConfiguration.ForestId .. "EntrancePost",
 			Vector3.new(4, 12, 4),
 			CFrame.new(center.X + offsetX, 5.5, entryZ),
-			Color3.fromRGB(103, 76, 49),
+			WorldStyleBaseline.WoodColors.Main,
 			Enum.Material.WoodPlanks,
 			parent
 		)
@@ -194,7 +194,7 @@ local function createForestEntrance(parent, forestConfiguration)
 		forestConfiguration.ForestId .. "EntranceLintel",
 		Vector3.new(42, 2, 3),
 		CFrame.new(center.X, 12.5, entryZ),
-		if blockoutThreshold then Color3.fromRGB(181, 143, 66) else Color3.fromRGB(111, 80, 49),
+		if blockoutThreshold then WorldStyleBaseline.WoodColors.Highlight else WorldStyleBaseline.WoodColors.Main,
 		Enum.Material.WoodPlanks,
 		parent
 	)
@@ -264,7 +264,7 @@ local function createSign(parent, signConfiguration, approachFrom)
 		"TrailSignBoard",
 		Vector3.new(14, 4, 0.6),
 		boardCFrame,
-		Color3.fromRGB(104, 67, 39),
+		WorldStyleBaseline.WoodColors.Shadow,
 		Enum.Material.WoodPlanks,
 		parent
 	)
@@ -297,7 +297,7 @@ local function createSign(parent, signConfiguration, approachFrom)
 			"TrailSignPost",
 			Vector3.new(0.65, 3.4, 0.65),
 			CFrame.new(x + offset, 1.15, z),
-			Color3.fromRGB(95, 62, 38),
+			WorldStyleBaseline.WoodColors.Shadow,
 			Enum.Material.Wood,
 			parent
 		)

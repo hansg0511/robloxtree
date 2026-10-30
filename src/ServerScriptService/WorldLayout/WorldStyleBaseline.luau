@@ -5,16 +5,32 @@ local WorldStyleBaseline = {}
 
 local BASELINE = {
 	GroundMaterial = Enum.Material.SmoothPlastic,
-	GroundColor = Color3.fromRGB(124, 185, 104),
-	ForestColor = Color3.fromRGB(132, 194, 108),
-	HubColor = Color3.fromRGB(222, 199, 136),
-	PathColor = Color3.fromRGB(248, 211, 133),
+	GroundColor = Color3.fromRGB(119, 181, 99),
+	ForestColor = Color3.fromRGB(128, 190, 104),
+	HubColor = Color3.fromRGB(225, 201, 145),
+	PathColor = Color3.fromRGB(244, 207, 125),
 	BoundaryColors = {
-		Color3.fromRGB(104, 158, 101),
-		Color3.fromRGB(126, 178, 111),
-		Color3.fromRGB(150, 196, 125),
+		Color3.fromRGB(96, 149, 91), -- shadow
+		Color3.fromRGB(120, 174, 106), -- cliff body
+		Color3.fromRGB(148, 195, 122), -- highlight
+	},
+	WoodColors = {
+		Shadow = Color3.fromRGB(77, 55, 39),
+		Main = Color3.fromRGB(112, 78, 49),
+		Highlight = Color3.fromRGB(177, 129, 65),
 	},
 }
+
+-- Keep the existing progression barrier flanks visually unchanged while the
+-- surrounding World 1 boundary palette is refined.
+local PROTECTED_BARRIER_COLORS = {
+	Color3.fromRGB(104, 158, 101),
+	Color3.fromRGB(126, 178, 111),
+	Color3.fromRGB(150, 196, 125),
+}
+
+-- The existing forest entrances and trail signs share these World 1 accents.
+WorldStyleBaseline.WoodColors = BASELINE.WoodColors
 
 local SAMPLE_STYLES = {
 	BrightSimulator = {
@@ -127,7 +143,7 @@ local function markBoundary(part)
 	return part
 end
 
-local function createStyledRunZ(parent, name, x, startZ, endZ, thickness, requestedHeight, floorY, interiorSide)
+local function createStyledRunZ(parent, name, x, startZ, endZ, thickness, requestedHeight, floorY, interiorSide, preserveBarrierStyle)
 	if type(x) ~= "number" or type(startZ) ~= "number" or type(endZ) ~= "number" then
 		return
 	end
@@ -141,17 +157,26 @@ local function createStyledRunZ(parent, name, x, startZ, endZ, thickness, reques
 	local segmentCount = math.max(1, math.ceil(length / 28))
 	local segmentLength = length / segmentCount
 	local wallThickness = math.max(10, thickness or 12)
-	local nominalHeight = math.min(18, math.max(14, requestedHeight or 18))
+	local boundaryColors = preserveBarrierStyle and PROTECTED_BARRIER_COLORS or BASELINE.BoundaryColors
+	local nominalHeight
+	local maximumHeight
+	if preserveBarrierStyle then
+		nominalHeight = math.min(18, math.max(14, requestedHeight or 18))
+		maximumHeight = 20
+	else
+		nominalHeight = math.min(24, math.max(22, requestedHeight or 24))
+		maximumHeight = 25
+	end
 
 	for index = 1, segmentCount do
 		local segmentStart = startZ + direction * (index - 1) * segmentLength
 		local segmentEnd = startZ + direction * index * segmentLength
 		local centerZ = (segmentStart + segmentEnd) * 0.5
 		local capHeight = 2.2 + (index % 3) * 0.7
-		local totalHeight = math.min(20, nominalHeight + (index % 4) * 0.6)
+		local totalHeight = math.min(maximumHeight, nominalHeight + (index % 4) * 0.6)
 		local coreHeight = totalHeight - capHeight
-		local baseColor = BASELINE.BoundaryColors[((index - 1) % #BASELINE.BoundaryColors) + 1]
-		local capColor = BASELINE.BoundaryColors[(index % #BASELINE.BoundaryColors) + 1]
+		local baseColor = boundaryColors[((index - 1) % #boundaryColors) + 1]
+		local capColor = boundaryColors[(index % #boundaryColors) + 1]
 
 		local core = createPart(
 			parent,
@@ -192,7 +217,7 @@ local function createStyledRunZ(parent, name, x, startZ, endZ, thickness, reques
 	end
 end
 
-local function createStyledRunX(parent, name, startX, endX, z, thickness, requestedHeight, floorY, interiorSide)
+local function createStyledRunX(parent, name, startX, endX, z, thickness, requestedHeight, floorY, interiorSide, preserveBarrierStyle)
 	if type(startX) ~= "number" or type(endX) ~= "number" or type(z) ~= "number" then
 		return
 	end
@@ -206,17 +231,26 @@ local function createStyledRunX(parent, name, startX, endX, z, thickness, reques
 	local segmentCount = math.max(1, math.ceil(length / 28))
 	local segmentLength = length / segmentCount
 	local wallThickness = math.max(10, thickness or 12)
-	local nominalHeight = math.min(18, math.max(14, requestedHeight or 18))
+	local boundaryColors = preserveBarrierStyle and PROTECTED_BARRIER_COLORS or BASELINE.BoundaryColors
+	local nominalHeight
+	local maximumHeight
+	if preserveBarrierStyle then
+		nominalHeight = math.min(18, math.max(14, requestedHeight or 18))
+		maximumHeight = 20
+	else
+		nominalHeight = math.min(24, math.max(22, requestedHeight or 24))
+		maximumHeight = 25
+	end
 
 	for index = 1, segmentCount do
 		local segmentStart = startX + direction * (index - 1) * segmentLength
 		local segmentEnd = startX + direction * index * segmentLength
 		local centerX = (segmentStart + segmentEnd) * 0.5
 		local capHeight = 2.2 + (index % 3) * 0.7
-		local totalHeight = math.min(20, nominalHeight + (index % 4) * 0.6)
+		local totalHeight = math.min(maximumHeight, nominalHeight + (index % 4) * 0.6)
 		local coreHeight = totalHeight - capHeight
-		local baseColor = BASELINE.BoundaryColors[((index - 1) % #BASELINE.BoundaryColors) + 1]
-		local capColor = BASELINE.BoundaryColors[(index % #BASELINE.BoundaryColors) + 1]
+		local baseColor = boundaryColors[((index - 1) % #boundaryColors) + 1]
+		local capColor = boundaryColors[(index % #boundaryColors) + 1]
 
 		local core = createPart(
 			parent,
@@ -305,8 +339,8 @@ function WorldStyleBaseline.CreateBoundaries(parent, configuration)
 	if type(flanks) == "table" and type(barrier) == "table" and barrier.Position then
 		local flankDepth = flanks.Depth or 8
 		local flankHeight = flanks.Height or 20
-		createStyledRunX(parent, "Forest2BarrierWestFlank", flanks.LeftStartX, flanks.LeftEndX, barrier.Position.Z, flankDepth, flankHeight, floorY, 1)
-		createStyledRunX(parent, "Forest2BarrierEastFlank", flanks.RightStartX, flanks.RightEndX, barrier.Position.Z, flankDepth, flankHeight, floorY, 1)
+		createStyledRunX(parent, "Forest2BarrierWestFlank", flanks.LeftStartX, flanks.LeftEndX, barrier.Position.Z, flankDepth, flankHeight, floorY, 1, true)
+		createStyledRunX(parent, "Forest2BarrierEastFlank", flanks.RightStartX, flanks.RightEndX, barrier.Position.Z, flankDepth, flankHeight, floorY, 1, true)
 	end
 end
 
