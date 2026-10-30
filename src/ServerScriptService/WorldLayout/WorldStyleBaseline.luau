@@ -29,10 +29,9 @@ local PROTECTED_BARRIER_COLORS = {
 	Color3.fromRGB(150, 196, 125),
 }
 
--- Ordinary World 1 cliffs use broad, collidable rectangular stone masses with
--- grassy tops. A transparent continuous backstop sits behind the masses, so
--- their visible fronts can step in and out without opening a route through.
-local STONE_CORE_COLOR = Color3.fromRGB(75, 83, 88)
+-- Ordinary World 1 cliffs are made from overlapping, visible cylinder pillars.
+-- Each pillar owns its own rock body and grass cap; no continuous wall or hidden
+-- collision plane sits behind them.
 local STONE_MASS_COLORS = {
 	Color3.fromRGB(112, 120, 124),
 	Color3.fromRGB(101, 109, 113),
@@ -40,12 +39,30 @@ local STONE_MASS_COLORS = {
 	Color3.fromRGB(91, 99, 103),
 }
 local GRASS_CAP_COLOR = Color3.fromRGB(100, 151, 79)
-local MASS_TOP_HEIGHTS = {
-	24, 28, 30, 25, 29, 27, 30, 26, 28,
-	24, 29, 27, 30, 26, 28, 25, 30, 27,
+local PILLAR_SPACING_ESTIMATE = 16
+local PILLAR_MIN_RADIUS = 6.5
+local PILLAR_MAX_RADIUS = 11.5
+local PILLAR_CAP_HEIGHT = 1.25
+local PILLAR_CAP_OVERHANG = 0.5
+local PILLAR_MAX_CAP_RADIUS = PILLAR_MAX_RADIUS + PILLAR_CAP_OVERHANG
+local PILLAR_ALONG_JITTER = { -0.3, 0.25, 0.15, -0.2, 0.05 }
+local PILLAR_HEIGHT_JITTER = { -1, 0, 1 }
+local PILLAR_SIDE_DEPTH_OFFSETS = { 2.0, 4.5, 2.5, 4.0, 3.0 }
+local PILLAR_RIDGE_DEPTH_OFFSETS = { 0, 4.5, 1.5, 4.25, 0.5 }
+local PILLAR_SUPPORT_CLUSTER_PATTERN = { true, true, false, true, true, true, false }
+local PILLAR_OUTBOARD_SUPPORT_HEIGHTS = { 26, 34, 29, 37, 31, 35, 28, 33, 30, 36, 27, 32 }
+local PILLAR_TARGET_OVERLAP = 1.5
+local PILLAR_MIN_OVERLAP = 1.0
+local PILLAR_MAX_OVERLAP = 2.75
+local PILLAR_TARGET_PLANE_OVERLAP = 1.0
+local PILLAR_MIN_PLANE_OVERLAP = 0.4
+
+local PILLAR_RADIUS_BY_ROLE = {
+	Support = { 8.5, 9.0 },
+	Medium = { 9.5, 10.0, 10.5 },
+	Anchor = { 10.5, 11.0, 11.5 },
+	OutboardSupport = { 6.5, 7.0, 7.5, 8.0 },
 }
-local MASS_DEPTH_RECESSES = { 0, 2, 6, 1, 4, 8, 3, 0, 7, 2 }
-local MASS_RUN_WIDTH_WEIGHTS = { 0.72, 1.15, 0.88, 1.24, 0.82, 1.08, 0.96, 1.15 }
 
 -- The existing forest entrances and trail signs share these World 1 accents.
 WorldStyleBaseline.WoodColors = BASELINE.WoodColors
@@ -172,151 +189,307 @@ end
 local function getMassPhase(name)
 	local phase = 0
 	for index = 1, #name do
-		phase = (phase + string.byte(name, index)) % #MASS_TOP_HEIGHTS
+		phase = (phase + string.byte(name, index)) % #PILLAR_ALONG_JITTER
 	end
 	return phase
 end
 
-local function getAxisSize(axis, depth, height, runLength)
-	if axis == "Z" then
-		return Vector3.new(depth, height, runLength)
+local function getPillarRole(index, phase)
+	local clusterSlot = (index + phase - 1) % 8
+	if clusterSlot == 4 then
+		return "Anchor"
+	elseif clusterSlot == 0 or clusterSlot == 2 or clusterSlot == 6 then
+		return "Support"
 	end
-	return Vector3.new(runLength, height, depth)
+	return "Medium"
 end
 
-local function getAxisCFrame(axis, normalCoordinate, y, runCoordinate)
-	if axis == "Z" then
-		return CFrame.new(normalCoordinate, y, runCoordinate)
-	end
-	return CFrame.new(runCoordinate, y, normalCoordinate)
+local function getPillarRadius(role, index, phase)
+	local radii = PILLAR_RADIUS_BY_ROLE[role]
+	local radiusPatternIndex = role == "Support" and (math.floor((index - 1) / 8) + phase) or (index * 3 + phase)
+	local radiusIndex = (radiusPatternIndex % #radii) + 1
+	return math.max(PILLAR_MIN_RADIUS, math.min(PILLAR_MAX_RADIUS, radii[radiusIndex]))
 end
 
-local function createMassRun(parent, name, axis, coordinate, startCoordinate, endCoordinate, thickness, requestedHeight, floorY, interiorSide, forcedSolidInterval, forcedSolidSide)
+local function getPillarHeight(role, index, phase, requestedHeight)
+	local targetHeight = math.max(28, math.min(31, requestedHeight or 30))
+	local roleOffset = role == "Anchor" and 9 or role == "Medium" and 0 or -5
+	local jitterIndex = ((index + phase * 2) % #PILLAR_HEIGHT_JITTER) + 1
+	return math.max(24, math.min(40, targetHeight + roleOffset + PILLAR_HEIGHT_JITTER[jitterIndex]))
+end
+
+local function getOutboardSupportHeight(index, phase, requestedHeight)
+	local targetHeight = math.max(28, math.min(31, requestedHeight or 30))
+	local heightIndex = ((index + phase * 3 - 1) % #PILLAR_OUTBOARD_SUPPORT_HEIGHTS) + 1
+	local requestedHeightAdjustment = targetHeight - 30
+	return math.max(24, math.min(37, PILLAR_OUTBOARD_SUPPORT_HEIGHTS[heightIndex] + requestedHeightAdjustment))
+end
+
+local function getPillarNormalOffset(interiorSide, index, phase)
+	local offsetIndex = ((index + phase - 1) % #PILLAR_SIDE_DEPTH_OFFSETS) + 1
+	if interiorSide == 0 then
+		return PILLAR_RIDGE_DEPTH_OFFSETS[offsetIndex]
+	end
+
+	local side = interiorSide or 1
+	-- Main bodies straddle the boundary line but stay slightly outboard to keep
+	-- the existing play spaces and tree clearances unchanged.
+	return -side * PILLAR_SIDE_DEPTH_OFFSETS[offsetIndex]
+end
+
+local function buildPillarPlan(name, runLength, interiorSide, requestedHeight)
+	local phase = getMassPhase(name)
+	local minimumIntervals = math.max(1, math.floor(runLength / (PILLAR_SPACING_ESTIMATE + 4)) - 1)
+	local maximumIntervals = math.max(minimumIntervals, math.ceil(runLength / (PILLAR_SPACING_ESTIMATE - 5)) + 1)
+	local bestPlan = nil
+	local bestScore = math.huge
+
+	for intervalCount = minimumIntervals, maximumIntervals do
+		local pillars = {}
+		for index = 1, intervalCount + 1 do
+			local role = getPillarRole(index, phase)
+			local radius = getPillarRadius(role, index, phase)
+			local normalOffset = getPillarNormalOffset(interiorSide, index, phase)
+			if index == 1 or index == intervalCount + 1 then
+				if interiorSide == 0 then
+					normalOffset = 3.25
+				else
+					normalOffset = -(interiorSide or 1) * 2.5
+				end
+			end
+			if name == "CentralRidge" then
+				-- Keep each west-facing ridge body clear of Forest 1 crowns while
+				-- allowing smaller supports to straddle x=0.
+				normalOffset = math.max(normalOffset, radius - 8.5, 0)
+				if index == 1 then
+					normalOffset = math.max(normalOffset, 4.5)
+				end
+			end
+			pillars[index] = {
+				Index = index,
+				Role = role,
+				Radius = radius,
+				BodyHeight = getPillarHeight(role, index, phase, requestedHeight),
+				NormalOffset = normalOffset,
+				ColorIndex = ((index * 3 + phase) % #STONE_MASS_COLORS) + 1,
+			}
+		end
+
+		local steps = {}
+		local totalStep = 0
+		for index = 1, intervalCount do
+			local first = pillars[index]
+			local second = pillars[index + 1]
+			local targetCenterDistance = first.Radius + second.Radius - PILLAR_TARGET_OVERLAP
+			local crossDistance = math.abs(second.NormalOffset - first.NormalOffset)
+			local alongDistanceByBody = math.sqrt(math.max(0.01, targetCenterDistance ^ 2 - crossDistance ^ 2))
+			-- The body disks must also overlap where they cross the actual boundary
+			-- plane. This is the half-width of each disk's vertical-plane slice.
+			local firstPlaneReach = math.sqrt(math.max(0.01, first.Radius ^ 2 - first.NormalOffset ^ 2))
+			local secondPlaneReach = math.sqrt(math.max(0.01, second.Radius ^ 2 - second.NormalOffset ^ 2))
+			local alongDistanceByPlane = firstPlaneReach + secondPlaneReach - PILLAR_TARGET_PLANE_OVERLAP
+			local alongDistance = math.min(alongDistanceByBody, alongDistanceByPlane)
+			local jitterIndex = ((index + phase - 1) % #PILLAR_ALONG_JITTER) + 1
+			local step = math.max(0.1, alongDistance + PILLAR_ALONG_JITTER[jitterIndex])
+			steps[index] = step
+			totalStep = totalStep + step
+		end
+
+		local scale = runLength / totalStep
+		local overlapPenalty = 0
+		local averageOverlap = 0
+		for index = 1, intervalCount do
+			local first = pillars[index]
+			local second = pillars[index + 1]
+			local crossDistance = math.abs(second.NormalOffset - first.NormalOffset)
+			local centerDistance = math.sqrt((steps[index] * scale) ^ 2 + crossDistance ^ 2)
+			local overlap = first.Radius + second.Radius - centerDistance
+			averageOverlap = averageOverlap + overlap
+			local firstPlaneReach = math.sqrt(math.max(0.01, first.Radius ^ 2 - first.NormalOffset ^ 2))
+			local secondPlaneReach = math.sqrt(math.max(0.01, second.Radius ^ 2 - second.NormalOffset ^ 2))
+			local planeOverlap = firstPlaneReach + secondPlaneReach - steps[index] * scale
+			if planeOverlap < PILLAR_MIN_PLANE_OVERLAP then
+				overlapPenalty = overlapPenalty + PILLAR_MIN_PLANE_OVERLAP - planeOverlap
+			end
+			if overlap < PILLAR_MIN_OVERLAP then
+				overlapPenalty = overlapPenalty + PILLAR_MIN_OVERLAP - overlap
+			elseif overlap > PILLAR_MAX_OVERLAP then
+				overlapPenalty = overlapPenalty + overlap - PILLAR_MAX_OVERLAP
+			end
+		end
+		averageOverlap = averageOverlap / intervalCount
+
+		local score = overlapPenalty * 100 + math.abs(scale - 1) + math.abs(averageOverlap - PILLAR_TARGET_OVERLAP) * 0.05
+		if score < bestScore then
+			bestScore = score
+			bestPlan = {
+				Phase = phase,
+				Pillars = pillars,
+				Steps = steps,
+				Scale = scale,
+			}
+		end
+	end
+
+	return bestPlan
+end
+
+local function createBoundaryPillar(parent, runName, columnName, role, position, radius, bodyHeight, capColor, stoneColor)
+	local model = Instance.new("Model")
+	model.Name = columnName
+	model:SetAttribute("WorldLayoutOwned", true)
+	model:SetAttribute("WorldBoundary", true)
+	model:SetAttribute("BoundaryStyle", "World1Baseline")
+	model:SetAttribute("BoundaryColumn", true)
+	model:SetAttribute("BoundaryRun", runName)
+	model:SetAttribute("BoundaryColumnRole", role)
+	model:SetAttribute("PillarRadius", radius)
+	model:SetAttribute("PillarBodyHeight", bodyHeight)
+
+	-- Roblox cylinders use local X as their long axis. Rotating local X onto world
+	-- Y keeps both the rock body and its grass cap upright.
+	local verticalRotation = CFrame.Angles(0, 0, math.rad(90))
+	local body = createPart(
+		model,
+		"Body",
+		Vector3.new(bodyHeight, radius * 2, radius * 2),
+		CFrame.new(position.X, position.Y + bodyHeight * 0.5, position.Z) * verticalRotation,
+		stoneColor or STONE_MASS_COLORS[((math.floor(position.X + position.Z + bodyHeight)) % #STONE_MASS_COLORS) + 1],
+		Enum.Material.SmoothPlastic,
+		Enum.PartType.Cylinder
+	)
+	body.CanCollide = true
+	body.CanTouch = false
+	body.CanQuery = true
+	body:SetAttribute("BoundaryColumn", true)
+	body:SetAttribute("PillarRole", role)
+	body:SetAttribute("PillarRadius", radius)
+	body:SetAttribute("PillarBodyHeight", bodyHeight)
+	markBoundary(body)
+
+	local capRadius = radius + PILLAR_CAP_OVERHANG
+	local cap = createPart(
+		model,
+		"GrassCap",
+		Vector3.new(PILLAR_CAP_HEIGHT, capRadius * 2, capRadius * 2),
+		CFrame.new(position.X, position.Y + bodyHeight + PILLAR_CAP_HEIGHT * 0.5, position.Z) * verticalRotation,
+		capColor or GRASS_CAP_COLOR,
+		Enum.Material.SmoothPlastic,
+		Enum.PartType.Cylinder
+	)
+	cap.CanCollide = true
+	cap.CanTouch = false
+	cap.CanQuery = true
+	cap:SetAttribute("BoundaryColumn", true)
+	cap:SetAttribute("PillarRole", role)
+	cap:SetAttribute("PillarRadius", capRadius)
+	markBoundary(cap)
+
+	model.PrimaryPart = body
+	model.Parent = parent
+	return model
+end
+
+local function getPillarPosition(axis, normalCoordinate, floorY, runCoordinate)
+	if axis == "Z" then
+		return Vector3.new(normalCoordinate, floorY, runCoordinate)
+	end
+	return Vector3.new(runCoordinate, floorY, normalCoordinate)
+end
+
+local function createPillarRun(parent, name, axis, coordinate, startCoordinate, endCoordinate, requestedHeight, floorY, interiorSide, forcedSolidInterval, forcedSolidSide)
 	local runLength = math.abs(endCoordinate - startCoordinate)
 	if runLength <= 0 then
 		return
 	end
 
 	local direction = endCoordinate >= startCoordinate and 1 or -1
-	local wallThickness = math.max(10, thickness or 12)
-	local maximumMassHeight = math.min(30, math.max(28, requestedHeight or 30))
-	local minimumMassHeight = math.max(24, maximumMassHeight - 6)
-	local capHeight = 0.8
-	local backstopHeight = minimumMassHeight - capHeight
-	local phase = getMassPhase(name)
-	local segmentCount = math.max(1, math.ceil(runLength / 35))
-	local segmentWeights = {}
-	local weightSum = 0
-	for index = 1, segmentCount do
-		local weightIndex = ((index + phase - 1) % #MASS_RUN_WIDTH_WEIGHTS) + 1
-		local weight = MASS_RUN_WIDTH_WEIGHTS[weightIndex]
-		segmentWeights[index] = weight
-		weightSum = weightSum + weight
+	local plan = buildPillarPlan(name, runLength, interiorSide, requestedHeight)
+	if not plan then
+		return
+	end
+	local phase = plan.Phase
+	local alongDistance = 0
+	local pillarCount = #plan.Pillars
+
+	for index, pillar in ipairs(plan.Pillars) do
+		local alongCoordinate = index == pillarCount and endCoordinate or startCoordinate + direction * alongDistance
+		local normalOffset = pillar.NormalOffset
+		local position = getPillarPosition(axis, coordinate + normalOffset, floorY, alongCoordinate)
+		local columnName = string.format("%sPillar%03d", name, index)
+		local colorIndex = pillar.ColorIndex
+		createBoundaryPillar(parent, name, columnName, pillar.Role, position, pillar.Radius, pillar.BodyHeight, nil, STONE_MASS_COLORS[colorIndex])
+
+		-- Cluster smaller supports in irregular paired and triple groups beyond
+		-- the main containment chain. Their varied tops make the second layer read
+		-- as a visible mesa cluster instead of a low repeated trim. Outer-run
+		-- supports face away from gameplay; ridge supports face Corridor B, clear
+		-- of Forest 1 trees and route space.
+		local supportPatternIndex = ((index - 1) % #PILLAR_SUPPORT_CLUSTER_PATTERN) + 1
+		if PILLAR_SUPPORT_CLUSTER_PATTERN[supportPatternIndex] then
+			local side = interiorSide or 1
+			local outwardSide = interiorSide == 0 and 1 or -side
+			local supportRunOffset = direction * (index % 2 == 0 and -3.5 or 3.5)
+			local supportIndex = index + phase + 2
+			local supportRadius = getPillarRadius("OutboardSupport", supportIndex, phase + 1)
+			local supportHeight = getOutboardSupportHeight(supportIndex, phase + 1, requestedHeight)
+			local supportCenterDistance = pillar.Radius + supportRadius - PILLAR_TARGET_OVERLAP
+			local supportCrossOffset = math.sqrt(math.max(0.01, supportCenterDistance ^ 2 - 3.5 ^ 2))
+			local supportPosition = getPillarPosition(
+				axis,
+				coordinate + normalOffset + outwardSide * supportCrossOffset,
+				floorY,
+				alongCoordinate + supportRunOffset
+			)
+			local supportColorIndex = (colorIndex % #STONE_MASS_COLORS) + 1
+			createBoundaryPillar(
+				parent,
+				name,
+				string.format("%sSupportPillar%03d", name, index),
+				"Support",
+				supportPosition,
+				supportRadius,
+				supportHeight,
+				nil,
+				STONE_MASS_COLORS[supportColorIndex]
+			)
+		end
+
+		if index < pillarCount then
+			alongDistance = alongDistance + plan.Steps[index] * plan.Scale
+		end
 	end
 
-	local coreThickness
-	local coreCoordinate
-	local sides
-	if interiorSide == 0 then
-		coreThickness = math.max(3, wallThickness * 0.25)
-		coreCoordinate = coordinate
-		sides = { -1, 1 }
-	else
-		local side = interiorSide or 1
-		coreThickness = math.min(3, wallThickness)
-		coreCoordinate = coordinate - side * (wallThickness * 0.5 - coreThickness * 0.5)
-		sides = { side }
-	end
-
-	-- The transparent backstop stays behind the visible masses and reaches only
-	-- to the lowest visible cap, so it closes seams without making a flat face
-	-- or an unseen upper wall.
-	local backstop = createPart(
-		parent,
-		name .. "BackstopCore",
-		getAxisSize(axis, coreThickness, backstopHeight, runLength),
-		getAxisCFrame(axis, coreCoordinate, floorY + backstopHeight * 0.5, (startCoordinate + endCoordinate) * 0.5),
-		STONE_CORE_COLOR,
-		Enum.Material.SmoothPlastic
-	)
-	backstop.Transparency = 1
-	backstop.CanCollide = true
-	backstop.CanTouch = false
-	backstop.CanQuery = false
-	backstop.CastShadow = false
-	markBoundary(backstop)
-
-	local backstopCap = createPart(
-		parent,
-		name .. "BackstopGrass",
-		getAxisSize(axis, coreThickness, capHeight, runLength),
-		getAxisCFrame(axis, coreCoordinate, floorY + minimumMassHeight - capHeight * 0.5, (startCoordinate + endCoordinate) * 0.5),
-		GRASS_CAP_COLOR,
-		Enum.Material.SmoothPlastic
-	)
-	backstopCap.CanCollide = true
-	markBoundary(backstopCap)
-
-	local coveredRunLength = 0
-	for index = 1, segmentCount do
-		local segmentLength
-		if index == segmentCount then
-			segmentLength = runLength - coveredRunLength
+	-- These visible tall columns bridge the unchanged Forest 2 flank ends to the
+	-- ordinary boundary pillars. Their body height exceeds the preserved flanks.
+	if axis == "Z"
+		and type(forcedSolidInterval) == "table"
+		and (name == "WestCliff" or name == "CentralRidge")
+	then
+		local junctionOffset
+		if interiorSide == 0 then
+			junctionOffset = (forcedSolidSide or -1) * 1.5
 		else
-			segmentLength = runLength * segmentWeights[index] / weightSum
+			junctionOffset = -(interiorSide or 1) * 2.5
 		end
-		local segmentStart = startCoordinate + direction * coveredRunLength
-		local segmentEnd = startCoordinate + direction * (coveredRunLength + segmentLength)
-		local segmentCenter = (segmentStart + segmentEnd) * 0.5
-		-- Visible masses butt exactly; the continuous backstop closes their seams.
-		local massRunLength = segmentLength
-		local overlapsForcedSolidInterval = false
-		if axis == "Z" and type(forcedSolidInterval) == "table" then
-			local segmentLow = math.min(segmentStart, segmentEnd)
-			local segmentHigh = math.max(segmentStart, segmentEnd)
-			-- Inclusive comparisons also select sections that touch the gate interval.
-			overlapsForcedSolidInterval = segmentLow <= forcedSolidInterval.End
-				and segmentHigh >= forcedSolidInterval.Start
-		end
-
-		for sideIndex, side in ipairs(sides) do
-			local variant = ((index + phase + (sideIndex - 1) * 3 - 1) % #MASS_TOP_HEIGHTS) + 1
-			local massHeight = math.min(maximumMassHeight, math.max(minimumMassHeight, MASS_TOP_HEIGHTS[variant]))
-			local backstopFace = coreCoordinate + side * coreThickness * 0.5
-			local outerEnvelopeFace = coordinate + side * wallThickness * 0.5
-			local availableDepth = math.abs(outerEnvelopeFace - backstopFace)
-			local recessIndex = ((index + phase + (sideIndex - 1) * 5 - 1) % #MASS_DEPTH_RECESSES) + 1
-			local forceFullDepth = overlapsForcedSolidInterval
-				and (forcedSolidSide == nil or side == forcedSolidSide)
-			local recess = forceFullDepth and 0
-				or math.min(math.max(0, availableDepth - 1), MASS_DEPTH_RECESSES[recessIndex])
-			local massDepth = math.max(1, availableDepth - recess)
-			local massCenter = backstopFace + side * massDepth * 0.5
-			local massRunCenter = segmentCenter
-			local bodyHeight = massHeight - capHeight
-			local mass = createPart(
-				parent,
-				name .. string.format("%02dMass%d", index, sideIndex),
-				getAxisSize(axis, massDepth, bodyHeight, massRunLength),
-				getAxisCFrame(axis, massCenter, floorY + bodyHeight * 0.5, massRunCenter),
-				STONE_MASS_COLORS[((variant + sideIndex - 2) % #STONE_MASS_COLORS) + 1],
-				Enum.Material.SmoothPlastic
-			)
-			mass.CanCollide = true
-			markBoundary(mass)
-
-			local cap = createPart(
-				parent,
-				name .. string.format("%02dGrassCap%d", index, sideIndex),
-				getAxisSize(axis, massDepth, capHeight, massRunLength),
-				getAxisCFrame(axis, massCenter, floorY + massHeight - capHeight * 0.5, massRunCenter),
-				GRASS_CAP_COLOR,
-				Enum.Material.SmoothPlastic
-			)
-			cap.CanCollide = true
-			markBoundary(cap)
-		end
-		coveredRunLength = coveredRunLength + segmentLength
+		local gatePosition = getPillarPosition(
+			axis,
+			coordinate + junctionOffset,
+			floorY,
+			(forcedSolidInterval.Start + forcedSolidInterval.End) * 0.5
+		)
+		local gateHeight = math.max(30, math.min(34, requestedHeight or 30))
+		createBoundaryPillar(
+			parent,
+			name,
+			name .. "GateJunctionPillar",
+			"GateJunction",
+			gatePosition,
+			PILLAR_MAX_RADIUS,
+			gateHeight,
+			nil,
+			STONE_MASS_COLORS[(phase % #STONE_MASS_COLORS) + 1]
+		)
 	end
 end
 
@@ -324,14 +497,14 @@ local function createLayeredRunZ(parent, name, x, startZ, endZ, thickness, reque
 	if type(x) ~= "number" or type(startZ) ~= "number" or type(endZ) ~= "number" then
 		return
 	end
-	createMassRun(parent, name, "Z", x, startZ, endZ, thickness, requestedHeight, floorY, interiorSide, forcedSolidInterval, forcedSolidSide)
+	createPillarRun(parent, name, "Z", x, startZ, endZ, requestedHeight, floorY, interiorSide, forcedSolidInterval, forcedSolidSide)
 end
 
 local function createLayeredRunX(parent, name, startX, endX, z, thickness, requestedHeight, floorY, interiorSide)
 	if type(startX) ~= "number" or type(endX) ~= "number" or type(z) ~= "number" then
 		return
 	end
-	createMassRun(parent, name, "X", z, startX, endX, thickness, requestedHeight, floorY, interiorSide)
+	createPillarRun(parent, name, "X", z, startX, endX, requestedHeight, floorY, interiorSide)
 end
 local function createStyledRunZ(parent, name, x, startZ, endZ, thickness, requestedHeight, floorY, interiorSide, preserveBarrierStyle, forcedSolidInterval, forcedSolidSide)
 	if not preserveBarrierStyle then
@@ -536,13 +709,77 @@ function WorldStyleBaseline.CreateBoundaries(parent, configuration)
 		floorY = ground.Center.Y + ground.Size.Y * 0.5
 	end
 
+	local function getNorthPathEdgeAtX(x)
+		local pathSegments = configuration.PATH_SEGMENTS
+		if type(pathSegments) ~= "table" then
+			return nil
+		end
+
+		local northEdge = nil
+		for _, pathSegment in ipairs(pathSegments) do
+			if typeof(pathSegment.Start) == "Vector3" and typeof(pathSegment.End) == "Vector3" then
+				local width = type(pathSegment.Width) == "number" and pathSegment.Width or 0
+				local minX = math.min(pathSegment.Start.X, pathSegment.End.X)
+				local maxX = math.max(pathSegment.Start.X, pathSegment.End.X)
+				local minZ = math.min(pathSegment.Start.Z, pathSegment.End.Z)
+				local maxZ = math.max(pathSegment.Start.Z, pathSegment.End.Z)
+				local isAxisAligned = math.abs(pathSegment.Start.X - pathSegment.End.X) < 0.001
+					or math.abs(pathSegment.Start.Z - pathSegment.End.Z) < 0.001
+				if isAxisAligned and x >= minX - width * 0.5 and x <= maxX + width * 0.5 then
+					local edge = maxZ + width * 0.5
+					northEdge = northEdge and math.max(northEdge, edge) or edge
+				end
+			end
+		end
+		return northEdge
+	end
+
+	local function adjustPillarStartZ(runName, x, startZ, endZ, interiorSide)
+		if type(startZ) ~= "number" or type(endZ) ~= "number" or endZ < startZ then
+			return startZ
+		end
+
+		if runName == "CentralRidge" then
+			local pathEdge = getNorthPathEdgeAtX(x)
+			if pathEdge then
+				-- Account for the full circular grass-cap footprint so the ridge's
+				-- first pillar clears the hub fork and its approach path.
+				startZ = math.max(startZ, pathEdge + PILLAR_MAX_CAP_RADIUS + 0.5)
+			end
+		elseif runName == "WestCliff" or runName == "EastCliff" then
+			local sampleConfiguration = configuration.STYLE_SAMPLES
+			local pads = type(sampleConfiguration) == "table" and sampleConfiguration.Pads or nil
+			local defaultSize = type(sampleConfiguration) == "table" and sampleConfiguration.Size or nil
+			if typeof(defaultSize) ~= "Vector3" then
+				defaultSize = Vector3.new(22, 0.5, 18)
+			end
+			local side = interiorSide or (runName == "WestCliff" and 1 or -1)
+			local closestColumnX = x - side * 1.5
+			if type(pads) == "table" then
+				for _, pad in ipairs(pads) do
+					if typeof(pad.Center) == "Vector3" then
+						local padSize = typeof(pad.Size) == "Vector3" and pad.Size or defaultSize
+						local xGap = math.max(0, math.abs(closestColumnX - pad.Center.X) - padSize.X * 0.5)
+						if xGap < PILLAR_MAX_CAP_RADIUS then
+							local zReach = math.sqrt(PILLAR_MAX_CAP_RADIUS ^ 2 - xGap ^ 2)
+							local padNorthEdge = pad.Center.Z + padSize.Z * 0.5
+							startZ = math.max(startZ, padNorthEdge + zReach + 1.5)
+						end
+					end
+				end
+			end
+		end
+		return startZ
+	end
+
 	if type(boundaries.Runs) == "table" then
 		for _, run in ipairs(boundaries.Runs) do
 			local runFloorY = run.FloorY or floorY
 			if run.Axis == "Z" then
 				local runName = run.Name or "WorldBoundary"
 				local forcedSolidInterval, forcedSolidSide = getBarrierJoinSettings(runName)
-				createStyledRunZ(parent, runName, run.Coordinate, run.Start, run.End, run.Thickness, run.Height, runFloorY, run.InteriorSide, false, forcedSolidInterval, forcedSolidSide)
+				local startZ = adjustPillarStartZ(runName, run.Coordinate, run.Start, run.End, run.InteriorSide)
+				createStyledRunZ(parent, runName, run.Coordinate, startZ, run.End, run.Thickness, run.Height, runFloorY, run.InteriorSide, false, forcedSolidInterval, forcedSolidSide)
 			elseif run.Axis == "X" then
 				createStyledRunX(parent, run.Name or "WorldBoundary", run.Start, run.End, run.Coordinate, run.Thickness, run.Height, runFloorY, run.InteriorSide)
 			end
@@ -552,14 +789,17 @@ function WorldStyleBaseline.CreateBoundaries(parent, configuration)
 		local wallThickness = boundaries.WallThickness or 12
 		if boundaries.WestX then
 			local forcedSolidInterval, forcedSolidSide = getBarrierJoinSettings("WestCliff")
-			createStyledRunZ(parent, "WestCliff", boundaries.WestX, boundaries.SideStartZ, boundaries.SideEndZ, wallThickness, wallHeight, floorY, 1, false, forcedSolidInterval, forcedSolidSide)
+			local startZ = adjustPillarStartZ("WestCliff", boundaries.WestX, boundaries.SideStartZ, boundaries.SideEndZ, 1)
+			createStyledRunZ(parent, "WestCliff", boundaries.WestX, startZ, boundaries.SideEndZ, wallThickness, wallHeight, floorY, 1, false, forcedSolidInterval, forcedSolidSide)
 		end
 		if boundaries.EastX then
-			createStyledRunZ(parent, "EastCliff", boundaries.EastX, boundaries.SideStartZ, boundaries.SideEndZ, wallThickness, wallHeight, floorY, -1)
+			local startZ = adjustPillarStartZ("EastCliff", boundaries.EastX, boundaries.SideStartZ, boundaries.SideEndZ, -1)
+			createStyledRunZ(parent, "EastCliff", boundaries.EastX, startZ, boundaries.SideEndZ, wallThickness, wallHeight, floorY, -1)
 		end
 		if boundaries.SpineX then
 			local forcedSolidInterval, forcedSolidSide = getBarrierJoinSettings("CentralRidge")
-			createStyledRunZ(parent, "CentralRidge", boundaries.SpineX, boundaries.SpineStartZ, boundaries.SpineEndZ, wallThickness, wallHeight, floorY, 0, false, forcedSolidInterval, forcedSolidSide)
+			local startZ = adjustPillarStartZ("CentralRidge", boundaries.SpineX, boundaries.SpineStartZ, boundaries.SpineEndZ, 0)
+			createStyledRunZ(parent, "CentralRidge", boundaries.SpineX, startZ, boundaries.SpineEndZ, wallThickness, wallHeight, floorY, 0, false, forcedSolidInterval, forcedSolidSide)
 		end
 		if boundaries.NorthZ and boundaries.WestX and boundaries.EastX then
 			createStyledRunX(parent, "NorthernCliff", boundaries.WestX, boundaries.EastX, boundaries.NorthZ, wallThickness, wallHeight, floorY, -1)
