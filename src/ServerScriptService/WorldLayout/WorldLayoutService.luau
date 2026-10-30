@@ -28,13 +28,13 @@ local function createPart(name, size, cframe, color, material, parent)
 	return part
 end
 
-local function createGround(parent, name, center, size)
+local function createGround(parent, name, center, size, color, material)
 	local ground = createPart(
 		name,
 		size,
 		CFrame.new(center),
-		Configuration.GROUND_COLOR,
-		Configuration.GROUND_MATERIAL,
+		color or Configuration.GROUND_COLOR,
+		material or Configuration.GROUND_MATERIAL,
 		parent
 	)
 	ground:SetAttribute("WorldLayoutOwned", true)
@@ -43,27 +43,299 @@ local function createGround(parent, name, center, size)
 end
 
 local function createPath(parent, segment)
-	local length = math.abs(segment.EndZ - segment.StartZ)
-	local centerZ = (segment.StartZ + segment.EndZ) * 0.5
+	local startPosition = segment.Start
+	local endPosition = segment.End
+	local deltaX = endPosition.X - startPosition.X
+	local deltaZ = endPosition.Z - startPosition.Z
+	local length = math.sqrt(deltaX * deltaX + deltaZ * deltaZ)
+	if length <= 0 then
+		warn("World layout path segment has no length:", segment.Name)
+		return nil
+	end
+
+	local centerX = (startPosition.X + endPosition.X) * 0.5
+	local centerZ = (startPosition.Z + endPosition.Z) * 0.5
+	local centerY = Configuration.PATH_SURFACE_Y - Configuration.PATH_THICKNESS * 0.5
+	local center = Vector3.new(centerX, centerY, centerZ)
+	local target = Vector3.new(endPosition.X, centerY, endPosition.Z)
 	local path = createPart(
 		segment.Name,
 		Vector3.new(segment.Width, Configuration.PATH_THICKNESS, length),
-		CFrame.new(0, Configuration.PATH_SURFACE_Y - Configuration.PATH_THICKNESS * 0.5, centerZ),
+		CFrame.lookAt(center, target),
 		Configuration.PATH_COLOR,
 		Configuration.PATH_MATERIAL,
 		parent
 	)
 	path:SetAttribute("WorldLayoutOwned", true)
 	path:SetAttribute("HarvestLandingSurface", true)
-	path:SetAttribute("Route", "BaseToForest2")
+	path:SetAttribute("Route", segment.Route or "World1")
 	return path
 end
 
-local function createSign(parent, signConfiguration)
+local function markWorldLayoutPart(part, attributeName)
+	part:SetAttribute("WorldLayoutOwned", true)
+	if attributeName then
+		part:SetAttribute(attributeName, true)
+	end
+	return part
+end
+
+local function createGroveFenceRun(parent, name, startPosition, endPosition)
+	local deltaX = endPosition.X - startPosition.X
+	local deltaZ = endPosition.Z - startPosition.Z
+	local length = math.sqrt(deltaX * deltaX + deltaZ * deltaZ)
+	if length <= 0 then return end
+
+	local segmentCount = math.max(1, math.ceil(length / 18))
+	local segmentLength = length / segmentCount
+	local unitX = deltaX / length
+	local unitZ = deltaZ / length
+	local woodColor = Color3.fromRGB(110, 76, 48)
+
+	for index = 0, segmentCount do
+		local distance = math.min(index * segmentLength, length)
+		local x = startPosition.X + unitX * distance
+		local z = startPosition.Z + unitZ * distance
+		local post = createPart(
+			name .. "Post",
+			Vector3.new(0.9, 5, 0.9),
+			CFrame.new(x, 2, z),
+			Color3.fromRGB(89, 60, 39),
+			Enum.Material.Wood,
+			parent
+		)
+		markWorldLayoutPart(post, "GroveDistrictBoundary")
+
+		if index < segmentCount then
+			local nextDistance = math.min((index + 1) * segmentLength, length)
+			local midpoint = startPosition + Vector3.new(unitX, 0, unitZ) * ((distance + nextDistance) * 0.5)
+			local railLength = nextDistance - distance + 0.2
+			for _, railY in ipairs({ 1.15, 3.5 }) do
+				local railCenter = Vector3.new(midpoint.X, railY, midpoint.Z)
+				local railTarget = railCenter + Vector3.new(unitX, 0, unitZ)
+				local rail = createPart(
+					name .. "Rail",
+					Vector3.new(0.55, 0.65, railLength),
+					CFrame.lookAt(railCenter, railTarget),
+					woodColor,
+					Enum.Material.WoodPlanks,
+					parent
+				)
+				markWorldLayoutPart(rail, "GroveDistrictBoundary")
+			end
+		end
+	end
+end
+
+local function createGroveDistrictFrame(parent)
+	local fences = Configuration.GROVE_FENCES
+	createGroveFenceRun(
+		parent,
+		"GroveWestFence",
+		Vector3.new(-fences.SideX, 0, fences.StartZ),
+		Vector3.new(-fences.SideX, 0, fences.EndZ)
+	)
+	createGroveFenceRun(
+		parent,
+		"GroveEastFence",
+		Vector3.new(fences.SideX, 0, fences.StartZ),
+		Vector3.new(fences.SideX, 0, fences.EndZ)
+	)
+	createGroveFenceRun(
+		parent,
+		"GroveRearFence",
+		Vector3.new(-fences.SideX, 0, fences.BackZ),
+		Vector3.new(fences.SideX, 0, fences.BackZ)
+	)
+	for _, run in ipairs(fences.FrontRuns) do
+		createGroveFenceRun(
+			parent,
+			"GroveFrontFence",
+			Vector3.new(run.StartX, 0, fences.FrontZ),
+			Vector3.new(run.EndX, 0, fences.FrontZ)
+		)
+	end
+end
+
+local ROCK_COLORS = {
+	Color3.fromRGB(80, 89, 84),
+	Color3.fromRGB(91, 99, 91),
+	Color3.fromRGB(73, 83, 80),
+}
+
+local function createZWallRun(parent, name, x, startZ, endZ, thickness, height, floorY)
+	local length = math.abs(endZ - startZ)
+	local direction = endZ >= startZ and 1 or -1
+	local segmentCount = math.max(1, math.ceil(length / 96))
+	local segmentLength = length / segmentCount
+	for index = 1, segmentCount do
+		local segmentStart = startZ + direction * (index - 1) * segmentLength
+		local segmentEnd = startZ + direction * index * segmentLength
+		local segmentHeight = height + ((index % 3) - 1) * 2
+		local wall = createPart(
+			name .. string.format("%02d", index),
+			Vector3.new(thickness, segmentHeight, segmentLength + 0.5),
+			CFrame.new(x, floorY + segmentHeight * 0.5, (segmentStart + segmentEnd) * 0.5),
+			ROCK_COLORS[((index - 1) % #ROCK_COLORS) + 1],
+			Enum.Material.Slate,
+			parent
+		)
+		markWorldLayoutPart(wall, "WorldBoundary")
+	end
+end
+
+local function createXWallRun(parent, name, startX, endX, z, thickness, height, floorY)
+	local length = math.abs(endX - startX)
+	local direction = endX >= startX and 1 or -1
+	local segmentCount = math.max(1, math.ceil(length / 96))
+	local segmentLength = length / segmentCount
+	for index = 1, segmentCount do
+		local segmentStart = startX + direction * (index - 1) * segmentLength
+		local segmentEnd = startX + direction * index * segmentLength
+		local segmentHeight = height + ((index % 3) - 1) * 2
+		local wall = createPart(
+			name .. string.format("%02d", index),
+			Vector3.new(segmentLength + 0.5, segmentHeight, thickness),
+			CFrame.new((segmentStart + segmentEnd) * 0.5, floorY + segmentHeight * 0.5, z),
+			ROCK_COLORS[((index - 1) % #ROCK_COLORS) + 1],
+			Enum.Material.Slate,
+			parent
+		)
+		markWorldLayoutPart(wall, "WorldBoundary")
+	end
+end
+
+local function createCrossWall(parent, name, startX, endX, z, depth, height, floorY)
+	local wall = createPart(
+		name,
+		Vector3.new(math.abs(endX - startX), height, depth),
+		CFrame.new((startX + endX) * 0.5, floorY + height * 0.5, z),
+		Color3.fromRGB(84, 92, 86),
+		Enum.Material.Slate,
+		parent
+	)
+	markWorldLayoutPart(wall, "WorldBoundary")
+	return wall
+end
+
+local function createWorldBoundaries(parent)
+	local boundaries = Configuration.BOUNDARIES
+	local worldGround = Configuration.WORLD_GROUND
+	local floorY = worldGround.Center.Y + worldGround.Size.Y * 0.5
+	local wallHeight = boundaries.WallHeight
+	local wallThickness = boundaries.WallThickness
+
+	createZWallRun(parent, "WestCliff", boundaries.WestX, boundaries.SideStartZ, boundaries.SideEndZ, wallThickness, wallHeight, floorY)
+	createZWallRun(parent, "EastCliff", boundaries.EastX, boundaries.SideStartZ, boundaries.SideEndZ, wallThickness, wallHeight, floorY)
+	createZWallRun(parent, "CentralRidge", boundaries.SpineX, boundaries.SpineStartZ, boundaries.SpineEndZ, wallThickness, wallHeight, floorY)
+	createXWallRun(parent, "NorthernCliff", boundaries.WestX, boundaries.EastX, boundaries.NorthZ, wallThickness, wallHeight, floorY)
+	createXWallRun(parent, "ReturnEndCliff", boundaries.SpineX, boundaries.EastX, boundaries.ReturnClosureZ, wallThickness, wallHeight, floorY)
+
+	local flanks = Configuration.BARRIER_FLANKS
+	local barrierZ = Configuration.BARRIER.Position.Z
+	createCrossWall(parent, "Forest2BarrierWestFlank", flanks.LeftStartX, flanks.LeftEndX, barrierZ, flanks.Depth, flanks.Height, floorY)
+	createCrossWall(parent, "Forest2BarrierEastFlank", flanks.RightStartX, flanks.RightEndX, barrierZ, flanks.Depth, flanks.Height, floorY)
+end
+
+local function createForestEntrance(parent, forestConfiguration)
+	local center = forestConfiguration.GroundCenter
+	local size = forestConfiguration.GroundSize
+	local entryZ
+	if forestConfiguration.ApproachFrom == "North" then
+		entryZ = center.Z + size.Z * 0.5 - 8
+	else
+		entryZ = center.Z - size.Z * 0.5 + 8
+	end
+
+	for _, offsetX in ipairs({ -19, 19 }) do
+		local post = createPart(
+			forestConfiguration.ForestId .. "EntrancePost",
+			Vector3.new(4, 12, 4),
+			CFrame.new(center.X + offsetX, 5.5, entryZ),
+			Color3.fromRGB(103, 76, 49),
+			Enum.Material.WoodPlanks,
+			parent
+		)
+		post.CanCollide = false
+		post.CanTouch = false
+		post.CanQuery = false
+		markWorldLayoutPart(post, "ForestEntranceFrame")
+		if forestConfiguration.Status == "Blockout" then
+			post:SetAttribute("FutureBarrierThreshold", true)
+			post:SetAttribute("BuildStatus", "Blockout")
+		end
+	end
+
+	local blockoutThreshold = forestConfiguration.Status == "Blockout"
+	local lintel = createPart(
+		forestConfiguration.ForestId .. "EntranceLintel",
+		Vector3.new(42, 2, 3),
+		CFrame.new(center.X, 12.5, entryZ),
+		if blockoutThreshold then Color3.fromRGB(181, 143, 66) else Color3.fromRGB(111, 80, 49),
+		Enum.Material.WoodPlanks,
+		parent
+	)
+	lintel.CanCollide = false
+	lintel.CanTouch = false
+	lintel.CanQuery = false
+	markWorldLayoutPart(lintel, "ForestEntranceFrame")
+	if blockoutThreshold then
+		lintel:SetAttribute("FutureBarrierThreshold", true)
+		lintel:SetAttribute("BuildStatus", "Blockout")
+		for _, face in ipairs({ Enum.NormalId.Front, Enum.NormalId.Back }) do
+			local surfaceGui = Instance.new("SurfaceGui")
+			surfaceGui.Name = "BlockoutLabel" .. face.Name
+			surfaceGui.Face = face
+			surfaceGui.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
+			surfaceGui.CanvasSize = Vector2.new(1200, 120)
+			surfaceGui.LightInfluence = 0
+			surfaceGui.AlwaysOnTop = false
+			surfaceGui.Parent = lintel
+
+			local label = Instance.new("TextLabel")
+			label.Name = "BlockoutText"
+			label.BackgroundTransparency = 1
+			label.Size = UDim2.fromScale(1, 1)
+			label.Font = Enum.Font.GothamBlack
+			label.Text = "BLOCKOUT"
+			label.TextColor3 = Color3.fromRGB(255, 226, 135)
+			label.TextScaled = true
+			label.TextStrokeTransparency = 0.5
+			label.Parent = surfaceGui
+		end
+	end
+end
+
+local function createForestEdgeBoulders(parent, forestConfiguration)
+	local center = forestConfiguration.GroundCenter
+	local size = forestConfiguration.GroundSize
+	local positions = {
+		Vector3.new(center.X - size.X * 0.5 + 10, 0, center.Z - size.Z * 0.5 + 10),
+		Vector3.new(center.X - size.X * 0.5 + 10, 0, center.Z + size.Z * 0.5 - 10),
+		Vector3.new(center.X + size.X * 0.5 - 10, 0, center.Z - size.Z * 0.5 + 10),
+		Vector3.new(center.X + size.X * 0.5 - 10, 0, center.Z + size.Z * 0.5 - 10),
+	}
+	for _, position in ipairs(positions) do
+		local boulder = createPart(
+			forestConfiguration.ForestId .. "EdgeBoulder",
+			Vector3.new(9, 6, 8),
+			CFrame.new(position.X, 2.5, position.Z),
+			Color3.fromRGB(91, 103, 91),
+			Enum.Material.Slate,
+			parent
+		)
+		boulder.CanCollide = false
+		boulder.CanTouch = false
+		boulder.CanQuery = false
+		markWorldLayoutPart(boulder, "ForestBoundaryProp")
+	end
+end
+
+local function createSign(parent, signConfiguration, approachFrom)
 	local x = signConfiguration.Position.X
 	local z = signConfiguration.Position.Z
-	local facesLeft = x > 0
-	local yaw = facesLeft and math.rad(90) or math.rad(-90)
+	-- Face the incoming player along the trail and label both board faces.
+	local yaw = approachFrom == "North" and math.rad(180) or 0
 	local boardCFrame = CFrame.new(x, 3.6, z) * CFrame.Angles(0, yaw, 0)
 	local board = createPart(
 		"TrailSignBoard",
@@ -75,30 +347,33 @@ local function createSign(parent, signConfiguration)
 	)
 	board:SetAttribute("WorldLayoutOwned", true)
 
-	local signFace = Instance.new("SurfaceGui")
-	signFace.Name = "SignFace"
-	signFace.Face = Enum.NormalId.Front
-	signFace.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
-	signFace.CanvasSize = Vector2.new(900, 260)
-	signFace.LightInfluence = 0
-	signFace.Parent = board
+	for _, face in ipairs({ Enum.NormalId.Front, Enum.NormalId.Back }) do
+		local signFace = Instance.new("SurfaceGui")
+		signFace.Name = "SignFace" .. face.Name
+		signFace.Face = face
+		signFace.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
+		signFace.CanvasSize = Vector2.new(900, 260)
+		signFace.LightInfluence = 0
+		signFace.AlwaysOnTop = false
+		signFace.Parent = board
 
-	local label = Instance.new("TextLabel")
-	label.Name = "Text"
-	label.BackgroundTransparency = 1
-	label.Size = UDim2.fromScale(1, 1)
-	label.Font = Enum.Font.GothamBold
-	label.Text = signConfiguration.Text
-	label.TextColor3 = Color3.fromRGB(255, 236, 190)
-	label.TextScaled = true
-	label.Parent = signFace
+		local label = Instance.new("TextLabel")
+		label.Name = "Text"
+		label.BackgroundTransparency = 1
+		label.Size = UDim2.fromScale(1, 1)
+		label.Font = Enum.Font.GothamBold
+		label.Text = signConfiguration.Text
+		label.TextColor3 = Color3.fromRGB(255, 236, 190)
+		label.TextScaled = true
+		label.Parent = signFace
+	end
 
-	local postZOffset = 5
-	for _, offset in ipairs({ -postZOffset, postZOffset }) do
+	local postXOffset = 5
+	for _, offset in ipairs({ -postXOffset, postXOffset }) do
 		local post = createPart(
 			"TrailSignPost",
 			Vector3.new(0.65, 3.4, 0.65),
-			CFrame.new(x, 1.15, z + offset),
+			CFrame.new(x + offset, 1.15, z),
 			Color3.fromRGB(95, 62, 38),
 			Enum.Material.Wood,
 			parent
@@ -489,6 +764,7 @@ local function buildWorld()
 	local terrain = createFolder("Terrain", root)
 	local pathFolder = createFolder("Path", root)
 	local forestRoot = createFolder("Forests", root)
+	local environment = createFolder("Environment", root)
 	root:SetAttribute("WorldLayoutOwned", true)
 	createHomeEconomyStation(root)
 	createAxeShopStation(root)
@@ -496,10 +772,29 @@ local function buildWorld()
 
 	createGround(
 		terrain,
-		Configuration.CONNECTOR_GROUND.Name,
-		Configuration.CONNECTOR_GROUND.Center,
-		Configuration.CONNECTOR_GROUND.Size
+		"WorldGround",
+		Configuration.WORLD_GROUND.Center,
+		Configuration.WORLD_GROUND.Size,
+		Configuration.GROUND_COLOR,
+		Configuration.GROUND_MATERIAL
 	)
+	createGround(
+		terrain,
+		"HubPlaza",
+		Configuration.HUB_GROUND.Center,
+		Configuration.HUB_GROUND.Size,
+		Configuration.HUB_GROUND.Color,
+		Configuration.HUB_GROUND.Material
+	)
+	createGround(
+		terrain,
+		Configuration.TURN_CLEARING.Name,
+		Configuration.TURN_CLEARING.Center,
+		Configuration.TURN_CLEARING.Size
+	)
+	createGroveDistrictFrame(environment)
+	createWorldBoundaries(environment)
+
 	for _, segment in ipairs(Configuration.PATH_SEGMENTS) do
 		createPath(pathFolder, segment)
 	end
@@ -508,13 +803,23 @@ local function buildWorld()
 	for _, forestConfiguration in ipairs(Configuration.FORESTS) do
 		local forestFolder = createFolder(forestConfiguration.Name, forestRoot)
 		forestFolder:SetAttribute("ForestId", forestConfiguration.ForestId)
+		if forestConfiguration.Status then
+			forestFolder:SetAttribute("BuildStatus", forestConfiguration.Status)
+		end
 		createGround(
 			forestFolder,
 			"ForestGround",
 			forestConfiguration.GroundCenter,
-			forestConfiguration.GroundSize
+			forestConfiguration.GroundSize,
+			forestConfiguration.GroundColor
 		)
-		createSign(forestFolder, forestConfiguration.Sign)
+		createForestEntrance(forestFolder, forestConfiguration)
+		-- Keep Forest1's approved Oaks and Forest2's trees clear of the perimeter;
+		-- reserved later footprints use noncolliding corner rocks for scale.
+		if #forestConfiguration.Trees == 0 then
+			createForestEdgeBoulders(forestFolder, forestConfiguration)
+		end
+		createSign(forestFolder, forestConfiguration.Sign, forestConfiguration.ApproachFrom)
 
 		for _, record in ipairs(forestConfiguration.Trees) do
 			local tree = spawnTreeRecord(forestFolder, forestConfiguration.ForestId, record)
