@@ -1,4 +1,4 @@
--- Source-owned coordinates for the first U-shaped World 1 blockout.
+-- Source-owned coordinates for World 1's two hub-connected forest corridors.
 -- ForestId values are consumed by existing tree interaction/progression services.
 local function makeTreeRecords(definitionId, positions)
 	local records = {}
@@ -58,7 +58,7 @@ local WorldLayoutConfiguration = {
 	PROCEDURAL_STARTER_OAKS_ENABLED = true,
 
 	ROOT_NAME = "SourceWorld",
-	VERSION = 8,
+	VERSION = 9,
 	STATION_USE_DISTANCES = STATION_USE_DISTANCES,
 
 	-- Surface steps stay small: support ground -0.56, forest/base -0.5,
@@ -77,10 +77,24 @@ local WorldLayoutConfiguration = {
 		},
 		{
 			Name = "HubApproach",
-			Route = "HubToForest1",
+			Route = "HubToCorridorFork",
 			Width = 18,
 			Start = Vector3.new(0, 0, 119),
+			End = Vector3.new(0, 0, 146),
+		},
+		{
+			Name = "WestFork",
+			Route = "HubToCorridorA",
+			Width = 18,
+			Start = Vector3.new(0, 0, 146),
 			End = Vector3.new(-68, 0, 146),
+		},
+		{
+			Name = "EastFork",
+			Route = "HubToCorridorB",
+			Width = 18,
+			Start = Vector3.new(0, 0, 146),
+			End = Vector3.new(68, 0, 146),
 		},
 		{
 			Name = "CorridorA",
@@ -90,18 +104,11 @@ local WorldLayoutConfiguration = {
 			End = Vector3.new(-68, 0, 824),
 		},
 		{
-			Name = "NorthernTurn",
-			Route = "Forests1To6",
-			Width = 18,
-			Start = Vector3.new(-68, 0, 824),
-			End = Vector3.new(68, 0, 824),
-		},
-		{
 			Name = "CorridorB",
 			Route = "Forests6To10",
 			Width = 18,
-			Start = Vector3.new(68, 0, 824),
-			End = Vector3.new(68, 0, 150),
+			Start = Vector3.new(68, 0, 146),
+			End = Vector3.new(68, 0, 824),
 		},
 	},
 
@@ -119,6 +126,14 @@ local WorldLayoutConfiguration = {
 		Color = Color3.fromRGB(132, 128, 113),
 		Material = Enum.Material.Slate,
 	},
+	STYLE_SAMPLES = {
+		Size = Vector3.new(22, 0.5, 18),
+		Pads = {
+			{ Name = "BrightSimulator", Style = "BrightSimulator", Center = Vector3.new(68, -0.75, 92) },
+			{ Name = "ChunkyBrick", Style = "ChunkyBrick", Center = Vector3.new(94, -0.75, 92) },
+			{ Name = "LightWhimsy", Style = "LightWhimsy", Center = Vector3.new(120, -0.75, 92) },
+		},
+	},
 
 	-- Low timber rails frame the existing U of player plots and leave its front
 	-- opening aligned with the original six-stud PlotLane.
@@ -134,19 +149,19 @@ local WorldLayoutConfiguration = {
 		},
 	},
 
-	-- Cliff runs enclose the two legs. The center ridge prevents Forest 1 access
-	-- from being bypassed into the return corridor; its northern gap is the U turn.
+	-- Cliff runs frame two parallel dead-end corridors. The central ridge begins
+	-- north of the shared hub fork and joins the north boundary, so Corridor B
+	-- cannot be used to walk around the Forest 1 -> Forest 2 barrier.
 	BOUNDARIES = {
 		WestX = -140,
 		EastX = 140,
 		SpineX = 0,
 		SideStartZ = 112,
 		SideEndZ = 852,
-		SpineStartZ = 140,
-		SpineEndZ = 812,
+		SpineStartZ = 160,
+		SpineEndZ = 852,
 		NorthZ = 852,
 		WorldEdge = 140,
-		ReturnClosureZ = 138,
 		WallHeight = 30,
 		WallThickness = 12,
 	},
@@ -236,11 +251,11 @@ local WorldLayoutConfiguration = {
 			ForestId = "Forest6",
 			Status = "Blockout",
 			Corridor = "B",
-			ApproachFrom = "North",
-			GroundCenter = Vector3.new(68, -0.75, 760),
+			ApproachFrom = "South",
+			GroundCenter = Vector3.new(68, -0.75, 200),
 			GroundSize = Vector3.new(110, 0.5, 104),
 			GroundColor = Color3.fromRGB(91, 135, 81),
-			Sign = { Text = "FOREST 6 - BLOCKOUT", Position = Vector3.new(95, 0, 778) },
+			Sign = { Text = "FOREST 6 - BLOCKOUT", Position = Vector3.new(95, 0, 184) },
 			Trees = {},
 		},
 		{
@@ -248,11 +263,11 @@ local WorldLayoutConfiguration = {
 			ForestId = "Forest7",
 			Status = "Blockout",
 			Corridor = "B",
-			ApproachFrom = "North",
-			GroundCenter = Vector3.new(68, -0.75, 620),
+			ApproachFrom = "South",
+			GroundCenter = Vector3.new(68, -0.75, 340),
 			GroundSize = Vector3.new(110, 0.5, 104),
 			GroundColor = Color3.fromRGB(90, 132, 78),
-			Sign = { Text = "FOREST 7 - BLOCKOUT", Position = Vector3.new(95, 0, 638) },
+			Sign = { Text = "FOREST 7 - BLOCKOUT", Position = Vector3.new(95, 0, 324) },
 			Trees = {},
 		},
 		{
@@ -260,11 +275,11 @@ local WorldLayoutConfiguration = {
 			ForestId = "Forest8",
 			Status = "Blockout",
 			Corridor = "B",
-			ApproachFrom = "North",
+			ApproachFrom = "South",
 			GroundCenter = Vector3.new(68, -0.75, 480),
 			GroundSize = Vector3.new(110, 0.5, 104),
 			GroundColor = Color3.fromRGB(92, 134, 79),
-			Sign = { Text = "FOREST 8 - BLOCKOUT", Position = Vector3.new(95, 0, 498) },
+			Sign = { Text = "FOREST 8 - BLOCKOUT", Position = Vector3.new(95, 0, 464) },
 			Trees = {},
 		},
 		{
@@ -272,11 +287,11 @@ local WorldLayoutConfiguration = {
 			ForestId = "Forest9",
 			Status = "Blockout",
 			Corridor = "B",
-			ApproachFrom = "North",
-			GroundCenter = Vector3.new(68, -0.75, 340),
+			ApproachFrom = "South",
+			GroundCenter = Vector3.new(68, -0.75, 620),
 			GroundSize = Vector3.new(110, 0.5, 104),
 			GroundColor = Color3.fromRGB(89, 131, 77),
-			Sign = { Text = "FOREST 9 - BLOCKOUT", Position = Vector3.new(95, 0, 358) },
+			Sign = { Text = "FOREST 9 - BLOCKOUT", Position = Vector3.new(95, 0, 604) },
 			Trees = {},
 		},
 		{
@@ -284,21 +299,13 @@ local WorldLayoutConfiguration = {
 			ForestId = "Forest10",
 			Status = "Blockout",
 			Corridor = "B",
-			ApproachFrom = "North",
-			GroundCenter = Vector3.new(68, -0.75, 200),
+			ApproachFrom = "South",
+			GroundCenter = Vector3.new(68, -0.75, 760),
 			GroundSize = Vector3.new(110, 0.5, 104),
 			GroundColor = Color3.fromRGB(94, 136, 81),
-			Sign = { Text = "FOREST 10 - BLOCKOUT", Position = Vector3.new(95, 0, 218) },
+			Sign = { Text = "FOREST 10 - BLOCKOUT", Position = Vector3.new(95, 0, 744) },
 			Trees = {},
 		},
-	},
-
-	-- U-shaped route turn clears both final forest footprints.
-	TURN_CLEARING = {
-		Name = "NorthernTurnGround",
-		-- Slightly below Forest5/6 pads; the Slate path rides 0.12 above it.
-		Center = Vector3.new(0, -0.77, 824),
-		Size = Vector3.new(158, 0.5, 24),
 	},
 
 	BARRIER = {

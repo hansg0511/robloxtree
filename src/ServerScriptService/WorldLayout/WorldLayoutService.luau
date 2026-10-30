@@ -3,6 +3,7 @@ local Workspace = game:GetService("Workspace")
 local TreeObject = require(game.ServerScriptService.Trees.TreeObject)
 local TreeDefinitions = require(game.ServerScriptService.Trees.TreeDefinitions)
 local Configuration = require(script.Parent.WorldLayoutConfiguration)
+local WorldStyleBaseline = require(script.Parent.WorldStyleBaseline)
 
 local WorldLayoutService = {}
 local spawnedTreesByRoot = {}
@@ -28,7 +29,7 @@ local function createPart(name, size, cframe, color, material, parent)
 	return part
 end
 
-local function createGround(parent, name, center, size, color, material)
+local function createGround(parent, name, center, size, color, material, styleRole)
 	local ground = createPart(
 		name,
 		size,
@@ -39,6 +40,7 @@ local function createGround(parent, name, center, size, color, material)
 	)
 	ground:SetAttribute("WorldLayoutOwned", true)
 	ground:SetAttribute("HarvestLandingSurface", true)
+	WorldStyleBaseline.ApplyGround(ground, styleRole or "WorldGround")
 	return ground
 end
 
@@ -69,6 +71,7 @@ local function createPath(parent, segment)
 	path:SetAttribute("WorldLayoutOwned", true)
 	path:SetAttribute("HarvestLandingSurface", true)
 	path:SetAttribute("Route", segment.Route or "World1")
+	WorldStyleBaseline.ApplyGround(path, "Path")
 	return path
 end
 
@@ -155,86 +158,6 @@ local function createGroveDistrictFrame(parent)
 			Vector3.new(run.EndX, 0, fences.FrontZ)
 		)
 	end
-end
-
-local ROCK_COLORS = {
-	Color3.fromRGB(80, 89, 84),
-	Color3.fromRGB(91, 99, 91),
-	Color3.fromRGB(73, 83, 80),
-}
-
-local function createZWallRun(parent, name, x, startZ, endZ, thickness, height, floorY)
-	local length = math.abs(endZ - startZ)
-	local direction = endZ >= startZ and 1 or -1
-	local segmentCount = math.max(1, math.ceil(length / 96))
-	local segmentLength = length / segmentCount
-	for index = 1, segmentCount do
-		local segmentStart = startZ + direction * (index - 1) * segmentLength
-		local segmentEnd = startZ + direction * index * segmentLength
-		local segmentHeight = height + ((index % 3) - 1) * 2
-		local wall = createPart(
-			name .. string.format("%02d", index),
-			Vector3.new(thickness, segmentHeight, segmentLength + 0.5),
-			CFrame.new(x, floorY + segmentHeight * 0.5, (segmentStart + segmentEnd) * 0.5),
-			ROCK_COLORS[((index - 1) % #ROCK_COLORS) + 1],
-			Enum.Material.Slate,
-			parent
-		)
-		markWorldLayoutPart(wall, "WorldBoundary")
-	end
-end
-
-local function createXWallRun(parent, name, startX, endX, z, thickness, height, floorY)
-	local length = math.abs(endX - startX)
-	local direction = endX >= startX and 1 or -1
-	local segmentCount = math.max(1, math.ceil(length / 96))
-	local segmentLength = length / segmentCount
-	for index = 1, segmentCount do
-		local segmentStart = startX + direction * (index - 1) * segmentLength
-		local segmentEnd = startX + direction * index * segmentLength
-		local segmentHeight = height + ((index % 3) - 1) * 2
-		local wall = createPart(
-			name .. string.format("%02d", index),
-			Vector3.new(segmentLength + 0.5, segmentHeight, thickness),
-			CFrame.new((segmentStart + segmentEnd) * 0.5, floorY + segmentHeight * 0.5, z),
-			ROCK_COLORS[((index - 1) % #ROCK_COLORS) + 1],
-			Enum.Material.Slate,
-			parent
-		)
-		markWorldLayoutPart(wall, "WorldBoundary")
-	end
-end
-
-local function createCrossWall(parent, name, startX, endX, z, depth, height, floorY)
-	local wall = createPart(
-		name,
-		Vector3.new(math.abs(endX - startX), height, depth),
-		CFrame.new((startX + endX) * 0.5, floorY + height * 0.5, z),
-		Color3.fromRGB(84, 92, 86),
-		Enum.Material.Slate,
-		parent
-	)
-	markWorldLayoutPart(wall, "WorldBoundary")
-	return wall
-end
-
-local function createWorldBoundaries(parent)
-	local boundaries = Configuration.BOUNDARIES
-	local worldGround = Configuration.WORLD_GROUND
-	local floorY = worldGround.Center.Y + worldGround.Size.Y * 0.5
-	local wallHeight = boundaries.WallHeight
-	local wallThickness = boundaries.WallThickness
-
-	createZWallRun(parent, "WestCliff", boundaries.WestX, boundaries.SideStartZ, boundaries.SideEndZ, wallThickness, wallHeight, floorY)
-	createZWallRun(parent, "EastCliff", boundaries.EastX, boundaries.SideStartZ, boundaries.SideEndZ, wallThickness, wallHeight, floorY)
-	createZWallRun(parent, "CentralRidge", boundaries.SpineX, boundaries.SpineStartZ, boundaries.SpineEndZ, wallThickness, wallHeight, floorY)
-	createXWallRun(parent, "NorthernCliff", boundaries.WestX, boundaries.EastX, boundaries.NorthZ, wallThickness, wallHeight, floorY)
-	createXWallRun(parent, "ReturnEndCliff", boundaries.SpineX, boundaries.EastX, boundaries.ReturnClosureZ, wallThickness, wallHeight, floorY)
-
-	local flanks = Configuration.BARRIER_FLANKS
-	local barrierZ = Configuration.BARRIER.Position.Z
-	createCrossWall(parent, "Forest2BarrierWestFlank", flanks.LeftStartX, flanks.LeftEndX, barrierZ, flanks.Depth, flanks.Height, floorY)
-	createCrossWall(parent, "Forest2BarrierEastFlank", flanks.RightStartX, flanks.RightEndX, barrierZ, flanks.Depth, flanks.Height, floorY)
 end
 
 local function createForestEntrance(parent, forestConfiguration)
@@ -747,6 +670,11 @@ local function destroyTreesForExistingRoot(existing)
 end
 
 local function buildWorld()
+	local baseGround = Workspace:FindFirstChild("BaseGround")
+	if baseGround and baseGround:IsA("BasePart") then
+		WorldStyleBaseline.ApplyGround(baseGround, "BaseGround")
+	end
+
 	local existing = Workspace:FindFirstChild(Configuration.ROOT_NAME)
 	local proceduralStarterOaksEnabled = Configuration.PROCEDURAL_STARTER_OAKS_ENABLED == true
 	if existing
@@ -776,7 +704,8 @@ local function buildWorld()
 		Configuration.WORLD_GROUND.Center,
 		Configuration.WORLD_GROUND.Size,
 		Configuration.GROUND_COLOR,
-		Configuration.GROUND_MATERIAL
+		Configuration.GROUND_MATERIAL,
+		"WorldGround"
 	)
 	createGround(
 		terrain,
@@ -784,16 +713,22 @@ local function buildWorld()
 		Configuration.HUB_GROUND.Center,
 		Configuration.HUB_GROUND.Size,
 		Configuration.HUB_GROUND.Color,
-		Configuration.HUB_GROUND.Material
-	)
-	createGround(
-		terrain,
-		Configuration.TURN_CLEARING.Name,
-		Configuration.TURN_CLEARING.Center,
-		Configuration.TURN_CLEARING.Size
+		Configuration.HUB_GROUND.Material,
+		"HubGround"
 	)
 	createGroveDistrictFrame(environment)
-	createWorldBoundaries(environment)
+	WorldStyleBaseline.CreateBoundaries(environment, Configuration)
+	WorldStyleBaseline.CreateSamples(environment, Configuration.STYLE_SAMPLES)
+	createSign(
+		environment,
+		{ Text = "<- FORESTS 1-5", Position = Vector3.new(-20, 0, 132) },
+		"South"
+	)
+	createSign(
+		environment,
+		{ Text = "-> FORESTS 6-10", Position = Vector3.new(20, 0, 132) },
+		"South"
+	)
 
 	for _, segment in ipairs(Configuration.PATH_SEGMENTS) do
 		createPath(pathFolder, segment)
@@ -811,7 +746,9 @@ local function buildWorld()
 			"ForestGround",
 			forestConfiguration.GroundCenter,
 			forestConfiguration.GroundSize,
-			forestConfiguration.GroundColor
+			forestConfiguration.GroundColor,
+			nil,
+			"ForestGround"
 		)
 		createForestEntrance(forestFolder, forestConfiguration)
 		-- Keep Forest1's approved Oaks and Forest2's trees clear of the perimeter;
