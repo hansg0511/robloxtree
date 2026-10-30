@@ -29,25 +29,23 @@ local PROTECTED_BARRIER_COLORS = {
 	Color3.fromRGB(150, 196, 125),
 }
 
--- Ordinary World 1 boundaries use smooth toy-like stone with grass-colored caps.
--- The stone peaks are cosmetic: the full-height wall remains the sole
--- collision barrier, so these variations cannot create steps or a bypass.
-local STONE_CORE_COLOR = Color3.fromRGB(100, 108, 112)
-local STONE_COURSE_COLORS = {
-	Color3.fromRGB(130, 137, 140),
-	Color3.fromRGB(116, 124, 128),
-	Color3.fromRGB(142, 148, 150),
-}
-local STONE_PEAK_COLORS = {
-	Color3.fromRGB(109, 117, 121),
-	Color3.fromRGB(121, 129, 132),
-	Color3.fromRGB(96, 104, 108),
+-- Ordinary World 1 cliffs use broad, collidable rectangular stone masses with
+-- grassy tops. A transparent continuous backstop sits behind the masses, so
+-- their visible fronts can step in and out without opening a route through.
+local STONE_CORE_COLOR = Color3.fromRGB(75, 83, 88)
+local STONE_MASS_COLORS = {
+	Color3.fromRGB(112, 120, 124),
+	Color3.fromRGB(101, 109, 113),
+	Color3.fromRGB(124, 131, 135),
+	Color3.fromRGB(91, 99, 103),
 }
 local GRASS_CAP_COLOR = Color3.fromRGB(100, 151, 79)
-local WALL_TOP_HEIGHTS = {
-	24, 24, 28, 28, 25, 24, 24, 29, 29, 26,
-	24, 24, 27, 27, 24, 24, 29, 29, 25, 24,
+local MASS_TOP_HEIGHTS = {
+	24, 28, 30, 25, 29, 27, 30, 26, 28,
+	24, 29, 27, 30, 26, 28, 25, 30, 27,
 }
+local MASS_DEPTH_RECESSES = { 0, 2, 6, 1, 4, 8, 3, 0, 7, 2 }
+local MASS_RUN_WIDTH_WEIGHTS = { 0.72, 1.15, 0.88, 1.24, 0.82, 1.08, 0.96, 1.15 }
 
 -- The existing forest entrances and trail signs share these World 1 accents.
 WorldStyleBaseline.WoodColors = BASELINE.WoodColors
@@ -171,174 +169,173 @@ local function markCosmeticBoundary(part)
 	return part
 end
 
-local function getPeakPhase(name)
+local function getMassPhase(name)
 	local phase = 0
 	for index = 1, #name do
-		phase = (phase + string.byte(name, index)) % #WALL_TOP_HEIGHTS
+		phase = (phase + string.byte(name, index)) % #MASS_TOP_HEIGHTS
 	end
 	return phase
 end
 
-local function getPeakHeight(index, phase, coreHeight)
-	local targetHeight = WALL_TOP_HEIGHTS[((index + phase - 1) % #WALL_TOP_HEIGHTS) + 1]
-	return math.max(0, targetHeight - coreHeight)
+local function getAxisSize(axis, depth, height, runLength)
+	if axis == "Z" then
+		return Vector3.new(depth, height, runLength)
+	end
+	return Vector3.new(runLength, height, depth)
 end
 
-local function createLayeredRunZ(parent, name, x, startZ, endZ, thickness, requestedHeight, floorY, interiorSide)
+local function getAxisCFrame(axis, normalCoordinate, y, runCoordinate)
+	if axis == "Z" then
+		return CFrame.new(normalCoordinate, y, runCoordinate)
+	end
+	return CFrame.new(runCoordinate, y, normalCoordinate)
+end
+
+local function createMassRun(parent, name, axis, coordinate, startCoordinate, endCoordinate, thickness, requestedHeight, floorY, interiorSide, forcedSolidInterval, forcedSolidSide)
+	local runLength = math.abs(endCoordinate - startCoordinate)
+	if runLength <= 0 then
+		return
+	end
+
+	local direction = endCoordinate >= startCoordinate and 1 or -1
+	local wallThickness = math.max(10, thickness or 12)
+	local maximumMassHeight = math.min(30, math.max(28, requestedHeight or 30))
+	local minimumMassHeight = math.max(24, maximumMassHeight - 6)
+	local capHeight = 0.8
+	local backstopHeight = minimumMassHeight - capHeight
+	local phase = getMassPhase(name)
+	local segmentCount = math.max(1, math.ceil(runLength / 35))
+	local segmentWeights = {}
+	local weightSum = 0
+	for index = 1, segmentCount do
+		local weightIndex = ((index + phase - 1) % #MASS_RUN_WIDTH_WEIGHTS) + 1
+		local weight = MASS_RUN_WIDTH_WEIGHTS[weightIndex]
+		segmentWeights[index] = weight
+		weightSum = weightSum + weight
+	end
+
+	local coreThickness
+	local coreCoordinate
+	local sides
+	if interiorSide == 0 then
+		coreThickness = math.max(3, wallThickness * 0.25)
+		coreCoordinate = coordinate
+		sides = { -1, 1 }
+	else
+		local side = interiorSide or 1
+		coreThickness = math.min(3, wallThickness)
+		coreCoordinate = coordinate - side * (wallThickness * 0.5 - coreThickness * 0.5)
+		sides = { side }
+	end
+
+	-- The transparent backstop stays behind the visible masses and reaches only
+	-- to the lowest visible cap, so it closes seams without making a flat face
+	-- or an unseen upper wall.
+	local backstop = createPart(
+		parent,
+		name .. "BackstopCore",
+		getAxisSize(axis, coreThickness, backstopHeight, runLength),
+		getAxisCFrame(axis, coreCoordinate, floorY + backstopHeight * 0.5, (startCoordinate + endCoordinate) * 0.5),
+		STONE_CORE_COLOR,
+		Enum.Material.SmoothPlastic
+	)
+	backstop.Transparency = 1
+	backstop.CanCollide = true
+	backstop.CanTouch = false
+	backstop.CanQuery = false
+	backstop.CastShadow = false
+	markBoundary(backstop)
+
+	local backstopCap = createPart(
+		parent,
+		name .. "BackstopGrass",
+		getAxisSize(axis, coreThickness, capHeight, runLength),
+		getAxisCFrame(axis, coreCoordinate, floorY + minimumMassHeight - capHeight * 0.5, (startCoordinate + endCoordinate) * 0.5),
+		GRASS_CAP_COLOR,
+		Enum.Material.SmoothPlastic
+	)
+	backstopCap.CanCollide = true
+	markBoundary(backstopCap)
+
+	local coveredRunLength = 0
+	for index = 1, segmentCount do
+		local segmentLength
+		if index == segmentCount then
+			segmentLength = runLength - coveredRunLength
+		else
+			segmentLength = runLength * segmentWeights[index] / weightSum
+		end
+		local segmentStart = startCoordinate + direction * coveredRunLength
+		local segmentEnd = startCoordinate + direction * (coveredRunLength + segmentLength)
+		local segmentCenter = (segmentStart + segmentEnd) * 0.5
+		-- Visible masses butt exactly; the continuous backstop closes their seams.
+		local massRunLength = segmentLength
+		local overlapsForcedSolidInterval = false
+		if axis == "Z" and type(forcedSolidInterval) == "table" then
+			local segmentLow = math.min(segmentStart, segmentEnd)
+			local segmentHigh = math.max(segmentStart, segmentEnd)
+			-- Inclusive comparisons also select sections that touch the gate interval.
+			overlapsForcedSolidInterval = segmentLow <= forcedSolidInterval.End
+				and segmentHigh >= forcedSolidInterval.Start
+		end
+
+		for sideIndex, side in ipairs(sides) do
+			local variant = ((index + phase + (sideIndex - 1) * 3 - 1) % #MASS_TOP_HEIGHTS) + 1
+			local massHeight = math.min(maximumMassHeight, math.max(minimumMassHeight, MASS_TOP_HEIGHTS[variant]))
+			local backstopFace = coreCoordinate + side * coreThickness * 0.5
+			local outerEnvelopeFace = coordinate + side * wallThickness * 0.5
+			local availableDepth = math.abs(outerEnvelopeFace - backstopFace)
+			local recessIndex = ((index + phase + (sideIndex - 1) * 5 - 1) % #MASS_DEPTH_RECESSES) + 1
+			local forceFullDepth = overlapsForcedSolidInterval
+				and (forcedSolidSide == nil or side == forcedSolidSide)
+			local recess = forceFullDepth and 0
+				or math.min(math.max(0, availableDepth - 1), MASS_DEPTH_RECESSES[recessIndex])
+			local massDepth = math.max(1, availableDepth - recess)
+			local massCenter = backstopFace + side * massDepth * 0.5
+			local massRunCenter = segmentCenter
+			local bodyHeight = massHeight - capHeight
+			local mass = createPart(
+				parent,
+				name .. string.format("%02dMass%d", index, sideIndex),
+				getAxisSize(axis, massDepth, bodyHeight, massRunLength),
+				getAxisCFrame(axis, massCenter, floorY + bodyHeight * 0.5, massRunCenter),
+				STONE_MASS_COLORS[((variant + sideIndex - 2) % #STONE_MASS_COLORS) + 1],
+				Enum.Material.SmoothPlastic
+			)
+			mass.CanCollide = true
+			markBoundary(mass)
+
+			local cap = createPart(
+				parent,
+				name .. string.format("%02dGrassCap%d", index, sideIndex),
+				getAxisSize(axis, massDepth, capHeight, massRunLength),
+				getAxisCFrame(axis, massCenter, floorY + massHeight - capHeight * 0.5, massRunCenter),
+				GRASS_CAP_COLOR,
+				Enum.Material.SmoothPlastic
+			)
+			cap.CanCollide = true
+			markBoundary(cap)
+		end
+		coveredRunLength = coveredRunLength + segmentLength
+	end
+end
+
+local function createLayeredRunZ(parent, name, x, startZ, endZ, thickness, requestedHeight, floorY, interiorSide, forcedSolidInterval, forcedSolidSide)
 	if type(x) ~= "number" or type(startZ) ~= "number" or type(endZ) ~= "number" then
 		return
 	end
-
-	local length = math.abs(endZ - startZ)
-	if length <= 0 then
-		return
-	end
-
-	local direction = endZ >= startZ and 1 or -1
-	local segmentCount = math.max(1, math.ceil(length / 28))
-	local segmentLength = length / segmentCount
-	local wallThickness = math.max(10, thickness or 12)
-	local nominalHeight = math.min(24, math.max(22, requestedHeight or 24))
-	local phase = getPeakPhase(name)
-	local sides = interiorSide == 0 and { -1, 1 } or { interiorSide or 1 }
-
-	for index = 1, segmentCount do
-		local segmentStart = startZ + direction * (index - 1) * segmentLength
-		local segmentEnd = startZ + direction * index * segmentLength
-		local centerZ = (segmentStart + segmentEnd) * 0.5
-		local coreHeight = math.min(25, nominalHeight + (index % 4) * 0.6)
-		local peakHeight = getPeakHeight(index, phase, coreHeight)
-		local core = createPart(
-			parent,
-			name .. string.format("%02dCore", index),
-			Vector3.new(wallThickness, coreHeight, segmentLength + 0.8),
-			CFrame.new(x, floorY + coreHeight * 0.5, centerZ),
-			STONE_CORE_COLOR,
-			Enum.Material.SmoothPlastic
-		)
-		core.CanCollide = true
-		markBoundary(core)
-
-		-- Face stones alternate between low and high courses along the run. The
-		-- overlapping core above is continuous even where these blocks have seams.
-		local courseHeight = index % 2 == 0 and 10.5 or 5.0
-		local courseOffset = index % 2 == 0 and -segmentLength * 0.05 or segmentLength * 0.05
-		for sideIndex, side in ipairs(sides) do
-			local course = createPart(
-				parent,
-				name .. string.format("%02dStoneCourse%d", index, sideIndex),
-				Vector3.new(0.5, 3.6, segmentLength * 0.82),
-				CFrame.new(x + side * (wallThickness * 0.5 + 0.12), floorY + courseHeight, centerZ + courseOffset),
-				STONE_COURSE_COLORS[((index + sideIndex - 2) % #STONE_COURSE_COLORS) + 1],
-				Enum.Material.SmoothPlastic
-			)
-			markCosmeticBoundary(course)
-		end
-
-		if peakHeight > 0 then
-			local extension = createPart(
-				parent,
-				name .. string.format("%02dStonePeak", index),
-				Vector3.new(wallThickness + 0.6, peakHeight + 0.8, segmentLength + 0.8),
-				CFrame.new(x, floorY + coreHeight + (peakHeight - 0.8) * 0.5, centerZ),
-				STONE_PEAK_COLORS[((index - 1) % #STONE_PEAK_COLORS) + 1],
-				Enum.Material.SmoothPlastic
-			)
-			markCosmeticBoundary(extension)
-		end
-
-		local capHeight = 0.8
-		local capTop = floorY + coreHeight + peakHeight + 0.05
-		local cap = createPart(
-			parent,
-			name .. string.format("%02dGrassCap", index),
-			Vector3.new(wallThickness + 2.4, capHeight, segmentLength + 0.8),
-			CFrame.new(x, capTop - capHeight * 0.5, centerZ),
-			GRASS_CAP_COLOR,
-			Enum.Material.SmoothPlastic
-		)
-		markCosmeticBoundary(cap)
-	end
+	createMassRun(parent, name, "Z", x, startZ, endZ, thickness, requestedHeight, floorY, interiorSide, forcedSolidInterval, forcedSolidSide)
 end
 
 local function createLayeredRunX(parent, name, startX, endX, z, thickness, requestedHeight, floorY, interiorSide)
 	if type(startX) ~= "number" or type(endX) ~= "number" or type(z) ~= "number" then
 		return
 	end
-
-	local length = math.abs(endX - startX)
-	if length <= 0 then
-		return
-	end
-
-	local direction = endX >= startX and 1 or -1
-	local segmentCount = math.max(1, math.ceil(length / 28))
-	local segmentLength = length / segmentCount
-	local wallThickness = math.max(10, thickness or 12)
-	local nominalHeight = math.min(24, math.max(22, requestedHeight or 24))
-	local phase = getPeakPhase(name)
-	local sides = interiorSide == 0 and { -1, 1 } or { interiorSide or 1 }
-
-	for index = 1, segmentCount do
-		local segmentStart = startX + direction * (index - 1) * segmentLength
-		local segmentEnd = startX + direction * index * segmentLength
-		local centerX = (segmentStart + segmentEnd) * 0.5
-		local coreHeight = math.min(25, nominalHeight + (index % 4) * 0.6)
-		local peakHeight = getPeakHeight(index, phase, coreHeight)
-		local core = createPart(
-			parent,
-			name .. string.format("%02dCore", index),
-			Vector3.new(segmentLength + 0.8, coreHeight, wallThickness),
-			CFrame.new(centerX, floorY + coreHeight * 0.5, z),
-			STONE_CORE_COLOR,
-			Enum.Material.SmoothPlastic
-		)
-		core.CanCollide = true
-		markBoundary(core)
-
-		local courseHeight = index % 2 == 0 and 10.5 or 5.0
-		local courseOffset = index % 2 == 0 and -segmentLength * 0.05 or segmentLength * 0.05
-		for sideIndex, side in ipairs(sides) do
-			local course = createPart(
-				parent,
-				name .. string.format("%02dStoneCourse%d", index, sideIndex),
-				Vector3.new(segmentLength * 0.82, 3.6, 0.5),
-				CFrame.new(centerX + courseOffset, floorY + courseHeight, z + side * (wallThickness * 0.5 + 0.12)),
-				STONE_COURSE_COLORS[((index + sideIndex - 2) % #STONE_COURSE_COLORS) + 1],
-				Enum.Material.SmoothPlastic
-			)
-			markCosmeticBoundary(course)
-		end
-
-		if peakHeight > 0 then
-			local extension = createPart(
-				parent,
-				name .. string.format("%02dStonePeak", index),
-				Vector3.new(segmentLength + 0.8, peakHeight + 0.8, wallThickness + 0.6),
-				CFrame.new(centerX, floorY + coreHeight + (peakHeight - 0.8) * 0.5, z),
-				STONE_PEAK_COLORS[((index - 1) % #STONE_PEAK_COLORS) + 1],
-				Enum.Material.SmoothPlastic
-			)
-			markCosmeticBoundary(extension)
-		end
-
-		local capHeight = 0.8
-		local capTop = floorY + coreHeight + peakHeight + 0.05
-		local cap = createPart(
-			parent,
-			name .. string.format("%02dGrassCap", index),
-			Vector3.new(segmentLength + 0.8, capHeight, wallThickness + 2.4),
-			CFrame.new(centerX, capTop - capHeight * 0.5, z),
-			GRASS_CAP_COLOR,
-			Enum.Material.SmoothPlastic
-		)
-		markCosmeticBoundary(cap)
-	end
+	createMassRun(parent, name, "X", z, startX, endX, thickness, requestedHeight, floorY, interiorSide)
 end
-
-local function createStyledRunZ(parent, name, x, startZ, endZ, thickness, requestedHeight, floorY, interiorSide, preserveBarrierStyle)
+local function createStyledRunZ(parent, name, x, startZ, endZ, thickness, requestedHeight, floorY, interiorSide, preserveBarrierStyle, forcedSolidInterval, forcedSolidSide)
 	if not preserveBarrierStyle then
-		createLayeredRunZ(parent, name, x, startZ, endZ, thickness, requestedHeight, floorY, interiorSide)
+		createLayeredRunZ(parent, name, x, startZ, endZ, thickness, requestedHeight, floorY, interiorSide, forcedSolidInterval, forcedSolidSide)
 		return
 	end
 
@@ -497,6 +494,37 @@ function WorldStyleBaseline.CreateBoundaries(parent, configuration)
 		return
 	end
 
+	local barrierFlanksForJoin = configuration.BARRIER_FLANKS
+	local barrierForJoin = configuration.BARRIER
+	local barrierZInterval
+	if type(barrierFlanksForJoin) == "table"
+		and type(barrierForJoin) == "table"
+		and barrierForJoin.Position
+	then
+		local barrierDepth = barrierForJoin.Depth
+		if type(barrierDepth) ~= "number" then
+			barrierDepth = barrierFlanksForJoin.Depth
+		end
+		if type(barrierDepth) == "number" and barrierDepth > 0 then
+			barrierZInterval = {
+				Start = barrierForJoin.Position.Z - barrierDepth * 0.5,
+				End = barrierForJoin.Position.Z + barrierDepth * 0.5,
+			}
+		end
+	end
+
+	local function getBarrierJoinSettings(runName)
+		if not barrierZInterval then
+			return nil, nil
+		end
+		if runName == "WestCliff" then
+			return barrierZInterval, nil
+		elseif runName == "CentralRidge" then
+			return barrierZInterval, -1
+		end
+		return nil, nil
+	end
+
 	local boundaries = configuration.BOUNDARIES
 	if type(boundaries) ~= "table" then
 		return
@@ -512,7 +540,9 @@ function WorldStyleBaseline.CreateBoundaries(parent, configuration)
 		for _, run in ipairs(boundaries.Runs) do
 			local runFloorY = run.FloorY or floorY
 			if run.Axis == "Z" then
-				createStyledRunZ(parent, run.Name or "WorldBoundary", run.Coordinate, run.Start, run.End, run.Thickness, run.Height, runFloorY, run.InteriorSide)
+				local runName = run.Name or "WorldBoundary"
+				local forcedSolidInterval, forcedSolidSide = getBarrierJoinSettings(runName)
+				createStyledRunZ(parent, runName, run.Coordinate, run.Start, run.End, run.Thickness, run.Height, runFloorY, run.InteriorSide, false, forcedSolidInterval, forcedSolidSide)
 			elseif run.Axis == "X" then
 				createStyledRunX(parent, run.Name or "WorldBoundary", run.Start, run.End, run.Coordinate, run.Thickness, run.Height, runFloorY, run.InteriorSide)
 			end
@@ -521,13 +551,15 @@ function WorldStyleBaseline.CreateBoundaries(parent, configuration)
 		local wallHeight = boundaries.WallHeight or 20
 		local wallThickness = boundaries.WallThickness or 12
 		if boundaries.WestX then
-			createStyledRunZ(parent, "WestCliff", boundaries.WestX, boundaries.SideStartZ, boundaries.SideEndZ, wallThickness, wallHeight, floorY, 1)
+			local forcedSolidInterval, forcedSolidSide = getBarrierJoinSettings("WestCliff")
+			createStyledRunZ(parent, "WestCliff", boundaries.WestX, boundaries.SideStartZ, boundaries.SideEndZ, wallThickness, wallHeight, floorY, 1, false, forcedSolidInterval, forcedSolidSide)
 		end
 		if boundaries.EastX then
 			createStyledRunZ(parent, "EastCliff", boundaries.EastX, boundaries.SideStartZ, boundaries.SideEndZ, wallThickness, wallHeight, floorY, -1)
 		end
 		if boundaries.SpineX then
-			createStyledRunZ(parent, "CentralRidge", boundaries.SpineX, boundaries.SpineStartZ, boundaries.SpineEndZ, wallThickness, wallHeight, floorY, 0)
+			local forcedSolidInterval, forcedSolidSide = getBarrierJoinSettings("CentralRidge")
+			createStyledRunZ(parent, "CentralRidge", boundaries.SpineX, boundaries.SpineStartZ, boundaries.SpineEndZ, wallThickness, wallHeight, floorY, 0, false, forcedSolidInterval, forcedSolidSide)
 		end
 		if boundaries.NorthZ and boundaries.WestX and boundaries.EastX then
 			createStyledRunX(parent, "NorthernCliff", boundaries.WestX, boundaries.EastX, boundaries.NorthZ, wallThickness, wallHeight, floorY, -1)
