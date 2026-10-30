@@ -4,6 +4,7 @@ local TreeObject = require(game.ServerScriptService.Trees.TreeObject)
 local TreeDefinitions = require(game.ServerScriptService.Trees.TreeDefinitions)
 local Configuration = require(script.Parent.WorldLayoutConfiguration)
 local WorldStyleBaseline = require(script.Parent.WorldStyleBaseline)
+local World1Dressing = require(script.Parent.World1Dressing)
 
 local WorldLayoutService = {}
 local spawnedTreesByRoot = {}
@@ -767,6 +768,7 @@ local function buildWorld()
 	local starterForest = forestRoot:FindFirstChild("StarterForest")
 	local barrier = spawnTreeRecord(starterForest, Configuration.BARRIER.ForestId, Configuration.BARRIER)
 	if barrier then table.insert(spawnedTrees, barrier) end
+	World1Dressing.Create(environment)
 	root:SetAttribute("WorldLayoutVersion", Configuration.VERSION)
 	root:SetAttribute("ProceduralStarterOaksEnabled", proceduralStarterOaksEnabled)
 	spawnedTreesByRoot[root] = spawnedTrees

@@ -29,6 +29,26 @@ local PROTECTED_BARRIER_COLORS = {
 	Color3.fromRGB(150, 196, 125),
 }
 
+-- Ordinary World 1 boundaries use smooth toy-like stone with grass-colored caps.
+-- The stone peaks are cosmetic: the full-height wall remains the sole
+-- collision barrier, so these variations cannot create steps or a bypass.
+local STONE_CORE_COLOR = Color3.fromRGB(100, 108, 112)
+local STONE_COURSE_COLORS = {
+	Color3.fromRGB(130, 137, 140),
+	Color3.fromRGB(116, 124, 128),
+	Color3.fromRGB(142, 148, 150),
+}
+local STONE_PEAK_COLORS = {
+	Color3.fromRGB(109, 117, 121),
+	Color3.fromRGB(121, 129, 132),
+	Color3.fromRGB(96, 104, 108),
+}
+local GRASS_CAP_COLOR = Color3.fromRGB(100, 151, 79)
+local WALL_TOP_HEIGHTS = {
+	24, 24, 28, 28, 25, 24, 24, 29, 29, 26,
+	24, 24, 27, 27, 24, 24, 29, 29, 25, 24,
+}
+
 -- The existing forest entrances and trail signs share these World 1 accents.
 WorldStyleBaseline.WoodColors = BASELINE.WoodColors
 
@@ -143,7 +163,185 @@ local function markBoundary(part)
 	return part
 end
 
+local function markCosmeticBoundary(part)
+	markBoundary(part)
+	part.CanCollide = false
+	part.CanTouch = false
+	part.CanQuery = false
+	return part
+end
+
+local function getPeakPhase(name)
+	local phase = 0
+	for index = 1, #name do
+		phase = (phase + string.byte(name, index)) % #WALL_TOP_HEIGHTS
+	end
+	return phase
+end
+
+local function getPeakHeight(index, phase, coreHeight)
+	local targetHeight = WALL_TOP_HEIGHTS[((index + phase - 1) % #WALL_TOP_HEIGHTS) + 1]
+	return math.max(0, targetHeight - coreHeight)
+end
+
+local function createLayeredRunZ(parent, name, x, startZ, endZ, thickness, requestedHeight, floorY, interiorSide)
+	if type(x) ~= "number" or type(startZ) ~= "number" or type(endZ) ~= "number" then
+		return
+	end
+
+	local length = math.abs(endZ - startZ)
+	if length <= 0 then
+		return
+	end
+
+	local direction = endZ >= startZ and 1 or -1
+	local segmentCount = math.max(1, math.ceil(length / 28))
+	local segmentLength = length / segmentCount
+	local wallThickness = math.max(10, thickness or 12)
+	local nominalHeight = math.min(24, math.max(22, requestedHeight or 24))
+	local phase = getPeakPhase(name)
+	local sides = interiorSide == 0 and { -1, 1 } or { interiorSide or 1 }
+
+	for index = 1, segmentCount do
+		local segmentStart = startZ + direction * (index - 1) * segmentLength
+		local segmentEnd = startZ + direction * index * segmentLength
+		local centerZ = (segmentStart + segmentEnd) * 0.5
+		local coreHeight = math.min(25, nominalHeight + (index % 4) * 0.6)
+		local peakHeight = getPeakHeight(index, phase, coreHeight)
+		local core = createPart(
+			parent,
+			name .. string.format("%02dCore", index),
+			Vector3.new(wallThickness, coreHeight, segmentLength + 0.8),
+			CFrame.new(x, floorY + coreHeight * 0.5, centerZ),
+			STONE_CORE_COLOR,
+			Enum.Material.SmoothPlastic
+		)
+		core.CanCollide = true
+		markBoundary(core)
+
+		-- Face stones alternate between low and high courses along the run. The
+		-- overlapping core above is continuous even where these blocks have seams.
+		local courseHeight = index % 2 == 0 and 10.5 or 5.0
+		local courseOffset = index % 2 == 0 and -segmentLength * 0.05 or segmentLength * 0.05
+		for sideIndex, side in ipairs(sides) do
+			local course = createPart(
+				parent,
+				name .. string.format("%02dStoneCourse%d", index, sideIndex),
+				Vector3.new(0.5, 3.6, segmentLength * 0.82),
+				CFrame.new(x + side * (wallThickness * 0.5 + 0.12), floorY + courseHeight, centerZ + courseOffset),
+				STONE_COURSE_COLORS[((index + sideIndex - 2) % #STONE_COURSE_COLORS) + 1],
+				Enum.Material.SmoothPlastic
+			)
+			markCosmeticBoundary(course)
+		end
+
+		if peakHeight > 0 then
+			local extension = createPart(
+				parent,
+				name .. string.format("%02dStonePeak", index),
+				Vector3.new(wallThickness + 0.6, peakHeight + 0.8, segmentLength + 0.8),
+				CFrame.new(x, floorY + coreHeight + (peakHeight - 0.8) * 0.5, centerZ),
+				STONE_PEAK_COLORS[((index - 1) % #STONE_PEAK_COLORS) + 1],
+				Enum.Material.SmoothPlastic
+			)
+			markCosmeticBoundary(extension)
+		end
+
+		local capHeight = 0.8
+		local capTop = floorY + coreHeight + peakHeight + 0.05
+		local cap = createPart(
+			parent,
+			name .. string.format("%02dGrassCap", index),
+			Vector3.new(wallThickness + 2.4, capHeight, segmentLength + 0.8),
+			CFrame.new(x, capTop - capHeight * 0.5, centerZ),
+			GRASS_CAP_COLOR,
+			Enum.Material.SmoothPlastic
+		)
+		markCosmeticBoundary(cap)
+	end
+end
+
+local function createLayeredRunX(parent, name, startX, endX, z, thickness, requestedHeight, floorY, interiorSide)
+	if type(startX) ~= "number" or type(endX) ~= "number" or type(z) ~= "number" then
+		return
+	end
+
+	local length = math.abs(endX - startX)
+	if length <= 0 then
+		return
+	end
+
+	local direction = endX >= startX and 1 or -1
+	local segmentCount = math.max(1, math.ceil(length / 28))
+	local segmentLength = length / segmentCount
+	local wallThickness = math.max(10, thickness or 12)
+	local nominalHeight = math.min(24, math.max(22, requestedHeight or 24))
+	local phase = getPeakPhase(name)
+	local sides = interiorSide == 0 and { -1, 1 } or { interiorSide or 1 }
+
+	for index = 1, segmentCount do
+		local segmentStart = startX + direction * (index - 1) * segmentLength
+		local segmentEnd = startX + direction * index * segmentLength
+		local centerX = (segmentStart + segmentEnd) * 0.5
+		local coreHeight = math.min(25, nominalHeight + (index % 4) * 0.6)
+		local peakHeight = getPeakHeight(index, phase, coreHeight)
+		local core = createPart(
+			parent,
+			name .. string.format("%02dCore", index),
+			Vector3.new(segmentLength + 0.8, coreHeight, wallThickness),
+			CFrame.new(centerX, floorY + coreHeight * 0.5, z),
+			STONE_CORE_COLOR,
+			Enum.Material.SmoothPlastic
+		)
+		core.CanCollide = true
+		markBoundary(core)
+
+		local courseHeight = index % 2 == 0 and 10.5 or 5.0
+		local courseOffset = index % 2 == 0 and -segmentLength * 0.05 or segmentLength * 0.05
+		for sideIndex, side in ipairs(sides) do
+			local course = createPart(
+				parent,
+				name .. string.format("%02dStoneCourse%d", index, sideIndex),
+				Vector3.new(segmentLength * 0.82, 3.6, 0.5),
+				CFrame.new(centerX + courseOffset, floorY + courseHeight, z + side * (wallThickness * 0.5 + 0.12)),
+				STONE_COURSE_COLORS[((index + sideIndex - 2) % #STONE_COURSE_COLORS) + 1],
+				Enum.Material.SmoothPlastic
+			)
+			markCosmeticBoundary(course)
+		end
+
+		if peakHeight > 0 then
+			local extension = createPart(
+				parent,
+				name .. string.format("%02dStonePeak", index),
+				Vector3.new(segmentLength + 0.8, peakHeight + 0.8, wallThickness + 0.6),
+				CFrame.new(centerX, floorY + coreHeight + (peakHeight - 0.8) * 0.5, z),
+				STONE_PEAK_COLORS[((index - 1) % #STONE_PEAK_COLORS) + 1],
+				Enum.Material.SmoothPlastic
+			)
+			markCosmeticBoundary(extension)
+		end
+
+		local capHeight = 0.8
+		local capTop = floorY + coreHeight + peakHeight + 0.05
+		local cap = createPart(
+			parent,
+			name .. string.format("%02dGrassCap", index),
+			Vector3.new(segmentLength + 0.8, capHeight, wallThickness + 2.4),
+			CFrame.new(centerX, capTop - capHeight * 0.5, z),
+			GRASS_CAP_COLOR,
+			Enum.Material.SmoothPlastic
+		)
+		markCosmeticBoundary(cap)
+	end
+end
+
 local function createStyledRunZ(parent, name, x, startZ, endZ, thickness, requestedHeight, floorY, interiorSide, preserveBarrierStyle)
+	if not preserveBarrierStyle then
+		createLayeredRunZ(parent, name, x, startZ, endZ, thickness, requestedHeight, floorY, interiorSide)
+		return
+	end
+
 	if type(x) ~= "number" or type(startZ) ~= "number" or type(endZ) ~= "number" then
 		return
 	end
@@ -218,6 +416,11 @@ local function createStyledRunZ(parent, name, x, startZ, endZ, thickness, reques
 end
 
 local function createStyledRunX(parent, name, startX, endX, z, thickness, requestedHeight, floorY, interiorSide, preserveBarrierStyle)
+	if not preserveBarrierStyle then
+		createLayeredRunX(parent, name, startX, endX, z, thickness, requestedHeight, floorY, interiorSide)
+		return
+	end
+
 	if type(startX) ~= "number" or type(endX) ~= "number" or type(z) ~= "number" then
 		return
 	end
