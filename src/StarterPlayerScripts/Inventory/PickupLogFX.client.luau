@@ -11,6 +11,7 @@ local localPlayer = Players.LocalPlayer
 local economyFolder = ReplicatedStorage:WaitForChild("Economy")
 local pickupFXRemote = economyFolder:WaitForChild("PickupLogFXRE")
 local CarryLayout = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("CarryLayout"))
+local OakLogAppearance = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("OakLogAppearance"))
 
 local FX_FOLDER_NAME = "ClientPickupLogFX"
 local SOUND_ID = "rbxassetid://140303363726378"
@@ -284,19 +285,23 @@ local function configurePart(part, name)
 	return part
 end
 
-local function createFlightVisual(startCFrame, barkColor, cutEndColor)
+local function createFlightVisual(startCFrame, barkColor, cutEndColor, speciesId)
 	local model = Instance.new("Model")
 	model.Name = "PickupLogFlight"
 
 	local body = configurePart(Instance.new("Part"), "Body")
 	body.Size = Vector3.new(CARRY_LOG_LENGTH, CARRY_LOG_DIAMETER, CARRY_LOG_DIAMETER)
 	body.Color = barkColor
-	body.TopSurface = Enum.SurfaceType.Studs
-	body.BottomSurface = Enum.SurfaceType.Inlet
-	body.FrontSurface = Enum.SurfaceType.Studs
-	body.BackSurface = Enum.SurfaceType.Studs
-	body.LeftSurface = Enum.SurfaceType.Studs
-	body.RightSurface = Enum.SurfaceType.Studs
+	if speciesId == "Oak" then
+		OakLogAppearance.SetSmoothSurfaces(body)
+	else
+		body.TopSurface = Enum.SurfaceType.Studs
+		body.BottomSurface = Enum.SurfaceType.Inlet
+		body.FrontSurface = Enum.SurfaceType.Studs
+		body.BackSurface = Enum.SurfaceType.Studs
+		body.LeftSurface = Enum.SurfaceType.Studs
+		body.RightSurface = Enum.SurfaceType.Studs
+	end
 	body.Parent = model
 
 	local caps = {}
@@ -305,14 +310,66 @@ local function createFlightVisual(startCFrame, barkColor, cutEndColor)
 		cap.Shape = Enum.PartType.Cylinder
 		cap.Size = Vector3.new(CARRY_CAP_THICKNESS, CARRY_LOG_DIAMETER * CARRY_CAP_DIAMETER_RATIO, CARRY_LOG_DIAMETER * CARRY_CAP_DIAMETER_RATIO)
 		cap.Color = cutEndColor
+		if speciesId == "Oak" then
+			OakLogAppearance.SetSmoothSurfaces(cap)
+		end
 		cap.Parent = model
 		caps[index] = cap
+	end
+
+	local barkAccents = {}
+	local barkAccentDefinitions = {}
+	local endGrain = {}
+	if speciesId == "Oak" then
+		local palette = OakLogAppearance.Palette
+		barkAccentDefinitions = OakLogAppearance.GetBarkStripDefinitions(
+			CARRY_LOG_LENGTH,
+			CARRY_LOG_DIAMETER,
+			1,
+			palette,
+			true
+		)
+		for index, definition in ipairs(barkAccentDefinitions) do
+			local accent = configurePart(Instance.new("Part"), definition.Name)
+			OakLogAppearance.SetSmoothSurfaces(accent)
+			accent.Size = definition.Size
+			accent.CFrame = CFrame.new(definition.Position)
+			accent.Color = definition.Color
+			accent.Parent = model
+			barkAccents[index] = accent
+		end
+
+		for index, direction in ipairs({ -1, 1 }) do
+			local rings = {}
+			local definitions = OakLogAppearance.GetEndGrainLayerDefinitions(
+				direction,
+				CARRY_LOG_LENGTH,
+				CARRY_LOG_DIAMETER,
+				1,
+				palette,
+				true
+			)
+			for ringIndex, definition in ipairs(definitions) do
+				local ring = configurePart(Instance.new("Part"), "CutEnd" .. index .. definition.Name)
+				OakLogAppearance.SetSmoothSurfaces(ring)
+				ring.Shape = Enum.PartType.Cylinder
+				ring.Size = definition.Size
+				ring.CFrame = CFrame.new(definition.Position)
+				ring.Color = definition.Color
+				ring.Parent = model
+				rings[ringIndex] = ring
+			end
+			endGrain[index] = {
+				Definitions = definitions,
+				Parts = rings,
+			}
+		end
 	end
 
 	model.PrimaryPart = body
 	model:PivotTo(startCFrame)
 	model.Parent = getFXFolder()
-	return model, body, caps
+	return model, body, caps, barkAccents, barkAccentDefinitions, endGrain
 end
 
 local function smoothStep(value)
@@ -332,11 +389,28 @@ local function setVisualTransform(flight, cframe, bodyLength, bodyDiameter, capT
 	flight.Body.Size = Vector3.new(bodyLength, bodyDiameter, bodyDiameter)
 	flight.Body.CFrame = cframe
 
+	local sizeScale = bodyDiameter / CARRY_LOG_DIAMETER
+	if #flight.BarkAccents > 0 then
+		for index, accent in ipairs(flight.BarkAccents) do
+			local definition = flight.BarkAccentDefinitions[index]
+			accent.Size = definition.Size * sizeScale
+			accent.CFrame = cframe * CFrame.new(definition.Position * sizeScale)
+		end
+	end
+
 	local capOffset = bodyLength * 0.5 - capThickness * 0.5
 	for index, cap in ipairs(flight.Caps) do
 		local direction = index == 1 and -1 or 1
 		cap.Size = Vector3.new(capThickness, capDiameter, capDiameter)
 		cap.CFrame = cframe * CFrame.new(direction * capOffset, 0, 0)
+	end
+
+	for _, endGrain in ipairs(flight.EndGrain) do
+		for index, ring in ipairs(endGrain.Parts) do
+			local definition = endGrain.Definitions[index]
+			ring.Size = definition.Size * sizeScale
+			ring.CFrame = cframe * CFrame.new(definition.Position * sizeScale)
+		end
 	end
 end
 
@@ -548,7 +622,12 @@ local function startHomingFlight(payload)
 	local barkColor = typeof(payload.BarkColor) == "Color3" and payload.BarkColor or Color3.fromRGB(115, 72, 42)
 	local cutEndColor = typeof(payload.CutEndColor) == "Color3" and payload.CutEndColor or Color3.fromRGB(190, 153, 105)
 	local sourceCFrame = payload.SourceCFrame
-	local model, body, caps = createFlightVisual(sourceCFrame, barkColor, cutEndColor)
+	local model, body, caps, barkAccents, barkAccentDefinitions, endGrain = createFlightVisual(
+		sourceCFrame,
+		barkColor,
+		cutEndColor,
+		payload.SpeciesId
+	)
 	local carryVisualScale = getPayloadNumber(payload, "CarryVisualScale", 1, 0.05, 4)
 	local groundToCarryScale = getPayloadNumber(payload, "GroundToCarryScale", GROUND_TO_CARRY_SCALE, 1, 8)
 	local expectedStartScale = carryVisualScale * groundToCarryScale
@@ -572,6 +651,9 @@ local function startHomingFlight(payload)
 		Model = model,
 		Body = body,
 		Caps = caps,
+		BarkAccents = barkAccents,
+		BarkAccentDefinitions = barkAccentDefinitions,
+		EndGrain = endGrain,
 		Owner = owner,
 		OwnerUserId = payload.OwnerUserId,
 		UID = payload.UID,

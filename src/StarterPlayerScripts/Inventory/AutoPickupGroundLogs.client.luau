@@ -4,6 +4,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
+local LogPickupBounds = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("LogPickupBounds"))
 
 local localPlayer = Players.LocalPlayer
 local pickupRemote = ReplicatedStorage:WaitForChild("Economy"):WaitForChild("PickupGroundLogRE")
@@ -88,7 +89,7 @@ end
 
 local function getDistanceToModelBounds(worldPosition, model)
 	local ok, boundsCFrame, boundsSize = pcall(function()
-		return model:GetBoundingBox()
+		return LogPickupBounds.GetBoundingBox(model)
 	end)
 	if not ok then return math.huge end
 	local localPosition = boundsCFrame:PointToObjectSpace(worldPosition)

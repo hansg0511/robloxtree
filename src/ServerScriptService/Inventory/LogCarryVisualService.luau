@@ -135,6 +135,22 @@ local function addWeld(part0, part1, name)
 	return weld
 end
 
+local function captureNestedPartOffsets(rootPart)
+	local offsets = {}
+	for _, descendant in ipairs(rootPart:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			offsets[descendant] = rootPart.CFrame:ToObjectSpace(descendant.CFrame)
+		end
+	end
+	return offsets
+end
+
+local function applyNestedPartOffsets(offsets, rootCFrame)
+	for part, relativeCFrame in pairs(offsets) do
+		part.CFrame = rootCFrame * relativeCFrame
+	end
+end
+
 local function createCargoAnchor(torso, model)
 	local anchor = Instance.new("Part")
 	anchor.Name = "CargoAnchor"
@@ -157,7 +173,9 @@ local function addLogVisual(model, anchor, logRecord, stackName, stackIndex, sta
 	end
 	local logCFrame = anchor.CFrame * slotCFrame
 	local body, caps = SpeciesVisuals.CreateCarryLogParts(logRecord)
+	local barkAccentOffsets = captureNestedPartOffsets(body)
 	body.CFrame = logCFrame
+	applyNestedPartOffsets(barkAccentOffsets, logCFrame)
 	body:SetAttribute("LogUID", logRecord.UID)
 	body:SetAttribute("CarryStack", stackName)
 	body:SetAttribute("CarryIndex", stackIndex)
@@ -169,9 +187,11 @@ local function addLogVisual(model, anchor, logRecord, stackName, stackIndex, sta
 	local capOffset = body.Size.X * 0.5 - caps[1].Size.X * 0.5
 	local capWelds = {}
 	for capIndex, cap in ipairs(caps) do
+		local cutDetailOffsets = captureNestedPartOffsets(cap)
 		local direction = capIndex == 1 and -1 or 1
 		local capRelativeCFrame = slotCFrame * CFrame.new(direction * capOffset, 0, 0)
 		cap.CFrame = anchor.CFrame * capRelativeCFrame
+		applyNestedPartOffsets(cutDetailOffsets, cap.CFrame)
 		cap:SetAttribute("LogUID", logRecord.UID)
 		cap:SetAttribute("CarryStack", stackName)
 		cap:SetAttribute("CarryIndex", stackIndex)

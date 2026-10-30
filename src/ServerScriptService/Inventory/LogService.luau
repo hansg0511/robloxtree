@@ -12,6 +12,7 @@ local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDef
 local SpeciesVisuals = require(game.ServerStorage:WaitForChild("SpeciesVisuals"))
 local BaseStationAccess = require(game.ServerScriptService.WorldLayout.BaseStationAccess)
 local LogCarryVisualService = require(game.ServerScriptService.Inventory.LogCarryVisualService)
+local LogPickupBounds = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("LogPickupBounds"))
 
 local LogService = {}
 local logsChangedEvent = Instance.new("BindableEvent")
@@ -146,7 +147,7 @@ local function debugPickupRejection(player, uid, reason)
 				local root = player and player.Character and player.Character:FindFirstChild("HumanoidRootPart")
 				if root and entry.Model then
 					local ok, boundsCFrame, boundsSize = pcall(function()
-						return entry.Model:GetBoundingBox()
+						return LogPickupBounds.GetBoundingBox(entry.Model)
 					end)
 					if ok then
 						local localPosition = boundsCFrame:PointToObjectSpace(root.Position)
@@ -180,7 +181,7 @@ local function getDistanceToModelBounds(worldPosition, model)
 		return math.huge
 	end
 	local ok, boundsCFrame, boundsSize = pcall(function()
-		return model:GetBoundingBox()
+		return LogPickupBounds.GetBoundingBox(model)
 	end)
 	if not ok then return math.huge end
 	local localPosition = boundsCFrame:PointToObjectSpace(worldPosition)

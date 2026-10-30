@@ -121,8 +121,9 @@ function FXService.GetTreeFallRotation(model, player)
 end
 
 local function shrinkAttachedLeaves(treeModel, duration)
+	local isProceduralOak = treeModel:GetAttribute("ProceduralStarterOak") == true
 	local folderNames = { "Leaves" }
-	if treeModel:GetAttribute("ProceduralStarterOak") == true then
+	if isProceduralOak then
 		table.insert(folderNames, "FoliageDecorations")
 		table.insert(folderNames, "DecorativeBranches")
 		table.insert(folderNames, "DecorativeBark")
@@ -134,7 +135,9 @@ local function shrinkAttachedLeaves(treeModel, duration)
 		local folder = treeModel:FindFirstChild(folderName)
 		if folder then
 			for _, descendant in ipairs(folder:GetDescendants()) do
-				if descendant:IsA("BasePart") and not seenParts[descendant] then
+				local isSurvivingBarkAccent = isProceduralOak
+					and descendant:GetAttribute("HarvestableBarkAccent") == true
+				if descendant:IsA("BasePart") and not isSurvivingBarkAccent and not seenParts[descendant] then
 					seenParts[descendant] = true
 					descendant.CanCollide = false
 					local size = descendant.Size

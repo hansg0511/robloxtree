@@ -424,6 +424,135 @@ local function makeProceduralHarvestSection(parent, index, bottom, top, thicknes
 	return section
 end
 
+local function isProceduralOakBarkAccent(part)
+	return part:IsA("Part")
+		and part.Shape == Enum.PartType.Block
+		and (string.match(part.Name, "^WarmBarkAccent%d+$") ~= nil
+			or string.match(part.Name, "^RecessedBarkAccent%d+$") ~= nil)
+end
+
+local function clearProceduralOakBarkJoints(part)
+	for _, descendant in ipairs(part:GetDescendants()) do
+		if descendant:IsA("WeldConstraint") or descendant:IsA("JointInstance") then
+			descendant:Destroy()
+		end
+	end
+end
+
+local function prepareProceduralOakBarkAccents(model, sections, coreHeight)
+	local barkFolder = model:FindFirstChild("DecorativeBark")
+	if not barkFolder or not barkFolder:IsA("Folder") or type(sections) ~= "table" then return end
+
+	local modelPivot = model:GetPivot()
+	local sectionRecords = table.create(#sections)
+	for index, section in ipairs(sections) do
+		local bottom = section:GetAttribute("CoreBottomY")
+		local top = section:GetAttribute("CoreTopY")
+		local anchor = section.PrimaryPart
+		if not anchor or not anchor:IsA("BasePart")
+			or not isFiniteNumber(bottom) or not isFiniteNumber(top)
+			or bottom < 0 or top > coreHeight or top <= bottom then
+			return
+		end
+		sectionRecords[index] = { Index = index, Model = section, Bottom = bottom, Top = top, Anchor = anchor }
+	end
+
+	local sourceAccents = {}
+	for _, descendant in ipairs(barkFolder:GetDescendants()) do
+		if isProceduralOakBarkAccent(descendant) then
+			table.insert(sourceAccents, descendant)
+		end
+	end
+
+	local tolerance = math.max(0.001, coreHeight * 1e-5)
+	for _, source in ipairs(sourceAccents) do
+		local sourceFrame = modelPivot:ToObjectSpace(source.CFrame)
+		local bottom = sourceFrame.Position.Y - source.Size.Y * 0.5
+		local top = sourceFrame.Position.Y + source.Size.Y * 0.5
+		if math.abs(sourceFrame.UpVector:Dot(Vector3.yAxis)) < 0.999
+			or source.Size.Y <= tolerance
+			or bottom < -tolerance
+			or top > coreHeight + tolerance then
+			continue
+		end
+
+		local intersections = {}
+		local coveredHeight = 0
+		for index, record in ipairs(sectionRecords) do
+			local segmentBottom = math.max(bottom, record.Bottom)
+			local segmentTop = math.min(top, record.Top)
+			if segmentTop - segmentBottom > tolerance * 0.01 then
+				local height = segmentTop - segmentBottom
+				table.insert(intersections, {
+					Index = index,
+					Record = record,
+					Bottom = segmentBottom,
+					Top = segmentTop,
+					Height = height,
+				})
+				coveredHeight += height
+			end
+		end
+		if #intersections == 0 or math.abs(coveredHeight - source.Size.Y) > tolerance then
+			continue
+		end
+
+		local pieces = {}
+		local canReuseSource = #intersections == 1
+			and math.abs(intersections[1].Bottom - bottom) <= tolerance
+			and math.abs(intersections[1].Top - top) <= tolerance
+		local piecesReady = true
+		for _, intersection in ipairs(intersections) do
+			local piece = source
+			if not canReuseSource then
+				local cloneOk, clone = pcall(function() return source:Clone() end)
+				if cloneOk then piece = clone else piece = nil end
+			end
+			if not piece or not piece:IsA("Part") then
+				piecesReady = false
+				break
+			end
+			if not canReuseSource then
+				piece.Name = source.Name .. "_Section" .. intersection.Index
+				piece.Size = Vector3.new(source.Size.X, intersection.Height, source.Size.Z)
+				piece.CFrame = modelPivot
+					* CFrame.new(sourceFrame.Position.X, (intersection.Bottom + intersection.Top) * 0.5, sourceFrame.Position.Z)
+					* sourceFrame.Rotation
+			end
+			table.insert(pieces, { Part = piece, Record = intersection.Record, IsSource = piece == source })
+		end
+
+		if not piecesReady then
+			for _, item in ipairs(pieces) do
+				if not item.IsSource then item.Part:Destroy() end
+			end
+			continue
+		end
+
+		for _, item in ipairs(pieces) do
+			local piece = item.Part
+			clearProceduralOakBarkJoints(piece)
+			piece.Anchored = false
+			piece.Massless = true
+			piece.CanCollide = false
+			piece.CanTouch = false
+			piece.CanQuery = false
+			piece:SetAttribute("HarvestSectionIndex", item.Record.Index)
+			piece:SetAttribute("SpeciesId", "Oak")
+			piece:SetAttribute("HarvestableBarkAccent", true)
+			piece.Parent = item.Record.Model
+
+			local weld = Instance.new("WeldConstraint")
+			weld.Name = "OakHarvestBarkWeld"
+			weld.Part0 = item.Record.Anchor
+			weld.Part1 = piece
+			weld.Parent = piece
+			item.Record.Model:SetAttribute("HasHarvestableBarkAccents", true)
+		end
+		if not canReuseSource then source:Destroy() end
+	end
+end
+
 local function prepareProceduralOakHarvestSections(model, rewardCount, seed, visualScale)
 	local root = model.PrimaryPart or model:FindFirstChild("OakRootCarrier", true)
 	local trunkStructure = model:FindFirstChild("TrunkStructure")
@@ -579,6 +708,7 @@ local function prepareProceduralOakHarvestSections(model, rewardCount, seed, vis
 			end
 		end
 	end
+	prepareProceduralOakBarkAccents(model, sections, coreHeight)
 	sectionFolder:SetAttribute("HarvestSectionCount", rewardCount)
 	model:SetAttribute("HarvestSectionCount", rewardCount)
 	return sections
