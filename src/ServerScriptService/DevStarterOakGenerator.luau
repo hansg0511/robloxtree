@@ -19,4 +19,4 @@ function DevStarterOakGenerator.Generate(seed, options)
 	return model
 end
 
-return DevStarterOakGeneratordiff --git a/src/ServerScriptService/Trees/StarterOakGenerator.luau b/src/ServerScriptService/Trees/StarterOakGenerator.luau
+return DevStarterOakGenerator
