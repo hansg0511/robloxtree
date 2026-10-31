@@ -44,6 +44,40 @@ local function makeOutline(center, radiusX, radiusZ, sideCount, phase)
 	return points, anchor
 end
 
+-- Keep most vertices close to the regular 12-side rhythm. Three controlled
+-- departures add asymmetry: two small radius shifts and one shallow notch.
+-- Small fixed angle offsets vary edge lengths without changing vertex order.
+local REFINED_RADIAL_SCALES = {
+	1.000, 1.035, 0.990, 1.020, 0.965, 0.800,
+	0.985, 1.060, 0.970, 1.025, 0.940, 1.020,
+}
+local REFINED_ANGLE_OFFSETS = {
+	0.0, 1.5, -1.2, 0.8, -2.0, 3.2,
+	-0.8, -3.4, 1.2, 2.1, -2.5, 0.5,
+}
+
+local function makeRefinedOutline(center, radiusX, radiusZ, sideCount, phase)
+	assert(sideCount == #REFINED_RADIAL_SCALES, "Refined mesa outline requires 12 sides")
+	local anchor = Vector3.new(
+		center.X + radiusX * 0.055,
+		0,
+		center.Z - radiusZ * 0.075
+	)
+	local points = table.create(sideCount)
+	for index = 1, sideCount do
+		local baseAngle = phase + (index - 1) * TAU / sideCount
+		local angle = baseAngle + math.rad(REFINED_ANGLE_OFFSETS[index])
+		local radius = REFINED_RADIAL_SCALES[index]
+		local shoulder = 1 + 0.012 * math.sin(baseAngle + phase * 0.5)
+		points[index] = anchor + Vector3.new(
+			math.cos(angle) * radiusX * radius,
+			0,
+			math.sin(angle) * radiusZ * radius * shoulder
+		)
+	end
+	return points, anchor
+end
+
 local function scaleOutline(points, anchor, scale)
 	local scaled = table.create(#points)
 	for index, point in ipairs(points) do
@@ -203,7 +237,7 @@ local function createLabel(parent, name, position, text, width)
 	return anchor
 end
 
-local function createFormation(parent, origin, name, config)
+local function createFormation(parent, origin, name, config, outlineFactory)
 	local formation = Instance.new("Model")
 	formation.Name = name
 	markModel(formation, config.Kind)
@@ -212,7 +246,7 @@ local function createFormation(parent, origin, name, config)
 	formation:SetAttribute("PeakHeight", config.TotalHeight)
 
 	local center = origin + Vector3.new(config.OffsetX or 0, 0, config.OffsetZ or 0)
-	local baseOutline, anchor = makeOutline(
+	local baseOutline, anchor = (outlineFactory or makeOutline)(
 		center,
 		config.RadiusX,
 		config.RadiusZ,
@@ -336,6 +370,52 @@ function MesaShapeShowcase.Create(parent, origin)
 	end
 	showcase.Parent = parent
 	return showcase
+end
+
+function MesaShapeShowcase.CreateRefinedPair(parent, origin)
+	assert(parent ~= nil, "MesaShapeShowcase.CreateRefinedPair requires a parent")
+	assert(typeof(origin) == "Vector3", "MesaShapeShowcase.CreateRefinedPair requires a Vector3 origin")
+
+	local comparison = Instance.new("Model")
+	comparison.Name = "MesaIrregularComparison"
+	markModel(comparison, "CleanVsRefined")
+	comparison:SetAttribute("SampleCount", 2)
+	comparison:SetAttribute("GeometricRhythmPercent", 70)
+
+	local shared = {
+		SideCount = 12,
+		NominalRadius = 16,
+		RadiusX = 16,
+		RadiusZ = 16,
+		Phase = 0.18,
+		TotalHeight = 22,
+		LabelWidth = 270,
+		Layers = {
+			{ Scale = 1, Height = 22, Color = Color3.fromRGB(105, 114, 118) },
+		},
+		CapScale = 0.93,
+	}
+	local clean = table.clone(shared)
+	clean.Name = "CleanPrismControl"
+	clean.Kind = "CleanPrismControl"
+	clean.Label = "CURRENT PRISM\n12 SIDES / SMOOTH RADIUS"
+	clean.OffsetX = -21
+	createFormation(comparison, origin, clean.Name, clean)
+
+	local refined = table.clone(shared)
+	refined.Name = "RefinedIrregularMesa"
+	refined.Kind = "RefinedIrregularMesa"
+	refined.Label = "REFINED MESA\n70% GEOMETRIC / NOTCH"
+	refined.OffsetX = 21
+	refined.Layers = {
+		{ Scale = 1, Height = 14, Color = Color3.fromRGB(105, 114, 118) },
+		{ Scale = 0.94, Height = 8, Color = Color3.fromRGB(105, 114, 118) },
+	}
+	refined.CapScale = 0.98
+	createFormation(comparison, origin, refined.Name, refined, makeRefinedOutline)
+
+	comparison.Parent = parent
+	return comparison
 end
 
 local function makeClusterConfig(name, kind, label, offsetX, offsetZ, radiusX, radiusZ, sideCount, phase, layers, capScale)

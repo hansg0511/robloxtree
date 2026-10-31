@@ -10,7 +10,8 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local GALLERY_NAME = "DevTreeGallery"
 local ROOT_NAME = "DevMesaShapeShowcase"
-local BUILD_VERSION = 1
+local BUILD_VERSION = 2
+local buildingGalleries = setmetatable({}, { __mode = "k" })
 
 -- Gallery-relative footprint. The extension's east edge meets the existing
 -- GalleryFloor at X=0; its Z span overlaps that floor so the walking surface
@@ -18,6 +19,7 @@ local BUILD_VERSION = 1
 local EXTENSION_SIZE = Vector3.new(360, 1, 240)
 local EXTENSION_CENTER_OFFSET = Vector3.new(-180, 0, 0)
 local COMPARISON_ORIGIN_OFFSET = Vector3.new(-180, 0, -40)
+local REFINED_PAIR_ORIGIN_OFFSET = Vector3.new(-180, 0, 3)
 local CLUSTER_ORIGIN_OFFSET = Vector3.new(-180, 0, 70)
 local WALKWAY_START_OFFSET = Vector3.new(20, 0, -78)
 local WALKWAY_END_OFFSET = Vector3.new(-68, 0, -78)
@@ -176,25 +178,31 @@ local function buildOnGallery(gallery)
 	if existingRoot and gallery:GetAttribute("MesaShapeShowcaseVersion") == BUILD_VERSION then
 		return
 	end
+	if buildingGalleries[gallery] then
+		return
+	end
+	buildingGalleries[gallery] = true
 	if existingRoot then
 		existingRoot:Destroy()
 	end
 
 	local floorTopY = existingFloor.Position.Y + existingFloor.Size.Y * 0.5
-	local root = Instance.new("Folder")
-	root.Name = ROOT_NAME
-	root:SetAttribute("DevOnly", true)
-	root:SetAttribute("VisualOnly", true)
-	root:SetAttribute("BuildStatus", "StudioPrototype")
-	root.Parent = gallery
-
+	local root
 	local ok, err = pcall(function()
+		root = Instance.new("Folder")
+		root.Name = ROOT_NAME
+		root:SetAttribute("DevOnly", true)
+		root:SetAttribute("VisualOnly", true)
+		root:SetAttribute("BuildStatus", "StudioPrototype")
+		root.Parent = gallery
+
 		local worldLayout = ServerScriptService:FindFirstChild("WorldLayout")
 		local moduleScript = worldLayout and worldLayout:FindFirstChild("MesaShapeShowcase")
 		assert(moduleScript and moduleScript:IsA("ModuleScript"),
 			"ServerScriptService.WorldLayout.MesaShapeShowcase ModuleScript is required")
 		local MesaShapeShowcase = require(moduleScript)
 		assert(type(MesaShapeShowcase.Create) == "function"
+			and type(MesaShapeShowcase.CreateRefinedPair) == "function"
 			and type(MesaShapeShowcase.CreateClusteredSegment) == "function",
 			"MesaShapeShowcase module is missing a required builder")
 
@@ -225,6 +233,13 @@ local function buildOnGallery(gallery)
 		local comparison = MesaShapeShowcase.Create(samples, Vector3.new(comparisonOrigin.X, floorTopY, comparisonOrigin.Z))
 		validateVisualModel(comparison, extensionFloor)
 
+		local refinedPairOrigin = galleryOrigin + REFINED_PAIR_ORIGIN_OFFSET
+		local refinedPair = MesaShapeShowcase.CreateRefinedPair(
+			samples,
+			Vector3.new(refinedPairOrigin.X, floorTopY, refinedPairOrigin.Z)
+		)
+		validateVisualModel(refinedPair, extensionFloor)
+
 		local clusterOrigin = galleryOrigin + CLUSTER_ORIGIN_OFFSET
 		local cluster = MesaShapeShowcase.CreateClusteredSegment(
 			samples,
@@ -234,12 +249,16 @@ local function buildOnGallery(gallery)
 	end)
 
 	if not ok then
-		root:Destroy()
+		if root then
+			root:Destroy()
+		end
+		buildingGalleries[gallery] = nil
 		warn("[DevMesaShowcase] Could not build the Studio gallery extension: " .. tostring(err))
 		return
 	end
 
 	gallery:SetAttribute("MesaShapeShowcaseVersion", BUILD_VERSION)
+	buildingGalleries[gallery] = nil
 end
 
 -- Listen before checking the current Workspace so both startup orders work.
