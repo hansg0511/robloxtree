@@ -379,6 +379,7 @@ function MesaShapeShowcase.CreateRefinedPair(parent, origin)
 	local comparison = Instance.new("Model")
 	comparison.Name = "MesaIrregularComparison"
 	markModel(comparison, "CleanVsRefined")
+	comparison.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
 	comparison:SetAttribute("SampleCount", 2)
 	comparison:SetAttribute("GeometricRhythmPercent", 70)
 

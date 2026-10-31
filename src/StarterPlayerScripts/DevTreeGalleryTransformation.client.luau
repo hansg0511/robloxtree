@@ -29,7 +29,7 @@ local CONFIG = {
 local sessionsByPlayground = setmetatable({}, { __mode = "k" })
 local sessionsBySectionPrompt = setmetatable({}, { __mode = "k" })
 local controlsByPlayground = setmetatable({}, { __mode = "k" })
-local controlsSetup = setmetatable({}, { __mode = "k" })
+local showcaseAttributeWatchers = setmetatable({}, { __mode = "k" })
 local startingByPlayground = setmetatable({}, { __mode = "k" })
 local galleryConnections = setmetatable({}, { __mode = "k" })
 local carrySlotOwners = {}
@@ -1304,22 +1304,23 @@ local function makeControl(folder, position, action, title)
 	label.Parent = billboard
 	return label
 end
-local function setupControls(playground)
-	if not playground or not playground.Parent or controlsSetup[playground] then return end
-	local existingControls = controlsByPlayground[playground]
-	if existingControls and existingControls.folder.Parent then return end
+local function removeShowcaseControls(playground)
+	local candidate = controlsByPlayground[playground]
+	if candidate then
+		if candidate.folder and candidate.folder.Parent then candidate.folder:Destroy() end
+		controlsByPlayground[playground] = nil
+	end
+end
+
+local function setupControls(playground, slot)
+	if not playground or not playground.Parent then return end
+	if playground:GetAttribute("DevHarvestShowcase") ~= true then return end
 	local gallery = Workspace:FindFirstChild("DevTreeGallery")
 	if not gallery or not playground:IsDescendantOf(gallery) then return end
-	local token = { cancelled = false, gallery = gallery }
-	controlsSetup[playground] = token
-	local slot, slotError = waitForChild(playground, "DemoSlot", CONFIG.StreamingTimeout, token, "BasePart")
-	if controlsSetup[playground] == token then controlsSetup[playground] = nil end
-	if token.cancelled or not playground:IsDescendantOf(gallery) or not slot then
-		if not token.cancelled and playground:IsDescendantOf(gallery) and slotError then
-			warn("[DevTreeGallery] Showcase controls unavailable: " .. slotError)
-		end
-		return
-	end
+	if not slot or slot.Parent ~= playground or not slot:IsA("BasePart") then return end
+	local existingControls = controlsByPlayground[playground]
+	if existingControls and existingControls.folder.Parent and existingControls.slot == slot then return end
+	if existingControls then removeShowcaseControls(playground) end
 	local folder = Instance.new("Folder")
 	folder.Name, folder.Parent = "ClientShowcaseControls", playground
 	-- Keep controls outside the fall prompt's radius and apart from each other.
@@ -1340,7 +1341,8 @@ local function setupControls(playground)
 	statusLabel.Size, statusLabel.Font = UDim2.fromScale(1, 1), Enum.Font.GothamBold
 	statusLabel.TextColor3, statusLabel.TextScaled = Color3.new(1, 1, 1), true
 	statusLabel.Parent = billboard
-	local playgroundControls = { playground = playground, folder = folder, labels = { Backpack = backpack, Overflow = overflow }, status = statusLabel }
+	local playgroundControls = { playground = playground, slot = slot, folder = folder,
+		labels = { Backpack = backpack, Overflow = overflow }, status = statusLabel }
 	controlsByPlayground[playground] = playgroundControls
 	updateControls()
 	if playground:GetAttribute("GeneratedStarterOak") == true
@@ -1356,29 +1358,78 @@ local function setupControls(playground)
 	end
 end
 
-local function discardShowcaseControls(playground)
-	local setupToken = controlsSetup[playground]
-	if setupToken then setupToken.cancelled = true; controlsSetup[playground] = nil end
-	if sessionsByPlayground[playground] or startingByPlayground[playground] then reset(playground) end
-	local candidate = controlsByPlayground[playground]
-	if candidate then
-		if candidate.folder and candidate.folder.Parent then candidate.folder:Destroy() end
-		controlsByPlayground[playground] = nil
+local function removeControlsForSlot(slot)
+	for playground, candidate in pairs(controlsByPlayground) do
+		if candidate.slot == slot then
+			removeShowcaseControls(playground)
+			return
+		end
 	end
+end
+
+local function stopWatchingShowcaseAttribute(playground)
+	local watcher = showcaseAttributeWatchers[playground]
+	if watcher then
+		watcher.Connection:Disconnect()
+		showcaseAttributeWatchers[playground] = nil
+	end
+end
+
+local function discardShowcaseControls(playground)
+	stopWatchingShowcaseAttribute(playground)
+	if sessionsByPlayground[playground] or startingByPlayground[playground] then reset(playground) end
+	removeShowcaseControls(playground)
 end
 
 local function setupGallery(gallery)
 	if not gallery or galleryConnections[gallery] then return end
+	local function trySetupControls(playground, slot)
+		if not playground then return end
+		if not playground.Parent then
+			stopWatchingShowcaseAttribute(playground)
+			return
+		end
+		if not playground:IsDescendantOf(gallery) then
+			stopWatchingShowcaseAttribute(playground)
+			return
+		end
+		if playground:GetAttribute("DevHarvestShowcase") == true then
+			stopWatchingShowcaseAttribute(playground)
+			if slot and slot.Parent == playground and slot.Name == "DemoSlot" and slot:IsA("BasePart") then
+				setupControls(playground, slot)
+			end
+			return
+		end
+		local existingWatcher = showcaseAttributeWatchers[playground]
+		if existingWatcher then
+			if slot and slot.Parent == playground and slot.Name == "DemoSlot" and slot:IsA("BasePart") then
+				existingWatcher.Slot = slot
+			end
+			return
+		end
+		local watcher = { Gallery = gallery, Slot = slot }
+		showcaseAttributeWatchers[playground] = watcher
+		watcher.Connection = playground:GetAttributeChangedSignal("DevHarvestShowcase"):Connect(function()
+			trySetupControls(playground, watcher.Slot)
+		end)
+		-- Close the gap between checking the attribute and connecting its signal.
+		if playground:GetAttribute("DevHarvestShowcase") == true then trySetupControls(playground, watcher.Slot) end
+	end
 	local function consider(instance)
-		if instance:GetAttribute("DevHarvestShowcase") == true then
-			task.spawn(setupControls, instance)
-		elseif instance.Name == "DemoSlot" and instance.Parent
-			and instance.Parent:GetAttribute("DevHarvestShowcase") == true then
-			task.spawn(setupControls, instance.Parent)
+		if instance.Name == "DemoSlot" and instance:IsA("BasePart") and instance.Parent then
+			trySetupControls(instance.Parent, instance)
 		end
 	end
 	local function remove(instance)
-		if instance:GetAttribute("DevHarvestShowcase") == true then
+		if instance.Name == "DemoSlot" and instance:IsA("BasePart") then
+			-- The marker can stream independently of the playground. Remove only
+			-- its local controls; an active preview session owns its own cleanup.
+			removeControlsForSlot(instance)
+		elseif instance:GetAttribute("DevHarvestShowcase") == true
+			or showcaseAttributeWatchers[instance]
+			or controlsByPlayground[instance]
+			or sessionsByPlayground[instance]
+			or startingByPlayground[instance] then
 			discardShowcaseControls(instance)
 		end
 	end
@@ -1394,8 +1445,10 @@ local function setupGallery(gallery)
 			galleryConnections[gallery] = nil
 		end
 		local affectedPlaygrounds = {}
-		for playground, token in pairs(controlsSetup) do
-			if token.gallery == gallery then table.insert(affectedPlaygrounds, playground) end
+		for playground, watcher in pairs(showcaseAttributeWatchers) do
+			if watcher.Gallery == gallery and not table.find(affectedPlaygrounds, playground) then
+				table.insert(affectedPlaygrounds, playground)
+			end
 		end
 		for playground, s in pairs(sessionsByPlayground) do
 			if s.gallery == gallery and not table.find(affectedPlaygrounds, playground) then
