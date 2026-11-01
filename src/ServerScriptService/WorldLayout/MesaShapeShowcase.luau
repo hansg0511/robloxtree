@@ -1,17 +1,16 @@
--- Static comparison pieces for the cliff-shape study.
+-- Static, reference-inspired mesa samples for the Studio gallery.
 --
--- Each footprint is a 10-16-sided polygon, filled as a fan of triangles.
--- Every triangle is split at its altitude into two right triangles, then
--- represented by upright WedgeParts. This uses built-in Roblox geometry at
--- runtime and does not depend on uploaded meshes or EditableMesh.
--- Keep this preview in the dev gallery: an exact 10-14 side prism costs about
--- two WedgeParts per side for every stone tier and its fitted grass cap.
+-- The geometry is original: layered stone strata, restrained polygon
+-- irregularity, and fitted green caps are generated from parameters rather
+-- than copied from any Workspace asset. Each footprint is filled with
+-- built-in WedgeParts and does not require uploaded meshes or EditableMesh.
 local MesaShapeShowcase = {}
 
 local TAU = math.pi * 2
 local VERTICAL_EPSILON = 1e-4
 local CAP_THICKNESS = 0.28
 local CAP_OVERLAP = 0.06
+local LAYER_OVERLAP = 0.025
 
 local STONE_MATERIAL = Enum.Material.SmoothPlastic
 local GRASS_MATERIAL = Enum.Material.SmoothPlastic
@@ -44,16 +43,70 @@ local function makeOutline(center, radiusX, radiusZ, sideCount, phase)
 	return points, anchor
 end
 
--- Keep most vertices close to the regular 12-side rhythm. Three controlled
--- departures add asymmetry: two small radius shifts and one shallow notch.
--- Small fixed angle offsets vary edge lengths without changing vertex order.
+local IRREGULAR_RADIAL_SCALES_10 = {
+	1.000, 1.045, 0.965, 1.075, 0.930, 0.995, 1.105, 0.940, 1.030, 0.890,
+}
+local IRREGULAR_ANGLE_OFFSETS_10 = {
+	0.0, 2.8, -1.6, 3.6, -3.1, 1.1, -3.8, 2.4, -1.3, 3.0,
+}
+local IRREGULAR_RADIAL_SCALES_12 = {
+	1.000, 1.035, 0.970, 1.060, 0.940, 0.880,
+	0.990, 1.090, 0.930, 1.030, 0.900, 1.020,
+}
+local IRREGULAR_ANGLE_OFFSETS_12 = {
+	0.0, 2.5, -1.7, 3.4, -2.5, 3.8,
+	-1.1, -3.2, 1.5, 2.8, -2.2, 0.6,
+}
+local UPPER_PROFILE_SCALES_10 = {
+	1.02, 0.97, 1.04, 0.95, 1.01, 0.96, 1.03, 0.94, 1.02, 0.97,
+}
+local UPPER_PROFILE_SCALES_12 = {
+	1.02, 0.98, 1.03, 0.96, 1.04, 0.96,
+	0.99, 1.03, 0.95, 1.04, 0.97, 1.01,
+}
+
+local function makeIrregularOutline(center, radiusX, radiusZ, sideCount, phase)
+	local radialScales
+	local angleOffsets
+	if sideCount == 10 then
+		radialScales = IRREGULAR_RADIAL_SCALES_10
+		angleOffsets = IRREGULAR_ANGLE_OFFSETS_10
+	elseif sideCount == 12 then
+		radialScales = IRREGULAR_RADIAL_SCALES_12
+		angleOffsets = IRREGULAR_ANGLE_OFFSETS_12
+	else
+		return makeOutline(center, radiusX, radiusZ, sideCount, phase)
+	end
+
+	local anchor = Vector3.new(
+		center.X + radiusX * 0.055,
+		0,
+		center.Z - radiusZ * 0.075
+	)
+	local points = table.create(sideCount)
+	for index = 1, sideCount do
+		local baseAngle = phase + (index - 1) * TAU / sideCount
+		local angle = baseAngle + math.rad(angleOffsets[index])
+		local radius = radialScales[index]
+		local shoulder = 1 + 0.012 * math.sin(baseAngle + phase * 0.5)
+		points[index] = anchor + Vector3.new(
+			math.cos(angle) * radiusX * radius,
+			0,
+			math.sin(angle) * radiusZ * radius * shoulder
+		)
+	end
+	return points, anchor
+end
+
+-- Keep most vertices close to the regular 12-side rhythm. Small fixed
+-- offsets create a few asymmetric shoulders and a shallow notch.
 local REFINED_RADIAL_SCALES = {
-	1.000, 1.035, 0.990, 1.020, 0.965, 0.800,
-	0.985, 1.060, 0.970, 1.025, 0.940, 1.020,
+	1.000, 1.040, 0.970, 1.070, 0.940, 0.870,
+	0.990, 1.100, 0.930, 1.030, 0.900, 1.020,
 }
 local REFINED_ANGLE_OFFSETS = {
-	0.0, 1.5, -1.2, 0.8, -2.0, 3.2,
-	-0.8, -3.4, 1.2, 2.1, -2.5, 0.5,
+	0.0, 2.8, -2.1, 3.6, -3.2, 4.0,
+	-1.2, -3.4, 1.8, 2.9, -2.5, 0.7,
 }
 
 local function makeRefinedOutline(center, radiusX, radiusZ, sideCount, phase)
@@ -78,12 +131,40 @@ local function makeRefinedOutline(center, radiusX, radiusZ, sideCount, phase)
 	return points, anchor
 end
 
-local function scaleOutline(points, anchor, scale)
+local function makeLayerOutline(points, anchor, layer)
+	local center = anchor + Vector3.new(layer.OffsetX or 0, 0, layer.OffsetZ or 0)
 	local scaled = table.create(#points)
+	assert(not layer.VertexScales or #layer.VertexScales == #points,
+		"Layer vertex-scale count must match the footprint side count")
 	for index, point in ipairs(points) do
-		scaled[index] = anchor + (point - anchor) * scale
+		local vertexScale = if layer.VertexScales then layer.VertexScales[index] else 1
+		scaled[index] = center + (point - anchor) * (layer.Scale * vertexScale)
 	end
-	return scaled
+	return scaled, center
+end
+
+local function makeCapOutline(points, anchor, scale, phase, variation)
+	local cap = table.create(#points)
+	for index, point in ipairs(points) do
+		local radial = point - anchor
+		local angle = math.atan2(radial.Z, radial.X)
+		local fittedScale = scale * (1 + variation * math.sin(2 * angle + phase * 1.7))
+		cap[index] = anchor + radial * fittedScale
+	end
+	return cap
+end
+
+local function shadeColor(color, factor)
+	return Color3.new(
+		math.clamp(color.R * factor, 0, 1),
+		math.clamp(color.G * factor, 0, 1),
+		math.clamp(color.B * factor, 0, 1)
+	)
+end
+
+local function facetColor(color, sideIndex)
+	local factors = { 0.96, 1.025, 0.985, 1.045, 0.97, 1.01 }
+	return shadeColor(color, factors[(sideIndex - 1) % #factors + 1])
 end
 
 local function stylePart(part, color, material, name)
@@ -157,19 +238,27 @@ local function createTrianglePrism(parent, name, pA, pB, pC, bottomY, height, co
 	local baseDirection = horizontal(triangle.BaseB - triangle.BaseA)
 	local baseLengthSquared = baseDirection:Dot(baseDirection)
 	if baseLengthSquared <= VERTICAL_EPSILON then
-		return
+		return 0
 	end
 	local projection = horizontal(triangle.Apex - triangle.BaseA):Dot(baseDirection) / baseLengthSquared
 	local foot = triangle.BaseA + baseDirection * math.clamp(projection, 0, 1)
 
-	makeWedge(parent, name .. "_A", foot, triangle.Apex, triangle.BaseA, bottomY, height, color, material)
-	makeWedge(parent, name .. "_B", foot, triangle.Apex, triangle.BaseB, bottomY, height, color, material)
+	local partCount = 0
+	if makeWedge(parent, name .. "_A", foot, triangle.Apex, triangle.BaseA, bottomY, height, color, material) then
+		partCount += 1
+	end
+	if makeWedge(parent, name .. "_B", foot, triangle.Apex, triangle.BaseB, bottomY, height, color, material) then
+		partCount += 1
+	end
+	return partCount
 end
 
-local function createPolygonPrism(parent, name, points, interiorAnchor, bottomY, height, color, material)
+local function createPolygonPrism(parent, name, points, interiorAnchor, bottomY, height, color, material, faceted)
+	local partCount = 0
 	for index = 1, #points do
 		local nextIndex = if index == #points then 1 else index + 1
-		createTrianglePrism(
+		local sectorColor = if faceted then facetColor(color, index) else color
+		partCount += createTrianglePrism(
 			parent,
 			string.format("%s_Sector%02d", name, index),
 			interiorAnchor,
@@ -177,10 +266,11 @@ local function createPolygonPrism(parent, name, points, interiorAnchor, bottomY,
 			points[nextIndex],
 			bottomY,
 			height,
-			color,
+			sectorColor,
 			material
 		)
 	end
+	return partCount
 end
 
 local function markModel(model, kind)
@@ -255,39 +345,54 @@ local function createFormation(parent, origin, name, config, outlineFactory)
 	)
 	local currentY = origin.Y
 	local currentOutline = baseOutline
+	local currentAnchor = anchor
+	local partCount = 0
 	for layerIndex, layer in ipairs(config.Layers) do
-		local layerOutline = scaleOutline(baseOutline, anchor, layer.Scale)
-		createPolygonPrism(
+		local layerOutline, layerAnchor = makeLayerOutline(baseOutline, anchor, layer)
+		local layerBottom = currentY - (if layerIndex > 1 then LAYER_OVERLAP else 0)
+		partCount += createPolygonPrism(
 			formation,
 			string.format("%s_Layer%02d", name, layerIndex),
 			layerOutline,
-			anchor,
-			currentY,
-			layer.Height,
+			layerAnchor,
+			layerBottom,
+			layer.Height + (if layerIndex > 1 then LAYER_OVERLAP else 0),
 			layer.Color,
-			STONE_MATERIAL
+			STONE_MATERIAL,
+			config.Faceted == true
 		)
 		currentY += layer.Height
 		currentOutline = layerOutline
+		currentAnchor = layerAnchor
 	end
 
-	local capOutline = scaleOutline(currentOutline, anchor, config.CapScale or 0.92)
-	createPolygonPrism(
+	local capOutline = makeCapOutline(
+		currentOutline,
+		currentAnchor,
+		config.CapScale or 0.985,
+		config.Phase or 0,
+		config.CapVariation or 0.01
+	)
+	partCount += createPolygonPrism(
 		formation,
 		name .. "_GrassCap",
 		capOutline,
-		anchor,
+		currentAnchor,
 		currentY - CAP_OVERLAP,
 		CAP_THICKNESS,
 		GRASS_COLOR,
-		GRASS_MATERIAL
+		GRASS_MATERIAL,
+		false
 	)
+	formation:SetAttribute("GeneratedPartCount", partCount)
+	formation:SetAttribute("LayerCount", #config.Layers)
+	formation:SetAttribute("GrassCapScale", config.CapScale or 0.985)
 	local grassTopY = currentY - CAP_OVERLAP + CAP_THICKNESS
 	if config.Label then
 		local labelAnchor = createLabel(
 			formation,
 			"SampleLabel",
-			Vector3.new(anchor.X, grassTopY + 3.1, anchor.Z),
+		Vector3.new(currentAnchor.X, grassTopY + 3.1, currentAnchor.Z),
 			config.Label,
 			config.LabelWidth
 		)
@@ -301,20 +406,30 @@ local COMPARISON_SHAPES = {
 	{
 		Name = "BroadMesa",
 		Kind = "BroadMesa",
-		Label = "BROAD MESA\n12 SIDES / r20",
+		Label = "BROAD MESA\n12 SIDES / r23",
 		SideCount = 12,
-		NominalRadius = 20,
-		RadiusX = 20,
-		RadiusZ = 18,
+		NominalRadius = 23,
+		RadiusX = 23,
+		RadiusZ = 21,
 		OffsetX = -55,
 		OffsetZ = 0,
 		Phase = 0.2,
 		TotalHeight = 26,
 		LabelWidth = 210,
 		Layers = {
-			{ Scale = 1, Height = 26, Color = Color3.fromRGB(105, 114, 118) },
+			{ Scale = 1, Height = 9, Color = Color3.fromRGB(97, 108, 113) },
+			{
+				Scale = 0.92, Height = 9, OffsetX = 0.2, OffsetZ = -0.15,
+				VertexScales = UPPER_PROFILE_SCALES_12, Color = Color3.fromRGB(105, 114, 118),
+			},
+			{
+				Scale = 0.78, Height = 8, OffsetX = 0.4, OffsetZ = -0.25,
+				VertexScales = UPPER_PROFILE_SCALES_12, Color = Color3.fromRGB(111, 119, 123),
+			},
 		},
-		CapScale = 0.93,
+		CapScale = 0.985,
+		CapVariation = 0.008,
+		Faceted = true,
 	},
 	{
 		Name = "TallColumn",
@@ -330,9 +445,19 @@ local COMPARISON_SHAPES = {
 		TotalHeight = 42,
 		LabelWidth = 210,
 		Layers = {
-			{ Scale = 1, Height = 42, Color = Color3.fromRGB(111, 119, 123) },
+			{ Scale = 1, Height = 14, Color = Color3.fromRGB(102, 111, 116) },
+			{
+				Scale = 0.93, Height = 14, OffsetX = 0.15, OffsetZ = -0.1,
+				VertexScales = UPPER_PROFILE_SCALES_12, Color = Color3.fromRGB(111, 119, 123),
+			},
+			{
+				Scale = 0.80, Height = 14, OffsetX = 0.35, OffsetZ = -0.25,
+				VertexScales = UPPER_PROFILE_SCALES_12, Color = Color3.fromRGB(117, 124, 125),
+			},
 		},
-		CapScale = 0.91,
+		CapScale = 0.985,
+		CapVariation = 0.008,
+		Faceted = true,
 	},
 	{
 		Name = "WideTerraces",
@@ -349,10 +474,18 @@ local COMPARISON_SHAPES = {
 		LabelWidth = 250,
 		Layers = {
 			{ Scale = 1, Height = 9, Color = Color3.fromRGB(97, 108, 113) },
-			{ Scale = 0.79, Height = 9, Color = Color3.fromRGB(109, 117, 119) },
-			{ Scale = 0.58, Height = 9, Color = Color3.fromRGB(122, 128, 126) },
+			{
+				Scale = 0.79, Height = 9, OffsetX = 0.55, OffsetZ = -0.35,
+				VertexScales = UPPER_PROFILE_SCALES_12, Color = Color3.fromRGB(109, 117, 119),
+			},
+			{
+				Scale = 0.56, Height = 9, OffsetX = -0.55, OffsetZ = 0.35,
+				VertexScales = UPPER_PROFILE_SCALES_12, Color = Color3.fromRGB(122, 128, 126),
+			},
 		},
-		CapScale = 0.91,
+		CapScale = 0.98,
+		CapVariation = 0.008,
+		Faceted = true,
 	},
 }
 
@@ -366,7 +499,7 @@ function MesaShapeShowcase.Create(parent, origin)
 	showcase:SetAttribute("SampleCount", #COMPARISON_SHAPES)
 
 	for _, config in ipairs(COMPARISON_SHAPES) do
-		createFormation(showcase, origin, config.Name, config)
+		createFormation(showcase, origin, config.Name, config, makeIrregularOutline)
 	end
 	showcase.Parent = parent
 	return showcase
@@ -395,6 +528,7 @@ function MesaShapeShowcase.CreateRefinedPair(parent, origin)
 			{ Scale = 1, Height = 22, Color = Color3.fromRGB(105, 114, 118) },
 		},
 		CapScale = 0.93,
+		CapVariation = 0,
 	}
 	local clean = table.clone(shared)
 	clean.Name = "CleanPrismControl"
@@ -406,13 +540,18 @@ function MesaShapeShowcase.CreateRefinedPair(parent, origin)
 	local refined = table.clone(shared)
 	refined.Name = "RefinedIrregularMesa"
 	refined.Kind = "RefinedIrregularMesa"
-	refined.Label = "REFINED MESA\n70% GEOMETRIC / NOTCH"
+	refined.Label = "REFINED MESA\n70% GEOMETRIC / LAYERED"
 	refined.OffsetX = 21
 	refined.Layers = {
-		{ Scale = 1, Height = 14, Color = Color3.fromRGB(105, 114, 118) },
-		{ Scale = 0.94, Height = 8, Color = Color3.fromRGB(105, 114, 118) },
+		{ Scale = 1, Height = 14, Color = Color3.fromRGB(97, 108, 113) },
+		{
+			Scale = 0.86, Height = 8, OffsetX = 0.55, OffsetZ = -0.35,
+			VertexScales = UPPER_PROFILE_SCALES_12, Color = Color3.fromRGB(111, 119, 123),
+		},
 	}
 	refined.CapScale = 0.98
+	refined.CapVariation = 0.01
+	refined.Faceted = true
 	createFormation(comparison, origin, refined.Name, refined, makeRefinedOutline)
 
 	comparison.Parent = parent
@@ -437,24 +576,46 @@ local function makeClusterConfig(name, kind, label, offsetX, offsetZ, radiusX, r
 		Phase = phase,
 		TotalHeight = height,
 		Layers = layers,
-		CapScale = capScale or 0.91,
+		CapScale = capScale or 0.985,
+		CapVariation = 0.008,
+		Faceted = true,
 		LabelWidth = 250,
 	}
 end
 
 local CLUSTERED_SHAPES = {
 	makeClusterConfig("WestOutcrop", "ClusteredOutcrop", nil, -49, 10, 22, 19, 10, 0.36, {
-		{ Scale = 1, Height = 23, Color = Color3.fromRGB(110, 118, 120) },
-	}),
+		{ Scale = 1, Height = 11, Color = Color3.fromRGB(103, 111, 115) },
+		{
+			Scale = 0.86, Height = 12, OffsetX = 0.45, OffsetZ = -0.25,
+			VertexScales = UPPER_PROFILE_SCALES_10, Color = Color3.fromRGB(110, 118, 120),
+		},
+	}, 0.985),
 	makeClusterConfig("LargeAnchor", "LargeAnchor", nil, 0, 0, 34, 28, 12, 0.13, {
-		{ Scale = 1, Height = 42, Color = Color3.fromRGB(102, 111, 116) },
-	}),
+		{ Scale = 1, Height = 14, Color = Color3.fromRGB(97, 108, 113) },
+		{
+			Scale = 0.94, Height = 14, OffsetX = 0.35, OffsetZ = -0.2,
+			VertexScales = UPPER_PROFILE_SCALES_12, Color = Color3.fromRGB(105, 114, 118),
+		},
+		{
+			Scale = 0.82, Height = 14, OffsetX = 0.55, OffsetZ = -0.35,
+			VertexScales = UPPER_PROFILE_SCALES_12, Color = Color3.fromRGB(111, 119, 123),
+		},
+	}, 0.985),
 	makeClusterConfig("TallShoulder", "ClusteredColumn", nil, 48, 13, 23, 18, 10, 0.74, {
-		{ Scale = 1, Height = 32, Color = Color3.fromRGB(111, 119, 123) },
-	}),
+		{ Scale = 1, Height = 16, Color = Color3.fromRGB(102, 111, 116) },
+		{
+			Scale = 0.86, Height = 16, OffsetX = -0.4, OffsetZ = 0.3,
+			VertexScales = UPPER_PROFILE_SCALES_10, Color = Color3.fromRGB(111, 119, 123),
+		},
+	}, 0.985),
 	makeClusterConfig("EastOutcrop", "ClusteredOutcrop", nil, 84, -5, 18, 16, 10, 1.11, {
-		{ Scale = 1, Height = 20, Color = Color3.fromRGB(116, 123, 122) },
-	}),
+		{ Scale = 1, Height = 10, Color = Color3.fromRGB(109, 117, 119) },
+		{
+			Scale = 0.84, Height = 10, OffsetX = 0.35, OffsetZ = 0.35,
+			VertexScales = UPPER_PROFILE_SCALES_10, Color = Color3.fromRGB(116, 123, 122),
+		},
+	}, 0.985),
 }
 
 function MesaShapeShowcase.CreateClusteredSegment(parent, origin)
@@ -468,7 +629,7 @@ function MesaShapeShowcase.CreateClusteredSegment(parent, origin)
 	segment:SetAttribute("LargeAnchorNominalRadius", 34)
 
 	for _, config in ipairs(CLUSTERED_SHAPES) do
-		createFormation(segment, origin, config.Name, config)
+		createFormation(segment, origin, config.Name, config, makeIrregularOutline)
 	end
 	createLabel(
 		segment,
