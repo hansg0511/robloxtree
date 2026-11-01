@@ -1,5 +1,5 @@
--- Studio-only integration for the isolated cliff-shape comparison area.
--- This stays outside WorldLayoutService so the live World1 boundaries remain unchanged.
+-- Studio-only integration for the isolated TERRAIN-INSPIRED / BORDER-INSPIRED pair.
+-- The study sits fully on the west gallery extension, away from the main tree rows.
 local RunService = game:GetService("RunService")
 if not RunService:IsStudio() then
 	return
@@ -10,23 +10,20 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local GALLERY_NAME = "DevTreeGallery"
 local ROOT_NAME = "DevMesaShapeShowcase"
-local BUILD_VERSION = 5
+local BUILD_VERSION = 6
 local buildingGalleries = setmetatable({}, { __mode = "k" })
 
--- Gallery-relative footprint. The extension's east edge meets the existing
--- GalleryFloor at X=0; its Z span overlaps that floor so the walking surface
--- stays continuous while the samples remain wholly west of existing rows.
+-- The extension spans local X [-360, 0] and Z [-120, 120].
+-- The two study models together span about X [-276.69, -98.17], Z [-49.28, -2.66]
+-- when centered at (-180, -28), inside the west extension with clear margins.
 local EXTENSION_SIZE = Vector3.new(360, 1, 240)
 local EXTENSION_CENTER_OFFSET = Vector3.new(-180, 0, 0)
-local COMPARISON_ORIGIN_OFFSET = Vector3.new(-180, 0, -40)
-local REFINED_PAIR_ORIGIN_OFFSET = Vector3.new(-275, 0, 3)
-local CLUSTER_ORIGIN_OFFSET = Vector3.new(-180, 0, 70)
+local COMPARISON_ORIGIN_OFFSET = Vector3.new(-180, 0, -28)
+local COMPARISON_TARGET_OFFSET = Vector3.new(-187.4, 0, -28)
+local MESA_COMPARISON_TELEPORT_OFFSET = Vector3.new(-187.4, 0, 108)
 local WALKWAY_START_OFFSET = Vector3.new(20, 0, -78)
 local WALKWAY_END_OFFSET = Vector3.new(-68, 0, -78)
 local WORLD_MARGIN = 2
-
--- This inspection landing point is separate from the existing harvest showcase teleport.
-local MESA_COMPARISON_TELEPORT_OFFSET = Vector3.new(-280, 0, 55)
 
 local function createPart(parent, name, size, cframe, color, material, canCollide, canQuery)
 	local part = Instance.new("Part")
@@ -76,14 +73,14 @@ local function createSpawnSign(parent, galleryOrigin, floorTopY)
 		label.Size = UDim2.fromScale(1, 1)
 		label.BackgroundTransparency = 1
 		label.Font = Enum.Font.GothamBlack
-		label.Text = "← CLIFF SHAPE SHOWCASE"
+		label.Text = "← TERRAIN / BORDER STUDIES"
 		label.TextColor3 = Color3.fromRGB(245, 240, 214)
 		label.TextScaled = true
 		label.TextStrokeTransparency = 0.45
 		label.Parent = surface
 	end
 
-	-- These two visual supports sit outside the 24-stud path and do not collide.
+	-- The supports flank the access path, outside its 24-stud walking width.
 	for _, zOffset in ipairs({ -92, -64 }) do
 		local post = createPart(
 			parent,
@@ -203,16 +200,6 @@ local function buildOnGallery(gallery)
 		root:SetAttribute("BuildStatus", "StudioPrototype")
 		root.Parent = gallery
 
-		local worldLayout = ServerScriptService:FindFirstChild("WorldLayout")
-		local moduleScript = worldLayout and worldLayout:FindFirstChild("MesaShapeShowcase")
-		assert(moduleScript and moduleScript:IsA("ModuleScript"),
-			"ServerScriptService.WorldLayout.MesaShapeShowcase ModuleScript is required")
-		local MesaShapeShowcase = require(moduleScript)
-		assert(type(MesaShapeShowcase.Create) == "function"
-			and type(MesaShapeShowcase.CreateRefinedPair) == "function"
-			and type(MesaShapeShowcase.CreateClusteredSegment) == "function",
-			"MesaShapeShowcase module is missing a required builder")
-
 		local extensionCenter = galleryOrigin + EXTENSION_CENTER_OFFSET
 		local extensionFloor = createPart(
 			root,
@@ -236,23 +223,22 @@ local function buildOnGallery(gallery)
 		samples:SetAttribute("VisualOnly", true)
 		samples.Parent = root
 
+		local worldLayout = ServerScriptService:FindFirstChild("WorldLayout")
+		local moduleScript = worldLayout and worldLayout:FindFirstChild("MesaShapeShowcase")
+		assert(moduleScript and moduleScript:IsA("ModuleScript"),
+			"ServerScriptService.WorldLayout.MesaShapeShowcase ModuleScript is required")
+		local MesaShapeShowcase = require(moduleScript)
+		assert(type(MesaShapeShowcase.Create) == "function",
+			"MesaShapeShowcase module is missing its Create builder")
+
 		local comparisonOrigin = galleryOrigin + COMPARISON_ORIGIN_OFFSET
-		local comparison = MesaShapeShowcase.Create(samples, Vector3.new(comparisonOrigin.X, floorTopY, comparisonOrigin.Z))
+		local comparison = MesaShapeShowcase.Create(
+			samples,
+			Vector3.new(comparisonOrigin.X, floorTopY, comparisonOrigin.Z)
+		)
+		assert(comparison:GetAttribute("SampleCount") == 2,
+			"Mesa showcase must contain exactly two labeled studies")
 		validateVisualModel(comparison, extensionFloor)
-
-		local refinedPairOrigin = galleryOrigin + REFINED_PAIR_ORIGIN_OFFSET
-		local refinedPair = MesaShapeShowcase.CreateRefinedPair(
-			samples,
-			Vector3.new(refinedPairOrigin.X, floorTopY, refinedPairOrigin.Z)
-		)
-		validateVisualModel(refinedPair, extensionFloor)
-
-		local clusterOrigin = galleryOrigin + CLUSTER_ORIGIN_OFFSET
-		local cluster = MesaShapeShowcase.CreateClusteredSegment(
-			samples,
-			Vector3.new(clusterOrigin.X, floorTopY, clusterOrigin.Z)
-		)
-		validateVisualModel(cluster, extensionFloor)
 	end)
 
 	if not ok then
@@ -265,7 +251,7 @@ local function buildOnGallery(gallery)
 	end
 
 	local teleportPosition = galleryOrigin + MESA_COMPARISON_TELEPORT_OFFSET
-	local comparisonCenter = galleryOrigin + REFINED_PAIR_ORIGIN_OFFSET
+	local comparisonCenter = galleryOrigin + COMPARISON_TARGET_OFFSET
 	gallery:SetAttribute(
 		"MesaComparisonTeleportCFrame",
 		CFrame.lookAt(
@@ -277,8 +263,6 @@ local function buildOnGallery(gallery)
 	buildingGalleries[gallery] = nil
 end
 
--- Listen before checking the current Workspace so both startup orders work.
--- When DevTreeGallery is disabled, this remains quiet and creates nothing.
 Workspace.ChildAdded:Connect(function(child)
 	if child.Name == GALLERY_NAME then
 		task.defer(buildOnGallery, child)

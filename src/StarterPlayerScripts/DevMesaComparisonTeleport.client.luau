@@ -1,4 +1,4 @@
--- Studio-only shortcut for the clean-versus-refined mesa pair.
+-- Studio-only shortcut for the focused TERRAIN-INSPIRED / BORDER-INSPIRED pair.
 -- The existing DEV GALLERY button keeps its harvest-showcase destination.
 local RunService = game:GetService("RunService")
 if not RunService:IsStudio() then
@@ -45,12 +45,8 @@ local function getDestination()
 	if not gallery or gallery.Parent ~= Workspace then
 		return nil
 	end
-
 	local destination = gallery:GetAttribute("MesaComparisonTeleportCFrame")
-	if typeof(destination) == "CFrame" then
-		return destination
-	end
-	return nil
+	return if typeof(destination) == "CFrame" then destination else nil
 end
 
 local function updateButton()
@@ -62,7 +58,6 @@ local function setGallery(candidate)
 		galleryAttributeChanged:Disconnect()
 		galleryAttributeChanged = nil
 	end
-
 	gallery = candidate
 	if gallery then
 		galleryAttributeChanged = gallery:GetAttributeChangedSignal("MesaComparisonTeleportCFrame"):Connect(updateButton)
@@ -70,42 +65,40 @@ local function setGallery(candidate)
 	updateButton()
 end
 
-local function hasWedgeGeometry(model)
-	for _, descendant in ipairs(model:GetDescendants()) do
-		if descendant:IsA("WedgePart") then
-			return true
+local function getMesaComparison()
+	if not gallery or gallery.Parent ~= Workspace then
+		return nil
+	end
+	local showcaseRoot = gallery:FindFirstChild("DevMesaShapeShowcase")
+	local support = showcaseRoot and showcaseRoot:FindFirstChild("MesaShowcaseSupport")
+	local samples = showcaseRoot and showcaseRoot:FindFirstChild("CliffSamples")
+	local comparison = samples and samples:FindFirstChild("MesaShapeShowcase")
+	if not support or not support:IsA("BasePart") or not comparison or not comparison:IsA("Model") then
+		return nil
+	end
+	if comparison:GetAttribute("SampleCount") ~= 2 then
+		return nil
+	end
+	local terrainStudy = comparison:FindFirstChild("TerrainLikePlateau")
+	local borderStudy = comparison:FindFirstChild("BorderLikePillar")
+	if not terrainStudy or not terrainStudy:IsA("Model")
+		or not borderStudy or not borderStudy:IsA("Model")
+	then
+		return nil
+	end
+	local formationCount = 0
+	for _, child in ipairs(comparison:GetChildren()) do
+		if child:IsA("Model") then
+			formationCount += 1
 		end
 	end
-	return false
-end
-
-local function isMesaComparisonReady()
-	if not gallery or gallery.Parent ~= Workspace then
-		return false
-	end
-
-	local showcase = gallery:FindFirstChild("DevMesaShapeShowcase")
-	local support = showcase and showcase:FindFirstChild("MesaShowcaseSupport")
-	local samples = showcase and showcase:FindFirstChild("CliffSamples")
-	local comparison = samples and samples:FindFirstChild("MesaIrregularComparison")
-	if not support or not support:IsA("BasePart") or not comparison or not comparison:IsA("Model") then
-		return false
-	end
-
-	local clean = comparison:FindFirstChild("CleanPrismControl")
-	local refined = comparison:FindFirstChild("RefinedIrregularMesa")
-	return clean ~= nil
-		and clean:IsA("Model")
-		and hasWedgeGeometry(clean)
-		and refined ~= nil
-		and refined:IsA("Model")
-		and hasWedgeGeometry(refined)
+	return if formationCount == 2 then comparison else nil
 end
 
 local function waitForMesaComparison(timeout)
 	local deadline = os.clock() + timeout
 	repeat
-		if isMesaComparisonReady() then
+		if getMesaComparison() then
 			return true
 		end
 		if os.clock() >= deadline then
@@ -114,6 +107,19 @@ local function waitForMesaComparison(timeout)
 		RunService.Heartbeat:Wait()
 	until not gallery or gallery.Parent ~= Workspace
 	return false
+end
+
+local function aimCameraAtMesaPair(destination)
+	local camera = Workspace.CurrentCamera
+	if not camera then
+		return
+	end
+
+	local forward = destination.LookVector
+	local cameraPosition = destination.Position - forward * 12 + Vector3.new(0, 8, 0)
+	local aimPoint = destination.Position + forward * 68 + Vector3.new(0, 18, 0)
+	camera.CFrame = CFrame.lookAt(cameraPosition, aimPoint)
+	camera.Focus = CFrame.new(aimPoint)
 end
 
 galleryAdded = Workspace.ChildAdded:Connect(function(child)
@@ -162,6 +168,7 @@ button.Activated:Connect(function()
 		and currentDestination
 	then
 		character:PivotTo(currentDestination)
+		aimCameraAtMesaPair(currentDestination)
 	end
 
 	button.Text = "MESA COMPARISON"
@@ -169,16 +176,8 @@ button.Activated:Connect(function()
 end)
 
 script.Destroying:Connect(function()
-	if galleryAttributeChanged then
-		galleryAttributeChanged:Disconnect()
-	end
-	if galleryAdded then
-		galleryAdded:Disconnect()
-	end
-	if galleryRemoved then
-		galleryRemoved:Disconnect()
-	end
-	if gui.Parent then
-		gui:Destroy()
-	end
+	if galleryAttributeChanged then galleryAttributeChanged:Disconnect() end
+	if galleryAdded then galleryAdded:Disconnect() end
+	if galleryRemoved then galleryRemoved:Disconnect() end
+	if gui.Parent then gui:Destroy() end
 end)
