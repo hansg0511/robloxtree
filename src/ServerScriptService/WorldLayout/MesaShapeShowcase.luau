@@ -1,4 +1,4 @@
--- Gallery-only comparison of two compact, contiguous mesa boundaries.
+-- Gallery-only comparison of three long mesa boundary profiles.
 --
 -- This keeps the approved Terrain and Border contours/profile language, while
 -- using a fixed local seed to vary each run's size, height, yaw and placement.
@@ -20,20 +20,28 @@ local GRASS_COLOR = Color3.fromRGB(70, 158, 54)
 local ROOT_NAME = "MesaBoundarySampleRuns"
 local TERRAIN_NAME = "TerrainBoundarySample"
 local FACETED_NAME = "FacetedBoundarySample"
+local MIXED_NAME = "MixedBoundarySample"
+local MIN_DEPTH_STAGGER_BY_NAME = {
+	[ TERRAIN_NAME ] = 18,
+	[ FACETED_NAME ] = 22,
+	[ MIXED_NAME ] = 26,
+}
 
-local PAIR_CENTER_X = -180
+local PAIR_CENTER_X = -460
 local PAIR_CENTER_Z = -40
-local PAIR_X_OFFSETS = { -77, 77 }
+local PAIR_X_OFFSETS = { -240, 0, 240 }
 local RUN_CENTER_Z = 0
-local MAX_RUN_HALF_WIDTH = 67.5
-local MAX_RUN_HALF_DEPTH = 30
-local MIN_RUN_GAP = 18
-local MIN_CORE_OVERLAP = 0.25
+local MAX_RUN_HALF_WIDTH = 42
+local MAX_RUN_HALF_DEPTH = 123
+local MIN_CORE_OVERLAP = 0.5
+local FORMATION_COUNT = 9
+local FORMATION_SPACING_Z = 21.5
+local MIN_VISIBLE_WALL_LENGTH = 200
 
 -- Bounds of the temporary gallery extension. These checks are intentionally
 -- local to the candidate; they do not affect the live world layout service.
 local GALLERY_FLOOR = {
-	MinX = -360,
+	MinX = -960,
 	MaxX = 0,
 	MinZ = -180,
 	MaxZ = 180,
@@ -55,110 +63,54 @@ local BORDER_UPPER_VERTEX_SCALES = {
 	1.02, 0.97, 1.04, 0.96, 1.02, 0.95, 1.01, 1.04, 0.95, 1.02,
 }
 
-local MAX_POSITION_JITTER_X = 0.35
-local MAX_POSITION_JITTER_Z = 0.65
+local MAX_POSITION_JITTER_X = 0.6
+local MAX_POSITION_JITTER_Z = 0.35
 local MIN_RADIUS_SCALE = 0.93
-local MAX_RADIUS_SCALE = 1.025
-local MAX_YAW_DEGREES = 6
-local MIN_LAYER_SCALE = 0.985
-local CORE_HALF_X_SCALE = 0.72
-local CORE_HALF_Z_SCALE = 0.40
+local MAX_RADIUS_SCALE = 1.06
+local MAX_YAW_DEGREES = 3.5
+local MIN_LAYER_SCALE = 0.97
+local CORE_HALF_X_SCALE = 0.50
+local CORE_HALF_Z_SCALE = 0.75
 
-local TERRAIN_FORMS = {
-	{
-		Name = "PlateauWest",
-		CenterX = -31,
-		CenterZ = -2,
-		RadiusX = 20,
-		RadiusZ = 17,
-		RotationDegrees = -3,
-		Height = 29,
-		TopScale = 0.82,
-		CapScale = 1.01,
-		CapThickness = 0.85,
-	},
-	{
-		Name = "PlateauAnchorWest",
-		CenterX = -10,
-		CenterZ = 3,
-		RadiusX = 31.2,
-		RadiusZ = 20,
-		RotationDegrees = 2,
-		Height = 39,
-		TopScale = 0.76,
-		CapScale = 1.01,
-		CapThickness = 0.85,
-	},
-	{
-		Name = "PlateauShoulder",
-		CenterX = 10,
-		CenterZ = -3,
-		RadiusX = 19,
-		RadiusZ = 16,
-		RotationDegrees = -2,
-		Height = 26,
-		TopScale = 0.84,
-		CapScale = 1.00,
-		CapThickness = 0.85,
-	},
-	{
-		Name = "PlateauAnchorEast",
-		CenterX = 31,
-		CenterZ = 2,
-		RadiusX = 29.5,
-		RadiusZ = 19,
-		RotationDegrees = 4,
-		Height = 35,
-		TopScale = 0.78,
-		CapScale = 1.02,
-		CapThickness = 0.85,
-	},
-}
+local TERRAIN_CENTER_X_PATTERN = { -10, -6, -1, 5, 10, 7, 1, -6, -10 }
+local FACETED_CENTER_X_PATTERN = { -12, -7, -2, 4, 12, 8, 2, -5, -12 }
+local MIXED_CENTER_X_PATTERN = { -14, -9, -3, 4, 14, 9, 2, -7, -14 }
+local RADIUS_X_PATTERN = { 18, 21, 17, 22, 19, 16, 22, 18, 20 }
+local RADIUS_Z_PATTERN = { 24.5, 23.5, 25, 24, 31.5, 23.5, 25, 24, 24.5 }
+local HEIGHT_PATTERN = { 28, 35, 25, 39, 32, 27, 37, 30, 34 }
 
-local FACETED_FORMS = {
-	{
-		Name = "BorderPillarWest",
-		CenterX = -25,
-		CenterZ = -3,
-		RadiusX = 31.2,
-		RadiusZ = 18,
-		RotationDegrees = -4,
-		Layers = {
-			{ TopScale = 0.83, Height = 14 },
-			{ TopScale = 0.65, Height = 17 },
-		},
-		CapScale = 1.16,
-		CapThickness = 3.0,
-	},
-	{
-		Name = "BorderPillarAnchor",
-		CenterX = 0,
-		CenterZ = 3,
-		RadiusX = 21,
-		RadiusZ = 19,
-		RotationDegrees = 3,
-		Layers = {
-			{ TopScale = 0.79, Height = 18 },
-			{ TopScale = 0.56, Height = 22 },
-		},
-		CapScale = 1.18,
-		CapThickness = 3.4,
-	},
-	{
-		Name = "BorderPillarEast",
-		CenterX = 25,
-		CenterZ = -2,
-		RadiusX = 31.2,
-		RadiusZ = 18,
-		RotationDegrees = 4,
-		Layers = {
-			{ TopScale = 0.82, Height = 15 },
-			{ TopScale = 0.63, Height = 18 },
-		},
-		CapScale = 1.15,
-		CapThickness = 3.0,
-	},
-}
+local function makeWallConfigs(namePrefix, kind, centerXPattern)
+	local configs = table.create(FORMATION_COUNT)
+	for index = 1, FORMATION_COUNT do
+		local isFaceted = kind == "Faceted" or (kind == "Mixed" and index % 2 == 0)
+		local source = {
+			Name = string.format("%sAnchor%02d", namePrefix, index),
+			ProfileKind = if isFaceted then "Faceted" else "Terrain",
+			CenterX = centerXPattern[index],
+			CenterZ = (index - (FORMATION_COUNT + 1) * 0.5) * FORMATION_SPACING_Z,
+			RadiusX = RADIUS_X_PATTERN[index],
+			RadiusZ = RADIUS_Z_PATTERN[index],
+			RotationDegrees = ({ -2.5, 1.5, 0, 2, -1.5, 1, -2, 2.5, -0.5 })[index],
+			CapScale = if isFaceted then 1.16 + (index % 3) * 0.01 else 1.00 + (index % 2) * 0.01,
+			CapThickness = if isFaceted then 3.0 + (index % 3) * 0.2 else 0.85,
+		}
+		if isFaceted then
+			source.Layers = {
+				{ TopScale = 0.76 + (index % 3) * 0.025, Height = HEIGHT_PATTERN[index] * 0.48 },
+				{ TopScale = 0.57 + (index % 3) * 0.025, Height = HEIGHT_PATTERN[index] * 0.52 },
+			}
+		else
+			source.TopScale = 0.75 + (index % 4) * 0.025
+			source.Height = HEIGHT_PATTERN[index]
+		end
+		configs[index] = source
+	end
+	return configs
+end
+
+local TERRAIN_FORMS = makeWallConfigs("Plateau", "Terrain", TERRAIN_CENTER_X_PATTERN)
+local FACETED_FORMS = makeWallConfigs("BorderPillar", "Faceted", FACETED_CENTER_X_PATTERN)
+local MIXED_FORMS = makeWallConfigs("MixedRim", "Mixed", MIXED_CENTER_X_PATTERN)
 
 local function horizontal(vector)
 	return Vector3.new(vector.X, 0, vector.Z)
@@ -432,29 +384,31 @@ local function createLabel(parent, name, position, text, width)
 end
 
 local function copyAndVary(config, random, profileKind)
+	local selectedProfile = config.ProfileKind or profileKind
 	local variation = {
 		Name = config.Name,
 		CenterX = config.CenterX + random:NextNumber(-MAX_POSITION_JITTER_X, MAX_POSITION_JITTER_X),
 		CenterZ = config.CenterZ + random:NextNumber(-MAX_POSITION_JITTER_Z, MAX_POSITION_JITTER_Z),
-		RadiusX = config.RadiusX * random:NextNumber(0.98, 1.025),
-		RadiusZ = config.RadiusZ * random:NextNumber(0.98, 1.025),
-		RotationRadians = math.rad(config.RotationDegrees + random:NextNumber(-1.5, 1.5)),
+		RadiusX = config.RadiusX * random:NextNumber(0.94, 1.06),
+		RadiusZ = config.RadiusZ * random:NextNumber(0.94, 1.06),
+		RotationRadians = math.rad(config.RotationDegrees + random:NextNumber(-0.75, 0.75)),
 		Phase = random:NextNumber(0, TAU),
-		CapScale = config.CapScale * random:NextNumber(0.985, 1.015),
+		CapScale = config.CapScale * random:NextNumber(0.98, 1.02),
 		CapThickness = config.CapThickness,
-		Contour = if profileKind == "Terrain" then TERRAIN_CONTOUR else BORDER_CONTOUR,
+		ProfileKind = selectedProfile,
+		Contour = if selectedProfile == "Terrain" then TERRAIN_CONTOUR else BORDER_CONTOUR,
 		Layers = {},
 	}
-	local heightScale = random:NextNumber(0.97, 1.035)
-	if profileKind == "Terrain" then
+	local heightScale = random:NextNumber(0.90, 1.10)
+	if selectedProfile == "Terrain" then
 		variation.Layers[1] = {
-			TopScale = config.TopScale * random:NextNumber(0.985, 1.015),
+			TopScale = config.TopScale * random:NextNumber(0.97, 1.03),
 			Height = config.Height * heightScale,
 		}
 	else
 		for index, layer in ipairs(config.Layers) do
 			variation.Layers[index] = {
-				TopScale = layer.TopScale * random:NextNumber(0.99, 1.01),
+				TopScale = layer.TopScale * random:NextNumber(0.97, 1.03),
 				Height = layer.Height * heightScale,
 				VertexScales = BORDER_UPPER_VERTEX_SCALES,
 			}
@@ -536,6 +490,8 @@ local function createFormation(parent, origin, config, kind)
 	return formation, capTopY
 end
 
+local measureContourZ
+
 local function createRun(parent, name, labelText, kind, origin, configs, seed, profileKind)
 	local run = Instance.new("Model")
 	run.Name = name
@@ -544,21 +500,42 @@ local function createRun(parent, name, labelText, kind, origin, configs, seed, p
 	run:SetAttribute("BuildStatus", "Building")
 	run:SetAttribute("Seed", seed)
 	run:SetAttribute("FormationCount", #configs)
+	run:SetAttribute("ProfileKind", profileKind)
 
 	local random = Random.new(seed)
 	local highestTop = origin.Y
+	local contourMinZ = math.huge
+	local contourMaxZ = -math.huge
+	local minimumCenterX = math.huge
+	local maximumCenterX = -math.huge
 	for _, sourceConfig in ipairs(configs) do
 		local config = copyAndVary(sourceConfig, random, profileKind)
+		minimumCenterX = math.min(minimumCenterX, config.CenterX)
+		maximumCenterX = math.max(maximumCenterX, config.CenterX)
+		local minZ, maxZ = measureContourZ(config)
+		contourMinZ = math.min(contourMinZ, minZ)
+		contourMaxZ = math.max(contourMaxZ, maxZ)
 		local _, topY = createFormation(run, origin, config, kind)
 		highestTop = math.max(highestTop, topY)
 	end
+	local visibleLength = contourMaxZ - contourMinZ
+	assert(visibleLength >= MIN_VISIBLE_WALL_LENGTH,
+		string.format("%s contour length is only %.2f studs", name, visibleLength))
+	local depthStaggerRange = maximumCenterX - minimumCenterX
+	local minimumStagger = MIN_DEPTH_STAGGER_BY_NAME[name]
+	assert(minimumStagger and depthStaggerRange >= minimumStagger,
+		string.format("%s depth stagger is only %.2f studs", name, depthStaggerRange))
+	run:SetAttribute("VisibleContourMinZ", contourMinZ)
+	run:SetAttribute("VisibleContourMaxZ", contourMaxZ)
+	run:SetAttribute("VisibleLengthZ", visibleLength)
+	run:SetAttribute("DepthStaggerRangeX", depthStaggerRange)
 
 	local labelAnchor = createLabel(
 		run,
 		"BoundaryRunLabel",
 		Vector3.new(origin.X, highestTop + 3.1, origin.Z),
 		labelText,
-		430
+		340
 	)
 	run.PrimaryPart = labelAnchor
 	run:SetAttribute("TopY", highestTop)
@@ -566,6 +543,25 @@ local function createRun(parent, name, labelText, kind, origin, configs, seed, p
 	run:SetAttribute("BuildStatus", "Ready")
 	run.Parent = parent
 	return run
+end
+
+measureContourZ = function(config)
+	local center = Vector3.new(config.CenterX, 0, config.CenterZ)
+	local points = makeOutline(
+		center,
+		config.RadiusX,
+		config.RadiusZ,
+		config.RotationRadians,
+		config.Contour,
+		config.Phase
+	)
+	local minimumZ = math.huge
+	local maximumZ = -math.huge
+	for _, point in ipairs(points) do
+		minimumZ = math.min(minimumZ, point.Z)
+		maximumZ = math.max(maximumZ, point.Z)
+	end
+	return minimumZ, maximumZ
 end
 
 local function projectedHalfExtent(radiusX, radiusZ, yawRadians, axis)
@@ -595,7 +591,32 @@ local function inscribedCoreHalfExtents(config)
 		halfZ * math.cos(yaw) - halfX * math.sin(yaw)
 end
 
+local function worstCaseContourReach(config, direction)
+	local contour = if config.ProfileKind == "Terrain" then TERRAIN_CONTOUR else BORDER_CONTOUR
+	local maxNormalizedZ = 0
+	local maxNormalizedX = 0
+	for _, point in ipairs(contour) do
+		maxNormalizedZ = math.max(maxNormalizedZ, point[2] * direction)
+		maxNormalizedX = math.max(maxNormalizedX, math.abs(point[1]))
+	end
+	local yaw = math.rad(MAX_YAW_DEGREES)
+	local innerZ = config.RadiusZ * MIN_RADIUS_SCALE * 0.957 * maxNormalizedZ * math.cos(yaw)
+	local outerX = config.RadiusX * MAX_RADIUS_SCALE * maxNormalizedX * math.sin(yaw)
+	return innerZ - outerX
+end
+
+local function minimumVisibleWallLength(configs)
+	local first = configs[1]
+	local last = configs[#configs]
+	return math.abs(last.CenterZ - first.CenterZ)
+		- 2 * MAX_POSITION_JITTER_Z
+		+ worstCaseContourReach(first, -1)
+		+ worstCaseContourReach(last, 1)
+end
+
 local function validateRun(name, configs)
+	assert(#configs == FORMATION_COUNT,
+		string.format("%s must contain exactly %d formations", name, FORMATION_COUNT))
 	local previous
 	for _, config in ipairs(configs) do
 		local xRadius = config.RadiusX * MAX_RADIUS_SCALE
@@ -624,6 +645,19 @@ local function validateRun(name, configs)
 		end
 		previous = config
 	end
+	local minCenterX = math.huge
+	local maxCenterX = -math.huge
+	for _, config in ipairs(configs) do
+		minCenterX = math.min(minCenterX, config.CenterX)
+		maxCenterX = math.max(maxCenterX, config.CenterX)
+	end
+	local minimumStagger = MIN_DEPTH_STAGGER_BY_NAME[name]
+	assert(minimumStagger
+		and maxCenterX - minCenterX - 2 * MAX_POSITION_JITTER_X >= minimumStagger,
+		string.format("%s depth stagger is not robustly noticeable", name))
+	local visibleLength = minimumVisibleWallLength(configs)
+	assert(visibleLength >= MIN_VISIBLE_WALL_LENGTH,
+		string.format("%s is too short in actual contour length (%.2f studs)", name, visibleLength))
 end
 
 local function findGalleryAncestor(instance)
@@ -637,20 +671,27 @@ local function findGalleryAncestor(instance)
 	return nil
 end
 
--- Static layout checks: the worst-case variation stays inside the known
--- extension floor, with a visible gap between the two labeled segments.
+-- Static layout checks use the rock outlines and inscribed cores, never the
+-- billboard label or the oriented bounding boxes of the wedge parts.
 validateRun(TERRAIN_NAME, TERRAIN_FORMS)
 validateRun(FACETED_NAME, FACETED_FORMS)
-assert(2 * MAX_RUN_HALF_WIDTH + MIN_RUN_GAP <= 2 * math.abs(PAIR_X_OFFSETS[2]),
-	"The two comparison runs do not leave the planned center gap")
-assert(PAIR_CENTER_X + PAIR_X_OFFSETS[1] - MAX_RUN_HALF_WIDTH >= GALLERY_FLOOR.MinX,
-	"The left boundary run exceeds the gallery floor")
-assert(PAIR_CENTER_X + PAIR_X_OFFSETS[2] + MAX_RUN_HALF_WIDTH <= GALLERY_FLOOR.MaxX,
-	"The right boundary run exceeds the gallery floor")
+validateRun(MIXED_NAME, MIXED_FORMS)
+assert(#PAIR_X_OFFSETS == 3 and PAIR_X_OFFSETS[2] == 0,
+	"The boundary comparison needs three centered gallery bays")
+for index, offset in ipairs(PAIR_X_OFFSETS) do
+	assert(PAIR_CENTER_X + offset - MAX_RUN_HALF_WIDTH >= GALLERY_FLOOR.MinX,
+		string.format("Boundary bay %d exceeds the west extension floor", index))
+	assert(PAIR_CENTER_X + offset + MAX_RUN_HALF_WIDTH <= GALLERY_FLOOR.MaxX,
+		string.format("Boundary bay %d crosses into the original gallery", index))
+	if index > 1 then
+		assert(offset - PAIR_X_OFFSETS[index - 1] > 2 * MAX_RUN_HALF_WIDTH,
+			"Boundary bays must stay separated for independent viewing angles")
+	end
+end
 assert(PAIR_CENTER_Z + RUN_CENTER_Z - MAX_RUN_HALF_DEPTH >= GALLERY_FLOOR.MinZ,
-	"The boundary pair exceeds the front gallery floor edge")
+	"The boundary walls exceed the front extension floor edge")
 assert(PAIR_CENTER_Z + RUN_CENTER_Z + MAX_RUN_HALF_DEPTH <= GALLERY_FLOOR.MaxZ,
-	"The boundary pair exceeds the rear gallery floor edge")
+	"The boundary walls exceed the rear extension floor edge")
 
 function MesaShapeShowcase.Create(parent, origin)
 	assert(parent ~= nil, "MesaShapeShowcase.Create requires a parent")
@@ -660,9 +701,9 @@ function MesaShapeShowcase.Create(parent, origin)
 	local galleryOrigin = gallery and gallery:GetAttribute("GalleryOrigin")
 	if typeof(galleryOrigin) == "Vector3" then
 		assert(math.abs((origin.X - galleryOrigin.X) - PAIR_CENTER_X) <= 1,
-			"MesaShapeShowcase.Create expects the pair midpoint at GalleryOrigin X-180")
+			"MesaShapeShowcase.Create expects the three-bay midpoint at GalleryOrigin X-460")
 		assert(math.abs((origin.Z - galleryOrigin.Z) - PAIR_CENTER_Z) <= 1,
-			"MesaShapeShowcase.Create expects the pair midpoint at GalleryOrigin Z-40")
+			"MesaShapeShowcase.Create expects the three-bay row at GalleryOrigin Z-40")
 	end
 
 	local existing = parent:FindFirstChild(ROOT_NAME)
@@ -672,38 +713,65 @@ function MesaShapeShowcase.Create(parent, origin)
 
 	local samples = Instance.new("Model")
 	samples.Name = ROOT_NAME
-	samples.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
+	-- Child runs stream atomically and independently across the wide gallery.
+	samples.ModelStreamingMode = Enum.ModelStreamingMode.Default
 	samples:SetAttribute("DevOnly", true)
 	samples:SetAttribute("VisualOnly", true)
 	samples:SetAttribute("ShowcaseOnly", true)
 	samples:SetAttribute("WorldDecoration", ROOT_NAME)
-	samples:SetAttribute("SampleCount", 2)
+	samples:SetAttribute("SampleCount", 3)
 	samples:SetAttribute("BuildStatus", "Building")
 	samples:SetAttribute("PairCenterX", origin.X)
 	samples:SetAttribute("PairCenterZ", origin.Z)
+	samples:SetAttribute("VisibleLengthMinimum", MIN_VISIBLE_WALL_LENGTH)
 
 	local terrainOrigin = origin + Vector3.new(PAIR_X_OFFSETS[1], 0, RUN_CENTER_Z)
 	local facetedOrigin = origin + Vector3.new(PAIR_X_OFFSETS[2], 0, RUN_CENTER_Z)
-	createRun(
+	local mixedOrigin = origin + Vector3.new(PAIR_X_OFFSETS[3], 0, RUN_CENTER_Z)
+	local terrainRun = createRun(
 		samples,
 		TERRAIN_NAME,
-		"TERRAIN STYLE\nBROAD PLATEAU BOUNDARY",
+		"TERRAIN INSPIRED\nBROAD PLATEAU WALL",
 		"TerrainBoundary",
 		terrainOrigin,
 		TERRAIN_FORMS,
 		314_159,
 		"Terrain"
 	)
-	createRun(
+	local facetedRun = createRun(
 		samples,
 		FACETED_NAME,
-		"FACETED STYLE\nTAPERED PILLAR BOUNDARY",
+		"BORDER INSPIRED\nFACETED TERRACE WALL",
 		"FacetedBoundary",
 		facetedOrigin,
 		FACETED_FORMS,
 		271_828,
 		"Faceted"
 	)
+	local mixedRun = createRun(
+		samples,
+		MIXED_NAME,
+		"MIXED PROFILE\nBROAD + FACETED WALL",
+		"MixedBoundary",
+		mixedOrigin,
+		MIXED_FORMS,
+		161_803,
+		"Mixed"
+	)
+	assert(terrainRun.Parent == samples and facetedRun.Parent == samples and mixedRun.Parent == samples,
+		"All three boundary samples must be direct children of the sample root")
+	assert(terrainRun.ModelStreamingMode == Enum.ModelStreamingMode.Atomic
+		and facetedRun.ModelStreamingMode == Enum.ModelStreamingMode.Atomic
+		and mixedRun.ModelStreamingMode == Enum.ModelStreamingMode.Atomic,
+		"Each comparison lane must stream as its own atomic sample")
+	local directModelCount = 0
+	for _, child in ipairs(samples:GetChildren()) do
+		if child:IsA("Model") then
+			directModelCount += 1
+		end
+	end
+	assert(directModelCount == 3, "MesaBoundarySampleRuns must contain exactly three direct sample Models")
+	samples.PrimaryPart = terrainRun.PrimaryPart
 	samples:SetAttribute("BuildStatus", "Ready")
 	samples.Parent = parent
 	return samples

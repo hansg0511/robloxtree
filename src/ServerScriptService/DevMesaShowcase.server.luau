@@ -1,5 +1,5 @@
--- Studio-only integration for the side-by-side boundary sample comparison.
--- The gallery extension and samples stay isolated from the production world.
+-- Studio-only gallery extension for three long boundary samples.
+-- Every new platform, sign, walkway, and sample stays west of the existing gallery.
 local RunService = game:GetService("RunService")
 if not RunService:IsStudio() then
 	return
@@ -10,23 +10,65 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local GALLERY_NAME = "DevTreeGallery"
 local ROOT_NAME = "DevMesaShapeShowcase"
-local BUILD_VERSION = 8
+local BUILD_VERSION = 9
 local buildingGalleries = setmetatable({}, { __mode = "k" })
 
--- The west extension is local X [-360, 0], Z [-180, 180]. The two runs
--- share a single Z row centered at -40 and sit side by side along X.
-local EXTENSION_SIZE = Vector3.new(360, 1, 360)
-local EXTENSION_CENTER_OFFSET = Vector3.new(-180, 0, 0)
-local COMPARISON_ORIGIN_OFFSET = Vector3.new(-180, 0, -40)
-local COMPARISON_TARGET_HEIGHT = 22
-local MESA_COMPARISON_TELEPORT_OFFSET = Vector3.new(-180, 0, 165)
+-- The original gallery begins at local X=0. This west-only extension gives
+-- each 210+ stud run a clean side-view station with no neighboring run in front.
+local EXTENSION_SIZE = Vector3.new(960, 1, 360)
+local EXTENSION_CENTER_OFFSET = Vector3.new(-480, 0, 0)
+local COMPARISON_ORIGIN_OFFSET = Vector3.new(-460, 0, -40)
+local COMPARISON_TELEPORT_OFFSET = Vector3.new(-20, 0, 150)
+local CAMERA_STANDOFF = 180
 local WALKWAY_START_OFFSET = Vector3.new(20, 0, -78)
 local WALKWAY_JUNCTION_OFFSET = Vector3.new(-20, 0, -78)
-local WALKWAY_NORTH_END_OFFSET = Vector3.new(-20, 0, 165)
-local WALKWAY_LANDING_OFFSET = MESA_COMPARISON_TELEPORT_OFFSET
-local WALKWAY_WIDTH = 24
+local WALKWAY_NORTH_END_OFFSET = Vector3.new(-20, 0, 150)
+local WALKWAY_SPINE_END_OFFSET = Vector3.new(-880, 0, 150)
+local VIEWER_AISLE_Z = 150
+local VIEWER_AISLE_END_Z = -40
+local WALKWAY_WIDTH = 18
+local VIEWER_WALKWAY_WIDTH = 12
 local WORLD_MARGIN = 2
 local LANDING_MARGIN = 15
+local MIN_SAMPLE_LENGTH = 200
+local MIN_LANE_GAP = 100
+local MAX_SAMPLE_HALF_WIDTH = 45
+local MAX_SAMPLE_HALF_DEPTH = 130
+
+local SAMPLE_DEFINITIONS = {
+	{
+		Name = "TerrainBoundarySample",
+		Label = "TERRAIN BOUNDARY",
+		MinimumDepthStagger = 18,
+		TeleportAttribute = "MesaTerrainBoundaryTeleportCFrame",
+		CenterAttribute = "MesaTerrainBoundarySampleCenter",
+	},
+	{
+		Name = "FacetedBoundarySample",
+		Label = "FACETED BOUNDARY",
+		MinimumDepthStagger = 22,
+		TeleportAttribute = "MesaFacetedBoundaryTeleportCFrame",
+		CenterAttribute = "MesaFacetedBoundarySampleCenter",
+	},
+	{
+		Name = "MixedBoundarySample",
+		Label = "MIXED BOUNDARY",
+		MinimumDepthStagger = 26,
+		TeleportAttribute = "MesaMixedBoundaryTeleportCFrame",
+		CenterAttribute = "MesaMixedBoundarySampleCenter",
+	},
+}
+
+local TELEPORT_ATTRIBUTE_NAMES = {
+	"MesaComparisonTeleportCFrame",
+	"MesaComparisonSampleCenter",
+	"MesaTerrainBoundaryTeleportCFrame",
+	"MesaTerrainBoundarySampleCenter",
+	"MesaFacetedBoundaryTeleportCFrame",
+	"MesaFacetedBoundarySampleCenter",
+	"MesaMixedBoundaryTeleportCFrame",
+	"MesaMixedBoundarySampleCenter",
+}
 
 local function createPart(parent, name, size, cframe, color, material, canCollide, canQuery)
 	local part = Instance.new("Part")
@@ -46,46 +88,53 @@ local function createPart(parent, name, size, cframe, color, material, canCollid
 	return part
 end
 
+local function markVisual(part)
+	part:SetAttribute("DevOnly", true)
+	part:SetAttribute("VisualOnly", true)
+	part:SetAttribute("WorldDecoration", "BoundaryShowcase")
+	return part
+end
+
+local function createSurfaceLabel(board, name, face, text)
+	local surface = Instance.new("SurfaceGui")
+	surface.Name = name
+	surface.Face = face
+	surface.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	surface.PixelsPerStud = 32
+	surface.LightInfluence = 0
+	surface.Parent = board
+
+	local label = Instance.new("TextLabel")
+	label.Name = "Text"
+	label.Size = UDim2.fromScale(1, 1)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.GothamBlack
+	label.Text = text
+	label.TextColor3 = Color3.fromRGB(245, 240, 214)
+	label.TextScaled = true
+	label.TextWrapped = true
+	label.TextStrokeTransparency = 0.45
+	label.Parent = surface
+	return label
+end
+
 local function createDirectionSign(parent, galleryOrigin, floorTopY)
 	local signCenter = galleryOrigin + Vector3.new(-5, floorTopY - galleryOrigin.Y + 8, -78)
-	local signCFrame = CFrame.new(signCenter) * CFrame.Angles(0, math.rad(-90), 0)
-	local board = createPart(
+	local board = markVisual(createPart(
 		parent,
 		"BoundaryShowcaseDirectionBoard",
 		Vector3.new(30, 4.5, 0.6),
-		signCFrame,
+		CFrame.new(signCenter) * CFrame.Angles(0, math.rad(-90), 0),
 		Color3.fromRGB(47, 66, 54),
 		Enum.Material.WoodPlanks,
 		false,
 		false
-	)
-	board:SetAttribute("DevOnly", true)
-	board:SetAttribute("VisualOnly", true)
+	))
+	createSurfaceLabel(board, "DirectionFront", Enum.NormalId.Front, "← MESA BOUNDARY COMPARISON")
+	createSurfaceLabel(board, "DirectionBack", Enum.NormalId.Back, "← MESA BOUNDARY COMPARISON")
 
-	for _, face in ipairs({ Enum.NormalId.Front, Enum.NormalId.Back }) do
-		local surface = Instance.new("SurfaceGui")
-		surface.Name = "Direction" .. face.Name
-		surface.Face = face
-		surface.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-		surface.PixelsPerStud = 32
-		surface.LightInfluence = 0
-		surface.Parent = board
-
-		local label = Instance.new("TextLabel")
-		label.Name = "Text"
-		label.Size = UDim2.fromScale(1, 1)
-		label.BackgroundTransparency = 1
-		label.Font = Enum.Font.GothamBlack
-		label.Text = "← MESA BOUNDARY COMPARISON"
-		label.TextColor3 = Color3.fromRGB(245, 240, 214)
-		label.TextScaled = true
-		label.TextStrokeTransparency = 0.45
-		label.Parent = surface
-	end
-
-	-- These supports sit beyond the edge of the 24-stud approach path.
 	for _, zOffset in ipairs({ -92, -64 }) do
-		local post = createPart(
+		markVisual(createPart(
 			parent,
 			"BoundaryShowcaseDirectionPost",
 			Vector3.new(0.7, 8, 0.7),
@@ -94,9 +143,41 @@ local function createDirectionSign(parent, galleryOrigin, floorTopY)
 			Enum.Material.Wood,
 			false,
 			false
-		)
-		post:SetAttribute("DevOnly", true)
-		post:SetAttribute("VisualOnly", true)
+		))
+	end
+end
+
+local function createSampleStationSign(parent, galleryOrigin, floorTopY, definition, viewerX)
+	local boardWidth = 58
+	local boardCenter = Vector3.new(
+		viewerX,
+		floorTopY + 7,
+		galleryOrigin.Z + VIEWER_AISLE_Z - 11
+	)
+	local board = markVisual(createPart(
+		parent,
+		definition.Name .. "StationBoard",
+		Vector3.new(boardWidth, 5, 0.7),
+		CFrame.new(boardCenter),
+		Color3.fromRGB(47, 66, 54),
+		Enum.Material.WoodPlanks,
+		false,
+		false
+	))
+	createSurfaceLabel(board, "StationLabelFront", Enum.NormalId.Front, definition.Label .. "\nSIDE VIEW")
+	createSurfaceLabel(board, "StationLabelBack", Enum.NormalId.Back, definition.Label .. "\nSIDE VIEW")
+
+	for _, side in ipairs({ -1, 1 }) do
+		markVisual(createPart(
+			parent,
+			definition.Name .. "StationPost",
+			Vector3.new(0.8, 7, 0.8),
+			CFrame.new(viewerX + side * (boardWidth * 0.5 - 1), floorTopY + 3.5, boardCenter.Z),
+			Color3.fromRGB(91, 69, 45),
+			Enum.Material.Wood,
+			false,
+			false
+		))
 	end
 end
 
@@ -113,8 +194,23 @@ local function getPartBounds(part)
 		position.Z - halfZ, position.Z + halfZ
 end
 
-local function validateVisualModel(model, support)
+local function validateVisualModel(model, support, definition)
 	assert(model and model:IsA("Model"), "Boundary showcase run must be a Model")
+	local primaryPart = model.PrimaryPart
+	assert(primaryPart and primaryPart:IsA("BasePart"),
+		model.Name .. " must expose its run origin as PrimaryPart")
+	local visibleLength = model:GetAttribute("VisibleLengthZ")
+	local contourMinZ = model:GetAttribute("VisibleContourMinZ")
+	local contourMaxZ = model:GetAttribute("VisibleContourMaxZ")
+	local depthStaggerRange = model:GetAttribute("DepthStaggerRangeX")
+	assert(type(visibleLength) == "number" and type(contourMinZ) == "number"
+		and type(contourMaxZ) == "number" and math.abs((contourMaxZ - contourMinZ) - visibleLength) <= 0.05,
+		model.Name .. " must provide its measured contour length")
+	assert(visibleLength >= MIN_SAMPLE_LENGTH,
+		model.Name .. " must be at least 200 studs long along its visible contour")
+	assert(type(depthStaggerRange) == "number"
+		and depthStaggerRange >= definition.MinimumDepthStagger,
+		model.Name .. " must meet its planned depth-stagger profile")
 	local minX, maxX, minY, maxY, minZ, maxZ
 	local hasReadableLabel = false
 	for _, descendant in ipairs(model:GetDescendants()) do
@@ -136,15 +232,19 @@ local function validateVisualModel(model, support)
 	end
 	assert(minX and minZ, "Boundary showcase run has no BaseParts")
 	assert(hasReadableLabel, "Each boundary showcase run must have a readable label")
+	assert(maxX - minX <= MAX_SAMPLE_HALF_WIDTH * 2,
+		model.Name .. " exceeds the planned side-to-side footprint")
+	assert(maxZ - minZ <= MAX_SAMPLE_HALF_DEPTH * 2,
+		model.Name .. " exceeds the planned long-axis bound")
 
 	local supportMinX = support.Position.X - support.Size.X * 0.5
 	local supportMaxX = support.Position.X + support.Size.X * 0.5
 	local supportMinZ = support.Position.Z - support.Size.Z * 0.5
 	local supportMaxZ = support.Position.Z + support.Size.Z * 0.5
 	assert(minX >= supportMinX + WORLD_MARGIN and maxX <= supportMaxX - WORLD_MARGIN,
-		"Boundary showcase run extends beyond its support floor in X")
+		model.Name .. " extends beyond the support floor in X")
 	assert(minZ >= supportMinZ + WORLD_MARGIN and maxZ <= supportMaxZ - WORLD_MARGIN,
-		"Boundary showcase run extends beyond its support floor in Z")
+		model.Name .. " extends beyond the support floor in Z")
 	return {
 		MinX = minX,
 		MaxX = maxX,
@@ -152,59 +252,72 @@ local function validateVisualModel(model, support)
 		MaxY = maxY,
 		MinZ = minZ,
 		MaxZ = maxZ,
+		CenterX = primaryPart.Position.X,
+		CenterZ = primaryPart.Position.Z + (contourMinZ + contourMaxZ) * 0.5,
+		VisibleMinZ = primaryPart.Position.Z + contourMinZ,
+		VisibleMaxZ = primaryPart.Position.Z + contourMaxZ,
+		Length = visibleLength,
+		DepthStaggerRange = depthStaggerRange,
 	}
 end
 
 local function validateComparison(runs, support, comparisonOrigin)
 	assert(runs and runs:IsA("Model") and runs.Name == "MesaBoundarySampleRuns",
 		"Mesa boundary builder must return the MesaBoundarySampleRuns Model")
-	assert(runs.ModelStreamingMode == Enum.ModelStreamingMode.Atomic,
-		"Mesa boundary sample runs must stream as one atomic comparison")
+	assert(runs.ModelStreamingMode ~= Enum.ModelStreamingMode.Atomic,
+		"Mesa boundary container must allow its individual lanes to stream independently")
 	assert(runs:GetAttribute("BuildStatus") == "Ready",
-		"Mesa boundary runs must be marked ready before exposing the teleport")
-	assert(runs:GetAttribute("SampleCount") == 2,
-		"Mesa boundary showcase must contain exactly two runs")
+		"Mesa boundary runs must be marked ready before exposing teleport options")
+	assert(runs:GetAttribute("SampleCount") == #SAMPLE_DEFINITIONS,
+		"Mesa boundary showcase must contain exactly three runs")
 	assert(typeof(runs:GetAttribute("PairCenterX")) == "number"
 		and math.abs(runs:GetAttribute("PairCenterX") - comparisonOrigin.X) <= 1,
-		"Mesa boundary run pair is not centered at the requested X position")
+		"Mesa boundary run row is not centered at the requested X position")
 	assert(typeof(runs:GetAttribute("PairCenterZ")) == "number"
 		and math.abs(runs:GetAttribute("PairCenterZ") - comparisonOrigin.Z) <= 1,
-		"Mesa boundary run pair is not centered on the requested viewing row")
+		"Mesa boundary run row is not centered at the requested Z position")
 
-	local terrainRun = runs:FindFirstChild("TerrainBoundarySample")
-	local facetedRun = runs:FindFirstChild("FacetedBoundarySample")
-	assert(terrainRun and terrainRun:IsA("Model"), "TerrainBoundarySample Model is required")
-	assert(facetedRun and facetedRun:IsA("Model"), "FacetedBoundarySample Model is required")
-	assert(terrainRun:GetAttribute("BuildStatus") == "Ready"
-		and facetedRun:GetAttribute("BuildStatus") == "Ready",
-		"Both mesa boundary sample models must be marked ready")
 	local modelCount = 0
 	for _, child in ipairs(runs:GetChildren()) do
 		if child:IsA("Model") then
 			modelCount += 1
 		end
 	end
-	assert(modelCount == 2, "Mesa boundary showcase must have exactly two direct sample Models")
+	assert(modelCount == #SAMPLE_DEFINITIONS,
+		"Mesa boundary showcase must have exactly three direct sample Models")
 
-	local terrainBounds = validateVisualModel(terrainRun, support)
-	local facetedBounds = validateVisualModel(facetedRun, support)
-	assert(terrainBounds.MaxX < facetedBounds.MinX,
-		"Boundary samples must sit side by side with a clear gap along X")
-	local sharedRowDepth = math.min(terrainBounds.MaxZ, facetedBounds.MaxZ)
-		- math.max(terrainBounds.MinZ, facetedBounds.MinZ)
-	assert(sharedRowDepth >= 20,
-		"Boundary samples must overlap in depth as one side-by-side viewing row")
+	local samples = table.create(#SAMPLE_DEFINITIONS)
+	for index, definition in ipairs(SAMPLE_DEFINITIONS) do
+		local run = runs:FindFirstChild(definition.Name)
+		assert(run and run:IsA("Model"), definition.Name .. " Model is required")
+		assert(run.ModelStreamingMode == Enum.ModelStreamingMode.Atomic,
+			definition.Name .. " must stream as a complete lane")
+		assert(run:GetAttribute("BuildStatus") == "Ready",
+			definition.Name .. " must be marked ready before exposing its teleport")
+		local bounds = validateVisualModel(run, support, definition)
+		local expectedCenterX = comparisonOrigin.X + (index - 2) * 240
+		assert(math.abs(bounds.CenterX - expectedCenterX) <= 14,
+			definition.Name .. " is outside its assigned side-view lane")
+		samples[index] = {
+			Definition = definition,
+			Model = run,
+			Bounds = bounds,
+		}
+	end
+	assert(samples[1].Bounds.DepthStaggerRange < samples[2].Bounds.DepthStaggerRange
+		and samples[2].Bounds.DepthStaggerRange < samples[3].Bounds.DepthStaggerRange,
+		"Terrain, Faceted, and Mixed samples must have progressively deeper profiles")
 
-	return {
-		MinX = math.min(terrainBounds.MinX, facetedBounds.MinX),
-		MaxX = math.max(terrainBounds.MaxX, facetedBounds.MaxX),
-		MinZ = math.min(terrainBounds.MinZ, facetedBounds.MinZ),
-		MaxZ = math.max(terrainBounds.MaxZ, facetedBounds.MaxZ),
-		MaxY = math.max(terrainBounds.MaxY, facetedBounds.MaxY),
-	}
+	for index = 2, #samples do
+		local gap = samples[index].Bounds.MinX - samples[index - 1].Bounds.MaxX
+		assert(gap >= MIN_LANE_GAP,
+			"Boundary sample lanes need at least 100 studs of clear sightline spacing")
+	end
+
+	return samples
 end
 
-local function createApproachSegment(parent, name, galleryOrigin, startOffset, endOffset, floorTopY)
+local function createApproachSegment(parent, name, galleryOrigin, startOffset, endOffset, floorTopY, width)
 	local startPosition = galleryOrigin + startOffset
 	local endPosition = galleryOrigin + endOffset
 	local delta = endPosition - startPosition
@@ -218,7 +331,7 @@ local function createApproachSegment(parent, name, galleryOrigin, startOffset, e
 	local path = createPart(
 		parent,
 		name,
-		Vector3.new(WALKWAY_WIDTH, 0.12, horizontalLength),
+		Vector3.new(width or WALKWAY_WIDTH, 0.12, horizontalLength),
 		CFrame.lookAt(center, Vector3.new(endPosition.X, center.Y, endPosition.Z)),
 		Color3.fromRGB(151, 139, 112),
 		Enum.Material.Slate,
@@ -231,17 +344,23 @@ local function createApproachSegment(parent, name, galleryOrigin, startOffset, e
 	return path
 end
 
-local function validateLanding(support, floorTopY, galleryOrigin)
+local function validateLanding(support, floorTopY, galleryOrigin, offset)
 	local supportMinX = support.Position.X - support.Size.X * 0.5
 	local supportMaxX = support.Position.X + support.Size.X * 0.5
 	local supportMinZ = support.Position.Z - support.Size.Z * 0.5
 	local supportMaxZ = support.Position.Z + support.Size.Z * 0.5
-	local landing = galleryOrigin + MESA_COMPARISON_TELEPORT_OFFSET
+	local landing = galleryOrigin + offset
 	assert(landing.X >= supportMinX + LANDING_MARGIN and landing.X <= supportMaxX - LANDING_MARGIN,
-		"Mesa comparison landing is too close to the support floor edge in X")
+		"Boundary comparison landing is too close to the support floor edge in X")
 	assert(landing.Z >= supportMinZ + LANDING_MARGIN and landing.Z <= supportMaxZ - LANDING_MARGIN,
-		"Mesa comparison landing must keep a 15-stud margin from the support floor edge in Z")
+		"Boundary comparison landing is too close to the support floor edge in Z")
 	return Vector3.new(landing.X, floorTopY + 4, landing.Z)
+end
+
+local function clearTeleportAttributes(gallery)
+	for _, attributeName in ipairs(TELEPORT_ATTRIBUTE_NAMES) do
+		gallery:SetAttribute(attributeName, nil)
+	end
 end
 
 local function buildOnGallery(gallery)
@@ -257,19 +376,24 @@ local function buildOnGallery(gallery)
 		return
 	end
 	local existingRoot = gallery:FindFirstChild(ROOT_NAME)
-	if existingRoot
-		and gallery:GetAttribute("MesaShapeShowcaseVersion") == BUILD_VERSION
-		and typeof(gallery:GetAttribute("MesaComparisonTeleportCFrame")) == "CFrame"
-		and typeof(gallery:GetAttribute("MesaComparisonSampleCenter")) == "Vector3"
-	then
-		return
+	if existingRoot and gallery:GetAttribute("MesaShapeShowcaseVersion") == BUILD_VERSION then
+		local hasAllTeleports = true
+		for _, attributeName in ipairs(TELEPORT_ATTRIBUTE_NAMES) do
+			if gallery:GetAttribute(attributeName) == nil then
+				hasAllTeleports = false
+				break
+			end
+		end
+		if hasAllTeleports then
+			return
+		end
 	end
 	if buildingGalleries[gallery] then
 		return
 	end
 	buildingGalleries[gallery] = true
-	gallery:SetAttribute("MesaComparisonTeleportCFrame", nil)
-	gallery:SetAttribute("MesaComparisonSampleCenter", nil)
+	gallery:SetAttribute("MesaShapeShowcaseVersion", nil)
+	clearTeleportAttributes(gallery)
 	if existingRoot then
 		existingRoot:Destroy()
 	end
@@ -304,14 +428,14 @@ local function buildOnGallery(gallery)
 			WALKWAY_START_OFFSET, WALKWAY_JUNCTION_OFFSET, floorTopY)
 		createApproachSegment(root, "BoundaryShowcaseNorthAisle", galleryOrigin,
 			WALKWAY_JUNCTION_OFFSET, WALKWAY_NORTH_END_OFFSET, floorTopY)
-		createApproachSegment(root, "BoundaryShowcaseLandingPath", galleryOrigin,
-			WALKWAY_NORTH_END_OFFSET, WALKWAY_LANDING_OFFSET, floorTopY)
+		createApproachSegment(root, "BoundaryShowcaseSampleCrosswalk", galleryOrigin,
+			WALKWAY_NORTH_END_OFFSET, WALKWAY_SPINE_END_OFFSET, floorTopY, WALKWAY_WIDTH)
 
-		local samples = Instance.new("Folder")
-		samples.Name = "BoundarySamples"
-		samples:SetAttribute("DevOnly", true)
-		samples:SetAttribute("VisualOnly", true)
-		samples.Parent = root
+		local samplesFolder = Instance.new("Folder")
+		samplesFolder.Name = "BoundarySamples"
+		samplesFolder:SetAttribute("DevOnly", true)
+		samplesFolder:SetAttribute("VisualOnly", true)
+		samplesFolder.Parent = root
 
 		local worldLayout = ServerScriptService:FindFirstChild("WorldLayout")
 		local moduleScript = worldLayout and worldLayout:FindFirstChild("MesaShapeShowcase")
@@ -323,30 +447,76 @@ local function buildOnGallery(gallery)
 
 		local comparisonOrigin = galleryOrigin + COMPARISON_ORIGIN_OFFSET
 		local runs = MesaShapeShowcase.Create(
-			samples,
+			samplesFolder,
 			Vector3.new(comparisonOrigin.X, floorTopY, comparisonOrigin.Z)
 		)
-		local comparisonBounds = validateComparison(runs, extensionFloor, comparisonOrigin)
-		local landingPosition = validateLanding(extensionFloor, floorTopY, galleryOrigin)
-		local sampleCenter = Vector3.new(
-			comparisonOrigin.X,
-			floorTopY + COMPARISON_TARGET_HEIGHT,
-			comparisonOrigin.Z
+		local samples = validateComparison(runs, extensionFloor, comparisonOrigin)
+		local overviewPosition = validateLanding(
+			extensionFloor,
+			floorTopY,
+			galleryOrigin,
+			COMPARISON_TELEPORT_OFFSET
 		)
-		assert(landingPosition.Z - comparisonBounds.MaxZ >= 160,
-			"Mesa comparison landing must remain clear of the sample runs")
-		gallery:SetAttribute("MesaComparisonSampleCenter", sampleCenter)
-		local landingLookAt = Vector3.new(sampleCenter.X, landingPosition.Y, sampleCenter.Z)
+		-- The overview is a central hub on the crosswalk. It stays responsive
+		-- without requiring any of the separately streamed sample lanes.
+		local overviewCenter = Vector3.new(
+			galleryOrigin.X - 300,
+			floorTopY + 6,
+			galleryOrigin.Z + VIEWER_AISLE_Z
+		)
+		gallery:SetAttribute("MesaComparisonSampleCenter", overviewCenter)
 		gallery:SetAttribute(
 			"MesaComparisonTeleportCFrame",
-			CFrame.lookAt(landingPosition, landingLookAt)
+			CFrame.lookAt(overviewPosition, overviewCenter)
 		)
+
+		for index, sample in ipairs(samples) do
+			local definition = sample.Definition
+			local bounds = sample.Bounds
+			local center = Vector3.new(
+				bounds.CenterX,
+				(bounds.MinY + bounds.MaxY) * 0.5,
+				bounds.CenterZ
+			)
+			local viewerX = center.X - CAMERA_STANDOFF
+			local viewOffset = Vector3.new(viewerX - galleryOrigin.X, 0, center.Z - galleryOrigin.Z)
+			local viewerPosition = validateLanding(extensionFloor, floorTopY, galleryOrigin, viewOffset)
+			local viewerMinX = math.min(viewerPosition.X, center.X)
+			local viewerMaxX = math.max(viewerPosition.X, center.X)
+			for otherIndex, otherSample in ipairs(samples) do
+				if otherIndex ~= index then
+					local other = otherSample.Bounds
+					local sightlineOverlaps = other.MaxX >= viewerMinX - WORLD_MARGIN
+						and other.MinX <= viewerMaxX + WORLD_MARGIN
+					assert(not sightlineOverlaps,
+						definition.Name .. " side-view landing crosses another sample lane")
+				end
+			end
+
+			createApproachSegment(
+				root,
+				definition.Name .. "SideViewPath",
+				galleryOrigin,
+				Vector3.new(viewerX - galleryOrigin.X, 0, VIEWER_AISLE_Z),
+				Vector3.new(viewerX - galleryOrigin.X, 0, VIEWER_AISLE_END_Z),
+				floorTopY,
+				VIEWER_WALKWAY_WIDTH
+			)
+			createSampleStationSign(root, galleryOrigin, floorTopY, definition, viewerX)
+
+			gallery:SetAttribute(definition.CenterAttribute, center)
+			gallery:SetAttribute(
+				definition.TeleportAttribute,
+				CFrame.lookAt(viewerPosition, center)
+			)
+		end
 	end)
 
 	if not ok then
 		if root then
 			root:Destroy()
 		end
+		clearTeleportAttributes(gallery)
 		buildingGalleries[gallery] = nil
 		warn("[DevMesaShowcase] Could not build the Studio boundary comparison: " .. tostring(err))
 		return
