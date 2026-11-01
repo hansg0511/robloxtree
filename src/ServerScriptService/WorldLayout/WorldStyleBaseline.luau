@@ -1,6 +1,6 @@
--- World 1's light stylized palette, boundary geometry, and walk-up style samples.
--- Kept separate from route configuration so future worlds can replace the visual
--- language without changing progression or tree records.
+-- World 1's palette and route-independent boundary style.
+-- Ordinary runs use the approved warm-rock/green-cap mixed mesa forms; their
+-- collision layout remains in the unchanged planner below.
 local WorldStyleBaseline = {}
 
 local BASELINE = {
@@ -29,9 +29,10 @@ local PROTECTED_BARRIER_COLORS = {
 	Color3.fromRGB(150, 196, 125),
 }
 
--- Ordinary World 1 cliffs are made from overlapping, visible cylinder pillars.
--- Each pillar owns its own rock body and grass cap; no continuous wall or hidden
--- collision plane sits behind them.
+-- Production boundary renders are grouped into collidable lower mesa cores and
+-- smaller tapered tiers. Original cylinder collisions remain hidden inside the
+-- shared cores; the central ridge also retains a transparent high security
+-- plane so its new terraces cannot become a progression bypass.
 local STONE_MASS_COLORS = {
 	Color3.fromRGB(112, 120, 124),
 	Color3.fromRGB(101, 109, 113),
@@ -42,6 +43,9 @@ local GRASS_CAP_COLOR = Color3.fromRGB(100, 151, 79)
 local PILLAR_SPACING_ESTIMATE = 16
 local PILLAR_MIN_RADIUS = 6.5
 local PILLAR_MAX_RADIUS = 11.5
+-- Central main-chain caps must remain in the narrow x=[-9, 13] ridge envelope;
+-- supports keep their own original outboard positions as separate visible forms.
+local CENTRAL_RIDGE_MAIN_MAX_RADIUS = 10.5
 local PILLAR_CAP_HEIGHT = 1.25
 local PILLAR_CAP_OVERHANG = 0.5
 local PILLAR_MAX_CAP_RADIUS = PILLAR_MAX_RADIUS + PILLAR_CAP_OVERHANG
@@ -237,7 +241,7 @@ local function getPillarNormalOffset(interiorSide, index, phase)
 	return -side * PILLAR_SIDE_DEPTH_OFFSETS[offsetIndex]
 end
 
-local function buildPillarPlan(name, runLength, interiorSide, requestedHeight)
+local function buildPillarPlan(name, runLength, interiorSide, requestedHeight, preserveOriginalCentral)
 	local phase = getMassPhase(name)
 	local minimumIntervals = math.max(1, math.floor(runLength / (PILLAR_SPACING_ESTIMATE + 4)) - 1)
 	local maximumIntervals = math.max(minimumIntervals, math.ceil(runLength / (PILLAR_SPACING_ESTIMATE - 5)) + 1)
@@ -249,6 +253,9 @@ local function buildPillarPlan(name, runLength, interiorSide, requestedHeight)
 		for index = 1, intervalCount + 1 do
 			local role = getPillarRole(index, phase)
 			local radius = getPillarRadius(role, index, phase)
+			if name == "CentralRidge" and not preserveOriginalCentral then
+				radius = math.min(radius, CENTRAL_RIDGE_MAIN_MAX_RADIUS)
+			end
 			local normalOffset = getPillarNormalOffset(interiorSide, index, phase)
 			if index == 1 or index == intervalCount + 1 then
 				if interiorSide == 0 then
@@ -258,11 +265,16 @@ local function buildPillarPlan(name, runLength, interiorSide, requestedHeight)
 				end
 			end
 			if name == "CentralRidge" then
-				-- Keep each west-facing ridge body clear of Forest 1 crowns while
-				-- allowing smaller supports to straddle x=0.
-				normalOffset = math.max(normalOffset, radius - 8.5, 0)
-				if index == 1 then
-					normalOffset = math.max(normalOffset, 4.5)
+				if preserveOriginalCentral then
+					normalOffset = math.max(normalOffset, radius - 8.5, 0)
+					if index == 1 then
+						normalOffset = math.max(normalOffset, 4.5)
+					end
+				else
+					-- Keep every main body/cap inside x=[-9, 13]. Smaller outboard
+					-- supports are solved separately and retain their old footprints.
+					local capRadius = radius + PILLAR_CAP_OVERHANG
+					normalOffset = math.clamp(normalOffset, capRadius - 9, 13 - capRadius)
 				end
 			end
 			pillars[index] = {
@@ -334,56 +346,449 @@ local function buildPillarPlan(name, runLength, interiorSide, requestedHeight)
 	return bestPlan
 end
 
-local function createBoundaryPillar(parent, runName, columnName, role, position, radius, bodyHeight, capColor, stoneColor)
+local MESA_ROCK_COLOR = Color3.fromRGB(101, 47, 32)
+local MESA_GRASS_COLOR = Color3.fromRGB(70, 158, 54)
+local MESA_PROFILE_SEED = 161_803
+local OCTAGON_CORNER_SCALE = math.sqrt(2) - 1
+
+local function markMesaVisual(part, profileKind)
+	markCosmeticBoundary(part)
+	part:SetAttribute("BoundaryStyle", "World1MixedMesa")
+	part:SetAttribute("BoundaryColumn", true)
+	part:SetAttribute("MesaProfile", profileKind)
+	part:SetAttribute("VisualOnly", true)
+	return part
+end
+
+local function createMesaWedge(parent, name, rightCorner, endpointA, endpointB, bottomY, height, color, profileKind)
+	local legA = Vector3.new(endpointA.X - rightCorner.X, 0, endpointA.Z - rightCorner.Z)
+	local legB = Vector3.new(endpointB.X - rightCorner.X, 0, endpointB.Z - rightCorner.Z)
+	local lengthA = legA.Magnitude
+	local lengthB = legB.Magnitude
+	if lengthA <= 1e-4 or lengthB <= 1e-4 or height <= 1e-4 then
+		return nil
+	end
+
+	local yAxis = legA.Unit
+	local zAxis = -legB.Unit
+	local xAxis = yAxis:Cross(zAxis).Unit
+	local partPosition = Vector3.new(rightCorner.X, bottomY, rightCorner.Z)
+		+ yAxis * (lengthA * 0.5) - zAxis * (lengthB * 0.5)
+	partPosition = Vector3.new(partPosition.X, bottomY + height * 0.5, partPosition.Z)
+
+	local wedge = Instance.new("WedgePart")
+	wedge.Name = name
+	wedge.Size = Vector3.new(height, lengthA, lengthB)
+	wedge.CFrame = CFrame.fromMatrix(partPosition, xAxis, yAxis, zAxis)
+	wedge.Anchored = true
+	wedge.Color = color
+	wedge.Material = Enum.Material.SmoothPlastic
+	wedge.TopSurface = Enum.SurfaceType.Smooth
+	wedge.BottomSurface = Enum.SurfaceType.Smooth
+	wedge.Parent = parent
+	markMesaVisual(wedge, profileKind)
+	return wedge
+end
+
+-- This is a regular octagon circumscribed around the old circular collider.
+-- Its vertical/horizontal sides are at +/-radius; its diagonal sides are
+-- x+z=sqrt(2)*radius (and sign variants), exactly tangent to the circle.
+-- Therefore the visible rock union contains the original cylinder without
+-- extending either axis-aligned bound by even one stud.
+local function createOctagonalPrism(parent, name, center, radius, bottomY, height, color, profileKind)
+	local corner = radius * OCTAGON_CORNER_SCALE
+	local barWidth = 2 * corner
+	local verticalBar = createPart(
+		parent,
+		name .. "BarNS",
+		Vector3.new(barWidth, height, 2 * radius),
+		CFrame.new(center.X, bottomY + height * 0.5, center.Z),
+		color,
+		Enum.Material.SmoothPlastic
+	)
+	markMesaVisual(verticalBar, profileKind)
+	local horizontalBar = createPart(
+		parent,
+		name .. "BarEW",
+		Vector3.new(2 * radius, height, barWidth),
+		CFrame.new(center.X, bottomY + height * 0.5, center.Z),
+		color,
+		Enum.Material.SmoothPlastic
+	)
+	markMesaVisual(horizontalBar, profileKind)
+
+	local cornerIndex = 0
+	for _, signX in ipairs({ -1, 1 }) do
+		for _, signZ in ipairs({ -1, 1 }) do
+			cornerIndex += 1
+			local inner = Vector3.new(center.X + signX * corner, bottomY, center.Z + signZ * corner)
+			local edgeX = Vector3.new(center.X + signX * radius, bottomY, center.Z + signZ * corner)
+			local edgeZ = Vector3.new(center.X + signX * corner, bottomY, center.Z + signZ * radius)
+			createMesaWedge(
+				parent,
+				name .. string.format("Corner%02d", cornerIndex),
+				inner,
+				edgeX,
+				edgeZ,
+				bottomY,
+				height,
+				color,
+				profileKind
+			)
+		end
+	end
+end
+
+local function getStableMesaSeed(name)
+	local seed = MESA_PROFILE_SEED
+	for index = 1, #name do
+		seed = (seed * 33 + string.byte(name, index)) % 2_147_483_647
+	end
+	return math.max(1, math.floor(seed))
+end
+
+local function getStableMesaUnit(name)
+	return (getStableMesaSeed(name) % 1_000_000) / 999_999
+end
+
+local function buildMixedProfileSequence(runName, count)
+	local profiles = table.create(count)
+	if count <= 0 then
+		return profiles
+	end
+	local random = Random.new(getStableMesaSeed(runName))
+	if count == 1 then
+		profiles[1] = if random:NextInteger(1, 2) == 1 then "Terrain" else "Faceted"
+		return profiles
+	end
+
+	local pairedStyle = if random:NextInteger(1, 2) == 1 then "Terrain" else "Faceted"
+	local otherStyle = if pairedStyle == "Terrain" then "Faceted" else "Terrain"
+	local pairedTotal = math.floor(count / 2)
+	local otherTotal = count - pairedTotal
+	local remainder = {}
+	for _ = 1, pairedTotal - 2 do
+		remainder[#remainder + 1] = pairedStyle
+	end
+	for _ = 1, otherTotal do
+		remainder[#remainder + 1] = otherStyle
+	end
+	for index = #remainder, 2, -1 do
+		local swapIndex = random:NextInteger(1, index)
+		remainder[index], remainder[swapIndex] = remainder[swapIndex], remainder[index]
+	end
+	profiles[1] = pairedStyle
+	profiles[2] = pairedStyle
+	for index = 3, count do
+		profiles[index] = remainder[index - 2]
+	end
+	return profiles
+end
+
+local function markMesaCollisionPart(part, profileKind, formationName)
+	markBoundary(part)
+	part:SetAttribute("BoundaryStyle", "World1MixedMesa")
+	part:SetAttribute("BoundaryColumn", true)
+	part:SetAttribute("MesaProfile", profileKind)
+	part:SetAttribute("MesaFormation", formationName)
+	part.CanCollide = true
+	part.CanTouch = false
+	part.CanQuery = true
+	part:SetAttribute("VisualOnly", false)
+	return part
+end
+
+local function createLandformBlock(parent, name, center, halfX, halfZ, bottomY, height, scale, color, profileKind, formationName)
+	local part = createPart(
+		parent,
+		name,
+		Vector3.new(2 * halfX * scale, height, 2 * halfZ * scale),
+		CFrame.new(center.X, bottomY + height * 0.5, center.Z),
+		color,
+		Enum.Material.SmoothPlastic
+	)
+	markMesaCollisionPart(part, profileKind, formationName)
+	return part
+end
+
+local function getEnclosingOctagonCornerScale(records, center, halfX, halfZ)
+	local maximumDiagonalSupport = 0
+	for _, record in ipairs(records) do
+		local offsetX = record.Position.X - center.X
+		local offsetZ = record.Position.Z - center.Z
+		local circleSupport = record.Radius * math.sqrt(1 / halfX ^ 2 + 1 / halfZ ^ 2)
+		for _, signX in ipairs({ -1, 1 }) do
+			for _, signZ in ipairs({ -1, 1 }) do
+				local diagonalSupport = signX * offsetX / halfX + signZ * offsetZ / halfZ + circleSupport
+				maximumDiagonalSupport = math.max(maximumDiagonalSupport, diagonalSupport)
+			end
+		end
+	end
+	return math.max(OCTAGON_CORNER_SCALE, maximumDiagonalSupport - 1 + 0.01)
+end
+
+local function createOctagonalRectanglePrism(parent, name, center, halfX, halfZ, bottomY, height, cornerScale, color, profileKind, formationName)
+	local cornerX = halfX * cornerScale
+	local cornerZ = halfZ * cornerScale
+	local verticalBar = createPart(
+		parent,
+		name .. "BarNS",
+		Vector3.new(2 * cornerX, height, 2 * halfZ),
+		CFrame.new(center.X, bottomY + height * 0.5, center.Z),
+		color,
+		Enum.Material.SmoothPlastic
+	)
+	markMesaCollisionPart(verticalBar, profileKind, formationName)
+	local horizontalBar = createPart(
+		parent,
+		name .. "BarEW",
+		Vector3.new(2 * halfX, height, 2 * cornerZ),
+		CFrame.new(center.X, bottomY + height * 0.5, center.Z),
+		color,
+		Enum.Material.SmoothPlastic
+	)
+	markMesaCollisionPart(horizontalBar, profileKind, formationName)
+
+	local cornerIndex = 0
+	for _, signX in ipairs({ -1, 1 }) do
+		for _, signZ in ipairs({ -1, 1 }) do
+			cornerIndex += 1
+			local inner = Vector3.new(center.X + signX * cornerX, bottomY, center.Z + signZ * cornerZ)
+			local edgeX = Vector3.new(center.X + signX * halfX, bottomY, center.Z + signZ * cornerZ)
+			local edgeZ = Vector3.new(center.X + signX * cornerX, bottomY, center.Z + signZ * halfZ)
+			local wedge = createMesaWedge(
+				parent,
+				name .. string.format("Corner%02d", cornerIndex),
+				inner,
+				edgeX,
+				edgeZ,
+				bottomY,
+				height,
+				color,
+				profileKind
+			)
+			if wedge then
+				markMesaCollisionPart(wedge, profileKind, formationName)
+			end
+		end
+	end
+end
+
+local function createLandformSlopePanels(parent, formationName, layerName, center, halfX, halfZ, bottomY, height, topScale, profileKind)
+	local depthX = halfX * (1 - topScale)
+	local depthZ = halfZ * (1 - topScale)
+	local sideDefinitions = {
+		{ Name = "East", Axis = "X", Sign = 1, Yaw = math.rad(90) },
+		{ Name = "North", Axis = "Z", Sign = 1, Yaw = 0 },
+		{ Name = "West", Axis = "X", Sign = -1, Yaw = math.rad(-90) },
+		{ Name = "South", Axis = "Z", Sign = -1, Yaw = math.pi },
+	}
+	for _, side in ipairs(sideDefinitions) do
+		local panelHalfX = halfX
+		local panelHalfZ = halfZ
+		local x = center.X
+		local z = center.Z
+		local depth
+		local span
+		if side.Axis == "X" then
+			depth = depthX
+			span = 2 * halfZ
+			x += side.Sign * (halfX - depthX * 0.5)
+		else
+			depth = depthZ
+			span = 2 * halfX
+			z += side.Sign * (halfZ - depthZ * 0.5)
+		end
+		local wedge = Instance.new("WedgePart")
+		wedge.Name = string.format("%s_%s_%sSlope", formationName, layerName, side.Name)
+		wedge.Size = Vector3.new(span, height, depth)
+		wedge.CFrame = CFrame.new(x, bottomY + height * 0.5, z) * CFrame.Angles(0, side.Yaw, 0)
+		wedge.Anchored = true
+		wedge.Color = MESA_ROCK_COLOR
+		wedge.Material = Enum.Material.SmoothPlastic
+		wedge.TopSurface = Enum.SurfaceType.Smooth
+		wedge.BottomSurface = Enum.SurfaceType.Smooth
+		wedge.Parent = parent
+		markMesaCollisionPart(wedge, profileKind, formationName)
+	end
+end
+
+local function createLargeMesaFormation(parent, runName, formationName, center, halfX, halfZ, cornerScale, colliderHeight, upperHeight, profileKind, seed)
+	local model = Instance.new("Model")
+	model.Name = formationName
+	model.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
+	model:SetAttribute("WorldLayoutOwned", true)
+	model:SetAttribute("WorldBoundary", true)
+	model:SetAttribute("BoundaryStyle", "World1MixedMesa")
+	model:SetAttribute("MesaProfile", profileKind)
+	model:SetAttribute("BoundaryRun", runName)
+	model:SetAttribute("HalfWidthX", halfX)
+	model:SetAttribute("HalfDepthZ", halfZ)
+	model:SetAttribute("BuildStatus", "Building")
+
+	local bottomY = center.Y
+	-- The broad lower prism reaches through every existing collidable body and
+	-- cap in this two-column group. This lets us hide the many old small renders
+	-- without creating a walk-through visual cliff.
+	createOctagonalRectanglePrism(
+		model,
+		"MesaCollisionBase",
+		center,
+		halfX,
+		halfZ,
+		bottomY,
+		colliderHeight,
+		cornerScale,
+		MESA_ROCK_COLOR,
+		profileKind,
+		formationName
+	)
+	local topOfOldColliders = bottomY + colliderHeight
+	local firstScale
+	local maximumTierScale = (1 + cornerScale) * 0.5 - 0.005
+	if profileKind == "Faceted" then
+		firstScale = math.min(0.78 + (seed % 4) * 0.015, maximumTierScale)
+		local midHeight = upperHeight * 0.46
+		local topHeight = upperHeight - midHeight
+		local midY = topOfOldColliders
+		createLandformSlopePanels(model, formationName, "Lower", center, halfX, halfZ, midY, midHeight, firstScale, profileKind)
+		createLandformBlock(model, "MesaMiddleTier", center, halfX, halfZ, midY, midHeight, firstScale, MESA_ROCK_COLOR, profileKind, formationName)
+		local secondScale = math.min(0.58 + (seed % 5) * 0.018, firstScale / 1.08)
+		local topY = midY + midHeight
+		createLandformSlopePanels(model, formationName, "Upper", center, halfX * firstScale, halfZ * firstScale, topY, topHeight, secondScale / firstScale, profileKind)
+		createLandformBlock(model, "MesaUpperTier", center, halfX, halfZ, topY, topHeight, secondScale, MESA_ROCK_COLOR, profileKind, formationName)
+		local capHalfX = halfX * secondScale * 1.08
+		local capHalfZ = halfZ * secondScale * 1.08
+		createOctagonalRectanglePrism(
+			model,
+			"MesaGrassCap",
+			center,
+			capHalfX,
+			capHalfZ,
+			topY + topHeight,
+			1.6,
+			OCTAGON_CORNER_SCALE,
+			MESA_GRASS_COLOR,
+			profileKind,
+			formationName
+		)
+		model:SetAttribute("LayerCount", 3)
+	else
+		firstScale = math.min(0.77 + (seed % 6) * 0.012, maximumTierScale)
+		local topHeight = upperHeight
+		local topY = topOfOldColliders
+		createLandformSlopePanels(model, formationName, "Terrain", center, halfX, halfZ, topY, topHeight, firstScale, profileKind)
+		createLandformBlock(model, "MesaPlateau", center, halfX, halfZ, topY, topHeight, firstScale, MESA_ROCK_COLOR, profileKind, formationName)
+		local capHalfX = halfX * firstScale * 1.08
+		local capHalfZ = halfZ * firstScale * 1.08
+		createOctagonalRectanglePrism(
+			model,
+			"MesaGrassCap",
+			center,
+			capHalfX,
+			capHalfZ,
+			topY + topHeight,
+			1.6,
+			OCTAGON_CORNER_SCALE,
+			MESA_GRASS_COLOR,
+			profileKind,
+			formationName
+		)
+		model:SetAttribute("LayerCount", 2)
+	end
+	model:SetAttribute("TopScale", firstScale)
+	model:SetAttribute("PeakHeight", colliderHeight + upperHeight + 1.6)
+	model:SetAttribute("BuildStatus", "Ready")
+	model.Parent = parent
+	return model
+end
+
+local function createBoundaryPillar(parent, runName, columnName, role, position, radius, bodyHeight, capColor, stoneColor, profileKind)
+	local selectedProfile = profileKind or "Terrain"
 	local model = Instance.new("Model")
 	model.Name = columnName
 	model:SetAttribute("WorldLayoutOwned", true)
 	model:SetAttribute("WorldBoundary", true)
-	model:SetAttribute("BoundaryStyle", "World1Baseline")
+	model:SetAttribute("BoundaryStyle", "World1MixedMesa")
 	model:SetAttribute("BoundaryColumn", true)
 	model:SetAttribute("BoundaryRun", runName)
 	model:SetAttribute("BoundaryColumnRole", role)
 	model:SetAttribute("PillarRadius", radius)
 	model:SetAttribute("PillarBodyHeight", bodyHeight)
+	model:SetAttribute("MesaProfile", selectedProfile)
 
-	-- Roblox cylinders use local X as their long axis. Rotating local X onto world
-	-- Y keeps both the rock body and its grass cap upright.
+	-- Preserve the proven collision geometry exactly; only its render is hidden.
+	-- The octagonal rock prisms below circumscribe these cylinders at every Y.
 	local verticalRotation = CFrame.Angles(0, 0, math.rad(90))
 	local body = createPart(
 		model,
-		"Body",
+		"CollisionBody",
 		Vector3.new(bodyHeight, radius * 2, radius * 2),
 		CFrame.new(position.X, position.Y + bodyHeight * 0.5, position.Z) * verticalRotation,
-		stoneColor or STONE_MASS_COLORS[((math.floor(position.X + position.Z + bodyHeight)) % #STONE_MASS_COLORS) + 1],
+		stoneColor or MESA_ROCK_COLOR,
 		Enum.Material.SmoothPlastic,
 		Enum.PartType.Cylinder
 	)
 	body.CanCollide = true
 	body.CanTouch = false
 	body.CanQuery = true
+	body.Transparency = 1
 	body:SetAttribute("BoundaryColumn", true)
 	body:SetAttribute("PillarRole", role)
 	body:SetAttribute("PillarRadius", radius)
 	body:SetAttribute("PillarBodyHeight", bodyHeight)
+	body:SetAttribute("VisualOnly", false)
 	markBoundary(body)
+	body:SetAttribute("BoundaryStyle", "World1MixedMesa")
 
 	local capRadius = radius + PILLAR_CAP_OVERHANG
 	local cap = createPart(
 		model,
-		"GrassCap",
+		"CollisionGrassCap",
 		Vector3.new(PILLAR_CAP_HEIGHT, capRadius * 2, capRadius * 2),
 		CFrame.new(position.X, position.Y + bodyHeight + PILLAR_CAP_HEIGHT * 0.5, position.Z) * verticalRotation,
-		capColor or GRASS_CAP_COLOR,
+		capColor or MESA_GRASS_COLOR,
 		Enum.Material.SmoothPlastic,
 		Enum.PartType.Cylinder
 	)
 	cap.CanCollide = true
 	cap.CanTouch = false
 	cap.CanQuery = true
+	cap.Transparency = 1
 	cap:SetAttribute("BoundaryColumn", true)
 	cap:SetAttribute("PillarRole", role)
 	cap:SetAttribute("PillarRadius", capRadius)
+	cap:SetAttribute("VisualOnly", false)
 	markBoundary(cap)
+	cap:SetAttribute("BoundaryStyle", "World1MixedMesa")
+
+	if role == "GateJunction" then
+		createOctagonalPrism(model, "MesaRock", position, radius, position.Y, bodyHeight, MESA_ROCK_COLOR, selectedProfile)
+		createOctagonalPrism(
+			model,
+			"MesaGrassCap",
+			position,
+			capRadius,
+			position.Y + bodyHeight,
+			PILLAR_CAP_HEIGHT,
+			MESA_GRASS_COLOR,
+			selectedProfile
+		)
+	elseif runName == "CentralRidge" and role == "Support" then
+		-- Keep the sparse outboard ridge supports as separate visible landforms.
+		-- They remain at their planner positions and do not fill in the Forest pad.
+		createOctagonalPrism(model, "SupportMesaRock", position, radius, position.Y, bodyHeight, MESA_ROCK_COLOR, selectedProfile)
+		createOctagonalPrism(
+			model,
+			"SupportMesaGrassCap",
+			position,
+			capRadius,
+			position.Y + bodyHeight,
+			PILLAR_CAP_HEIGHT,
+			MESA_GRASS_COLOR,
+			selectedProfile
+		)
+	end
 
 	model.PrimaryPart = body
 	model.Parent = parent
@@ -408,17 +813,31 @@ local function createPillarRun(parent, name, axis, coordinate, startCoordinate, 
 	if not plan then
 		return
 	end
+	local preservedCentralSupportPlan = if name == "CentralRidge"
+		then buildPillarPlan(name, runLength, interiorSide, requestedHeight, true)
+		else nil
 	local phase = plan.Phase
 	local alongDistance = 0
 	local pillarCount = #plan.Pillars
+	local profileSequence = buildMixedProfileSequence(name, pillarCount)
+	local pillarPositions = table.create(pillarCount)
+	local recordsByPillar = table.create(pillarCount)
 
 	for index, pillar in ipairs(plan.Pillars) do
 		local alongCoordinate = index == pillarCount and endCoordinate or startCoordinate + direction * alongDistance
 		local normalOffset = pillar.NormalOffset
 		local position = getPillarPosition(axis, coordinate + normalOffset, floorY, alongCoordinate)
+		pillarPositions[index] = position
+		recordsByPillar[index] = {
+			{
+				Position = position,
+				Radius = pillar.Radius + PILLAR_CAP_OVERHANG,
+				TopY = position.Y + pillar.BodyHeight + PILLAR_CAP_HEIGHT,
+			},
+		}
 		local columnName = string.format("%sPillar%03d", name, index)
 		local colorIndex = pillar.ColorIndex
-		createBoundaryPillar(parent, name, columnName, pillar.Role, position, pillar.Radius, pillar.BodyHeight, nil, STONE_MASS_COLORS[colorIndex])
+		createBoundaryPillar(parent, name, columnName, pillar.Role, position, pillar.Radius, pillar.BodyHeight, nil, STONE_MASS_COLORS[colorIndex], profileSequence[index])
 
 		-- Cluster smaller supports in irregular paired and triple groups beyond
 		-- the main containment chain. Their varied tops make the second layer read
@@ -426,7 +845,7 @@ local function createPillarRun(parent, name, axis, coordinate, startCoordinate, 
 		-- supports face away from gameplay; ridge supports face Corridor B, clear
 		-- of Forest 1 trees and route space.
 		local supportPatternIndex = ((index - 1) % #PILLAR_SUPPORT_CLUSTER_PATTERN) + 1
-		if PILLAR_SUPPORT_CLUSTER_PATTERN[supportPatternIndex] then
+		if name ~= "CentralRidge" and PILLAR_SUPPORT_CLUSTER_PATTERN[supportPatternIndex] then
 			local side = interiorSide or 1
 			local outwardSide = interiorSide == 0 and 1 or -side
 			local supportRunOffset = direction * (index % 2 == 0 and -3.5 or 3.5)
@@ -441,6 +860,11 @@ local function createPillarRun(parent, name, axis, coordinate, startCoordinate, 
 				floorY,
 				alongCoordinate + supportRunOffset
 			)
+			recordsByPillar[index][#recordsByPillar[index] + 1] = {
+				Position = supportPosition,
+				Radius = supportRadius + PILLAR_CAP_OVERHANG,
+				TopY = supportPosition.Y + supportHeight + PILLAR_CAP_HEIGHT,
+			}
 			local supportColorIndex = (colorIndex % #STONE_MASS_COLORS) + 1
 			createBoundaryPillar(
 				parent,
@@ -451,12 +875,149 @@ local function createPillarRun(parent, name, axis, coordinate, startCoordinate, 
 				supportRadius,
 				supportHeight,
 				nil,
-				STONE_MASS_COLORS[supportColorIndex]
+				STONE_MASS_COLORS[supportColorIndex],
+				profileSequence[index]
 			)
 		end
 
 		if index < pillarCount then
 			alongDistance = alongDistance + plan.Steps[index] * plan.Scale
+		end
+	end
+
+	if name == "CentralRidge" and preservedCentralSupportPlan then
+		-- Keep the pre-existing sparse support chain at its original planned
+		-- positions; only the main ridge chain is narrowed to the Forest-pad edge.
+		local supportAlongDistance = 0
+		local supportProfiles = buildMixedProfileSequence(name .. "SupportProfiles", #preservedCentralSupportPlan.Pillars)
+		for index, pillar in ipairs(preservedCentralSupportPlan.Pillars) do
+			local alongCoordinate = index == #preservedCentralSupportPlan.Pillars
+				and endCoordinate
+				or startCoordinate + direction * supportAlongDistance
+			local position = getPillarPosition(axis, coordinate + pillar.NormalOffset, floorY, alongCoordinate)
+			local supportPatternIndex = ((index - 1) % #PILLAR_SUPPORT_CLUSTER_PATTERN) + 1
+			if PILLAR_SUPPORT_CLUSTER_PATTERN[supportPatternIndex] then
+				local supportIndex = index + preservedCentralSupportPlan.Phase + 2
+				local supportRadius = getPillarRadius("OutboardSupport", supportIndex, preservedCentralSupportPlan.Phase + 1)
+				local supportHeight = getOutboardSupportHeight(supportIndex, preservedCentralSupportPlan.Phase + 1, requestedHeight)
+				local supportCenterDistance = pillar.Radius + supportRadius - PILLAR_TARGET_OVERLAP
+				local supportCrossOffset = math.sqrt(math.max(0.01, supportCenterDistance ^ 2 - 3.5 ^ 2))
+				local supportRunOffset = direction * (index % 2 == 0 and -3.5 or 3.5)
+				local supportPosition = getPillarPosition(
+					axis,
+					coordinate + pillar.NormalOffset + supportCrossOffset,
+					floorY,
+					alongCoordinate + supportRunOffset
+				)
+				local supportColorIndex = (index * 3 + preservedCentralSupportPlan.Phase) % #STONE_MASS_COLORS + 1
+				createBoundaryPillar(
+					parent,
+				name,
+				string.format("%sSupportPillar%03d", name, index),
+				"Support",
+				supportPosition,
+				supportRadius,
+				supportHeight,
+				nil,
+				STONE_MASS_COLORS[supportColorIndex],
+				supportProfiles[index]
+				)
+			end
+			if index < #preservedCentralSupportPlan.Pillars then
+				supportAlongDistance += preservedCentralSupportPlan.Steps[index] * preservedCentralSupportPlan.Scale
+			end
+		end
+	end
+
+	-- One shared collidable base covers each pair of old body/cap cylinders and
+	-- their offset supports. New upper tiers begin above the old collider tops,
+	-- then taper to a green cap. Bases keep their existing outboard bounds and
+	-- use deterministic, clearance-clamped relief on play-facing sides.
+	local largeFormationCount = math.ceil(pillarCount / 2)
+	local largeProfiles = buildMixedProfileSequence(name .. "LargeLandforms", largeFormationCount)
+	for formationIndex = 1, largeFormationCount do
+		local firstIndex = formationIndex * 2 - 1
+		local lastIndex = math.min(firstIndex + 1, pillarCount)
+		local groupRecords = {}
+		for pillarIndex = firstIndex, lastIndex do
+				for recordIndex, record in ipairs(recordsByPillar[pillarIndex] or {}) do
+					if name ~= "CentralRidge" or recordIndex == 1 then
+						groupRecords[#groupRecords + 1] = record
+					end
+			end
+		end
+		if #groupRecords > 0 then
+			local minimumNormal = math.huge
+			local maximumNormal = -math.huge
+			local minimumAlong = math.huge
+			local maximumAlong = -math.huge
+			local colliderTopY = floorY
+			for _, record in ipairs(groupRecords) do
+				local normal = axis == "Z" and record.Position.X or record.Position.Z
+				local along = axis == "Z" and record.Position.Z or record.Position.X
+				minimumNormal = math.min(minimumNormal, normal - record.Radius)
+				maximumNormal = math.max(maximumNormal, normal + record.Radius)
+				minimumAlong = math.min(minimumAlong, along - record.Radius)
+				maximumAlong = math.max(maximumAlong, along + record.Radius)
+				colliderTopY = math.max(colliderTopY, record.TopY)
+			end
+			local requiredNormalRadius = (maximumNormal - minimumNormal) * 0.5
+			local requiredAlongRadius = (maximumAlong - minimumAlong) * 0.5
+			local isAnchor = formationIndex % 5 == 0
+			local alongUnit = getStableMesaUnit(name .. "Along" .. tostring(formationIndex))
+			local radiusNormal = requiredNormalRadius
+			local radiusAlong = math.max(requiredAlongRadius, (if isAnchor then 32 else 23) + (if isAnchor then 5 else 6) * alongUnit)
+			local outwardSide = interiorSide == 0 and 1 or -(interiorSide or 1)
+			local centerNormal
+			if outwardSide < 0 then
+				centerNormal = maximumNormal - radiusNormal
+			else
+				centerNormal = minimumNormal + radiusNormal
+			end
+			local frontRelief = 0
+			if name == "WestCliff" then
+				local frontUnit = getStableMesaUnit(name .. "Front" .. tostring(formationIndex))
+				frontRelief = math.min(1.5 + 5.5 * frontUnit, math.max(0, -127 - maximumNormal))
+			elseif name == "EastCliff" then
+				local frontUnit = getStableMesaUnit(name .. "Front" .. tostring(formationIndex))
+				frontRelief = math.min(1.5 + 5.5 * frontUnit, math.max(0, minimumNormal - 127))
+			elseif name == "NorthernCliff" then
+				local frontUnit = getStableMesaUnit(name .. "Front" .. tostring(formationIndex))
+				frontRelief = math.min(3 + 7 * frontUnit, math.max(0, minimumNormal - 832))
+			end
+			if frontRelief > 0 then
+				radiusNormal += frontRelief * 0.5
+				centerNormal += outwardSide < 0 and frontRelief * 0.5 or -frontRelief * 0.5
+			end
+		local centerAlong = (minimumAlong + maximumAlong) * 0.5
+		if name == "CentralRidge" and axis == "Z" and centerAlong - radiusAlong < 156 then
+			-- Keep the first large visible profile north of the existing hub/path
+			-- edge. This shifts its expansion forward while retaining full collider coverage.
+			centerAlong = minimumAlong + radiusAlong
+		end
+			local center = if axis == "Z"
+				then Vector3.new(centerNormal, floorY, centerAlong)
+				else Vector3.new(centerAlong, floorY, centerNormal)
+			local halfX = if axis == "Z" then radiusNormal else radiusAlong
+			local halfZ = if axis == "Z" then radiusAlong else radiusNormal
+			local cornerScale = getEnclosingOctagonCornerScale(groupRecords, center, halfX, halfZ)
+			local profileKind = largeProfiles[formationIndex]
+			local heightUnit = getStableMesaUnit(name .. "Height" .. tostring(formationIndex))
+			local upperHeight = if profileKind == "Faceted" then 15 + 11 * heightUnit else 8 + 9 * heightUnit
+			local colliderHeight = colliderTopY - floorY
+			createLargeMesaFormation(
+				parent,
+				name,
+				string.format("%sMixedMesa%03d", name, formationIndex),
+				center,
+				halfX,
+				halfZ,
+				cornerScale,
+				colliderHeight,
+				upperHeight,
+				profileKind,
+				getStableMesaSeed(name .. tostring(formationIndex))
+			)
 		end
 	end
 
@@ -488,7 +1049,8 @@ local function createPillarRun(parent, name, axis, coordinate, startCoordinate, 
 			PILLAR_MAX_RADIUS,
 			gateHeight,
 			nil,
-			STONE_MASS_COLORS[(phase % #STONE_MASS_COLORS) + 1]
+			STONE_MASS_COLORS[(phase % #STONE_MASS_COLORS) + 1],
+			profileSequence[math.clamp(math.floor(pillarCount * 0.5), 1, pillarCount)]
 		)
 	end
 end
@@ -806,6 +1368,45 @@ function WorldStyleBaseline.CreateBoundaries(parent, configuration)
 		end
 		if boundaries.ReturnClosureZ and boundaries.SpineX and boundaries.EastX then
 			createStyledRunX(parent, "ReturnEndCliff", boundaries.SpineX, boundaries.EastX, boundaries.ReturnClosureZ, wallThickness, wallHeight, floorY, 1)
+		end
+	end
+
+	-- The new mesa shoulders are climbable decoration on top of the old wall.
+	-- Keep their rendered surfaces visible, but prevent players from jumping
+	-- over the central divider or bypassing the Forest1 -> Forest2 gate.
+	if boundaries.SpineX and boundaries.SpineStartZ and boundaries.SpineEndZ then
+		local securityStartZ = adjustPillarStartZ(
+			"CentralRidge",
+			boundaries.SpineX,
+			boundaries.SpineStartZ,
+			boundaries.SpineEndZ,
+			0
+		)
+		local securityEndZ = boundaries.SpineEndZ
+		local securityLength = math.abs(securityEndZ - securityStartZ)
+		local securityHeight = math.max(110, (boundaries.WallHeight or 30) + 80)
+		if securityLength > 0 then
+				local securityBarrier = createPart(
+				parent,
+				"CentralRidgeSecurityBarrier",
+				Vector3.new(2, securityHeight, securityLength),
+				CFrame.new(
+					boundaries.SpineX,
+					floorY + securityHeight * 0.5,
+					(securityStartZ + securityEndZ) * 0.5
+				),
+				Color3.fromRGB(101, 47, 32),
+				Enum.Material.SmoothPlastic
+			)
+			securityBarrier.Transparency = 1
+			securityBarrier.CanCollide = true
+			securityBarrier.CanTouch = false
+			securityBarrier.CanQuery = false
+			securityBarrier:SetAttribute("WorldLayoutOwned", true)
+			securityBarrier:SetAttribute("WorldBoundary", true)
+			securityBarrier:SetAttribute("BoundaryStyle", "World1MixedMesa")
+			securityBarrier:SetAttribute("CollisionOnly", true)
+			securityBarrier:SetAttribute("VisualOnly", false)
 		end
 	end
 
