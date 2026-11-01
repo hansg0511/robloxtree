@@ -10,16 +10,18 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local GALLERY_NAME = "DevTreeGallery"
 local ROOT_NAME = "DevMesaShapeShowcase"
-local BUILD_VERSION = 9
+local BUILD_VERSION = 10
 local buildingGalleries = setmetatable({}, { __mode = "k" })
 
 -- The original gallery begins at local X=0. This west-only extension gives
--- each 210+ stud run a clean side-view station with no neighboring run in front.
+-- each 200+ stud run a clean side-view station with no neighboring run in front.
 local EXTENSION_SIZE = Vector3.new(960, 1, 360)
 local EXTENSION_CENTER_OFFSET = Vector3.new(-480, 0, 0)
 local COMPARISON_ORIGIN_OFFSET = Vector3.new(-460, 0, -40)
 local COMPARISON_TELEPORT_OFFSET = Vector3.new(-20, 0, 150)
 local CAMERA_STANDOFF = 180
+-- Keep this aligned with DevMesaComparisonTeleport.client.luau.
+local CAMERA_REAR_OFFSET = 12
 local WALKWAY_START_OFFSET = Vector3.new(20, 0, -78)
 local WALKWAY_JUNCTION_OFFSET = Vector3.new(-20, 0, -78)
 local WALKWAY_NORTH_END_OFFSET = Vector3.new(-20, 0, 150)
@@ -32,6 +34,7 @@ local WORLD_MARGIN = 2
 local LANDING_MARGIN = 15
 local MIN_SAMPLE_LENGTH = 200
 local MIN_LANE_GAP = 100
+-- The multi-depth mixed cluster stays within the existing lane width.
 local MAX_SAMPLE_HALF_WIDTH = 45
 local MAX_SAMPLE_HALF_DEPTH = 130
 
@@ -481,15 +484,24 @@ local function buildOnGallery(gallery)
 			local viewerX = center.X - CAMERA_STANDOFF
 			local viewOffset = Vector3.new(viewerX - galleryOrigin.X, 0, center.Z - galleryOrigin.Z)
 			local viewerPosition = validateLanding(extensionFloor, floorTopY, galleryOrigin, viewOffset)
-			local viewerMinX = math.min(viewerPosition.X, center.X)
-			local viewerMaxX = math.max(viewerPosition.X, center.X)
+			-- The client pulls its camera behind the landing, so keep it over the support floor.
+			validateLanding(extensionFloor, floorTopY, galleryOrigin,
+				viewOffset - Vector3.new(CAMERA_REAR_OFFSET, 0, 0))
+			local cameraMinX = math.min(viewerPosition.X, center.X) - CAMERA_REAR_OFFSET
+			local cameraMaxX = math.max(viewerPosition.X, center.X)
+			local walkwayMinX = viewerPosition.X - VIEWER_WALKWAY_WIDTH * 0.5
+			local walkwayMaxX = viewerPosition.X + VIEWER_WALKWAY_WIDTH * 0.5
 			for otherIndex, otherSample in ipairs(samples) do
 				if otherIndex ~= index then
 					local other = otherSample.Bounds
-					local sightlineOverlaps = other.MaxX >= viewerMinX - WORLD_MARGIN
-						and other.MinX <= viewerMaxX + WORLD_MARGIN
+					local sightlineOverlaps = other.MaxX >= cameraMinX - WORLD_MARGIN
+						and other.MinX <= cameraMaxX + WORLD_MARGIN
+					local walkwayOverlaps = other.MaxX >= walkwayMinX - WORLD_MARGIN
+						and other.MinX <= walkwayMaxX + WORLD_MARGIN
 					assert(not sightlineOverlaps,
-						definition.Name .. " side-view landing crosses another sample lane")
+						definition.Name .. " camera sightline crosses another sample lane")
+					assert(not walkwayOverlaps,
+						definition.Name .. " side-view walkway crosses another sample lane")
 				end
 			end
 

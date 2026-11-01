@@ -1,7 +1,9 @@
--- Gallery-only comparison of three long mesa boundary profiles.
+-- Gallery-only comparison of three mesa boundary profiles.
 --
 -- This keeps the approved Terrain and Border contours/profile language, while
 -- using a fixed local seed to vary each run's size, height, yaw and placement.
+-- The mixed sample uses a connected cluster graph, including multiple depth
+-- positions at selected wall-longitudinal coordinates.
 -- The generated parts are visual-only; this module does not create gameplay
 -- collision, touch, or query geometry.
 local MesaShapeShowcase = {}
@@ -36,6 +38,8 @@ local MAX_RUN_HALF_DEPTH = 123
 local MIN_CORE_OVERLAP = 0.5
 local FORMATION_COUNT = 9
 local FORMATION_SPACING_Z = 21.5
+local MIXED_FORMATION_COUNT = 10
+local MIXED_STYLE_SEED = 161_803
 local MIN_VISIBLE_WALL_LENGTH = 200
 
 -- Bounds of the temporary gallery extension. These checks are intentionally
@@ -74,15 +78,28 @@ local CORE_HALF_Z_SCALE = 0.75
 
 local TERRAIN_CENTER_X_PATTERN = { -10, -6, -1, 5, 10, 7, 1, -6, -10 }
 local FACETED_CENTER_X_PATTERN = { -12, -7, -2, 4, 12, 8, 2, -5, -12 }
-local MIXED_CENTER_X_PATTERN = { -14, -9, -3, 4, 14, 9, 2, -7, -14 }
 local RADIUS_X_PATTERN = { 18, 21, 17, 22, 19, 16, 22, 18, 20 }
 local RADIUS_Z_PATTERN = { 24.5, 23.5, 25, 24, 31.5, 23.5, 25, 24, 24.5 }
 local HEIGHT_PATTERN = { 28, 35, 25, 39, 32, 27, 37, 30, 34 }
 
-local function makeWallConfigs(namePrefix, kind, centerXPattern)
+local MIXED_ANCHOR_CENTER_Z = { -81, -54, -27, 0, 27, 54, 81 }
+local MIXED_ANCHOR_CENTER_X = { -9, -6, -3, 1, 8, 5, 2 }
+local MIXED_ANCHOR_RADIUS_X = { 18, 19, 18, 20, 18.5, 19, 18 }
+local MIXED_ANCHOR_RADIUS_Z = { 27, 27, 27, 27.5, 28, 27, 27 }
+local MIXED_ANCHOR_HEIGHT = { 28, 35, 26, 39, 31, 28, 34 }
+local MIXED_BRANCHES = {
+	{ Anchor = 1, Name = "WestShoulder", Side = -1, RadiusX = 18, RadiusZ = 20, Height = 23 },
+	{ Anchor = 4, Name = "EastShoulder", Side = 1, RadiusX = 18.5, RadiusZ = 21, Height = 28 },
+	{ Anchor = 5, Name = "WestOutcrop", Side = 1, RadiusX = 17.5, RadiusZ = 19, Height = 24 },
+}
+local MIXED_BRANCH_OFFSET_X = 7.5
+-- Keep the mixed fill cores inside both approved irregular contours.
+local MIXED_CORE_HALF_X_SCALE = 0.44
+local MIXED_CORE_HALF_Z_SCALE = 0.78
+
+local function makeControlWallConfigs(namePrefix, isFaceted, centerXPattern)
 	local configs = table.create(FORMATION_COUNT)
 	for index = 1, FORMATION_COUNT do
-		local isFaceted = kind == "Faceted" or (kind == "Mixed" and index % 2 == 0)
 		local source = {
 			Name = string.format("%sAnchor%02d", namePrefix, index),
 			ProfileKind = if isFaceted then "Faceted" else "Terrain",
@@ -108,9 +125,104 @@ local function makeWallConfigs(namePrefix, kind, centerXPattern)
 	return configs
 end
 
-local TERRAIN_FORMS = makeWallConfigs("Plateau", "Terrain", TERRAIN_CENTER_X_PATTERN)
-local FACETED_FORMS = makeWallConfigs("BorderPillar", "Faceted", FACETED_CENTER_X_PATTERN)
-local MIXED_FORMS = makeWallConfigs("MixedRim", "Mixed", MIXED_CENTER_X_PATTERN)
+local TERRAIN_FORMS = makeControlWallConfigs("Plateau", false, TERRAIN_CENTER_X_PATTERN)
+local FACETED_FORMS = makeControlWallConfigs("BorderPillar", true, FACETED_CENTER_X_PATTERN)
+
+local function makeMixedClusterConfigs()
+	local configs = table.create(MIXED_FORMATION_COUNT)
+	for index, centerZ in ipairs(MIXED_ANCHOR_CENTER_Z) do
+		local source = {
+			Name = string.format("MixedAnchor%02d", index),
+			CenterX = MIXED_ANCHOR_CENTER_X[index],
+			CenterZ = centerZ,
+			RadiusX = MIXED_ANCHOR_RADIUS_X[index],
+			RadiusZ = MIXED_ANCHOR_RADIUS_Z[index],
+			RotationDegrees = ({ -2.5, 1.5, 0, 2, -1.5, 1, -2 })[index],
+			CapScale = 1.08,
+			CapThickness = 1.6,
+			CoreHalfXScale = MIXED_CORE_HALF_X_SCALE,
+			CoreHalfZScale = MIXED_CORE_HALF_Z_SCALE,
+			TopScale = 0.75 + (index % 4) * 0.025,
+			Height = MIXED_ANCHOR_HEIGHT[index],
+		}
+		configs[#configs + 1] = source
+	end
+
+	for index, branch in ipairs(MIXED_BRANCHES) do
+		local anchor = configs[branch.Anchor]
+		configs[#configs + 1] = {
+			Name = "Mixed" .. branch.Name,
+			CenterX = anchor.CenterX + branch.Side * MIXED_BRANCH_OFFSET_X,
+			CenterZ = anchor.CenterZ,
+			RadiusX = branch.RadiusX,
+			RadiusZ = branch.RadiusZ,
+			RotationDegrees = ({ -1.5, 2.5, -2 })[index],
+			CapScale = 1.08,
+			CapThickness = 1.4 + (index % 2) * 0.2,
+			CoreHalfXScale = MIXED_CORE_HALF_X_SCALE,
+			CoreHalfZScale = MIXED_CORE_HALF_Z_SCALE,
+			TopScale = 0.76 + (index % 3) * 0.025,
+			Height = branch.Height,
+		}
+	end
+	return configs
+end
+
+local function assignMixedProfiles(configs, seed)
+	assert(#configs >= 4, "Mixed profile assignment requires at least four formations")
+	local random = Random.new(seed)
+	local pairedStyle = if random:NextInteger(1, 2) == 1 then "Terrain" else "Faceted"
+	local otherStyle = if pairedStyle == "Terrain" then "Faceted" else "Terrain"
+	local pairedTotal = math.floor(#configs / 2)
+	local otherTotal = #configs - pairedTotal
+	local shuffledRemainder = table.create(#configs - 2)
+	for _ = 1, pairedTotal - 2 do
+		shuffledRemainder[#shuffledRemainder + 1] = pairedStyle
+	end
+	for _ = 1, otherTotal do
+		shuffledRemainder[#shuffledRemainder + 1] = otherStyle
+	end
+	for index = #shuffledRemainder, 2, -1 do
+		local swapIndex = random:NextInteger(1, index)
+		shuffledRemainder[index], shuffledRemainder[swapIndex] = shuffledRemainder[swapIndex], shuffledRemainder[index]
+	end
+
+	configs[1].ProfileKind = pairedStyle
+	configs[2].ProfileKind = pairedStyle
+	local terrainCount = if pairedStyle == "Terrain" then 2 else 0
+	local facetedCount = if pairedStyle == "Faceted" then 2 else 0
+	for index = 3, #configs do
+		local profile = shuffledRemainder[index - 2]
+		configs[index].ProfileKind = profile
+		if profile == "Terrain" then
+			terrainCount += 1
+		else
+			facetedCount += 1
+		end
+	end
+	assert(terrainCount > 0 and facetedCount > 0,
+		"Mixed sample must always include Terrain and Border profiles")
+	assert(configs[1].ProfileKind == configs[2].ProfileKind,
+		"Mixed sample must contain a same-style pair, so it cannot strictly alternate")
+
+	for index, config in ipairs(configs) do
+		local isFaceted = config.ProfileKind == "Faceted"
+		config.CapScale = if isFaceted then 1.16 + (index % 3) * 0.01 else 1.00 + (index % 2) * 0.01
+		config.CapThickness = if isFaceted then 3.0 + (index % 3) * 0.2 else 0.85
+		if isFaceted then
+			config.Layers = {
+				{ TopScale = config.TopScale, Height = config.Height * 0.48 },
+				{ TopScale = math.max(0.57, config.TopScale - 0.20), Height = config.Height * 0.52 },
+			}
+			config.TopScale = nil
+			config.Height = nil
+		end
+	end
+	return terrainCount, facetedCount
+end
+
+local MIXED_FORMS = makeMixedClusterConfigs()
+local MIXED_TERRAIN_COUNT, MIXED_FACETED_COUNT = assignMixedProfiles(MIXED_FORMS, MIXED_STYLE_SEED)
 
 local function horizontal(vector)
 	return Vector3.new(vector.X, 0, vector.Z)
@@ -396,6 +508,8 @@ local function copyAndVary(config, random, profileKind)
 		CapScale = config.CapScale * random:NextNumber(0.98, 1.02),
 		CapThickness = config.CapThickness,
 		ProfileKind = selectedProfile,
+		CoreHalfXScale = config.CoreHalfXScale,
+		CoreHalfZScale = config.CoreHalfZScale,
 		Contour = if selectedProfile == "Terrain" then TERRAIN_CONTOUR else BORDER_CONTOUR,
 		Layers = {},
 	}
@@ -447,9 +561,9 @@ local function createFormation(parent, origin, config, kind)
 		local core = Instance.new("Part")
 		core.Name = string.format("%s_Core%02d", config.Name, layerIndex)
 		core.Size = Vector3.new(
-			2 * config.RadiusX * layer.TopScale * CORE_HALF_X_SCALE,
+			2 * config.RadiusX * layer.TopScale * (config.CoreHalfXScale or CORE_HALF_X_SCALE),
 			layerHeight,
-			2 * config.RadiusZ * layer.TopScale * CORE_HALF_Z_SCALE
+			2 * config.RadiusZ * layer.TopScale * (config.CoreHalfZScale or CORE_HALF_Z_SCALE)
 		)
 		core.CFrame = CFrame.new(center.X, layerBottom + layerHeight * 0.5, center.Z)
 			* CFrame.Angles(0, config.RotationRadians, 0)
@@ -501,8 +615,11 @@ local function createRun(parent, name, labelText, kind, origin, configs, seed, p
 	run:SetAttribute("Seed", seed)
 	run:SetAttribute("FormationCount", #configs)
 	run:SetAttribute("ProfileKind", profileKind)
+	run:SetAttribute("StyleSeed", seed)
 
 	local random = Random.new(seed)
+	local profileCounts = { Terrain = 0, Faceted = 0 }
+	local profileSequence = table.create(#configs)
 	local highestTop = origin.Y
 	local contourMinZ = math.huge
 	local contourMaxZ = -math.huge
@@ -510,6 +627,8 @@ local function createRun(parent, name, labelText, kind, origin, configs, seed, p
 	local maximumCenterX = -math.huge
 	for _, sourceConfig in ipairs(configs) do
 		local config = copyAndVary(sourceConfig, random, profileKind)
+		profileCounts[config.ProfileKind] += 1
+		profileSequence[#profileSequence + 1] = config.ProfileKind
 		minimumCenterX = math.min(minimumCenterX, config.CenterX)
 		maximumCenterX = math.max(maximumCenterX, config.CenterX)
 		local minZ, maxZ = measureContourZ(config)
@@ -529,6 +648,9 @@ local function createRun(parent, name, labelText, kind, origin, configs, seed, p
 	run:SetAttribute("VisibleContourMaxZ", contourMaxZ)
 	run:SetAttribute("VisibleLengthZ", visibleLength)
 	run:SetAttribute("DepthStaggerRangeX", depthStaggerRange)
+	run:SetAttribute("TerrainFormationCount", profileCounts.Terrain)
+	run:SetAttribute("FacetedFormationCount", profileCounts.Faceted)
+	run:SetAttribute("ProfileSequence", table.concat(profileSequence, ","))
 
 	local labelAnchor = createLabel(
 		run,
@@ -538,6 +660,18 @@ local function createRun(parent, name, labelText, kind, origin, configs, seed, p
 		340
 	)
 	run.PrimaryPart = labelAnchor
+	local generatedBasePartCount = 0
+	for _, descendant in ipairs(run:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			generatedBasePartCount += 1
+		end
+	end
+	run:SetAttribute("GeneratedBasePartCount", generatedBasePartCount)
+	local maximumPossibleBasePartCount = profileCounts.Terrain
+		* (#TERRAIN_CONTOUR * 6 + 1)
+		+ profileCounts.Faceted * (#BORDER_CONTOUR * (2 * 4 + 2) + 2)
+		+ 1
+	run:SetAttribute("MaximumPossibleBasePartCount", maximumPossibleBasePartCount)
 	run:SetAttribute("TopY", highestTop)
 	run:SetAttribute("LabelAnchorY", labelAnchor.Position.Y)
 	run:SetAttribute("BuildStatus", "Ready")
@@ -583,8 +717,10 @@ end
 -- cores overlap with a positive margin, so the run cannot have base gaps.
 local function inscribedCoreHalfExtents(config)
 	local scale = coreLayerScale(config) * MIN_LAYER_SCALE
-	local halfX = config.RadiusX * MIN_RADIUS_SCALE * scale * CORE_HALF_X_SCALE
-	local halfZ = config.RadiusZ * MIN_RADIUS_SCALE * scale * CORE_HALF_Z_SCALE
+	local halfX = config.RadiusX * MIN_RADIUS_SCALE * scale
+		* (config.CoreHalfXScale or CORE_HALF_X_SCALE)
+	local halfZ = config.RadiusZ * MIN_RADIUS_SCALE * scale
+		* (config.CoreHalfZScale or CORE_HALF_Z_SCALE)
 	local yaw = math.rad(MAX_YAW_DEGREES)
 	return
 		halfX * math.cos(yaw) - halfZ * math.sin(yaw),
@@ -607,7 +743,15 @@ end
 
 local function minimumVisibleWallLength(configs)
 	local first = configs[1]
-	local last = configs[#configs]
+	local last = configs[1]
+	for _, config in ipairs(configs) do
+		if config.CenterZ < first.CenterZ then
+			first = config
+		end
+		if config.CenterZ > last.CenterZ then
+			last = config
+		end
+	end
 	return math.abs(last.CenterZ - first.CenterZ)
 		- 2 * MAX_POSITION_JITTER_Z
 		+ worstCaseContourReach(first, -1)
@@ -660,6 +804,124 @@ local function validateRun(name, configs)
 		string.format("%s is too short in actual contour length (%.2f studs)", name, visibleLength))
 end
 
+local function validateMixedRun(name, configs)
+	assert(#configs == MIXED_FORMATION_COUNT,
+		string.format("%s must contain exactly %d formations", name, MIXED_FORMATION_COUNT))
+	local coreHalfXs = table.create(#configs)
+	local coreHalfZs = table.create(#configs)
+	local maximumHalfWidth = 0
+	local maximumHalfDepth = 0
+	local minimumCenterX = math.huge
+	local maximumCenterX = -math.huge
+	local sameZBranchPairs = 0
+	local sameZBranchStations = {}
+
+	for index, config in ipairs(configs) do
+		local xRadius = config.RadiusX * MAX_RADIUS_SCALE
+		local zRadius = config.RadiusZ * MAX_RADIUS_SCALE
+		local yaw = math.rad(MAX_YAW_DEGREES)
+		local halfWidth = math.abs(config.CenterX) + MAX_POSITION_JITTER_X
+			+ projectedHalfExtent(xRadius, zRadius, yaw, "X") * 1.045
+		local halfDepth = math.abs(config.CenterZ) + MAX_POSITION_JITTER_Z
+			+ projectedHalfExtent(xRadius, zRadius, yaw, "Z") * 1.045
+		assert(halfWidth <= MAX_RUN_HALF_WIDTH,
+			string.format("%s exceeds its bounded run width at %s (%.2f)", name, config.Name, halfWidth))
+		assert(halfDepth <= MAX_RUN_HALF_DEPTH,
+			string.format("%s exceeds its bounded run depth at %s (%.2f)", name, config.Name, halfDepth))
+		maximumHalfWidth = math.max(maximumHalfWidth, halfWidth)
+		maximumHalfDepth = math.max(maximumHalfDepth, halfDepth)
+		minimumCenterX = math.min(minimumCenterX, config.CenterX)
+		maximumCenterX = math.max(maximumCenterX, config.CenterX)
+		coreHalfXs[index], coreHalfZs[index] = inscribedCoreHalfExtents(config)
+	end
+
+	for index, config in ipairs(configs) do
+		for otherIndex = index + 1, #configs do
+			local other = configs[otherIndex]
+			if math.abs(config.CenterZ - other.CenterZ) <= 1e-4
+				and math.abs(config.CenterX - other.CenterX) > 1e-4 then
+				sameZBranchPairs += 1
+				sameZBranchStations[config.CenterZ] = true
+			end
+		end
+	end
+	local sameZBranchStationCount = 0
+	for _ in pairs(sameZBranchStations) do
+		sameZBranchStationCount += 1
+	end
+	assert(sameZBranchPairs >= #MIXED_BRANCHES and sameZBranchStationCount >= #MIXED_BRANCHES,
+		string.format("%s must have same-longitudinal-position depth branches", name))
+
+	-- For mixed clusters, pairwise checks form an overlap graph instead of
+	-- assuming array order is one continuous path. Every edge uses the worst-
+	-- case inscribed core rectangles, including the full random placement jitter.
+	local neighbors = table.create(#configs)
+	for index = 1, #configs do
+		neighbors[index] = {}
+	end
+	local edgeMargins = table.create(#configs)
+	for index = 1, #configs do
+		for otherIndex = index + 1, #configs do
+			local config = configs[index]
+			local other = configs[otherIndex]
+			local overlapX = coreHalfXs[index] + coreHalfXs[otherIndex]
+				- math.abs(config.CenterX - other.CenterX) - 2 * MAX_POSITION_JITTER_X
+			local overlapZ = coreHalfZs[index] + coreHalfZs[otherIndex]
+				- math.abs(config.CenterZ - other.CenterZ) - 2 * MAX_POSITION_JITTER_Z
+			local edgeMargin = math.min(overlapX, overlapZ)
+			if edgeMargin >= MIN_CORE_OVERLAP then
+				neighbors[index][#neighbors[index] + 1] = otherIndex
+				neighbors[otherIndex][#neighbors[otherIndex] + 1] = index
+				edgeMargins[index] = edgeMargins[index] or {}
+				edgeMargins[otherIndex] = edgeMargins[otherIndex] or {}
+				edgeMargins[index][otherIndex] = edgeMargin
+				edgeMargins[otherIndex][index] = edgeMargin
+			end
+		end
+	end
+
+	local reached = { [1] = true }
+	local queue = { 1 }
+	local queueIndex = 1
+	local connectedCount = 1
+	local minimumTreeMargin = math.huge
+	while queueIndex <= #queue do
+		local index = queue[queueIndex]
+		queueIndex += 1
+		for _, otherIndex in ipairs(neighbors[index]) do
+			if not reached[otherIndex] then
+				reached[otherIndex] = true
+				queue[#queue + 1] = otherIndex
+				connectedCount += 1
+				minimumTreeMargin = math.min(minimumTreeMargin, edgeMargins[index][otherIndex])
+			end
+		end
+	end
+	assert(connectedCount == #configs,
+		string.format("%s mixed formation cores are not all connected (%d of %d)", name, connectedCount, #configs))
+
+	local robustStagger = maximumCenterX - minimumCenterX - 2 * MAX_POSITION_JITTER_X
+	assert(robustStagger >= MIN_DEPTH_STAGGER_BY_NAME[name],
+		string.format("%s depth stagger is only %.2f studs after jitter", name, robustStagger))
+	local visibleLength = minimumVisibleWallLength(configs)
+	assert(visibleLength >= MIN_VISIBLE_WALL_LENGTH,
+		string.format("%s is too short in actual contour length (%.2f studs)", name, visibleLength))
+	assert(MIXED_TERRAIN_COUNT > 0 and MIXED_FACETED_COUNT > 0,
+		"Mixed sample must contain both approved profiles")
+	assert(MIXED_FORMS[1].ProfileKind == MIXED_FORMS[2].ProfileKind,
+		"Mixed profiles must include a same-style pair and cannot strictly alternate")
+
+	return {
+		HalfWidth = maximumHalfWidth,
+		HalfDepth = maximumHalfDepth,
+		DepthStagger = robustStagger,
+		VisibleLength = visibleLength,
+		MinimumCoreOverlap = minimumTreeMargin,
+		SameZBranchPairs = sameZBranchPairs,
+		SameZBranchStations = sameZBranchStationCount,
+	}
+end
+
 local function findGalleryAncestor(instance)
 	local ancestor = instance
 	while ancestor do
@@ -675,7 +937,7 @@ end
 -- billboard label or the oriented bounding boxes of the wedge parts.
 validateRun(TERRAIN_NAME, TERRAIN_FORMS)
 validateRun(FACETED_NAME, FACETED_FORMS)
-validateRun(MIXED_NAME, MIXED_FORMS)
+local MIXED_GEOMETRY_PROOF = validateMixedRun(MIXED_NAME, MIXED_FORMS)
 assert(#PAIR_X_OFFSETS == 3 and PAIR_X_OFFSETS[2] == 0,
 	"The boundary comparison needs three centered gallery bays")
 for index, offset in ipairs(PAIR_X_OFFSETS) do
@@ -751,13 +1013,22 @@ function MesaShapeShowcase.Create(parent, origin)
 	local mixedRun = createRun(
 		samples,
 		MIXED_NAME,
-		"MIXED PROFILE\nBROAD + FACETED WALL",
+		"MIXED CLUSTERS\nTERRAIN + BORDER PROFILES",
 		"MixedBoundary",
 		mixedOrigin,
 		MIXED_FORMS,
-		161_803,
+		MIXED_STYLE_SEED,
 		"Mixed"
 	)
+	mixedRun:SetAttribute("MixedStyleSeed", MIXED_STYLE_SEED)
+	mixedRun:SetAttribute("MixedProfileCounts",
+		string.format("Terrain:%d,Faceted:%d", MIXED_TERRAIN_COUNT, MIXED_FACETED_COUNT))
+	mixedRun:SetAttribute("ConservativeHalfWidthBound", MIXED_GEOMETRY_PROOF.HalfWidth)
+	mixedRun:SetAttribute("ConservativeHalfDepthBound", MIXED_GEOMETRY_PROOF.HalfDepth)
+	mixedRun:SetAttribute("ConservativeVisibleLengthBound", MIXED_GEOMETRY_PROOF.VisibleLength)
+	mixedRun:SetAttribute("CoreOverlapProofMargin", MIXED_GEOMETRY_PROOF.MinimumCoreOverlap)
+	mixedRun:SetAttribute("SameZBranchPairCount", MIXED_GEOMETRY_PROOF.SameZBranchPairs)
+	mixedRun:SetAttribute("SameZBranchStationCount", MIXED_GEOMETRY_PROOF.SameZBranchStations)
 	assert(terrainRun.Parent == samples and facetedRun.Parent == samples and mixedRun.Parent == samples,
 		"All three boundary samples must be direct children of the sample root")
 	assert(terrainRun.ModelStreamingMode == Enum.ModelStreamingMode.Atomic

@@ -7,8 +7,9 @@ end
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 
-local BUILD_VERSION = 9
+local BUILD_VERSION = 10
 local MIN_SAMPLE_LENGTH = 200
+local CAMERA_REAR_OFFSET = 12
 local SAMPLE_DEFINITIONS = {
 	{
 		Text = "MESA COMPARISON",
@@ -231,7 +232,7 @@ local function aimCameraAtSample(destination, sampleCenter)
 	if direction.Magnitude <= 0.01 then
 		return
 	end
-	local cameraPosition = destination.Position - direction.Unit * 12 + Vector3.new(0, 34, 0)
+	local cameraPosition = destination.Position - direction.Unit * CAMERA_REAR_OFFSET + Vector3.new(0, 34, 0)
 	camera.CFrame = CFrame.lookAt(cameraPosition, sampleCenter)
 	camera.Focus = CFrame.new(sampleCenter)
 end
