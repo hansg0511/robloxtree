@@ -7,7 +7,7 @@ end
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 
-local BUILD_VERSION = 10
+local BUILD_VERSION = 11
 local MIN_SAMPLE_LENGTH = 200
 local CAMERA_REAR_OFFSET = 12
 local SAMPLE_DEFINITIONS = {

@@ -38,7 +38,7 @@ local MAX_RUN_HALF_DEPTH = 123
 local MIN_CORE_OVERLAP = 0.5
 local FORMATION_COUNT = 9
 local FORMATION_SPACING_Z = 21.5
-local MIXED_FORMATION_COUNT = 10
+local MIXED_FORMATION_COUNT = 16
 local MIXED_STYLE_SEED = 161_803
 local MIN_VISIBLE_WALL_LENGTH = 200
 
@@ -84,15 +84,25 @@ local HEIGHT_PATTERN = { 28, 35, 25, 39, 32, 27, 37, 30, 34 }
 
 local MIXED_ANCHOR_CENTER_Z = { -81, -54, -27, 0, 27, 54, 81 }
 local MIXED_ANCHOR_CENTER_X = { -9, -6, -3, 1, 8, 5, 2 }
-local MIXED_ANCHOR_RADIUS_X = { 18, 19, 18, 20, 18.5, 19, 18 }
-local MIXED_ANCHOR_RADIUS_Z = { 27, 27, 27, 27.5, 28, 27, 27 }
-local MIXED_ANCHOR_HEIGHT = { 28, 35, 26, 39, 31, 28, 34 }
+local MIXED_ANCHOR_RADIUS_X = { 20, 21, 18.5, 22, 18.5, 20, 18.5 }
+local MIXED_ANCHOR_RADIUS_Z = { 27.5, 29, 27, 33, 28, 29, 27.5 }
+local MIXED_ANCHOR_HEIGHT = { 23, 37, 21, 47, 30, 24, 42 }
 local MIXED_BRANCHES = {
-	{ Anchor = 1, Name = "WestShoulder", Side = -1, RadiusX = 18, RadiusZ = 20, Height = 23 },
-	{ Anchor = 4, Name = "EastShoulder", Side = 1, RadiusX = 18.5, RadiusZ = 21, Height = 28 },
-	{ Anchor = 5, Name = "WestOutcrop", Side = 1, RadiusX = 17.5, RadiusZ = 19, Height = 24 },
+	{ Anchor = 1, Name = "WestShoulder", Side = -1, RadiusX = 18, RadiusZ = 20, Height = 25 },
+	{ Anchor = 4, Name = "EastShoulder", Side = 1, RadiusX = 18.5, RadiusZ = 21, Height = 34 },
+	{ Anchor = 5, Name = "WestOutcrop", Side = 1, RadiusX = 18.5, RadiusZ = 19, Height = 26 },
 }
 local MIXED_BRANCH_OFFSET_X = 7.5
+-- Local negative X faces the side-view camera; positive X recedes behind the
+-- anchor spine. These paired tiers make foreground and background layers.
+local MIXED_DEPTH_FORMATIONS = {
+	{ Name = "NearMidShelf", CenterX = -18.3, CenterZ = -81, RadiusX = 17.5, RadiusZ = 21, Height = 28, TopScale = 0.80 },
+	{ Name = "NearForegroundOutcrop", CenterX = -24.2, CenterZ = -81, RadiusX = 14.5, RadiusZ = 13, Height = 38, TopScale = 0.75 },
+	{ Name = "FarMidShelf", CenterX = 14, CenterZ = 20, RadiusX = 20, RadiusZ = 23, Height = 62, TopScale = 0.80 },
+	{ Name = "FarBackgroundOutcrop", CenterX = 20, CenterZ = 34, RadiusX = 13.5, RadiusZ = 18, Height = 70, TopScale = 0.775 },
+	{ Name = "NearRidge54", CenterX = -2.5, CenterZ = 54, RadiusX = 16.5, RadiusZ = 17, Height = 34, TopScale = 0.775 },
+	{ Name = "FarPillar54", CenterX = 12.5, CenterZ = 54, RadiusX = 16, RadiusZ = 18, Height = 43, TopScale = 0.80 },
+}
 -- Keep the mixed fill cores inside both approved irregular contours.
 local MIXED_CORE_HALF_X_SCALE = 0.44
 local MIXED_CORE_HALF_Z_SCALE = 0.78
@@ -163,6 +173,23 @@ local function makeMixedClusterConfigs()
 			CoreHalfZScale = MIXED_CORE_HALF_Z_SCALE,
 			TopScale = 0.76 + (index % 3) * 0.025,
 			Height = branch.Height,
+		}
+	end
+
+	for index, depthForm in ipairs(MIXED_DEPTH_FORMATIONS) do
+		configs[#configs + 1] = {
+			Name = "Mixed" .. depthForm.Name,
+			CenterX = depthForm.CenterX,
+			CenterZ = depthForm.CenterZ,
+			RadiusX = depthForm.RadiusX,
+			RadiusZ = depthForm.RadiusZ,
+			RotationDegrees = ({ -2, 1.5, -1, 2.5, -2.5, 1 })[index],
+			CapScale = 1.08,
+			CapThickness = 1.4 + (index % 2) * 0.2,
+			CoreHalfXScale = MIXED_CORE_HALF_X_SCALE,
+			CoreHalfZScale = MIXED_CORE_HALF_Z_SCALE,
+			TopScale = depthForm.TopScale,
+			Height = depthForm.Height,
 		}
 	end
 	return configs

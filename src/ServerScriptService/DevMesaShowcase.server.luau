@@ -10,7 +10,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local GALLERY_NAME = "DevTreeGallery"
 local ROOT_NAME = "DevMesaShapeShowcase"
-local BUILD_VERSION = 10
+local BUILD_VERSION = 11
 local buildingGalleries = setmetatable({}, { __mode = "k" })
 
 -- The original gallery begins at local X=0. This west-only extension gives
