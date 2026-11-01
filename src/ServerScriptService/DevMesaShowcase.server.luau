@@ -10,12 +10,12 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local GALLERY_NAME = "DevTreeGallery"
 local ROOT_NAME = "DevMesaShapeShowcase"
-local BUILD_VERSION = 6
+local BUILD_VERSION = 7
 local buildingGalleries = setmetatable({}, { __mode = "k" })
 
 -- The extension spans local X [-360, 0] and Z [-120, 120].
--- The two study models together span about X [-276.69, -98.17], Z [-49.28, -2.66]
--- when centered at (-180, -28), inside the west extension with clear margins.
+-- With the pillar tucked behind the east cliffs, conservative bounds are about
+-- X [-278, -118], Z [-52, 34] when centered at (-180, -28), inside its margins.
 local EXTENSION_SIZE = Vector3.new(360, 1, 240)
 local EXTENSION_CENTER_OFFSET = Vector3.new(-180, 0, 0)
 local COMPARISON_ORIGIN_OFFSET = Vector3.new(-180, 0, -28)

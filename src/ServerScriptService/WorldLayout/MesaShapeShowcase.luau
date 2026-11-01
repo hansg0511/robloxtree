@@ -10,6 +10,7 @@ local SHELL_THICKNESS = 1.1
 local CAP_OVERLAP = 0.08
 
 local ROCK_MATERIAL = Enum.Material.SmoothPlastic
+local ROCK_COLOR = Color3.fromRGB(101, 47, 32)
 local GRASS_MATERIAL = Enum.Material.SmoothPlastic
 local GRASS_COLOR = Color3.fromRGB(70, 158, 54)
 
@@ -71,20 +72,6 @@ local function makeCapOutline(points, anchor, scale, phase, variation)
 		cap[index] = anchor + radial * factor
 	end
 	return cap
-end
-
-local function shadeColor(color, factor)
-	return Color3.new(
-		math.clamp(color.R * factor, 0, 1),
-		math.clamp(color.G * factor, 0, 1),
-		math.clamp(color.B * factor, 0, 1)
-	)
-end
-
-local FACET_FACTORS = { 0.84, 1.06, 0.91, 1.13, 0.94, 1.02, 0.82, 1.09, 0.96, 1.04 }
-
-local function facetColor(color, sideIndex)
-	return shadeColor(color, FACET_FACTORS[(sideIndex - 1) % #FACET_FACTORS + 1])
 end
 
 local function stylePart(part, color, material, name)
@@ -166,11 +153,10 @@ local function createFootprintTriangle(parent, name, pointA, pointB, pointC, bot
 	return count
 end
 
-local function createPolygonPrism(parent, name, points, interiorAnchor, bottomY, height, color, material, faceted)
+local function createPolygonPrism(parent, name, points, interiorAnchor, bottomY, height, color, material)
 	local partCount = 0
 	for index = 1, #points do
 		local nextIndex = if index == #points then 1 else index + 1
-		local partColor = if faceted then facetColor(color, index) else color
 		partCount += createFootprintTriangle(
 			parent,
 			string.format("%s_Facet%02d", name, index),
@@ -179,7 +165,7 @@ local function createPolygonPrism(parent, name, points, interiorAnchor, bottomY,
 			points[nextIndex],
 			bottomY,
 			height,
-			partColor,
+			color,
 			material
 		)
 	end
@@ -252,7 +238,7 @@ local function createSlopeTriangle(parent, name, pointA, pointB, pointC, color, 
 	return count
 end
 
-local function createSlopedPrism(parent, name, lowerOutline, upperOutline, anchor, bottomY, height, color, faceted)
+local function createSlopedPrism(parent, name, lowerOutline, upperOutline, anchor, bottomY, height, color)
 	assert(#lowerOutline == #upperOutline, "Tapered rings must have matching vertex counts")
 	local partCount = createPolygonPrism(
 		parent,
@@ -262,8 +248,7 @@ local function createSlopedPrism(parent, name, lowerOutline, upperOutline, ancho
 		bottomY,
 		height,
 		color,
-		ROCK_MATERIAL,
-		faceted
+		ROCK_MATERIAL
 	)
 
 	for index = 1, #lowerOutline do
@@ -272,14 +257,13 @@ local function createSlopedPrism(parent, name, lowerOutline, upperOutline, ancho
 		local lowerB = Vector3.new(lowerOutline[nextIndex].X, bottomY, lowerOutline[nextIndex].Z)
 		local upperA = Vector3.new(upperOutline[index].X, bottomY + height, upperOutline[index].Z)
 		local upperB = Vector3.new(upperOutline[nextIndex].X, bottomY + height, upperOutline[nextIndex].Z)
-		local sideColor = if faceted then facetColor(color, index) else color
 		partCount += createSlopeTriangle(
 			parent,
 			string.format("%s_Slope%02d_1", name, index),
 			lowerA,
 			lowerB,
 			upperB,
-			sideColor,
+			color,
 			ROCK_MATERIAL
 		)
 		partCount += createSlopeTriangle(
@@ -288,7 +272,7 @@ local function createSlopedPrism(parent, name, lowerOutline, upperOutline, ancho
 			lowerA,
 			upperB,
 			upperA,
-			sideColor,
+			color,
 			ROCK_MATERIAL
 		)
 	end
@@ -385,8 +369,7 @@ local function createFormation(parent, origin, config)
 			anchor,
 			layerBottom,
 			layerHeight,
-			layer.Color,
-			config.Faceted == true
+			ROCK_COLOR
 		)
 		currentY += layer.Height
 		currentOutline = nextOutline
@@ -409,8 +392,7 @@ local function createFormation(parent, origin, config)
 		currentY - CAP_OVERLAP,
 		config.CapThickness,
 		GRASS_COLOR,
-		GRASS_MATERIAL,
-		false
+		GRASS_MATERIAL
 	)
 	formation:SetAttribute("GeneratedPartCount", generatedPartCount)
 	formation:SetAttribute("LayerCount", layerCount)
@@ -432,12 +414,11 @@ local TERRAIN_MASSES = {
 		Phase = 0.35,
 		TotalHeight = 25,
 		Layers = {
-			{ TopScale = 0.78, Height = 25, Color = Color3.fromRGB(79, 33, 24) },
+			{ TopScale = 0.78, Height = 25 },
 		},
 		CapScale = 1.02,
 		CapVariation = 0.025,
 		CapThickness = 0.85,
-		Faceted = true,
 	},
 	{
 		Name = "WestOutcropMass",
@@ -451,12 +432,11 @@ local TERRAIN_MASSES = {
 		Phase = 1.1,
 		TotalHeight = 18,
 		Layers = {
-			{ TopScale = 0.75, Height = 18, Color = Color3.fromRGB(91, 39, 27) },
+			{ TopScale = 0.75, Height = 18 },
 		},
 		CapScale = 1.02,
 		CapVariation = 0.025,
 		CapThickness = 0.85,
-		Faceted = true,
 	},
 	{
 		Name = "EastShoulderMass",
@@ -470,12 +450,11 @@ local TERRAIN_MASSES = {
 		Phase = 2.0,
 		TotalHeight = 27,
 		Layers = {
-			{ TopScale = 0.64, Height = 27, Color = Color3.fromRGB(73, 30, 23) },
+			{ TopScale = 0.64, Height = 27 },
 		},
 		CapScale = 1.02,
 		CapVariation = 0.025,
 		CapThickness = 0.85,
-		Faceted = true,
 	},
 }
 
@@ -486,19 +465,18 @@ local BORDER_PILLAR = {
 	Contour = BORDER_CONTOUR,
 	RadiusX = 21,
 	RadiusZ = 17,
-	OffsetX = 60,
-	OffsetZ = 0,
+	OffsetX = 38,
+	OffsetZ = 42,
 	Phase = 0.72,
 	TotalHeight = 40,
 	Layers = {
-		{ TopScale = 0.84, Height = 13, VertexScales = BORDER_UPPER_VERTEX_SCALES, Color = Color3.fromRGB(83, 37, 26) },
-		{ TopScale = 0.68, Height = 16, VertexScales = BORDER_UPPER_VERTEX_SCALES, Color = Color3.fromRGB(126, 70, 42) },
-		{ TopScale = 0.54, Height = 11, VertexScales = BORDER_UPPER_VERTEX_SCALES, Color = Color3.fromRGB(161, 108, 60) },
+		{ TopScale = 0.84, Height = 13, VertexScales = BORDER_UPPER_VERTEX_SCALES },
+		{ TopScale = 0.68, Height = 16, VertexScales = BORDER_UPPER_VERTEX_SCALES },
+		{ TopScale = 0.54, Height = 11, VertexScales = BORDER_UPPER_VERTEX_SCALES },
 	},
 	CapScale = 1.21,
 	CapVariation = 0.07,
 	CapThickness = 3.4,
-	Faceted = true,
 }
 
 function MesaShapeShowcase.Create(parent, origin)
