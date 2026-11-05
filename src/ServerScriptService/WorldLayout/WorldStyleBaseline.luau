@@ -931,9 +931,8 @@ local function createPillarRun(parent, name, axis, coordinate, startCoordinate, 
 			profileSequence[math.clamp(math.floor(pillarCount * 0.5), 1, pillarCount)]
 		)
 	end
-	local mainCrossScale = if name == "CentralRidge" then 0.2444 else 0.9
-	local mainCrossCenter = if name == "CentralRidge" then 2 else nil
-	local mainClearance = if name == "CentralRidge" then { Minimum = -9, Maximum = 13 } else nil
+
+	-- Use the complete gallery cluster at its full scale on every world run.
 	MesaShapeShowcase.CreateProductionMixedRun(parent, {
 		Name = name,
 		Axis = axis,
@@ -942,11 +941,9 @@ local function createPillarRun(parent, name, axis, coordinate, startCoordinate, 
 		EndCoordinate = endCoordinate,
 		FloorY = floorY,
 		InteriorSide = interiorSide,
-		AlongScale = if name == "NorthernCliff" then 1.45 else 1.2,
-		CrossScale = mainCrossScale,
-		CrossCenter = mainCrossCenter,
-		AllowedCrossRange = mainClearance,
-		RotationScale = if name == "CentralRidge" then 0 else 1,
+		AlongScale = 1,
+		CrossScale = 1,
+		RotationScale = 1,
 		CollisionOverlap = PILLAR_MAX_RADIUS + PILLAR_CAP_OVERHANG + PILLAR_TARGET_OVERLAP,
 	})
 end

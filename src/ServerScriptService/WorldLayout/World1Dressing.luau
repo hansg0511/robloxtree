@@ -44,7 +44,7 @@ local SHAPES = {
 }
 
 -- Coordinates are deliberate gaps between existing gameplay objects. Forest1
--- stays clear of the x=-68 corridor, its entrance/sign, all tree chop areas,
+-- stays clear of the x=-112 corridor, its entrance/sign, all tree chop areas,
 -- and the Forest2 barrier. The hub placements follow the plaza margins and
 -- leave the plot lane, fork, and station interaction volumes open.
 local CLUSTERS = {
@@ -56,12 +56,12 @@ local CLUSTERS = {
 		{ Name = "HubEastLow", Position = Vector3.new(48, -0.44, 88), Shape = "Broad", Palette = "Fern", Yaw = -9, Scale = 0.86 },
 	},
 	Forest1 = {
-		{ Name = "Forest1Southwest", Position = Vector3.new(-82, -0.5, 190), Shape = "Broad", Palette = "Fern", Yaw = -14, Scale = 0.92 },
-		{ Name = "Forest1Southeast", Position = Vector3.new(-53, -0.5, 190), Shape = "Stepped", Palette = "Moss", Yaw = 11, Scale = 0.96 },
-		{ Name = "Forest1Midwest", Position = Vector3.new(-82, -0.5, 224), Shape = "Twin", Palette = "Meadow", Yaw = 18, Scale = 0.9 },
-		{ Name = "Forest1Mideast", Position = Vector3.new(-53, -0.5, 222), Shape = "Broad", Palette = "Moss", Yaw = -7, Scale = 0.9 },
-		{ Name = "Forest1Northwest", Position = Vector3.new(-81, -0.5, 249), Shape = "Stepped", Palette = "Fern", Yaw = -16, Scale = 0.9 },
-		{ Name = "Forest1Northeast", Position = Vector3.new(-53, -0.5, 248), Shape = "Twin", Palette = "Meadow", Yaw = 13, Scale = 0.94 },
+		{ Name = "Forest1Southwest", Position = Vector3.new(-126, -0.5, 190), Shape = "Broad", Palette = "Fern", Yaw = -14, Scale = 0.92 },
+		{ Name = "Forest1Southeast", Position = Vector3.new(-97, -0.5, 190), Shape = "Stepped", Palette = "Moss", Yaw = 11, Scale = 0.96 },
+		{ Name = "Forest1Midwest", Position = Vector3.new(-126, -0.5, 224), Shape = "Twin", Palette = "Meadow", Yaw = 18, Scale = 0.9 },
+		{ Name = "Forest1Mideast", Position = Vector3.new(-97, -0.5, 222), Shape = "Broad", Palette = "Moss", Yaw = -7, Scale = 0.9 },
+		{ Name = "Forest1Northwest", Position = Vector3.new(-125, -0.5, 249), Shape = "Stepped", Palette = "Fern", Yaw = -16, Scale = 0.9 },
+		{ Name = "Forest1Northeast", Position = Vector3.new(-97, -0.5, 248), Shape = "Twin", Palette = "Meadow", Yaw = 13, Scale = 0.94 },
 	},
 }
 

@@ -251,21 +251,18 @@ end
 local MIXED_FORMS = makeMixedClusterConfigs()
 local MIXED_TERRAIN_COUNT, MIXED_FACETED_COUNT = assignMixedProfiles(MIXED_FORMS, MIXED_STYLE_SEED)
 
--- Production keeps the approved mixed contours and profile builder, with fewer
--- anchors per tile so the long world boundaries stay within a fixed part budget.
-local PRODUCTION_MAIN_FORM_INDICES = { 1, 2, 3, 4, 5, 6, 7, 9 }
-local PRODUCTION_SUPPORT_FORM_INDICES = { 1, 2, 3, 4, 5 }
+-- Production keeps every formation from the approved mixed gallery sample.
+-- Only profile assignment and small visual variation change per seeded tile.
 local PRODUCTION_MIXED_HALF_WIDTH = 45
-local PRODUCTION_MIXED_HALF_DEPTH = 113
+local PRODUCTION_MIXED_HALF_DEPTH = 123
 local PRODUCTION_TILE_SPACING = 180
-local PRODUCTION_PART_BUDGET = 9_000
+-- Four current runs estimate 17,248 mixed mesh/core parts before pillar colliders.
+local PRODUCTION_PART_BUDGET = 20_000
+local PRODUCTION_TILE_PART_BUDGET = 1_232
+local PRODUCTION_COLLISION_CORE_SCALE = 0.84
 
-local function makeMixedConfigSubset(indices, seed)
-	local allConfigs = makeMixedClusterConfigs()
-	local configs = table.create(#indices)
-	for _, index in ipairs(indices) do
-		configs[#configs + 1] = allConfigs[index]
-	end
+local function makeMixedConfigSequence(seed)
+	local configs = makeMixedClusterConfigs()
 	local terrainCount, facetedCount = assignMixedProfiles(configs, seed)
 	return configs, terrainCount, facetedCount
 end
@@ -495,7 +492,7 @@ local function createSlopeShell(parent, name, lowerOutline, upperOutline, bottom
 end
 
 local function markModel(model, kind, isProduction)
-	model:SetAttribute("VisualOnly", true)
+	model:SetAttribute("VisualOnly", not isProduction)
 	if isProduction then
 		model:SetAttribute("WorldLayoutOwned", true)
 		model:SetAttribute("WorldBoundary", true)
@@ -593,6 +590,36 @@ local function copyAndVary(config, random, profileKind)
 	return variation
 end
 
+-- One inset cylinder per tapered layer blocks deep entry without collidable render wedges.
+local function createProductionCollisionCore(parent, config, center, layer, layerIndex, layerBottom, layerHeight, orientationYaw, runName)
+	local collisionCore = Instance.new("Part")
+	collisionCore.Name = string.format("%s_CollisionCore%02d", config.Name, layerIndex)
+	collisionCore.Shape = Enum.PartType.Cylinder
+	collisionCore.Size = Vector3.new(
+		layerHeight,
+		2 * config.RadiusX * layer.TopScale * PRODUCTION_COLLISION_CORE_SCALE,
+		2 * config.RadiusZ * layer.TopScale * PRODUCTION_COLLISION_CORE_SCALE
+	)
+	collisionCore.CFrame = CFrame.new(center.X, layerBottom + layerHeight * 0.5, center.Z)
+		* CFrame.Angles(0, config.RotationRadians + orientationYaw, 0)
+		* CFrame.Angles(0, 0, math.rad(90))
+	collisionCore.Transparency = 1
+	collisionCore.Anchored = true
+	collisionCore.CanCollide = true
+	collisionCore.CanTouch = false
+	collisionCore.CanQuery = false
+	collisionCore.CastShadow = false
+	collisionCore:SetAttribute("WorldLayoutOwned", true)
+	collisionCore:SetAttribute("WorldBoundary", true)
+	collisionCore:SetAttribute("BoundaryStyle", "World1MixedMesa")
+	collisionCore:SetAttribute("BoundaryRun", runName)
+	collisionCore:SetAttribute("MesaProfile", config.ProfileKind)
+	collisionCore:SetAttribute("CollisionOnly", true)
+	collisionCore:SetAttribute("VisualOnly", false)
+	collisionCore.Parent = parent
+	return collisionCore
+end
+
 local function createFormation(parent, origin, config, kind, productionOptions)
 	local formation = Instance.new("Model")
 	formation.Name = config.Name
@@ -611,7 +638,7 @@ local function createFormation(parent, origin, config, kind, productionOptions)
 	if isProduction then
 		formation:SetAttribute("BoundaryRun", productionOptions.RunName)
 		formation:SetAttribute("MesaProfile", config.ProfileKind)
-		formation:SetAttribute("VisualOnly", true)
+		formation:SetAttribute("VisualOnly", false)
 	end
 	local baseOutline, anchor = makeOutline(
 		center,
@@ -643,6 +670,19 @@ local function createFormation(parent, origin, config, kind, productionOptions)
 		core.Parent = formation
 		stylePart(core, ROCK_COLOR, ROCK_MATERIAL, core.Name)
 		tagDecorationForParent(core, formation)
+		if isProduction and productionOptions.EnableCollision == true then
+			createProductionCollisionCore(
+				formation,
+				config,
+				center,
+				layer,
+				layerIndex,
+				layerBottom,
+				layerHeight,
+				orientationYaw,
+				productionOptions.RunName
+			)
+		end
 
 		createSlopeShell(
 			formation,
@@ -1110,9 +1150,6 @@ function MesaShapeShowcase.CreateProductionMixedRun(parent, configuration)
 	assert(type(configuration.Coordinate) == "number" and type(configuration.FloorY) == "number",
 		"Production boundary plane and floor must be numbers")
 
-	local formIndices = if configuration.FormSet == "RidgeSupport"
-		then PRODUCTION_SUPPORT_FORM_INDICES
-		else PRODUCTION_MAIN_FORM_INDICES
 
 	local alongScale = configuration.AlongScale or 1.2
 	local crossScale = configuration.CrossScale or 0.9
@@ -1162,15 +1199,36 @@ function MesaShapeShowcase.CreateProductionMixedRun(parent, configuration)
 	local estimatedParts = 0
 	for tileIndex = 1, tileCount do
 		local styleSeed = getStableProductionSeed(configuration.Name .. "Profiles" .. tostring(tileIndex))
-		local forms, terrainCount, facetedCount = makeMixedConfigSubset(formIndices, styleSeed)
+		local forms, terrainCount, facetedCount = makeMixedConfigSequence(styleSeed)
+		assert(#forms == MIXED_FORMATION_COUNT,
+			string.format("%s production tile must retain all %d gallery formations", configuration.Name, MIXED_FORMATION_COUNT))
 		assert(terrainCount > 0 and facetedCount > 0,
 			"Production mixed boundary must include both approved profiles on every tile")
+		local sameZBranchStations = {}
+		for index, source in ipairs(forms) do
+			for otherIndex = index + 1, #forms do
+				local other = forms[otherIndex]
+				if math.abs(source.CenterZ - other.CenterZ) <= 1e-4
+					and math.abs(source.CenterX - other.CenterX) > 1e-4
+				then
+					sameZBranchStations[source.CenterZ] = true
+				end
+			end
+		end
+		local sameZBranchStationCount = 0
+		for _ in pairs(sameZBranchStations) do
+			sameZBranchStationCount += 1
+		end
+		assert(sameZBranchStationCount >= #MIXED_BRANCHES,
+			string.format("%s production tile lost approved same-depth formations", configuration.Name))
 		assertProductionFormsConnected(forms, crossScale, alongScale, rotationScale, configuration.Name)
 		local tilePartCount = 0
 		for _, source in ipairs(forms) do
-			tilePartCount += getFormationBasePartCount(source)
+			local layerCount = if source.ProfileKind == "Terrain" then 1 else #source.Layers
+			tilePartCount += getFormationBasePartCount(source) + layerCount
 		end
-		assert(tilePartCount <= 604, "Production mixed tile exceeds its visible part budget")
+		assert(tilePartCount <= PRODUCTION_TILE_PART_BUDGET,
+			string.format("Production mixed tile exceeds its %d-part bound", PRODUCTION_TILE_PART_BUDGET))
 		formsByTile[tileIndex] = forms
 		partCountsByTile[tileIndex] = tilePartCount
 		estimatedParts += tilePartCount
@@ -1222,8 +1280,10 @@ function MesaShapeShowcase.CreateProductionMixedRun(parent, configuration)
 			createFormation(tile, origin, config, configuration.Name, {
 				OrientationYaw = orientationYaw,
 				RunName = configuration.Name,
+				EnableCollision = true,
 			})
 		end
+		tile:SetAttribute("FormationCount", #forms)
 		tile:SetAttribute("ProfileSequence", table.concat(profileSequence, ","))
 		tile.Parent = parent
 	end
