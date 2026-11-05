@@ -704,8 +704,9 @@ local function createLargeMesaFormation(parent, runName, formationName, center, 
 	return model
 end
 
-local function createBoundaryPillar(parent, runName, columnName, role, position, radius, bodyHeight, capColor, stoneColor, profileKind)
+local function createBoundaryPillar(parent, runName, columnName, role, position, radius, bodyHeight, capColor, stoneColor, profileKind, collisionEnabled)
 	local selectedProfile = profileKind or "Terrain"
+	local collidable = collisionEnabled ~= false
 	local model = Instance.new("Model")
 	model.Name = columnName
 	model:SetAttribute("WorldLayoutOwned", true)
@@ -730,14 +731,16 @@ local function createBoundaryPillar(parent, runName, columnName, role, position,
 		Enum.Material.SmoothPlastic,
 		Enum.PartType.Cylinder
 	)
-	body.CanCollide = true
+	body.CanCollide = collidable
 	body.CanTouch = false
-	body.CanQuery = true
+	body.CanQuery = collidable
 	body.Transparency = 1
 	body:SetAttribute("BoundaryColumn", true)
 	body:SetAttribute("PillarRole", role)
 	body:SetAttribute("PillarRadius", radius)
 	body:SetAttribute("PillarBodyHeight", bodyHeight)
+	body:SetAttribute("CollisionOnly", collidable)
+	body:SetAttribute("CollisionDisabled", not collidable)
 	body:SetAttribute("VisualOnly", false)
 	markBoundary(body)
 	body:SetAttribute("BoundaryStyle", "World1MixedMesa")
@@ -752,14 +755,16 @@ local function createBoundaryPillar(parent, runName, columnName, role, position,
 		Enum.Material.SmoothPlastic,
 		Enum.PartType.Cylinder
 	)
-	cap.CanCollide = true
+	cap.CanCollide = collidable
 	cap.CanTouch = false
-	cap.CanQuery = true
+	cap.CanQuery = collidable
 	cap.Transparency = 1
 	cap:SetAttribute("BoundaryColumn", true)
 	cap:SetAttribute("PillarRole", role)
 	cap:SetAttribute("PillarRadius", capRadius)
 	cap:SetAttribute("VisualOnly", false)
+	cap:SetAttribute("CollisionOnly", collidable)
+	cap:SetAttribute("CollisionDisabled", not collidable)
 	markBoundary(cap)
 	cap:SetAttribute("BoundaryStyle", "World1MixedMesa")
 
@@ -848,7 +853,7 @@ local function createPillarRun(parent, name, axis, coordinate, startCoordinate, 
 				supportHeight,
 				nil,
 				STONE_MASS_COLORS[supportColorIndex],
-				profileSequence[index]
+				profileSequence[index], false
 			)
 		end
 
@@ -858,8 +863,8 @@ local function createPillarRun(parent, name, axis, coordinate, startCoordinate, 
 	end
 
 	if name == "CentralRidge" and preservedCentralSupportPlan then
-		-- Preserve the existing hidden support-cylinder collision layout. Its
-		-- visible mixed forms are placed separately inside the ridge clearance.
+		-- Retain the original outboard support positions, but keep their hidden cylinders noncollidable. The
+		-- main ridge chain and security plane remain responsible for containment.
 		local supportAlongDistance = 0
 		local supportProfiles = buildMixedProfileSequence(name .. "SupportProfiles", #preservedCentralSupportPlan.Pillars)
 		for index, pillar in ipairs(preservedCentralSupportPlan.Pillars) do
@@ -891,7 +896,7 @@ local function createPillarRun(parent, name, axis, coordinate, startCoordinate, 
 					supportHeight,
 					nil,
 					STONE_MASS_COLORS[supportColorIndex],
-					supportProfiles[index]
+					supportProfiles[index], false
 				)
 			end
 			if index < #preservedCentralSupportPlan.Pillars then

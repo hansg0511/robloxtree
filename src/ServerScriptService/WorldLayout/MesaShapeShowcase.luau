@@ -4,8 +4,8 @@
 -- using a fixed local seed to vary each run's size, height, yaw and placement.
 -- The mixed sample uses a connected cluster graph, including multiple depth
 -- positions at selected wall-longitudinal coordinates.
--- The generated parts are visual-only; this module does not create gameplay
--- collision, touch, or query geometry.
+-- Gallery parts are visual-only. Production mode can enable collision on the visible
+-- slope and grass-cap wedges while the gallery stays noncollidable.
 local MesaShapeShowcase = {}
 
 local EPSILON = 1e-4
@@ -711,6 +711,15 @@ local function createFormation(parent, origin, config, kind, productionOptions)
 		currentY - CAP_OVERLAP,
 		config.CapThickness
 	)
+	if isProduction and productionOptions.EnableCollision == true then
+		for _, descendant in ipairs(formation:GetDescendants()) do
+			if descendant:IsA("WedgePart") then
+				descendant.CanCollide = true
+				descendant:SetAttribute("VisualOnly", false)
+				descendant:SetAttribute("ProductionMesaCollisionSurface", true)
+			end
+		end
+	end
 	local capTopY = currentY - CAP_OVERLAP + config.CapThickness
 	formation:SetAttribute("LayerCount", #config.Layers)
 	formation:SetAttribute("PeakHeight", capTopY - origin.Y)
