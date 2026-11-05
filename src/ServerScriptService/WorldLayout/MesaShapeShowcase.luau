@@ -251,6 +251,25 @@ end
 local MIXED_FORMS = makeMixedClusterConfigs()
 local MIXED_TERRAIN_COUNT, MIXED_FACETED_COUNT = assignMixedProfiles(MIXED_FORMS, MIXED_STYLE_SEED)
 
+-- Production keeps the approved mixed contours and profile builder, with fewer
+-- anchors per tile so the long world boundaries stay within a fixed part budget.
+local PRODUCTION_MAIN_FORM_INDICES = { 1, 2, 3, 4, 5, 6, 7, 9 }
+local PRODUCTION_SUPPORT_FORM_INDICES = { 1, 2, 3, 4, 5 }
+local PRODUCTION_MIXED_HALF_WIDTH = 45
+local PRODUCTION_MIXED_HALF_DEPTH = 113
+local PRODUCTION_TILE_SPACING = 180
+local PRODUCTION_PART_BUDGET = 9_000
+
+local function makeMixedConfigSubset(indices, seed)
+	local allConfigs = makeMixedClusterConfigs()
+	local configs = table.create(#indices)
+	for _, index in ipairs(indices) do
+		configs[#configs + 1] = allConfigs[index]
+	end
+	local terrainCount, facetedCount = assignMixedProfiles(configs, seed)
+	return configs, terrainCount, facetedCount
+end
+
 local function horizontal(vector)
 	return Vector3.new(vector.X, 0, vector.Z)
 end
@@ -312,6 +331,12 @@ local function stylePart(part, color, material, name)
 	return part
 end
 
+local function tagDecorationForParent(part, parent)
+	if parent and parent:GetAttribute("BoundaryStyle") == "World1MixedMesa" then
+		part:SetAttribute("WorldDecoration", "World1MixedMesa")
+	end
+end
+
 -- Built-in WedgeParts fill a right triangle in their local Y/Z plane and
 -- extrude along local X. The horizontal version is used for the green cap.
 local function makeFootprintWedge(parent, name, rightCorner, endpointA, endpointB, bottomY, height)
@@ -334,6 +359,7 @@ local function makeFootprintWedge(parent, name, rightCorner, endpointA, endpoint
 	wedge.CFrame = CFrame.fromMatrix(partPosition, xAxis, yAxis, zAxis)
 	stylePart(wedge, GRASS_COLOR, GRASS_MATERIAL, name)
 	wedge.Parent = parent
+	tagDecorationForParent(wedge, parent)
 	return wedge
 end
 
@@ -419,6 +445,7 @@ local function makeSlopePanel(parent, name, rightCorner, endpointA, endpointB)
 	wedge.CFrame = CFrame.fromMatrix(partPosition, xAxis, yAxis, zAxis)
 	stylePart(wedge, ROCK_COLOR, ROCK_MATERIAL, name)
 	wedge.Parent = parent
+	tagDecorationForParent(wedge, parent)
 	return wedge
 end
 
@@ -467,9 +494,17 @@ local function createSlopeShell(parent, name, lowerOutline, upperOutline, bottom
 	end
 end
 
-local function markModel(model, kind)
-	model:SetAttribute("DevOnly", true)
+local function markModel(model, kind, isProduction)
 	model:SetAttribute("VisualOnly", true)
+	if isProduction then
+		model:SetAttribute("WorldLayoutOwned", true)
+		model:SetAttribute("WorldBoundary", true)
+		model:SetAttribute("BoundaryStyle", "World1MixedMesa")
+		model:SetAttribute("BoundaryRun", kind)
+		model:SetAttribute("WorldDecoration", "World1MixedMesa")
+		return
+	end
+	model:SetAttribute("DevOnly", true)
 	model:SetAttribute("ShowcaseOnly", true)
 	model:SetAttribute("WorldDecoration", ROOT_NAME)
 	model:SetAttribute("ShowcaseKind", kind)
@@ -558,20 +593,31 @@ local function copyAndVary(config, random, profileKind)
 	return variation
 end
 
-local function createFormation(parent, origin, config, kind)
+local function createFormation(parent, origin, config, kind, productionOptions)
 	local formation = Instance.new("Model")
 	formation.Name = config.Name
-	markModel(formation, kind)
+	local isProduction = type(productionOptions) == "table"
+	markModel(formation, kind, isProduction)
 	formation:SetAttribute("FootprintSides", #config.Contour)
 	formation:SetAttribute("NominalRadius", math.max(config.RadiusX, config.RadiusZ))
 	formation:SetAttribute("RotationDegrees", math.deg(config.RotationRadians))
 
-	local center = origin + Vector3.new(config.CenterX, 0, config.CenterZ)
+	local orientationYaw = if isProduction then productionOptions.OrientationYaw or 0 else 0
+	local centerOffset = Vector3.new(config.CenterX, 0, config.CenterZ)
+	if orientationYaw ~= 0 then
+		centerOffset = CFrame.Angles(0, orientationYaw, 0):VectorToWorldSpace(centerOffset)
+	end
+	local center = origin + centerOffset
+	if isProduction then
+		formation:SetAttribute("BoundaryRun", productionOptions.RunName)
+		formation:SetAttribute("MesaProfile", config.ProfileKind)
+		formation:SetAttribute("VisualOnly", true)
+	end
 	local baseOutline, anchor = makeOutline(
 		center,
 		config.RadiusX,
 		config.RadiusZ,
-		config.RotationRadians,
+		config.RotationRadians + orientationYaw,
 		config.Contour,
 		config.Phase
 	)
@@ -593,9 +639,10 @@ local function createFormation(parent, origin, config, kind)
 			2 * config.RadiusZ * layer.TopScale * (config.CoreHalfZScale or CORE_HALF_Z_SCALE)
 		)
 		core.CFrame = CFrame.new(center.X, layerBottom + layerHeight * 0.5, center.Z)
-			* CFrame.Angles(0, config.RotationRadians, 0)
-		stylePart(core, ROCK_COLOR, ROCK_MATERIAL, core.Name)
+			* CFrame.Angles(0, config.RotationRadians + orientationYaw, 0)
 		core.Parent = formation
+		stylePart(core, ROCK_COLOR, ROCK_MATERIAL, core.Name)
+		tagDecorationForParent(core, formation)
 
 		createSlopeShell(
 			formation,
@@ -742,13 +789,13 @@ end
 -- This computes an axis-aligned rectangle that is inscribed inside the
 -- rotated lower-band core. If the rectangles overlap in both axes, the rock
 -- cores overlap with a positive margin, so the run cannot have base gaps.
-local function inscribedCoreHalfExtents(config)
+local function inscribedCoreHalfExtents(config, maximumYawDegrees)
 	local scale = coreLayerScale(config) * MIN_LAYER_SCALE
 	local halfX = config.RadiusX * MIN_RADIUS_SCALE * scale
 		* (config.CoreHalfXScale or CORE_HALF_X_SCALE)
 	local halfZ = config.RadiusZ * MIN_RADIUS_SCALE * scale
 		* (config.CoreHalfZScale or CORE_HALF_Z_SCALE)
-	local yaw = math.rad(MAX_YAW_DEGREES)
+	local yaw = math.rad(maximumYawDegrees or MAX_YAW_DEGREES)
 	return
 		halfX * math.cos(yaw) - halfZ * math.sin(yaw),
 		halfZ * math.cos(yaw) - halfX * math.sin(yaw)
@@ -981,6 +1028,208 @@ assert(PAIR_CENTER_Z + RUN_CENTER_Z - MAX_RUN_HALF_DEPTH >= GALLERY_FLOOR.MinZ,
 	"The boundary walls exceed the front extension floor edge")
 assert(PAIR_CENTER_Z + RUN_CENTER_Z + MAX_RUN_HALF_DEPTH <= GALLERY_FLOOR.MaxZ,
 	"The boundary walls exceed the rear extension floor edge")
+
+local function getFormationBasePartCount(config)
+	if config.ProfileKind == "Terrain" then
+		return #TERRAIN_CONTOUR * 6 + 1
+	end
+	return #BORDER_CONTOUR * (2 * 4 + 2) + 2
+end
+
+local function getStableProductionSeed(name)
+	local seed = MIXED_STYLE_SEED
+	for index = 1, #name do
+		seed = (seed * 33 + string.byte(name, index)) % 2_147_483_647
+	end
+	return math.max(1, math.floor(seed))
+end
+
+local function assertProductionFormsConnected(configs, crossScale, alongScale, rotationScale, name)
+	local reaches = table.create(#configs)
+	local yawLimit = MAX_YAW_DEGREES * rotationScale
+	for index, config in ipairs(configs) do
+		local scaledConfig = table.clone(config)
+		scaledConfig.RadiusX *= crossScale
+		scaledConfig.RadiusZ *= alongScale
+		local halfX, halfZ = inscribedCoreHalfExtents(scaledConfig, yawLimit)
+		reaches[index] = {
+			CenterX = config.CenterX * crossScale,
+			CenterZ = config.CenterZ * alongScale,
+			HalfX = halfX,
+			HalfZ = halfZ,
+		}
+	end
+
+	local neighbors = table.create(#configs)
+	for index = 1, #configs do
+		neighbors[index] = {}
+	end
+	for index = 1, #configs do
+		for otherIndex = index + 1, #configs do
+			local current = reaches[index]
+			local other = reaches[otherIndex]
+			local overlapX = current.HalfX + other.HalfX
+				- math.abs(current.CenterX - other.CenterX)
+				- 2 * MAX_POSITION_JITTER_X * crossScale
+			local overlapZ = current.HalfZ + other.HalfZ
+				- math.abs(current.CenterZ - other.CenterZ)
+				- 2 * MAX_POSITION_JITTER_Z * alongScale
+			local edgeMargin = math.min(overlapX, overlapZ)
+			if edgeMargin >= MIN_CORE_OVERLAP then
+				neighbors[index][#neighbors[index] + 1] = otherIndex
+				neighbors[otherIndex][#neighbors[otherIndex] + 1] = index
+			end
+		end
+	end
+
+	local reached = { [1] = true }
+	local queue = { 1 }
+	local queueIndex = 1
+	while queueIndex <= #queue do
+		local index = queue[queueIndex]
+		queueIndex += 1
+		for _, otherIndex in ipairs(neighbors[index]) do
+			if not reached[otherIndex] then
+				reached[otherIndex] = true
+				queue[#queue + 1] = otherIndex
+			end
+		end
+	end
+	assert(#queue == #configs,
+		string.format("%s production formation cores are not all connected (%d of %d)",
+			name, #queue, #configs))
+end
+
+function MesaShapeShowcase.CreateProductionMixedRun(parent, configuration)
+	assert(parent ~= nil, "CreateProductionMixedRun requires a parent")
+	assert(type(configuration) == "table", "CreateProductionMixedRun requires run configuration")
+	assert(configuration.Axis == "X" or configuration.Axis == "Z", "Production boundary axis must be X or Z")
+	assert(type(configuration.Name) == "string" and configuration.Name ~= "", "Production boundary needs a name")
+	assert(type(configuration.StartCoordinate) == "number" and type(configuration.EndCoordinate) == "number",
+		"Production boundary run coordinates must be numbers")
+	assert(type(configuration.Coordinate) == "number" and type(configuration.FloorY) == "number",
+		"Production boundary plane and floor must be numbers")
+
+	local formIndices = if configuration.FormSet == "RidgeSupport"
+		then PRODUCTION_SUPPORT_FORM_INDICES
+		else PRODUCTION_MAIN_FORM_INDICES
+
+	local alongScale = configuration.AlongScale or 1.2
+	local crossScale = configuration.CrossScale or 0.9
+	local rotationScale = configuration.RotationScale or 1
+	assert(alongScale > 0 and crossScale > 0 and rotationScale >= 0 and rotationScale <= 1,
+		"Production boundary scales must be positive and rotation scale must be from 0 to 1")
+	local runLength = math.abs(configuration.EndCoordinate - configuration.StartCoordinate)
+	if runLength <= EPSILON then
+		return 0, 0
+	end
+
+	-- The first and last tile centers sit one template half-depth inside the
+	-- clearance-clamped run endpoints, so caps and outcrops stay out of paths.
+	local halfRun = PRODUCTION_MIXED_HALF_DEPTH * alongScale
+	local coveredLength = 2 * halfRun
+	local tileCount = math.max(1, math.ceil(math.max(0, runLength - coveredLength) / PRODUCTION_TILE_SPACING) + 1)
+	local tileSpan = runLength - coveredLength
+	local tileStep = if tileCount > 1 then tileSpan / (tileCount - 1) else 0
+	assert(tileStep <= PRODUCTION_TILE_SPACING + 1e-3,
+		"Production mixed boundary tiles exceed the approved overlap spacing")
+	local direction = configuration.EndCoordinate >= configuration.StartCoordinate and 1 or -1
+
+	local halfCross = PRODUCTION_MIXED_HALF_WIDTH * crossScale
+	local crossCenter = configuration.CrossCenter
+	if type(crossCenter) ~= "number" then
+		local interiorSide = configuration.InteriorSide or 0
+		local outboardSide = if interiorSide == 0 then 0 else -interiorSide
+		crossCenter = configuration.Coordinate + outboardSide * (halfCross - (configuration.CollisionOverlap or 12.5))
+	end
+	if type(configuration.AllowedCrossRange) == "table" then
+		assert(crossCenter - halfCross >= configuration.AllowedCrossRange.Minimum - 1e-3,
+			string.format("%s mixed boundary crosses its near-side clearance", configuration.Name))
+		assert(crossCenter + halfCross <= configuration.AllowedCrossRange.Maximum + 1e-3,
+			string.format("%s mixed boundary crosses its far-side clearance", configuration.Name))
+	end
+	local interiorSide = configuration.InteriorSide or 0
+	if interiorSide > 0 then
+		assert(crossCenter + halfCross <= configuration.Coordinate + (configuration.CollisionOverlap or 12.5) + 1e-3,
+			string.format("%s mixed boundary intrudes too far into its playable side", configuration.Name))
+	elseif interiorSide < 0 then
+		assert(crossCenter - halfCross >= configuration.Coordinate - (configuration.CollisionOverlap or 12.5) - 1e-3,
+			string.format("%s mixed boundary intrudes too far into its playable side", configuration.Name))
+	end
+
+	local formsByTile = table.create(tileCount)
+	local partCountsByTile = table.create(tileCount)
+	local estimatedParts = 0
+	for tileIndex = 1, tileCount do
+		local styleSeed = getStableProductionSeed(configuration.Name .. "Profiles" .. tostring(tileIndex))
+		local forms, terrainCount, facetedCount = makeMixedConfigSubset(formIndices, styleSeed)
+		assert(terrainCount > 0 and facetedCount > 0,
+			"Production mixed boundary must include both approved profiles on every tile")
+		assertProductionFormsConnected(forms, crossScale, alongScale, rotationScale, configuration.Name)
+		local tilePartCount = 0
+		for _, source in ipairs(forms) do
+			tilePartCount += getFormationBasePartCount(source)
+		end
+		assert(tilePartCount <= 604, "Production mixed tile exceeds its visible part budget")
+		formsByTile[tileIndex] = forms
+		partCountsByTile[tileIndex] = tilePartCount
+		estimatedParts += tilePartCount
+	end
+	local existingPartCount = parent:GetAttribute("World1MixedMesaEstimatedBasePartCount") or 0
+	local estimatedTotal = existingPartCount + estimatedParts
+	assert(estimatedTotal <= PRODUCTION_PART_BUDGET,
+		string.format("Production mixed boundaries exceed the %d-part budget", PRODUCTION_PART_BUDGET))
+	parent:SetAttribute("World1MixedMesaEstimatedBasePartCount", estimatedTotal)
+	parent:SetAttribute("World1MixedMesaTileCount", (parent:GetAttribute("World1MixedMesaTileCount") or 0) + tileCount)
+
+	local orientationYaw = if configuration.Axis == "X" then -math.pi * 0.5 else 0
+	local tileSeedRoot = getStableProductionSeed(configuration.Name)
+	for tileIndex = 1, tileCount do
+		local alongCenter
+		if tileCount == 1 then
+			alongCenter = (configuration.StartCoordinate + configuration.EndCoordinate) * 0.5
+		else
+			alongCenter = configuration.StartCoordinate + direction * (halfRun + tileSpan * (tileIndex - 1) / (tileCount - 1))
+		end
+		local origin = if configuration.Axis == "Z"
+			then Vector3.new(crossCenter, configuration.FloorY, alongCenter)
+			else Vector3.new(alongCenter, configuration.FloorY, crossCenter)
+
+		local forms = formsByTile[tileIndex]
+		local tilePartCount = partCountsByTile[tileIndex]
+		local tile = Instance.new("Model")
+		tile.Name = string.format("%sMixedBoundaryTile%02d", configuration.Name, tileIndex)
+		tile.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
+		tile:SetAttribute("WorldLayoutOwned", true)
+		tile:SetAttribute("WorldBoundary", true)
+		tile:SetAttribute("BoundaryStyle", "World1MixedMesa")
+		tile:SetAttribute("BoundaryRun", configuration.Name)
+		tile:SetAttribute("TileIndex", tileIndex)
+		tile:SetAttribute("TileCount", tileCount)
+		tile:SetAttribute("EstimatedBasePartCount", tilePartCount)
+
+		local random = Random.new(getStableProductionSeed(configuration.Name .. "TileVariation" .. tostring(tileIndex)))
+		local profileSequence = table.create(#forms)
+		for formationIndex, source in ipairs(forms) do
+			local config = copyAndVary(source, random, "Mixed")
+			config.CenterX *= crossScale
+			config.CenterZ *= alongScale
+			config.RadiusX *= crossScale
+			config.RadiusZ *= alongScale
+			config.RotationRadians *= rotationScale
+			config.Name = string.format("Formation%02d_%s", formationIndex, source.Name)
+			profileSequence[formationIndex] = config.ProfileKind
+			createFormation(tile, origin, config, configuration.Name, {
+				OrientationYaw = orientationYaw,
+				RunName = configuration.Name,
+			})
+		end
+		tile:SetAttribute("ProfileSequence", table.concat(profileSequence, ","))
+		tile.Parent = parent
+	end
+
+	return tileCount, estimatedParts
+end
 
 function MesaShapeShowcase.Create(parent, origin)
 	assert(parent ~= nil, "MesaShapeShowcase.Create requires a parent")

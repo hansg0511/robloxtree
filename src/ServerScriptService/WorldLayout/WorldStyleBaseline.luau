@@ -2,6 +2,7 @@
 -- Ordinary runs use the approved warm-rock/green-cap mixed mesa forms; their
 -- collision layout remains in the unchanged planner below.
 local WorldStyleBaseline = {}
+local MesaShapeShowcase = require(script.Parent.MesaShapeShowcase)
 
 local BASELINE = {
 	GroundMaterial = Enum.Material.SmoothPlastic,
@@ -763,6 +764,8 @@ local function createBoundaryPillar(parent, runName, columnName, role, position,
 	cap:SetAttribute("BoundaryStyle", "World1MixedMesa")
 
 	if role == "GateJunction" then
+		-- Keep the existing Forest 2 barrier junction accent while the surrounding
+		-- boundary adopts the approved mixed polygon shells.
 		createOctagonalPrism(model, "MesaRock", position, radius, position.Y, bodyHeight, MESA_ROCK_COLOR, selectedProfile)
 		createOctagonalPrism(
 			model,
@@ -774,22 +777,7 @@ local function createBoundaryPillar(parent, runName, columnName, role, position,
 			MESA_GRASS_COLOR,
 			selectedProfile
 		)
-	elseif runName == "CentralRidge" and role == "Support" then
-		-- Keep the sparse outboard ridge supports as separate visible landforms.
-		-- They remain at their planner positions and do not fill in the Forest pad.
-		createOctagonalPrism(model, "SupportMesaRock", position, radius, position.Y, bodyHeight, MESA_ROCK_COLOR, selectedProfile)
-		createOctagonalPrism(
-			model,
-			"SupportMesaGrassCap",
-			position,
-			capRadius,
-			position.Y + bodyHeight,
-			PILLAR_CAP_HEIGHT,
-			MESA_GRASS_COLOR,
-			selectedProfile
-		)
 	end
-
 	model.PrimaryPart = body
 	model.Parent = parent
 	return model
@@ -810,9 +798,6 @@ local function createPillarRun(parent, name, axis, coordinate, startCoordinate, 
 
 	local direction = endCoordinate >= startCoordinate and 1 or -1
 	local plan = buildPillarPlan(name, runLength, interiorSide, requestedHeight)
-	if not plan then
-		return
-	end
 	local preservedCentralSupportPlan = if name == "CentralRidge"
 		then buildPillarPlan(name, runLength, interiorSide, requestedHeight, true)
 		else nil
@@ -821,20 +806,12 @@ local function createPillarRun(parent, name, axis, coordinate, startCoordinate, 
 	local pillarCount = #plan.Pillars
 	local profileSequence = buildMixedProfileSequence(name, pillarCount)
 	local pillarPositions = table.create(pillarCount)
-	local recordsByPillar = table.create(pillarCount)
 
 	for index, pillar in ipairs(plan.Pillars) do
 		local alongCoordinate = index == pillarCount and endCoordinate or startCoordinate + direction * alongDistance
 		local normalOffset = pillar.NormalOffset
 		local position = getPillarPosition(axis, coordinate + normalOffset, floorY, alongCoordinate)
 		pillarPositions[index] = position
-		recordsByPillar[index] = {
-			{
-				Position = position,
-				Radius = pillar.Radius + PILLAR_CAP_OVERHANG,
-				TopY = position.Y + pillar.BodyHeight + PILLAR_CAP_HEIGHT,
-			},
-		}
 		local columnName = string.format("%sPillar%03d", name, index)
 		local colorIndex = pillar.ColorIndex
 		createBoundaryPillar(parent, name, columnName, pillar.Role, position, pillar.Radius, pillar.BodyHeight, nil, STONE_MASS_COLORS[colorIndex], profileSequence[index])
@@ -860,11 +837,6 @@ local function createPillarRun(parent, name, axis, coordinate, startCoordinate, 
 				floorY,
 				alongCoordinate + supportRunOffset
 			)
-			recordsByPillar[index][#recordsByPillar[index] + 1] = {
-				Position = supportPosition,
-				Radius = supportRadius + PILLAR_CAP_OVERHANG,
-				TopY = supportPosition.Y + supportHeight + PILLAR_CAP_HEIGHT,
-			}
 			local supportColorIndex = (colorIndex % #STONE_MASS_COLORS) + 1
 			createBoundaryPillar(
 				parent,
@@ -886,15 +858,14 @@ local function createPillarRun(parent, name, axis, coordinate, startCoordinate, 
 	end
 
 	if name == "CentralRidge" and preservedCentralSupportPlan then
-		-- Keep the pre-existing sparse support chain at its original planned
-		-- positions; only the main ridge chain is narrowed to the Forest-pad edge.
+		-- Preserve the existing hidden support-cylinder collision layout. Its
+		-- visible mixed forms are placed separately inside the ridge clearance.
 		local supportAlongDistance = 0
 		local supportProfiles = buildMixedProfileSequence(name .. "SupportProfiles", #preservedCentralSupportPlan.Pillars)
 		for index, pillar in ipairs(preservedCentralSupportPlan.Pillars) do
 			local alongCoordinate = index == #preservedCentralSupportPlan.Pillars
 				and endCoordinate
 				or startCoordinate + direction * supportAlongDistance
-			local position = getPillarPosition(axis, coordinate + pillar.NormalOffset, floorY, alongCoordinate)
 			local supportPatternIndex = ((index - 1) % #PILLAR_SUPPORT_CLUSTER_PATTERN) + 1
 			if PILLAR_SUPPORT_CLUSTER_PATTERN[supportPatternIndex] then
 				local supportIndex = index + preservedCentralSupportPlan.Phase + 2
@@ -912,15 +883,15 @@ local function createPillarRun(parent, name, axis, coordinate, startCoordinate, 
 				local supportColorIndex = (index * 3 + preservedCentralSupportPlan.Phase) % #STONE_MASS_COLORS + 1
 				createBoundaryPillar(
 					parent,
-				name,
-				string.format("%sSupportPillar%03d", name, index),
-				"Support",
-				supportPosition,
-				supportRadius,
-				supportHeight,
-				nil,
-				STONE_MASS_COLORS[supportColorIndex],
-				supportProfiles[index]
+					name,
+					string.format("%sSupportPillar%03d", name, index),
+					"Support",
+					supportPosition,
+					supportRadius,
+					supportHeight,
+					nil,
+					STONE_MASS_COLORS[supportColorIndex],
+					supportProfiles[index]
 				)
 			end
 			if index < #preservedCentralSupportPlan.Pillars then
@@ -928,99 +899,6 @@ local function createPillarRun(parent, name, axis, coordinate, startCoordinate, 
 			end
 		end
 	end
-
-	-- One shared collidable base covers each pair of old body/cap cylinders and
-	-- their offset supports. New upper tiers begin above the old collider tops,
-	-- then taper to a green cap. Bases keep their existing outboard bounds and
-	-- use deterministic, clearance-clamped relief on play-facing sides.
-	local largeFormationCount = math.ceil(pillarCount / 2)
-	local largeProfiles = buildMixedProfileSequence(name .. "LargeLandforms", largeFormationCount)
-	for formationIndex = 1, largeFormationCount do
-		local firstIndex = formationIndex * 2 - 1
-		local lastIndex = math.min(firstIndex + 1, pillarCount)
-		local groupRecords = {}
-		for pillarIndex = firstIndex, lastIndex do
-				for recordIndex, record in ipairs(recordsByPillar[pillarIndex] or {}) do
-					if name ~= "CentralRidge" or recordIndex == 1 then
-						groupRecords[#groupRecords + 1] = record
-					end
-			end
-		end
-		if #groupRecords > 0 then
-			local minimumNormal = math.huge
-			local maximumNormal = -math.huge
-			local minimumAlong = math.huge
-			local maximumAlong = -math.huge
-			local colliderTopY = floorY
-			for _, record in ipairs(groupRecords) do
-				local normal = axis == "Z" and record.Position.X or record.Position.Z
-				local along = axis == "Z" and record.Position.Z or record.Position.X
-				minimumNormal = math.min(minimumNormal, normal - record.Radius)
-				maximumNormal = math.max(maximumNormal, normal + record.Radius)
-				minimumAlong = math.min(minimumAlong, along - record.Radius)
-				maximumAlong = math.max(maximumAlong, along + record.Radius)
-				colliderTopY = math.max(colliderTopY, record.TopY)
-			end
-			local requiredNormalRadius = (maximumNormal - minimumNormal) * 0.5
-			local requiredAlongRadius = (maximumAlong - minimumAlong) * 0.5
-			local isAnchor = formationIndex % 5 == 0
-			local alongUnit = getStableMesaUnit(name .. "Along" .. tostring(formationIndex))
-			local radiusNormal = requiredNormalRadius
-			local radiusAlong = math.max(requiredAlongRadius, (if isAnchor then 32 else 23) + (if isAnchor then 5 else 6) * alongUnit)
-			local outwardSide = interiorSide == 0 and 1 or -(interiorSide or 1)
-			local centerNormal
-			if outwardSide < 0 then
-				centerNormal = maximumNormal - radiusNormal
-			else
-				centerNormal = minimumNormal + radiusNormal
-			end
-			local frontRelief = 0
-			if name == "WestCliff" then
-				local frontUnit = getStableMesaUnit(name .. "Front" .. tostring(formationIndex))
-				frontRelief = math.min(1.5 + 5.5 * frontUnit, math.max(0, -127 - maximumNormal))
-			elseif name == "EastCliff" then
-				local frontUnit = getStableMesaUnit(name .. "Front" .. tostring(formationIndex))
-				frontRelief = math.min(1.5 + 5.5 * frontUnit, math.max(0, minimumNormal - 127))
-			elseif name == "NorthernCliff" then
-				local frontUnit = getStableMesaUnit(name .. "Front" .. tostring(formationIndex))
-				frontRelief = math.min(3 + 7 * frontUnit, math.max(0, minimumNormal - 832))
-			end
-			if frontRelief > 0 then
-				radiusNormal += frontRelief * 0.5
-				centerNormal += outwardSide < 0 and frontRelief * 0.5 or -frontRelief * 0.5
-			end
-		local centerAlong = (minimumAlong + maximumAlong) * 0.5
-		if name == "CentralRidge" and axis == "Z" and centerAlong - radiusAlong < 156 then
-			-- Keep the first large visible profile north of the existing hub/path
-			-- edge. This shifts its expansion forward while retaining full collider coverage.
-			centerAlong = minimumAlong + radiusAlong
-		end
-			local center = if axis == "Z"
-				then Vector3.new(centerNormal, floorY, centerAlong)
-				else Vector3.new(centerAlong, floorY, centerNormal)
-			local halfX = if axis == "Z" then radiusNormal else radiusAlong
-			local halfZ = if axis == "Z" then radiusAlong else radiusNormal
-			local cornerScale = getEnclosingOctagonCornerScale(groupRecords, center, halfX, halfZ)
-			local profileKind = largeProfiles[formationIndex]
-			local heightUnit = getStableMesaUnit(name .. "Height" .. tostring(formationIndex))
-			local upperHeight = if profileKind == "Faceted" then 15 + 11 * heightUnit else 8 + 9 * heightUnit
-			local colliderHeight = colliderTopY - floorY
-			createLargeMesaFormation(
-				parent,
-				name,
-				string.format("%sMixedMesa%03d", name, formationIndex),
-				center,
-				halfX,
-				halfZ,
-				cornerScale,
-				colliderHeight,
-				upperHeight,
-				profileKind,
-				getStableMesaSeed(name .. tostring(formationIndex))
-			)
-		end
-	end
-
 	-- These visible tall columns bridge the unchanged Forest 2 flank ends to the
 	-- ordinary boundary pillars. Their body height exceeds the preserved flanks.
 	if axis == "Z"
@@ -1053,6 +931,24 @@ local function createPillarRun(parent, name, axis, coordinate, startCoordinate, 
 			profileSequence[math.clamp(math.floor(pillarCount * 0.5), 1, pillarCount)]
 		)
 	end
+	local mainCrossScale = if name == "CentralRidge" then 0.2444 else 0.9
+	local mainCrossCenter = if name == "CentralRidge" then 2 else nil
+	local mainClearance = if name == "CentralRidge" then { Minimum = -9, Maximum = 13 } else nil
+	MesaShapeShowcase.CreateProductionMixedRun(parent, {
+		Name = name,
+		Axis = axis,
+		Coordinate = coordinate,
+		StartCoordinate = startCoordinate,
+		EndCoordinate = endCoordinate,
+		FloorY = floorY,
+		InteriorSide = interiorSide,
+		AlongScale = if name == "NorthernCliff" then 1.45 else 1.2,
+		CrossScale = mainCrossScale,
+		CrossCenter = mainCrossCenter,
+		AllowedCrossRange = mainClearance,
+		RotationScale = if name == "CentralRidge" then 0 else 1,
+		CollisionOverlap = PILLAR_MAX_RADIUS + PILLAR_CAP_OVERHANG + PILLAR_TARGET_OVERLAP,
+	})
 end
 
 local function createLayeredRunZ(parent, name, x, startZ, endZ, thickness, requestedHeight, floorY, interiorSide, forcedSolidInterval, forcedSolidSide)
