@@ -256,10 +256,10 @@ local MIXED_TERRAIN_COUNT, MIXED_FACETED_COUNT = assignMixedProfiles(MIXED_FORMS
 local PRODUCTION_MIXED_HALF_WIDTH = 45
 local PRODUCTION_MIXED_HALF_DEPTH = 123
 local PRODUCTION_TILE_SPACING = 180
--- Four current runs estimate 17,248 mixed mesh/core parts before pillar colliders.
+-- The part budget covers mixed-mesa render geometry and excludes boundary pillar instances.
 local PRODUCTION_PART_BUDGET = 20_000
 local PRODUCTION_TILE_PART_BUDGET = 1_232
-local PRODUCTION_COLLISION_CORE_SCALE = 0.84
+
 
 local function makeMixedConfigSequence(seed)
 	local configs = makeMixedClusterConfigs()
@@ -590,36 +590,6 @@ local function copyAndVary(config, random, profileKind)
 	return variation
 end
 
--- One inset cylinder per tapered layer blocks deep entry without collidable render wedges.
-local function createProductionCollisionCore(parent, config, center, layer, layerIndex, layerBottom, layerHeight, orientationYaw, runName)
-	local collisionCore = Instance.new("Part")
-	collisionCore.Name = string.format("%s_CollisionCore%02d", config.Name, layerIndex)
-	collisionCore.Shape = Enum.PartType.Cylinder
-	collisionCore.Size = Vector3.new(
-		layerHeight,
-		2 * config.RadiusX * layer.TopScale * PRODUCTION_COLLISION_CORE_SCALE,
-		2 * config.RadiusZ * layer.TopScale * PRODUCTION_COLLISION_CORE_SCALE
-	)
-	collisionCore.CFrame = CFrame.new(center.X, layerBottom + layerHeight * 0.5, center.Z)
-		* CFrame.Angles(0, config.RotationRadians + orientationYaw, 0)
-		* CFrame.Angles(0, 0, math.rad(90))
-	collisionCore.Transparency = 1
-	collisionCore.Anchored = true
-	collisionCore.CanCollide = true
-	collisionCore.CanTouch = false
-	collisionCore.CanQuery = false
-	collisionCore.CastShadow = false
-	collisionCore:SetAttribute("WorldLayoutOwned", true)
-	collisionCore:SetAttribute("WorldBoundary", true)
-	collisionCore:SetAttribute("BoundaryStyle", "World1MixedMesa")
-	collisionCore:SetAttribute("BoundaryRun", runName)
-	collisionCore:SetAttribute("MesaProfile", config.ProfileKind)
-	collisionCore:SetAttribute("CollisionOnly", true)
-	collisionCore:SetAttribute("VisualOnly", false)
-	collisionCore.Parent = parent
-	return collisionCore
-end
-
 local function createFormation(parent, origin, config, kind, productionOptions)
 	local formation = Instance.new("Model")
 	formation.Name = config.Name
@@ -671,17 +641,9 @@ local function createFormation(parent, origin, config, kind, productionOptions)
 		stylePart(core, ROCK_COLOR, ROCK_MATERIAL, core.Name)
 		tagDecorationForParent(core, formation)
 		if isProduction and productionOptions.EnableCollision == true then
-			createProductionCollisionCore(
-				formation,
-				config,
-				center,
-				layer,
-				layerIndex,
-				layerBottom,
-				layerHeight,
-				orientationYaw,
-				productionOptions.RunName
-			)
+			core.CanCollide = true
+			core:SetAttribute("VisualOnly", false)
+			core:SetAttribute("ProductionMesaCollisionSurface", true)
 		end
 
 		createSlopeShell(
@@ -1149,6 +1111,59 @@ local function assertProductionFormsConnected(configs, crossScale, alongScale, r
 			name, #queue, #configs))
 end
 
+local function assertProductionFormsWithinBounds(configs, crossScale, alongScale, rotationScale, name)
+	local yawLimit = math.rad(MAX_YAW_DEGREES * rotationScale)
+	for _, config in ipairs(configs) do
+		local radiusX = config.RadiusX * crossScale * MAX_RADIUS_SCALE
+		local radiusZ = config.RadiusZ * alongScale * MAX_RADIUS_SCALE
+		local halfWidth = math.abs(config.CenterX * crossScale) + MAX_POSITION_JITTER_X * crossScale
+			+ projectedHalfExtent(radiusX, radiusZ, yawLimit, "X") * 1.045
+		local halfDepth = math.abs(config.CenterZ * alongScale) + MAX_POSITION_JITTER_Z * alongScale
+			+ projectedHalfExtent(radiusX, radiusZ, yawLimit, "Z") * 1.045
+		assert(halfWidth <= PRODUCTION_MIXED_HALF_WIDTH * crossScale + 1e-3,
+			string.format("%s production formation %s exceeds its 45-stud cross bound (%.2f)", name, config.Name, halfWidth))
+		assert(halfDepth <= PRODUCTION_MIXED_HALF_DEPTH * alongScale + 1e-3,
+			string.format("%s production formation %s exceeds its 123-stud run bound (%.2f)", name, config.Name, halfDepth))
+	end
+end
+
+local function assertProductionTileSeamConnected(leftForms, rightForms, tileStep, direction, axis, crossScale, alongScale, rotationScale, name)
+	local yawLimit = MAX_YAW_DEGREES * rotationScale
+	local alongOrientationSign = if axis == "Z" then 1 else -1
+	local bestEdgeMargin = -math.huge
+	for _, left in ipairs(leftForms) do
+		local leftConfig = table.clone(left)
+		leftConfig.RadiusX *= crossScale
+		leftConfig.RadiusZ *= alongScale
+		local leftHalfX, leftHalfZ = inscribedCoreHalfExtents(leftConfig, yawLimit)
+		for _, right in ipairs(rightForms) do
+			local rightConfig = table.clone(right)
+			rightConfig.RadiusX *= crossScale
+			rightConfig.RadiusZ *= alongScale
+			local rightHalfX, rightHalfZ = inscribedCoreHalfExtents(rightConfig, yawLimit)
+			local crossDelta = math.abs(left.CenterX - right.CenterX) * crossScale
+			local alongDelta = math.abs(tileStep
+				+ direction * alongOrientationSign * (right.CenterZ - left.CenterZ) * alongScale)
+			local overlapX = leftHalfX + rightHalfX - crossDelta
+				- 2 * MAX_POSITION_JITTER_X * crossScale
+			local overlapZ = leftHalfZ + rightHalfZ - alongDelta
+				- 2 * MAX_POSITION_JITTER_Z * alongScale
+			bestEdgeMargin = math.max(bestEdgeMargin, math.min(overlapX, overlapZ))
+		end
+	end
+	assert(bestEdgeMargin >= MIN_CORE_OVERLAP,
+		string.format("%s adjacent production tiles may gap (best core seam margin %.2f)", name, bestEdgeMargin))
+end
+
+local PRODUCTION_FORMATION_PLACEMENT_OFFSETS = {
+	["MixedNearMidShelf"] = { CenterX = 20.6, CenterZ = 12 },
+	["MixedAnchor07"] = { CenterX = 8, CenterZ = 0 },
+	["MixedNearForegroundOutcrop"] = { CenterX = 1.7, CenterZ = -14 },
+	["MixedFarBackgroundOutcrop"] = { CenterX = 0, CenterZ = 5 },
+	["MixedNearRidge54"] = { CenterX = 0.5, CenterZ = 8 },
+	["MixedFarPillar54"] = { CenterX = -0.5, CenterZ = -8 },
+}
+
 function MesaShapeShowcase.CreateProductionMixedRun(parent, configuration)
 	assert(parent ~= nil, "CreateProductionMixedRun requires a parent")
 	assert(type(configuration) == "table", "CreateProductionMixedRun requires run configuration")
@@ -1209,6 +1224,13 @@ function MesaShapeShowcase.CreateProductionMixedRun(parent, configuration)
 	for tileIndex = 1, tileCount do
 		local styleSeed = getStableProductionSeed(configuration.Name .. "Profiles" .. tostring(tileIndex))
 		local forms, terrainCount, facetedCount = makeMixedConfigSequence(styleSeed)
+		for _, source in ipairs(forms) do
+			local offset = PRODUCTION_FORMATION_PLACEMENT_OFFSETS[source.Name]
+			if offset then
+				source.CenterX += offset.CenterX
+				source.CenterZ += offset.CenterZ
+			end
+		end
 		assert(#forms == MIXED_FORMATION_COUNT,
 			string.format("%s production tile must retain all %d gallery formations", configuration.Name, MIXED_FORMATION_COUNT))
 		assert(terrainCount > 0 and facetedCount > 0,
@@ -1230,11 +1252,24 @@ function MesaShapeShowcase.CreateProductionMixedRun(parent, configuration)
 		end
 		assert(sameZBranchStationCount >= #MIXED_BRANCHES,
 			string.format("%s production tile lost approved same-depth formations", configuration.Name))
+		assertProductionFormsWithinBounds(forms, crossScale, alongScale, rotationScale, configuration.Name)
 		assertProductionFormsConnected(forms, crossScale, alongScale, rotationScale, configuration.Name)
+		if tileIndex > 1 then
+			assertProductionTileSeamConnected(
+				formsByTile[tileIndex - 1],
+				forms,
+				tileStep,
+				direction,
+				configuration.Axis,
+				crossScale,
+				alongScale,
+				rotationScale,
+				configuration.Name
+			)
+		end
 		local tilePartCount = 0
 		for _, source in ipairs(forms) do
-			local layerCount = if source.ProfileKind == "Terrain" then 1 else #source.Layers
-			tilePartCount += getFormationBasePartCount(source) + layerCount
+			tilePartCount += getFormationBasePartCount(source)
 		end
 		assert(tilePartCount <= PRODUCTION_TILE_PART_BUDGET,
 			string.format("Production mixed tile exceeds its %d-part bound", PRODUCTION_TILE_PART_BUDGET))

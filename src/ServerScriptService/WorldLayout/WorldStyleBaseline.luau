@@ -30,10 +30,8 @@ local PROTECTED_BARRIER_COLORS = {
 	Color3.fromRGB(150, 196, 125),
 }
 
--- Production boundary renders are grouped into collidable lower mesa cores and
--- smaller tapered tiers. Original cylinder collisions remain hidden inside the
--- shared cores; the central ridge also retains a transparent high security
--- plane so its new terraces cannot become a progression bypass.
+-- Production boundaries use visible collidable mesa surfaces.
+-- The old central ridge security plane is no longer generated.
 local STONE_MASS_COLORS = {
 	Color3.fromRGB(112, 120, 124),
 	Color3.fromRGB(101, 109, 113),
@@ -704,9 +702,9 @@ local function createLargeMesaFormation(parent, runName, formationName, center, 
 	return model
 end
 
-local function createBoundaryPillar(parent, runName, columnName, role, position, radius, bodyHeight, capColor, stoneColor, profileKind, collisionEnabled)
+local function createBoundaryPillar(parent, runName, columnName, role, position, radius, bodyHeight, capColor, stoneColor, profileKind)
 	local selectedProfile = profileKind or "Terrain"
-	local collidable = collisionEnabled ~= false
+	local collidable = false
 	local model = Instance.new("Model")
 	model.Name = columnName
 	model:SetAttribute("WorldLayoutOwned", true)
@@ -719,8 +717,8 @@ local function createBoundaryPillar(parent, runName, columnName, role, position,
 	model:SetAttribute("PillarBodyHeight", bodyHeight)
 	model:SetAttribute("MesaProfile", selectedProfile)
 
-	-- Preserve the proven collision geometry exactly; only its render is hidden.
-	-- The octagonal rock prisms below circumscribe these cylinders at every Y.
+	-- Keep the legacy cylinders for compatibility, but never let their hidden
+	-- geometry block players. Visible mesa surfaces provide boundary collision.
 	local verticalRotation = CFrame.Angles(0, 0, math.rad(90))
 	local body = createPart(
 		model,
@@ -853,7 +851,7 @@ local function createPillarRun(parent, name, axis, coordinate, startCoordinate, 
 				supportHeight,
 				nil,
 				STONE_MASS_COLORS[supportColorIndex],
-				profileSequence[index], false
+				profileSequence[index]
 			)
 		end
 
@@ -863,8 +861,8 @@ local function createPillarRun(parent, name, axis, coordinate, startCoordinate, 
 	end
 
 	if name == "CentralRidge" and preservedCentralSupportPlan then
-		-- Retain the original outboard support positions, but keep their hidden cylinders noncollidable. The
-		-- main ridge chain and security plane remain responsible for containment.
+		-- Retain the original outboard support positions. Their hidden cylinders
+		-- stay noncollidable; visible mesa surfaces provide the boundary.
 		local supportAlongDistance = 0
 		local supportProfiles = buildMixedProfileSequence(name .. "SupportProfiles", #preservedCentralSupportPlan.Pillars)
 		for index, pillar in ipairs(preservedCentralSupportPlan.Pillars) do
@@ -896,7 +894,7 @@ local function createPillarRun(parent, name, axis, coordinate, startCoordinate, 
 					supportHeight,
 					nil,
 					STONE_MASS_COLORS[supportColorIndex],
-					supportProfiles[index], false
+					supportProfiles[index]
 				)
 			end
 			if index < #preservedCentralSupportPlan.Pillars then
@@ -1266,45 +1264,6 @@ function WorldStyleBaseline.CreateBoundaries(parent, configuration)
 		end
 		if boundaries.ReturnClosureZ and boundaries.SpineX and boundaries.EastX then
 			createStyledRunX(parent, "ReturnEndCliff", boundaries.SpineX, boundaries.EastX, boundaries.ReturnClosureZ, wallThickness, wallHeight, floorY, 1)
-		end
-	end
-
-	-- The new mesa shoulders are climbable decoration on top of the old wall.
-	-- Keep their rendered surfaces visible, but prevent players from jumping
-	-- over the central divider or bypassing the Forest1 -> Forest2 gate.
-	if boundaries.SpineX and boundaries.SpineStartZ and boundaries.SpineEndZ then
-		local securityStartZ = adjustPillarStartZ(
-			"CentralRidge",
-			boundaries.SpineX,
-			boundaries.SpineStartZ,
-			boundaries.SpineEndZ,
-			0
-		)
-		local securityEndZ = boundaries.SpineEndZ
-		local securityLength = math.abs(securityEndZ - securityStartZ)
-		local securityHeight = math.max(110, (boundaries.WallHeight or 30) + 80)
-		if securityLength > 0 then
-				local securityBarrier = createPart(
-				parent,
-				"CentralRidgeSecurityBarrier",
-				Vector3.new(2, securityHeight, securityLength),
-				CFrame.new(
-					boundaries.SpineX,
-					floorY + securityHeight * 0.5,
-					(securityStartZ + securityEndZ) * 0.5
-				),
-				Color3.fromRGB(101, 47, 32),
-				Enum.Material.SmoothPlastic
-			)
-			securityBarrier.Transparency = 1
-			securityBarrier.CanCollide = true
-			securityBarrier.CanTouch = false
-			securityBarrier.CanQuery = false
-			securityBarrier:SetAttribute("WorldLayoutOwned", true)
-			securityBarrier:SetAttribute("WorldBoundary", true)
-			securityBarrier:SetAttribute("BoundaryStyle", "World1MixedMesa")
-			securityBarrier:SetAttribute("CollisionOnly", true)
-			securityBarrier:SetAttribute("VisualOnly", false)
 		end
 	end
 
