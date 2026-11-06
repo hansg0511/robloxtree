@@ -1230,6 +1230,20 @@ function WorldStyleBaseline.CreateBoundaries(parent, configuration)
 		return startZ
 	end
 
+	local generatedBoundaryRuns = {}
+	local function rememberBoundaryRun(name, axis, coordinate, startCoordinate, endCoordinate, interiorSide)
+		if type(coordinate) ~= "number" or type(startCoordinate) ~= "number" or type(endCoordinate) ~= "number" then
+			return
+		end
+		generatedBoundaryRuns[#generatedBoundaryRuns + 1] = {
+			Name = name,
+			Axis = axis,
+			Coordinate = coordinate,
+			Start = startCoordinate,
+			End = endCoordinate,
+			InteriorSide = interiorSide or 0,
+		}
+	end
 	if type(boundaries.Runs) == "table" then
 		for _, run in ipairs(boundaries.Runs) do
 			local runFloorY = run.FloorY or floorY
@@ -1237,8 +1251,10 @@ function WorldStyleBaseline.CreateBoundaries(parent, configuration)
 				local runName = run.Name or "WorldBoundary"
 				local forcedSolidInterval, forcedSolidSide = getBarrierJoinSettings(runName)
 				local startZ = adjustPillarStartZ(runName, run.Coordinate, run.Start, run.End, run.InteriorSide)
+				rememberBoundaryRun(runName, "Z", run.Coordinate, startZ, run.End, run.InteriorSide)
 				createStyledRunZ(parent, runName, run.Coordinate, startZ, run.End, run.Thickness, run.Height, runFloorY, run.InteriorSide, false, forcedSolidInterval, forcedSolidSide)
 			elseif run.Axis == "X" then
+				rememberBoundaryRun(run.Name or "WorldBoundary", "X", run.Coordinate, run.Start, run.End, run.InteriorSide)
 				createStyledRunX(parent, run.Name or "WorldBoundary", run.Start, run.End, run.Coordinate, run.Thickness, run.Height, runFloorY, run.InteriorSide)
 			end
 		end
@@ -1248,25 +1264,187 @@ function WorldStyleBaseline.CreateBoundaries(parent, configuration)
 		if boundaries.WestX then
 			local forcedSolidInterval, forcedSolidSide = getBarrierJoinSettings("WestCliff")
 			local startZ = adjustPillarStartZ("WestCliff", boundaries.WestX, boundaries.SideStartZ, boundaries.SideEndZ, 1)
+			rememberBoundaryRun("WestCliff", "Z", boundaries.WestX, startZ, boundaries.SideEndZ, 1)
 			createStyledRunZ(parent, "WestCliff", boundaries.WestX, startZ, boundaries.SideEndZ, wallThickness, wallHeight, floorY, 1, false, forcedSolidInterval, forcedSolidSide)
 		end
 		if boundaries.EastX then
 			local startZ = adjustPillarStartZ("EastCliff", boundaries.EastX, boundaries.SideStartZ, boundaries.SideEndZ, -1)
+			rememberBoundaryRun("EastCliff", "Z", boundaries.EastX, startZ, boundaries.SideEndZ, -1)
 			createStyledRunZ(parent, "EastCliff", boundaries.EastX, startZ, boundaries.SideEndZ, wallThickness, wallHeight, floorY, -1)
 		end
 		if boundaries.SpineX then
 			local forcedSolidInterval, forcedSolidSide = getBarrierJoinSettings("CentralRidge")
 			local startZ = adjustPillarStartZ("CentralRidge", boundaries.SpineX, boundaries.SpineStartZ, boundaries.SpineEndZ, 0)
+			rememberBoundaryRun("CentralRidge", "Z", boundaries.SpineX, startZ, boundaries.SpineEndZ, 0)
 			createStyledRunZ(parent, "CentralRidge", boundaries.SpineX, startZ, boundaries.SpineEndZ, wallThickness, wallHeight, floorY, 0, false, forcedSolidInterval, forcedSolidSide)
 		end
 		if boundaries.NorthZ and boundaries.WestX and boundaries.EastX then
-			createStyledRunX(parent, "NorthernCliff", boundaries.WestX, boundaries.EastX, boundaries.NorthZ, wallThickness, wallHeight, floorY, -1)
+			            rememberBoundaryRun("NorthernCliff", "X", boundaries.NorthZ, boundaries.WestX, boundaries.EastX, -1)
+            createStyledRunX(parent, "NorthernCliff", boundaries.WestX, boundaries.EastX, boundaries.NorthZ, wallThickness, wallHeight, floorY, -1)
 		end
 		if boundaries.ReturnClosureZ and boundaries.SpineX and boundaries.EastX then
-			createStyledRunX(parent, "ReturnEndCliff", boundaries.SpineX, boundaries.EastX, boundaries.ReturnClosureZ, wallThickness, wallHeight, floorY, 1)
+			            rememberBoundaryRun("ReturnEndCliff", "X", boundaries.ReturnClosureZ, boundaries.SpineX, boundaries.EastX, 1)
+            createStyledRunX(parent, "ReturnEndCliff", boundaries.SpineX, boundaries.EastX, boundaries.ReturnClosureZ, wallThickness, wallHeight, floorY, 1)
 		end
 	end
 
+	local coreCandidatesByRun = {}
+	for _, descendant in ipairs(parent:GetDescendants()) do
+		if descendant:IsA("BasePart")
+			and string.sub(descendant.Name, -7) == "_Core01"
+			and descendant:GetAttribute("ProductionMesaCollisionSurface") == true
+		then
+			local ancestor = descendant.Parent
+			while ancestor and ancestor ~= parent do
+				if ancestor:IsA("Model") then
+					local runName = ancestor:GetAttribute("BoundaryRun")
+					if type(runName) == "string" and runName ~= "" then
+						coreCandidatesByRun[runName] = coreCandidatesByRun[runName] or {}
+						table.insert(coreCandidatesByRun[runName], descendant)
+						break
+					end
+				end
+				ancestor = ancestor.Parent
+			end
+		end
+	end
+
+	local function closestProductionCore(run, intersection)
+		local candidates = coreCandidatesByRun[run.Name] or {}
+		local bestPart = nil
+		local bestDistanceSquared = math.huge
+		local bestPath = nil
+		for _, part in ipairs(candidates) do
+			local dx = part.Position.X - intersection.X
+			local dz = part.Position.Z - intersection.Z
+			local distanceSquared = dx * dx + dz * dz
+			local fullPath = part:GetFullName()
+			if distanceSquared < bestDistanceSquared - 1e-4
+				or (math.abs(distanceSquared - bestDistanceSquared) <= 1e-4
+					and (not bestPath or fullPath < bestPath))
+			then
+				bestPart = part
+				bestDistanceSquared = distanceSquared
+				bestPath = fullPath
+			end
+		end
+		return bestPart
+	end
+
+	local function makeEndpointRecord(part)
+		local localHalfX = part.Size.X * 0.5
+		local localHalfZ = part.Size.Z * 0.5
+		local cosine = math.abs(part.CFrame.RightVector.X)
+		local sine = math.abs(part.CFrame.RightVector.Z)
+		local determinant = cosine * cosine - sine * sine
+		local halfX
+		local halfZ
+		if math.abs(determinant) > 1e-3 then
+			halfX = (localHalfX * cosine - localHalfZ * sine) / determinant
+			halfZ = (localHalfZ * cosine - localHalfX * sine) / determinant
+		end
+		if not halfX or not halfZ or halfX <= 0 or halfZ <= 0 then
+			-- A conservative square also handles outlines rotated close to 45 degrees.
+			halfX = math.min(localHalfX, localHalfZ) / math.max(1e-3, cosine + sine)
+			halfZ = halfX
+		end
+		return {
+			Center = Vector3.new(part.Position.X, floorY, part.Position.Z),
+			HalfX = halfX * 0.98,
+			HalfZ = halfZ * 0.98,
+			BottomY = part.Position.Y - part.Size.Y * 0.5,
+			TopY = part.Position.Y + part.Size.Y * 0.5,
+			SourceName = part:GetFullName(),
+		}
+	end
+
+	local junctions = {}
+	local seenJunctions = {}
+	local maximumJunctionReach = 35
+	for index, firstRun in ipairs(generatedBoundaryRuns) do
+		for otherIndex = index + 1, #generatedBoundaryRuns do
+			local secondRun = generatedBoundaryRuns[otherIndex]
+			local zRun = if firstRun.Axis == "Z" then firstRun else secondRun
+			local xRun = if firstRun.Axis == "X" then firstRun else secondRun
+			if zRun.Axis == "Z" and xRun.Axis == "X" then
+				local x = zRun.Coordinate
+				local z = xRun.Coordinate
+				if x >= math.min(xRun.Start, xRun.End) - 1e-3
+					and x <= math.max(xRun.Start, xRun.End) + 1e-3
+					and z >= math.min(zRun.Start, zRun.End) - 1e-3
+					and z <= math.max(zRun.Start, zRun.End) + 1e-3
+				then
+					local key = string.format("%.3f:%.3f", x, z)
+					if not seenJunctions[key] then
+						seenJunctions[key] = true
+						local junctionName = string.format("%s_%s_Junction", zRun.Name, xRun.Name)
+						local intersection = Vector3.new(x, floorY, z)
+						local firstCore = closestProductionCore(zRun, intersection)
+						local secondCore = closestProductionCore(xRun, intersection)
+						assert(firstCore and secondCore,
+							string.format("%s could not find both terminal production cores", junctionName))
+						local endpointA = makeEndpointRecord(firstCore)
+						local endpointB = makeEndpointRecord(secondCore)
+						local bridgeDirection = endpointB.Center - endpointA.Center
+						assert(bridgeDirection.Magnitude > 1e-4,
+							string.format("%s terminal cores have identical centers", junctionName))
+						local bridgeInset = math.min(8, bridgeDirection.Magnitude * 0.15)
+						bridgeDirection = bridgeDirection.Unit
+						local bridgeCenters = {
+							endpointA.Center + bridgeDirection * bridgeInset,
+							(endpointA.Center + endpointB.Center) * 0.5,
+							endpointB.Center - bridgeDirection * bridgeInset,
+						}
+
+						-- Check each visible shell and cap against the existing route rectangles.
+						for _, bridgeCenter in ipairs(bridgeCenters) do
+							for _, pathSegment in ipairs(configuration.PATH_SEGMENTS or {}) do
+								if typeof(pathSegment.Start) == "Vector3" and typeof(pathSegment.End) == "Vector3" then
+									local width = type(pathSegment.Width) == "number" and pathSegment.Width or 0
+									local pathMinX = math.min(pathSegment.Start.X, pathSegment.End.X) - width * 0.5
+									local pathMaxX = math.max(pathSegment.Start.X, pathSegment.End.X) + width * 0.5
+									local pathMinZ = math.min(pathSegment.Start.Z, pathSegment.End.Z) - width * 0.5
+									local pathMaxZ = math.max(pathSegment.Start.Z, pathSegment.End.Z) + width * 0.5
+									local boxMinX = bridgeCenter.X - maximumJunctionReach
+									local boxMaxX = bridgeCenter.X + maximumJunctionReach
+									local boxMinZ = bridgeCenter.Z - maximumJunctionReach
+									local boxMaxZ = bridgeCenter.Z + maximumJunctionReach
+									local overlapsPath = boxMinX <= pathMaxX
+										and boxMaxX >= pathMinX
+										and boxMinZ <= pathMaxZ
+										and boxMaxZ >= pathMinZ
+									assert(not overlapsPath,
+										string.format("Boundary junction %s would overlap path %s",
+											junctionName, pathSegment.Name or "Path"))
+								end
+							end
+						end
+						junctions[#junctions + 1] = {
+							Name = junctionName,
+							Center = intersection,
+							OutwardDirection = Vector3.new(-(zRun.InteriorSide or 0), 0, 0)
+								+ Vector3.new(0, 0, -(xRun.InteriorSide or 0)),
+							EndpointA = endpointA,
+							EndpointB = endpointB,
+						}
+					end
+				end
+			end
+		end
+	end
+	for _, junction in ipairs(junctions) do
+		if junction.OutwardDirection.Magnitude <= 1e-4 then
+			junction.OutwardDirection = Vector3.new(0, 0, 1)
+		end
+		MesaShapeShowcase.CreateProductionMixedJunction(parent, {
+			Name = junction.Name,
+			Center = junction.Center,
+			FloorY = floorY,
+			OutwardDirection = junction.OutwardDirection,
+			EndpointA = junction.EndpointA,
+			EndpointB = junction.EndpointB,
+		})
+	end
 	local flanks = configuration.BARRIER_FLANKS
 	local barrier = configuration.BARRIER
 	if type(flanks) == "table" and type(barrier) == "table" and barrier.Position then

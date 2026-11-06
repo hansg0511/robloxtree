@@ -58,7 +58,7 @@ local WorldLayoutConfiguration = {
 	PROCEDURAL_STARTER_OAKS_ENABLED = true,
 
 	ROOT_NAME = "SourceWorld",
-	VERSION = 18,
+	VERSION = 19,
 	STATION_USE_DISTANCES = STATION_USE_DISTANCES,
 
 	-- Surface steps stay small: support ground -0.56, forest/base -0.5,
@@ -115,9 +115,10 @@ local WorldLayoutConfiguration = {
 	GROUND_MATERIAL = Enum.Material.Grass,
 	GROUND_COLOR = Color3.fromRGB(91, 132, 79),
 	WORLD_GROUND = {
-		-- This broad support slab sits 0.06 below the forest and BaseGround tops.
-		Center = Vector3.new(0, -0.81, 483),
-		Size = Vector3.new(400, 0.5, 742),
+		-- The visible support slab extends beneath the mesa outboards and corner joins.
+		-- Its top stays 0.06 below the forest and BaseGround tops.
+		Center = Vector3.new(0, -0.81, 518),
+		Size = Vector3.new(560, 0.5, 828),
 	},
 	HUB_GROUND = {
 		-- A shallow plaza rises 0.06 above BaseGround and stays below the path top.

@@ -1164,6 +1164,208 @@ local PRODUCTION_FORMATION_PLACEMENT_OFFSETS = {
 	["MixedFarPillar54"] = { CenterX = -0.5, CenterZ = -8 },
 }
 
+local function makeJunctionFormationConfig(name, profileKind, centerX, centerZ, height)
+	return {
+		Name = name,
+		ProfileKind = profileKind,
+		CenterX = centerX,
+		CenterZ = centerZ,
+		RadiusX = 26,
+		RadiusZ = 26,
+		RotationDegrees = 0,
+		CapScale = if profileKind == "Faceted" then 1.16 else 1.01,
+		CapThickness = if profileKind == "Faceted" then 2.4 else 1.6,
+		-- A 0.60 square stays inside both profiles after a conservative 0.909
+		-- upper-ring shrink for contour wobble and the Border vertex scaling.
+		CoreHalfXScale = 0.60,
+		CoreHalfZScale = 0.60,
+		TopScale = if profileKind == "Terrain" then 0.76 else nil,
+		Height = if profileKind == "Terrain" then height else nil,
+		Layers = if profileKind == "Faceted" then {
+			{ TopScale = 0.76, Height = height * 0.48 },
+			{ TopScale = 0.56, Height = height * 0.52 },
+		} else nil,
+	}
+end
+
+local JUNCTION_HEIGHT_PATTERN = { 26, 34, 25, 31, 24, 29, 27, 33, 25, 30, 26, 32 }
+
+local function getJunctionFormationMinimumHeight(config)
+	if config.ProfileKind == "Faceted" then
+		return config.Layers[1].Height * 0.90
+	end
+	return config.Height * 0.90
+end
+
+local function getJunctionCoreHalfExtents(config)
+	-- Inscribed rectangles stay inside the slightly varied, near-zero-yaw cores.
+	return inscribedCoreHalfExtents(config, 0.75)
+end
+
+local function junctionCoreOverlapMargin(leftCenter, leftHalfX, leftHalfZ, rightCenter, rightHalfX, rightHalfZ, jitterCount)
+	local overlapX = leftHalfX + rightHalfX - math.abs(leftCenter.X - rightCenter.X)
+		- jitterCount * MAX_POSITION_JITTER_X
+	local overlapZ = leftHalfZ + rightHalfZ - math.abs(leftCenter.Z - rightCenter.Z)
+		- jitterCount * MAX_POSITION_JITTER_Z
+	return math.min(overlapX, overlapZ)
+end
+
+local function makeJunctionSources(name, firstCenter, lastCenter, origin, connectorCount)
+	local profileRandom = Random.new(getStableProductionSeed(name .. "JunctionProfiles" .. tostring(connectorCount)))
+	local repeatedProfile = if profileRandom:NextInteger(1, 2) == 1 then "Terrain" else "Faceted"
+	local otherProfile = if repeatedProfile == "Terrain" then "Faceted" else "Terrain"
+	local sources = table.create(connectorCount)
+	local centers = table.create(connectorCount)
+	for index = 1, connectorCount do
+		local alpha = if connectorCount == 1 then 0.5 else (index - 1) / (connectorCount - 1)
+		local worldCenter = firstCenter:Lerp(lastCenter, alpha)
+		local profileKind = if index % 2 == 1 then repeatedProfile else otherProfile
+		local heightIndex = ((index - 1) % #JUNCTION_HEIGHT_PATTERN) + 1
+		local source = makeJunctionFormationConfig(
+			string.format("%s_MesaConnector%02d", name, index),
+			profileKind,
+			worldCenter.X - origin.X,
+			worldCenter.Z - origin.Z,
+			JUNCTION_HEIGHT_PATTERN[heightIndex]
+		)
+		sources[index] = source
+		centers[index] = worldCenter
+	end
+	return sources, centers
+end
+
+function MesaShapeShowcase.CreateProductionMixedJunction(parent, configuration)
+	assert(parent ~= nil, "CreateProductionMixedJunction requires a parent")
+	assert(type(configuration) == "table", "CreateProductionMixedJunction requires junction configuration")
+	assert(type(configuration.Name) == "string" and configuration.Name ~= "",
+		"Production mesa junction needs a name")
+	assert(typeof(configuration.Center) == "Vector3" and type(configuration.FloorY) == "number",
+		"Production mesa junction requires a Vector3 center and numeric floor")
+	assert(type(configuration.EndpointA) == "table" and type(configuration.EndpointB) == "table",
+		"Production mesa junction requires two terminal collision cores")
+
+	local endpointA = configuration.EndpointA
+	local endpointB = configuration.EndpointB
+	assert(typeof(endpointA.Center) == "Vector3" and typeof(endpointB.Center) == "Vector3",
+		"Production mesa junction endpoints must have Vector3 centers")
+	assert(type(endpointA.HalfX) == "number" and type(endpointA.HalfZ) == "number"
+		and type(endpointB.HalfX) == "number" and type(endpointB.HalfZ) == "number",
+		"Production mesa junction endpoints must include inscribed horizontal half-extents")
+	assert(type(endpointA.BottomY) == "number" and type(endpointA.TopY) == "number"
+		and type(endpointB.BottomY) == "number" and type(endpointB.TopY) == "number",
+		"Production mesa junction endpoints must include vertical extents")
+
+	local startCenter = Vector3.new(endpointA.Center.X, configuration.FloorY, endpointA.Center.Z)
+	local endCenter = Vector3.new(endpointB.Center.X, configuration.FloorY, endpointB.Center.Z)
+	local bridgeDirection = endCenter - startCenter
+	if bridgeDirection.Magnitude <= EPSILON then
+		local outward = configuration.OutwardDirection or Vector3.new(0, 0, 1)
+		bridgeDirection = Vector3.new(outward.X, 0, outward.Z)
+	end
+	assert(bridgeDirection.Magnitude > EPSILON, "Production mesa junction endpoints cannot occupy the same point")
+	bridgeDirection = bridgeDirection.Unit
+	local inset = math.min(8, (endCenter - startCenter).Magnitude * 0.15)
+	local firstBridgeCenter = startCenter + bridgeDirection * inset
+	local lastBridgeCenter = endCenter - bridgeDirection * inset
+	local origin = Vector3.new(configuration.Center.X, configuration.FloorY, configuration.Center.Z)
+
+	local sources = nil
+	local centers = nil
+	local sourceHalfExtents = nil
+	local connectorCount = 2
+	while connectorCount <= 12 do
+		sources, centers = makeJunctionSources(
+			configuration.Name,
+			firstBridgeCenter,
+			lastBridgeCenter,
+			origin,
+			connectorCount
+		)
+		sourceHalfExtents = table.create(connectorCount)
+		for index, source in ipairs(sources) do
+			sourceHalfExtents[index] = table.pack(getJunctionCoreHalfExtents(source))
+		end
+
+		local minimumTopA = configuration.FloorY + getJunctionFormationMinimumHeight(sources[1]) * 0.94
+		local lastIndex = #sources
+		local minimumTopB = configuration.FloorY + getJunctionFormationMinimumHeight(sources[lastIndex]) * 0.94
+		local connected = endpointA.TopY > configuration.FloorY
+			and endpointA.BottomY < minimumTopA
+			and endpointB.TopY > configuration.FloorY
+			and endpointB.BottomY < minimumTopB
+			and junctionCoreOverlapMargin(
+				centers[1],
+				sourceHalfExtents[1][1],
+				sourceHalfExtents[1][2],
+				endpointA.Center,
+				endpointA.HalfX,
+				endpointA.HalfZ,
+				1
+			) >= MIN_CORE_OVERLAP
+			and junctionCoreOverlapMargin(
+				centers[lastIndex],
+				sourceHalfExtents[lastIndex][1],
+				sourceHalfExtents[lastIndex][2],
+				endpointB.Center,
+				endpointB.HalfX,
+				endpointB.HalfZ,
+				1
+			) >= MIN_CORE_OVERLAP
+		for index = 2, lastIndex do
+			connected = connected and junctionCoreOverlapMargin(
+				centers[index - 1],
+				sourceHalfExtents[index - 1][1],
+				sourceHalfExtents[index - 1][2],
+				centers[index],
+				sourceHalfExtents[index][1],
+				sourceHalfExtents[index][2],
+				2
+			) >= MIN_CORE_OVERLAP
+		end
+		if connected then
+			break
+		end
+		connectorCount += 1
+	end
+	assert(connectorCount <= 12 and sources and centers and sourceHalfExtents,
+		string.format("%s junction could not connect its actual terminal collision cores", configuration.Name))
+
+	local estimatedParts = 0
+	for _, source in ipairs(sources) do
+		estimatedParts += getFormationBasePartCount(source)
+	end
+	local existingPartCount = parent:GetAttribute("World1MixedMesaEstimatedBasePartCount") or 0
+	local estimatedTotal = existingPartCount + estimatedParts
+	assert(estimatedTotal <= PRODUCTION_PART_BUDGET,
+		string.format("Production mixed boundaries and junctions exceed the %d-part budget", PRODUCTION_PART_BUDGET))
+	parent:SetAttribute("World1MixedMesaEstimatedBasePartCount", estimatedTotal)
+	parent:SetAttribute("World1MixedMesaJunctionCount", (parent:GetAttribute("World1MixedMesaJunctionCount") or 0) + 1)
+
+	local junction = Instance.new("Model")
+	junction.Name = configuration.Name .. "MixedMesaJunction"
+	junction.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
+	markModel(junction, configuration.Name, true)
+	junction:SetAttribute("BoundaryJunction", true)
+	junction:SetAttribute("FormationCount", #sources)
+	junction:SetAttribute("EstimatedBasePartCount", estimatedParts)
+	junction:SetAttribute("JunctionPosition", configuration.Center)
+	junction:SetAttribute("ActualOutlineBridgePosition", (startCenter + endCenter) * 0.5)
+	junction:SetAttribute("ConnectedTerminalCoreA", endpointA.Center)
+	junction:SetAttribute("ConnectedTerminalCoreB", endpointB.Center)
+
+	local variationRandom = Random.new(getStableProductionSeed(configuration.Name .. "JunctionVariation"))
+	for _, source in ipairs(sources) do
+		local config = copyAndVary(source, variationRandom, source.ProfileKind)
+		config.Name = source.Name
+		createFormation(junction, origin, config, configuration.Name, {
+			OrientationYaw = 0,
+			RunName = configuration.Name,
+			EnableCollision = true,
+		})
+	end
+	junction.Parent = parent
+	return #sources, estimatedParts
+end
 function MesaShapeShowcase.CreateProductionMixedRun(parent, configuration)
 	assert(parent ~= nil, "CreateProductionMixedRun requires a parent")
 	assert(type(configuration) == "table", "CreateProductionMixedRun requires run configuration")
