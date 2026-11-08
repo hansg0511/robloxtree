@@ -4,8 +4,8 @@
 -- using a fixed local seed to vary each run's size, height, yaw and placement.
 -- The mixed sample uses a connected cluster graph, including multiple depth
 -- positions at selected wall-longitudinal coordinates.
--- Gallery parts are visual-only. Production mode can enable collision on the visible
--- slope and grass-cap wedges while the gallery stays noncollidable.
+-- Gallery parts stay visual-only. Production collision is generated separately as
+-- a filled vertical prism that follows each formation's exact base outline.
 local MesaShapeShowcase = {}
 
 local EPSILON = 1e-4
@@ -13,6 +13,8 @@ local TAU = math.pi * 2
 local SIDE_PANEL_THICKNESS = 1.1
 local LAYER_OVERLAP = 0.06
 local CAP_OVERLAP = 0.08
+local COLLISION_ENVELOPE_TOP_MARGIN = 10
+local MIN_COLLISION_ENVELOPE_HEIGHT = 18
 
 local ROCK_MATERIAL = Enum.Material.SmoothPlastic
 local GRASS_MATERIAL = Enum.Material.SmoothPlastic
@@ -256,9 +258,12 @@ local MIXED_TERRAIN_COUNT, MIXED_FACETED_COUNT = assignMixedProfiles(MIXED_FORMS
 local PRODUCTION_MIXED_HALF_WIDTH = 45
 local PRODUCTION_MIXED_HALF_DEPTH = 123
 local PRODUCTION_TILE_SPACING = 180
--- The part budget covers mixed-mesa render geometry and excludes boundary pillar instances.
+-- Visual and collision parts are tracked separately; the visual budget excludes
+-- the generated collision prism parts and boundary pillar instances.
 local PRODUCTION_PART_BUDGET = 20_000
 local PRODUCTION_TILE_PART_BUDGET = 1_232
+local PRODUCTION_COLLISION_PART_BUDGET = 5_000
+local PRODUCTION_TILE_COLLISION_PART_BUDGET = 320
 
 
 local function makeMixedConfigSequence(seed)
@@ -336,7 +341,18 @@ end
 
 -- Built-in WedgeParts fill a right triangle in their local Y/Z plane and
 -- extrude along local X. The horizontal version is used for the green cap.
-local function makeFootprintWedge(parent, name, rightCorner, endpointA, endpointB, bottomY, height)
+local function markCollisionEnvelopePart(part)
+	part.Transparency = 1
+	part.CanCollide = true
+	part.CanTouch = false
+	part.CanQuery = false
+	part.CastShadow = false
+	part:SetAttribute("VisualOnly", false)
+	part:SetAttribute("ProductionMesaCollisionSurface", true)
+	part:SetAttribute("ProductionMesaCollisionEnvelope", true)
+end
+
+local function makeFootprintWedge(parent, name, rightCorner, endpointA, endpointB, bottomY, height, isCollisionEnvelope)
 	local legA = horizontal(endpointA - rightCorner)
 	local legB = horizontal(endpointB - rightCorner)
 	local lengthA = legA.Magnitude
@@ -355,12 +371,15 @@ local function makeFootprintWedge(parent, name, rightCorner, endpointA, endpoint
 	wedge.Size = Vector3.new(height, lengthA, lengthB)
 	wedge.CFrame = CFrame.fromMatrix(partPosition, xAxis, yAxis, zAxis)
 	stylePart(wedge, GRASS_COLOR, GRASS_MATERIAL, name)
+	if isCollisionEnvelope then
+		markCollisionEnvelopePart(wedge)
+	end
 	wedge.Parent = parent
 	tagDecorationForParent(wedge, parent)
 	return wedge
 end
 
-local function createFootprintTriangle(parent, name, pointA, pointB, pointC, bottomY, height)
+local function createFootprintTriangle(parent, name, pointA, pointB, pointC, bottomY, height, isCollisionEnvelope)
 	local candidates = {
 		{ Apex = pointA, BaseA = pointB, BaseB = pointC },
 		{ Apex = pointB, BaseA = pointC, BaseB = pointA },
@@ -388,16 +407,16 @@ local function createFootprintTriangle(parent, name, pointA, pointB, pointC, bot
 	local foot = triangle.BaseA + baseDirection * math.clamp(projection, 0, 1)
 
 	local count = 0
-	if makeFootprintWedge(parent, name .. "_A", foot, triangle.Apex, triangle.BaseA, bottomY, height) then
+	if makeFootprintWedge(parent, name .. "_A", foot, triangle.Apex, triangle.BaseA, bottomY, height, isCollisionEnvelope) then
 		count += 1
 	end
-	if makeFootprintWedge(parent, name .. "_B", foot, triangle.Apex, triangle.BaseB, bottomY, height) then
+	if makeFootprintWedge(parent, name .. "_B", foot, triangle.Apex, triangle.BaseB, bottomY, height, isCollisionEnvelope) then
 		count += 1
 	end
 	return count
 end
 
-local function createPolygonCap(parent, name, points, interiorAnchor, bottomY, height)
+local function createPolygonCap(parent, name, points, interiorAnchor, bottomY, height, isCollisionEnvelope)
 	for index = 1, #points do
 		local nextIndex = if index == #points then 1 else index + 1
 		createFootprintTriangle(
@@ -407,9 +426,30 @@ local function createPolygonCap(parent, name, points, interiorAnchor, bottomY, h
 			points[index],
 			points[nextIndex],
 			bottomY,
-			height
+			height,
+			isCollisionEnvelope
 		)
 	end
+end
+
+local function createCollisionEnvelope(parent, name, points, interiorAnchor, floorY, topY)
+	assert(#points >= 3, "Production mesa collision envelope needs a closed outline")
+	assert(topY > floorY, "Production mesa collision envelope top must be above its floor")
+	local partCount = 0
+	for index = 1, #points do
+		local nextIndex = if index == #points then 1 else index + 1
+		partCount += createFootprintTriangle(
+			parent,
+			string.format("%s_Facet%02d", name, index),
+			interiorAnchor,
+			points[index],
+			points[nextIndex],
+			floorY,
+			topY - floorY,
+			true
+		)
+	end
+	return partCount
 end
 
 local function angleCosineAt3D(vertex, pointA, pointB)
@@ -625,9 +665,8 @@ local function createFormation(parent, origin, config, kind, productionOptions)
 		local layerBottom = currentY - (if layerIndex > 1 then LAYER_OVERLAP else 0)
 		local layerHeight = layer.Height + (if layerIndex > 1 then LAYER_OVERLAP else 0)
 
-		-- Each lower-band core is inscribed inside its tapered ring. Neighboring
-		-- cores overlap at the ground line, which fills the seam between facade
-		-- panels while preserving the stepped, separate landform silhouettes.
+		-- Keep an inscribed visual core for the approved silhouette and for
+		-- junction layout measurements. Production collision is built separately.
 		local core = Instance.new("Part")
 		core.Name = string.format("%s_Core%02d", config.Name, layerIndex)
 		core.Size = Vector3.new(
@@ -640,10 +679,10 @@ local function createFormation(parent, origin, config, kind, productionOptions)
 		core.Parent = formation
 		stylePart(core, ROCK_COLOR, ROCK_MATERIAL, core.Name)
 		tagDecorationForParent(core, formation)
-		if isProduction and productionOptions.EnableCollision == true then
-			core.CanCollide = true
-			core:SetAttribute("VisualOnly", false)
-			core:SetAttribute("ProductionMesaCollisionSurface", true)
+		if isProduction and productionOptions.EnableCollision == true and layerIndex == 1 then
+			-- Junction generation uses this geometry marker to locate terminal
+			-- formations; it is deliberately independent of CanCollide.
+			core:SetAttribute("ProductionMesaCoreGeometry", true)
 		end
 
 		createSlopeShell(
@@ -673,18 +712,30 @@ local function createFormation(parent, origin, config, kind, productionOptions)
 		currentY - CAP_OVERLAP,
 		config.CapThickness
 	)
-	if isProduction and productionOptions.EnableCollision == true then
-		for _, descendant in ipairs(formation:GetDescendants()) do
-			if descendant:IsA("WedgePart") then
-				descendant.CanCollide = true
-				descendant:SetAttribute("VisualOnly", false)
-				descendant:SetAttribute("ProductionMesaCollisionSurface", true)
-			end
-		end
-	end
 	local capTopY = currentY - CAP_OVERLAP + config.CapThickness
 	formation:SetAttribute("LayerCount", #config.Layers)
 	formation:SetAttribute("PeakHeight", capTopY - origin.Y)
+	if isProduction and productionOptions.EnableCollision == true then
+		local collisionTopY = math.max(
+			capTopY + COLLISION_ENVELOPE_TOP_MARGIN,
+			origin.Y + MIN_COLLISION_ENVELOPE_HEIGHT
+		)
+		local collisionPartCount = createCollisionEnvelope(
+			formation,
+			config.Name .. "_CollisionEnvelope",
+			baseOutline,
+			anchor,
+			origin.Y,
+			collisionTopY
+		)
+		local maximumCollisionPartCount = #config.Contour * 2
+		assert(collisionPartCount >= #config.Contour and collisionPartCount <= maximumCollisionPartCount,
+			string.format("%s collision envelope did not close every outline facet", config.Name))
+		formation:SetAttribute("CollisionEnvelope", "FilledBaseOutlinePrism")
+		formation:SetAttribute("CollisionEnvelopePartCount", collisionPartCount)
+		formation:SetAttribute("CollisionTopY", collisionTopY)
+		formation:SetAttribute("CollisionTopClearance", collisionTopY - capTopY)
+	end
 	formation.Parent = parent
 	return formation, capTopY
 end
@@ -1047,6 +1098,14 @@ local function getFormationBasePartCount(config)
 	return #BORDER_CONTOUR * (2 * 4 + 2) + 2
 end
 
+local function getFormationCollisionPartCount(config)
+	local contour = config.Contour
+	if not contour then
+		contour = if config.ProfileKind == "Terrain" then TERRAIN_CONTOUR else BORDER_CONTOUR
+	end
+	return #contour * 2
+end
+
 local function getStableProductionSeed(name)
 	local seed = MIXED_STYLE_SEED
 	for index = 1, #name do
@@ -1242,7 +1301,7 @@ function MesaShapeShowcase.CreateProductionMixedJunction(parent, configuration)
 	assert(typeof(configuration.Center) == "Vector3" and type(configuration.FloorY) == "number",
 		"Production mesa junction requires a Vector3 center and numeric floor")
 	assert(type(configuration.EndpointA) == "table" and type(configuration.EndpointB) == "table",
-		"Production mesa junction requires two terminal collision cores")
+		"Production mesa junction requires two terminal layout cores")
 
 	local endpointA = configuration.EndpointA
 	local endpointB = configuration.EndpointB
@@ -1328,17 +1387,24 @@ function MesaShapeShowcase.CreateProductionMixedJunction(parent, configuration)
 		connectorCount += 1
 	end
 	assert(connectorCount <= 12 and sources and centers and sourceHalfExtents,
-		string.format("%s junction could not connect its actual terminal collision cores", configuration.Name))
+		string.format("%s junction could not connect its actual terminal mesa cores", configuration.Name))
 
 	local estimatedParts = 0
+	local estimatedCollisionParts = 0
 	for _, source in ipairs(sources) do
 		estimatedParts += getFormationBasePartCount(source)
+		estimatedCollisionParts += getFormationCollisionPartCount(source)
 	end
 	local existingPartCount = parent:GetAttribute("World1MixedMesaEstimatedBasePartCount") or 0
 	local estimatedTotal = existingPartCount + estimatedParts
 	assert(estimatedTotal <= PRODUCTION_PART_BUDGET,
 		string.format("Production mixed boundaries and junctions exceed the %d-part budget", PRODUCTION_PART_BUDGET))
 	parent:SetAttribute("World1MixedMesaEstimatedBasePartCount", estimatedTotal)
+	local existingCollisionPartCount = parent:GetAttribute("World1MixedMesaEstimatedCollisionPartCount") or 0
+	local estimatedCollisionTotal = existingCollisionPartCount + estimatedCollisionParts
+	assert(estimatedCollisionTotal <= PRODUCTION_COLLISION_PART_BUDGET,
+		string.format("Production mesa collision envelopes exceed the %d-part budget", PRODUCTION_COLLISION_PART_BUDGET))
+	parent:SetAttribute("World1MixedMesaEstimatedCollisionPartCount", estimatedCollisionTotal)
 	parent:SetAttribute("World1MixedMesaJunctionCount", (parent:GetAttribute("World1MixedMesaJunctionCount") or 0) + 1)
 
 	local junction = Instance.new("Model")
@@ -1348,6 +1414,7 @@ function MesaShapeShowcase.CreateProductionMixedJunction(parent, configuration)
 	junction:SetAttribute("BoundaryJunction", true)
 	junction:SetAttribute("FormationCount", #sources)
 	junction:SetAttribute("EstimatedBasePartCount", estimatedParts)
+	junction:SetAttribute("EstimatedCollisionPartCount", estimatedCollisionParts)
 	junction:SetAttribute("JunctionPosition", configuration.Center)
 	junction:SetAttribute("ActualOutlineBridgePosition", (startCenter + endCenter) * 0.5)
 	junction:SetAttribute("ConnectedTerminalCoreA", endpointA.Center)
@@ -1422,7 +1489,9 @@ function MesaShapeShowcase.CreateProductionMixedRun(parent, configuration)
 
 	local formsByTile = table.create(tileCount)
 	local partCountsByTile = table.create(tileCount)
+	local collisionPartCountsByTile = table.create(tileCount)
 	local estimatedParts = 0
+	local estimatedCollisionParts = 0
 	for tileIndex = 1, tileCount do
 		local styleSeed = getStableProductionSeed(configuration.Name .. "Profiles" .. tostring(tileIndex))
 		local forms, terrainCount, facetedCount = makeMixedConfigSequence(styleSeed)
@@ -1470,20 +1539,31 @@ function MesaShapeShowcase.CreateProductionMixedRun(parent, configuration)
 			)
 		end
 		local tilePartCount = 0
+		local tileCollisionPartCount = 0
 		for _, source in ipairs(forms) do
 			tilePartCount += getFormationBasePartCount(source)
+			tileCollisionPartCount += getFormationCollisionPartCount(source)
 		end
 		assert(tilePartCount <= PRODUCTION_TILE_PART_BUDGET,
 			string.format("Production mixed tile exceeds its %d-part bound", PRODUCTION_TILE_PART_BUDGET))
+		assert(tileCollisionPartCount <= PRODUCTION_TILE_COLLISION_PART_BUDGET,
+			string.format("Production mesa collision tile exceeds its %d-part bound", PRODUCTION_TILE_COLLISION_PART_BUDGET))
 		formsByTile[tileIndex] = forms
 		partCountsByTile[tileIndex] = tilePartCount
+		collisionPartCountsByTile[tileIndex] = tileCollisionPartCount
 		estimatedParts += tilePartCount
+		estimatedCollisionParts += tileCollisionPartCount
 	end
 	local existingPartCount = parent:GetAttribute("World1MixedMesaEstimatedBasePartCount") or 0
 	local estimatedTotal = existingPartCount + estimatedParts
 	assert(estimatedTotal <= PRODUCTION_PART_BUDGET,
 		string.format("Production mixed boundaries exceed the %d-part budget", PRODUCTION_PART_BUDGET))
 	parent:SetAttribute("World1MixedMesaEstimatedBasePartCount", estimatedTotal)
+	local existingCollisionPartCount = parent:GetAttribute("World1MixedMesaEstimatedCollisionPartCount") or 0
+	local estimatedCollisionTotal = existingCollisionPartCount + estimatedCollisionParts
+	assert(estimatedCollisionTotal <= PRODUCTION_COLLISION_PART_BUDGET,
+		string.format("Production mesa collision envelopes exceed the %d-part budget", PRODUCTION_COLLISION_PART_BUDGET))
+	parent:SetAttribute("World1MixedMesaEstimatedCollisionPartCount", estimatedCollisionTotal)
 	parent:SetAttribute("World1MixedMesaTileCount", (parent:GetAttribute("World1MixedMesaTileCount") or 0) + tileCount)
 
 	local orientationYaw = if configuration.Axis == "X" then -math.pi * 0.5 else 0
@@ -1511,6 +1591,7 @@ function MesaShapeShowcase.CreateProductionMixedRun(parent, configuration)
 		tile:SetAttribute("TileIndex", tileIndex)
 		tile:SetAttribute("TileCount", tileCount)
 		tile:SetAttribute("EstimatedBasePartCount", tilePartCount)
+		tile:SetAttribute("EstimatedCollisionPartCount", collisionPartCountsByTile[tileIndex])
 
 		local random = Random.new(getStableProductionSeed(configuration.Name .. "TileVariation" .. tostring(tileIndex)))
 		local profileSequence = table.create(#forms)

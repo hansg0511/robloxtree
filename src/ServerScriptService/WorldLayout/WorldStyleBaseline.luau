@@ -1,6 +1,6 @@
 -- World 1's palette and route-independent boundary style.
--- Ordinary runs use the approved warm-rock/green-cap mixed mesa forms; their
--- collision layout remains in the unchanged planner below.
+-- Ordinary runs use the approved warm-rock/green-cap mixed mesa forms, with
+-- production collision generated separately from their local base outlines.
 local WorldStyleBaseline = {}
 local MesaShapeShowcase = require(script.Parent.MesaShapeShowcase)
 
@@ -30,7 +30,7 @@ local PROTECTED_BARRIER_COLORS = {
 	Color3.fromRGB(150, 196, 125),
 }
 
--- Production boundaries use visible collidable mesa surfaces.
+-- Production boundaries use local collision prisms generated from mesa footprints.
 -- The old central ridge security plane is no longer generated.
 local STONE_MASS_COLORS = {
 	Color3.fromRGB(112, 120, 124),
@@ -718,7 +718,7 @@ local function createBoundaryPillar(parent, runName, columnName, role, position,
 	model:SetAttribute("MesaProfile", selectedProfile)
 
 	-- Keep the legacy cylinders for compatibility, but never let their hidden
-	-- geometry block players. Visible mesa surfaces provide boundary collision.
+	-- geometry block players. Local mesa footprint prisms provide containment.
 	local verticalRotation = CFrame.Angles(0, 0, math.rad(90))
 	local body = createPart(
 		model,
@@ -862,7 +862,7 @@ local function createPillarRun(parent, name, axis, coordinate, startCoordinate, 
 
 	if name == "CentralRidge" and preservedCentralSupportPlan then
 		-- Retain the original outboard support positions. Their hidden cylinders
-		-- stay noncollidable; visible mesa surfaces provide the boundary.
+		-- stay noncollidable; mesa footprint prisms provide the boundary.
 		local supportAlongDistance = 0
 		local supportProfiles = buildMixedProfileSequence(name .. "SupportProfiles", #preservedCentralSupportPlan.Pillars)
 		for index, pillar in ipairs(preservedCentralSupportPlan.Pillars) do
@@ -1025,7 +1025,7 @@ local function createStyledRunZ(parent, name, x, startZ, endZ, thickness, reques
 		markBoundary(cap)
 
 		-- Alternating low shoulders make the edge read as chunky stepped terrain
-		-- while the overlapping core remains a continuous collision boundary.
+		-- while production mesa footprint prisms keep the boundary continuous.
 		if index % 3 == 1 then
 			local sides = interiorSide == 0 and { -1, 1 } or { interiorSide or 1 }
 			for _, side in ipairs(sides) do
@@ -1289,10 +1289,12 @@ function WorldStyleBaseline.CreateBoundaries(parent, configuration)
 	end
 
 	local coreCandidatesByRun = {}
+	-- These markers identify visual core geometry for endpoint placement;
+	-- production collision now comes from separate filled outline prisms.
 	for _, descendant in ipairs(parent:GetDescendants()) do
 		if descendant:IsA("BasePart")
 			and string.sub(descendant.Name, -7) == "_Core01"
-			and descendant:GetAttribute("ProductionMesaCollisionSurface") == true
+			and descendant:GetAttribute("ProductionMesaCoreGeometry") == true
 		then
 			local ancestor = descendant.Parent
 			while ancestor and ancestor ~= parent do
