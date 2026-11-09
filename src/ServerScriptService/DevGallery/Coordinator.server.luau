@@ -10,10 +10,11 @@ local Config = require(script.Parent:WaitForChild("Config"))
 
 local OWNER_ATTRIBUTE = "DevGalleryOwner"
 local COORDINATOR_OWNER = "Coordinator"
+local FOREST_OWNER = "Forest"
 local ROOT_NAME = "DevTreeGallery"
 local NAV_REGISTRY_NAME = "DevGalleryNavRegistry"
 local NAV_ENTRIES_NAME = "Entries"
-local COORDINATOR_VERSION = 1
+local COORDINATOR_VERSION = 2
 
 local LABS = Config.Labs or {}
 local ARCHIVE_CONFIG = Config.Archive or {}
@@ -151,6 +152,18 @@ local function addPlaceholderLab(root, origin, floorTopY, labId, configKey, xOff
 	return model
 end
 
+local function addForestLabContainer(root)
+	local model = Instance.new("Model")
+	model.Name = "ForestLab"
+	model:SetAttribute(OWNER_ATTRIBUTE, FOREST_OWNER)
+	model:SetAttribute("LabId", "Forest")
+	model:SetAttribute("DevOnly", true)
+	model:SetAttribute("VisualOnly", true)
+	model:SetAttribute("BuildStatus", "Building")
+	model.Parent = root
+	return model
+end
+
 local function buildGalleryShell()
 	if typeof(Config.Origin) ~= "Vector3" then
 		warn("[DevGalleryCoordinator] Config.Origin must be a Vector3; skipping the dev gallery.")
@@ -220,7 +233,7 @@ local function buildGalleryShell()
 	root:SetAttribute("GalleryEntryCFrame", spawnMarker.CFrame + Vector3.new(0, 4, 0))
 
 	if LABS.Forest == true then
-		addPlaceholderLab(root, origin, floorTopY, "Forest", "Forest", 112)
+		addForestLabContainer(root)
 	end
 	if LABS.Archive == true then
 		addPlaceholderLab(root, origin, floorTopY, "Archive", "Archive", 242)
@@ -229,6 +242,221 @@ local function buildGalleryShell()
 	root:SetAttribute("BuildStatus", "Ready")
 	root.Parent = Workspace
 	return root
+end
+
+local FOREST_NAV_ATTRIBUTES = {
+	"ForestLabReady",
+	"ForestLabDestinationCFrame",
+	"ForestLabFocusPosition",
+	"ForestSofterTeleportCFrame",
+	"ForestSofterFocusPosition",
+	"ForestSofterEstimatedInstances",
+	"ForestChunkierTeleportCFrame",
+	"ForestChunkierFocusPosition",
+	"ForestChunkierEstimatedInstances",
+}
+
+local function clearForestMetadata(targetGallery)
+	for _, attributeName in ipairs(FOREST_NAV_ATTRIBUTES) do
+		targetGallery:SetAttribute(attributeName, nil)
+	end
+end
+
+local function isFiniteNumber(value)
+	return type(value) == "number" and value == value and math.abs(value) < 1000000
+end
+
+local function isValidVector3(value)
+	return typeof(value) == "Vector3"
+		and isFiniteNumber(value.X)
+		and isFiniteNumber(value.Y)
+		and isFiniteNumber(value.Z)
+end
+
+local function isValidCFrame(value)
+	if typeof(value) ~= "CFrame" then
+		return false
+	end
+	for _, component in ipairs({ value:GetComponents() }) do
+		if not isFiniteNumber(component) then
+			return false
+		end
+	end
+	return true
+end
+
+local function isInsideGalleryBounds(position)
+	if not isValidVector3(position) then
+		return false
+	end
+	local origin = Config.Origin
+	local horizontalOffset = Vector3.new(position.X - origin.X, 0, position.Z - origin.Z)
+	return horizontalOffset.Magnitude <= 2000 and math.abs(position.Y - origin.Y) <= 800
+end
+
+local function resolveForestFocus(candidate, fallback, destination)
+	if isValidVector3(candidate) then
+		return candidate
+	end
+	if isValidVector3(fallback) then
+		return fallback
+	end
+	return destination.Position + destination.LookVector * 16
+end
+
+local function buildForestDesignLab(targetGallery)
+	if not isOwned(targetGallery, COORDINATOR_OWNER)
+		or targetGallery.Parent ~= Workspace
+		or targetGallery:GetAttribute("BuildStatus") ~= "Ready"
+	then
+		return false
+	end
+
+	local forestLab = targetGallery:FindFirstChild("ForestLab")
+	if not forestLab or not forestLab:IsA("Model") or not isOwned(forestLab, FOREST_OWNER) then
+		clearForestMetadata(targetGallery)
+		if forestLab then
+			warn("[DevGalleryCoordinator] ForestLab is owned by another system; leaving it untouched.")
+		else
+			warn("[DevGalleryCoordinator] ForestLab container is missing; forest navigation will stay unavailable.")
+		end
+		return false
+	end
+
+	local existingShowcase = forestLab:FindFirstChild("ForestDesignLab")
+	if existingShowcase then
+		local existingSofter = targetGallery:GetAttribute("ForestSofterTeleportCFrame")
+		local existingChunkier = targetGallery:GetAttribute("ForestChunkierTeleportCFrame")
+		if isOwned(existingShowcase, FOREST_OWNER)
+			and existingShowcase:IsA("Model")
+			and existingShowcase:GetAttribute("BuildStatus") == "Ready"
+			and forestLab:GetAttribute("BuildStatus") == "Ready"
+			and targetGallery:GetAttribute("ForestLabReady") == true
+			and isValidCFrame(existingSofter)
+			and isValidCFrame(existingChunkier)
+			and isInsideGalleryBounds(existingSofter.Position)
+			and isInsideGalleryBounds(existingChunkier.Position)
+		then
+			return true
+		end
+		if not isOwned(existingShowcase, FOREST_OWNER) then
+			clearForestMetadata(targetGallery)
+			warn("[DevGalleryCoordinator] ForestDesignLab is owned by another system; leaving it untouched.")
+			return false
+		end
+		existingShowcase:Destroy()
+	end
+
+	clearForestMetadata(targetGallery)
+	forestLab:SetAttribute("BuildStatus", "Building")
+	local moduleScript = script.Parent:FindFirstChild("ForestDesignLab")
+	if not moduleScript or not moduleScript:IsA("ModuleScript") then
+		forestLab:SetAttribute("BuildStatus", "Unavailable")
+		warn("[DevGalleryCoordinator] ForestDesignLab module is missing; Forest Lab is unavailable.")
+		return false
+	end
+
+	local galleryFloor = targetGallery:FindFirstChild("GalleryFloor")
+	if not galleryFloor or not galleryFloor:IsA("BasePart") then
+		forestLab:SetAttribute("BuildStatus", "Unavailable")
+		warn("[DevGalleryCoordinator] GalleryFloor is missing; Forest Lab is unavailable.")
+		return false
+	end
+	local floorTopY = galleryFloor.Position.Y + galleryFloor.Size.Y * 0.5
+	local center = Vector3.new(Config.Origin.X + 900, floorTopY, Config.Origin.Z)
+	if not isInsideGalleryBounds(center) then
+		forestLab:SetAttribute("BuildStatus", "Unavailable")
+		warn("[DevGalleryCoordinator] Forest showcase center is outside the dev gallery bounds.")
+		return false
+	end
+
+	local staging = Instance.new("Model")
+	staging.Name = "ForestDesignLabStaging"
+	local buildOk, showcase, metadata = pcall(function()
+		local builder = require(moduleScript)
+		assert(type(builder) == "table" and type(builder.Build) == "function", "ForestDesignLab must export Build")
+		local builtShowcase, builtMetadata = builder.Build(staging, center)
+		assert(builtShowcase and builtShowcase:IsA("Model"), "ForestDesignLab Build returned no Model")
+		assert(builtShowcase.Parent == staging, "ForestDesignLab Build must parent its result to the supplied parent")
+		assert(type(builtMetadata) == "table", "ForestDesignLab Build returned no metadata")
+		return builtShowcase, builtMetadata
+	end)
+	if not buildOk then
+		staging:Destroy()
+		forestLab:SetAttribute("BuildStatus", "Failed")
+		warn("[DevGalleryCoordinator] Forest Design Lab build failed: " .. tostring(showcase))
+		return false
+	end
+	if targetGallery.Parent ~= Workspace
+		or Workspace:FindFirstChild(ROOT_NAME) ~= targetGallery
+		or not isOwned(targetGallery, COORDINATOR_OWNER)
+		or forestLab.Parent ~= targetGallery
+	then
+		staging:Destroy()
+		return false
+	end
+
+	local variations = metadata.Variations
+	local softerDestination = if type(variations) == "table" then variations.Softer else nil
+	local chunkierDestination = if type(variations) == "table" then variations.Chunkier else nil
+	local focusByVariation = metadata.FocusByVariation
+	local softerFocus = resolveForestFocus(
+		if type(focusByVariation) == "table" then focusByVariation.Softer else nil,
+		metadata.Focus,
+		if isValidCFrame(softerDestination) then softerDestination else CFrame.new()
+	)
+	local chunkierFocus = resolveForestFocus(
+		if type(focusByVariation) == "table" then focusByVariation.Chunkier else nil,
+		metadata.Focus,
+		if isValidCFrame(chunkierDestination) then chunkierDestination else CFrame.new()
+	)
+	local metadataValid = isValidCFrame(softerDestination)
+		and isValidCFrame(chunkierDestination)
+		and (softerDestination.Position - chunkierDestination.Position).Magnitude >= 20
+		and isInsideGalleryBounds(softerDestination.Position)
+		and isInsideGalleryBounds(chunkierDestination.Position)
+		and isInsideGalleryBounds(softerFocus)
+		and isInsideGalleryBounds(chunkierFocus)
+	if not metadataValid then
+		staging:Destroy()
+		forestLab:SetAttribute("BuildStatus", "Failed")
+		warn("[DevGalleryCoordinator] Forest Design Lab returned invalid variation destinations or focus positions.")
+		return false
+	end
+
+	showcase.Name = "ForestDesignLab"
+	showcase:SetAttribute(OWNER_ATTRIBUTE, FOREST_OWNER)
+	showcase:SetAttribute("LabId", "Forest")
+	showcase:SetAttribute("DevOnly", true)
+	showcase:SetAttribute("VisualOnly", true)
+	showcase:SetAttribute("BuildStatus", "Ready")
+	showcase.Parent = forestLab
+	staging:Destroy()
+	forestLab:SetAttribute("BuildStatus", "Ready")
+
+	targetGallery:SetAttribute("ForestSofterTeleportCFrame", softerDestination)
+	targetGallery:SetAttribute("ForestSofterFocusPosition", softerFocus)
+	targetGallery:SetAttribute("ForestChunkierTeleportCFrame", chunkierDestination)
+	targetGallery:SetAttribute("ForestChunkierFocusPosition", chunkierFocus)
+	local instanceCounts = metadata.InstanceCounts
+	if type(instanceCounts) == "table" then
+		local softerEstimate = instanceCounts.Softer
+		local chunkierEstimate = instanceCounts.Chunkier
+		targetGallery:SetAttribute("ForestSofterEstimatedInstances", if isFiniteNumber(softerEstimate) then softerEstimate else nil)
+		targetGallery:SetAttribute("ForestChunkierEstimatedInstances", if isFiniteNumber(chunkierEstimate) then chunkierEstimate else nil)
+	end
+	targetGallery:SetAttribute("ForestLabReady", true)
+	return true
+end
+
+local function disableForestLab(targetGallery)
+	clearForestMetadata(targetGallery)
+	local forestLab = targetGallery:FindFirstChild("ForestLab")
+	if forestLab and isOwned(forestLab, FOREST_OWNER) then
+		forestLab:Destroy()
+	elseif forestLab then
+		warn("[DevGalleryCoordinator] ForestLab is owned by another system; leaving it untouched.")
+	end
 end
 
 local function getOrCreateNavigationRegistry()
@@ -446,16 +674,31 @@ local function refreshNavigation()
 			)
 		end
 
-		if LABS.Forest == true and gallery:GetAttribute("ForestLabReady") == true then
+		local forestLab = gallery:FindFirstChild("ForestLab")
+		if LABS.Forest == true
+			and gallery:GetAttribute("ForestLabReady") == true
+			and forestLab and isOwned(forestLab, FOREST_OWNER)
+			and forestLab:GetAttribute("BuildStatus") == "Ready"
+		then
 			addRootEntry(
 				wanted,
+				"ForestSofter",
+				"FOREST A · SOFTER STORYBOOK",
 				"Forest",
-				"FOREST LAB",
+				gallery:GetAttribute("ForestSofterTeleportCFrame"),
+				gallery:GetAttribute("ForestSofterFocusPosition"),
+				"SofterStorybookClearing",
+				"Warm, gentler World 1 clearing"
+			)
+			addRootEntry(
+				wanted,
+				"ForestChunkier",
+				"FOREST B · CHUNKIER STORYBOOK",
 				"Forest",
-				gallery:GetAttribute("ForestLabDestinationCFrame"),
-				gallery:GetAttribute("ForestLabFocusPosition"),
-				"ForestLab",
-				"Studio-only prototype area"
+				gallery:GetAttribute("ForestChunkierTeleportCFrame"),
+				gallery:GetAttribute("ForestChunkierFocusPosition"),
+				"ChunkierStorybookClearing",
+				"Chunkier toy forms · same World 1 theme"
 			)
 		end
 		if LABS.Archive == true and gallery:GetAttribute("ArchiveLabReady") == true then
@@ -604,6 +847,25 @@ Workspace.ChildRemoved:Connect(function(child)
 		scheduleNavigationRefresh()
 	end
 end)
+
+if LABS.Forest == true then
+	task.spawn(function()
+		local buildOk, buildError = pcall(buildForestDesignLab, builtGallery)
+		if not buildOk then
+			if builtGallery.Parent == Workspace and Workspace:FindFirstChild(ROOT_NAME) == builtGallery then
+				clearForestMetadata(builtGallery)
+				local forestLab = builtGallery:FindFirstChild("ForestLab")
+				if forestLab and isOwned(forestLab, FOREST_OWNER) then
+					forestLab:SetAttribute("BuildStatus", "Failed")
+				end
+			end
+			warn("[DevGalleryCoordinator] Forest Design Lab setup failed: " .. tostring(buildError))
+		end
+		scheduleNavigationRefresh()
+	end)
+else
+	disableForestLab(builtGallery)
+end
 
 scheduleNavigationRefresh()
 

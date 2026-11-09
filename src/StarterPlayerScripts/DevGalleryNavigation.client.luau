@@ -26,8 +26,9 @@ local NAV_ORDER = {
 	MesaFaceted = 6,
 	MesaMixed = 7,
 	References = 8,
-	Forest = 9,
-	Archive = 10,
+	ForestSofter = 9,
+	ForestChunkier = 10,
+	Archive = 11,
 }
 
 local screenGui = Instance.new("ScreenGui")
@@ -329,6 +330,18 @@ local function resolveTarget(entry)
 	local target = if targetName == targetRootName then targetRoot else targetRoot:FindFirstChild(targetName, true)
 	if not target or (target ~= targetRoot and not target:IsDescendantOf(targetRoot)) then
 		return nil
+	end
+	if targetName == "SofterStorybookClearing" or targetName == "ChunkierStorybookClearing" then
+		if not target:IsA("Model") then
+			return nil
+		end
+		local walkableFloor = target:FindFirstChild("WalkableGrass", true)
+		if not walkableFloor or not walkableFloor:IsA("BasePart")
+			or walkableFloor:GetAttribute("WalkableUtilitySurface") ~= true
+			or walkableFloor.CanCollide ~= true
+		then
+			return nil
+		end
 	end
 	return destination, target
 end
