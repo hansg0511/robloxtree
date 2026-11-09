@@ -8,7 +8,23 @@ if not RunService:IsStudio() then
 end
 
 local ServerStorage = game:GetService("ServerStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
+
+local configFolder = ServerScriptService:FindFirstChild("DevGallery")
+local configModule = configFolder and configFolder:FindFirstChild("Config")
+local configOk, loadedConfig = false, nil
+if configModule and configModule:IsA("ModuleScript") then
+	configOk, loadedConfig = pcall(require, configModule)
+end
+local galleryConfig = if configOk and type(loadedConfig) == "table" then loadedConfig else nil
+if not galleryConfig then
+	warn("[DevStudioReferenceGallery] ServerScriptService.DevGallery.Config is unavailable; the terrain lab is disabled.")
+end
+local TERRAIN_LAB_ENABLED = galleryConfig ~= nil
+	and galleryConfig.Enabled == true
+	and type(galleryConfig.Labs) == "table"
+	and galleryConfig.Labs.Terrain == true
 
 local GATE_NAME = "DevTreeGallery"
 local SOURCE_FOLDER_NAME = "DevAssetReferences"
@@ -35,14 +51,27 @@ local function isOwned(instance)
 end
 
 local function getGateGallery()
+	if not TERRAIN_LAB_ENABLED then
+		return nil
+	end
 	local gallery = Workspace:FindFirstChild(GATE_NAME)
-	if not gallery or not gallery:IsA("Model") then
+	if not gallery or not gallery:IsA("Model")
+		or gallery:GetAttribute("DevGalleryOwner") ~= "Coordinator"
+	then
 		return nil
 	end
 	if gallery:GetAttribute("DevOnly") ~= true or gallery:GetAttribute("VisualOnly") ~= true then
 		return nil
 	end
-	if typeof(gallery:GetAttribute("GalleryOrigin")) ~= "Vector3" then
+	local galleryOrigin = gallery:GetAttribute("GalleryOrigin")
+	if typeof(galleryOrigin) ~= "Vector3"
+		or typeof(galleryConfig.Origin) ~= "Vector3"
+		or (galleryOrigin - galleryConfig.Origin).Magnitude > 0.01
+	then
+		return nil
+	end
+	local floor = gallery:FindFirstChild("GalleryFloor")
+	if not floor or not floor:IsA("BasePart") then
 		return nil
 	end
 	return gallery
@@ -446,6 +475,8 @@ local function reconcile()
 	local gate = getGateGallery()
 	if not gate then
 		destroyOwnedScene()
+		removeStaleOwnedInstance(SCENE_NAME)
+		removeStaleOwnedInstance(NAV_MODEL_NAME)
 		return
 	end
 	if activeGate == gate
@@ -489,6 +520,13 @@ local function scheduleReconcile()
 		reconcileScheduled = false
 		reconcile()
 	end)
+end
+
+if not TERRAIN_LAB_ENABLED then
+	destroyOwnedScene()
+	removeStaleOwnedInstance(SCENE_NAME)
+	removeStaleOwnedInstance(NAV_MODEL_NAME)
+	return
 end
 
 Workspace.ChildAdded:Connect(function(child)

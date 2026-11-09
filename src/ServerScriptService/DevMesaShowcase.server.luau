@@ -8,9 +8,26 @@ end
 local Workspace = game:GetService("Workspace")
 local ServerScriptService = game:GetService("ServerScriptService")
 
+local configFolder = ServerScriptService:FindFirstChild("DevGallery")
+local configModule = configFolder and configFolder:FindFirstChild("Config")
+local configOk, loadedConfig = false, nil
+if configModule and configModule:IsA("ModuleScript") then
+	configOk, loadedConfig = pcall(require, configModule)
+end
+local galleryConfig = if configOk and type(loadedConfig) == "table" then loadedConfig else nil
+if not galleryConfig then
+	warn("[DevMesaShowcase] ServerScriptService.DevGallery.Config is unavailable; the terrain lab is disabled.")
+end
+local LAB_ENABLED = galleryConfig ~= nil
+	and galleryConfig.Enabled == true
+	and type(galleryConfig.Labs) == "table"
+	and galleryConfig.Labs.Terrain == true
+
 local GALLERY_NAME = "DevTreeGallery"
 local ROOT_NAME = "DevMesaShapeShowcase"
 local BUILD_VERSION = 11
+local OWNER_ATTRIBUTE = "DevMesaShowcaseOwner"
+local OWNER_VALUE = "DevMesaShowcase.server"
 local buildingGalleries = setmetatable({}, { __mode = "k" })
 
 -- The original gallery begins at local X=0. This west-only extension gives
@@ -366,8 +383,65 @@ local function clearTeleportAttributes(gallery)
 	end
 end
 
+local function isOwnedShowcaseRoot(root)
+	return root and root:IsA("Folder")
+		and root:GetAttribute(OWNER_ATTRIBUTE) == OWNER_VALUE
+end
+
+local function isLegacyShowcaseRoot(root)
+	return root and root:IsA("Folder")
+		and root:GetAttribute("DevOnly") == true
+		and root:GetAttribute("VisualOnly") == true
+		and root:FindFirstChild("MesaShowcaseSupport") ~= nil
+		and root:FindFirstChild("BoundarySamples") ~= nil
+end
+
+local function isShowcaseRoot(root, gallery)
+	return isOwnedShowcaseRoot(root)
+		or (gallery and gallery:GetAttribute("DevGalleryOwner") == "Coordinator"
+			and isLegacyShowcaseRoot(root))
+end
+
+local function clearPublishedState(gallery)
+	clearTeleportAttributes(gallery)
+	gallery:SetAttribute("MesaShapeShowcaseVersion", nil)
+end
+
+local function cleanupGallery(gallery)
+	if not gallery or gallery.Name ~= GALLERY_NAME or not gallery:IsA("Model")
+		or gallery:GetAttribute("DevGalleryOwner") ~= "Coordinator"
+	then
+		return
+	end
+	local existingRoot = gallery:FindFirstChild(ROOT_NAME)
+	if existingRoot and not isShowcaseRoot(existingRoot, gallery) then
+		warn(("[DevMesaShowcase] %s is already used by another instance; leaving it untouched.")
+			:format(ROOT_NAME))
+		return
+	end
+	if existingRoot then
+		existingRoot:Destroy()
+	end
+	clearPublishedState(gallery)
+end
+
+if not LAB_ENABLED then
+	cleanupGallery(Workspace:FindFirstChild(GALLERY_NAME))
+	-- The coordinator may parent its shell after this script starts. This
+	-- one-shot cleanup listener does not wait for the shell or start a build.
+	Workspace.ChildAdded:Connect(function(child)
+		if child.Name == GALLERY_NAME then
+			task.defer(cleanupGallery, child)
+		end
+	end)
+	return
+end
+
 local function buildOnGallery(gallery)
-	if not gallery or gallery.Parent ~= Workspace or gallery.Name ~= GALLERY_NAME then
+	if not gallery or gallery.Parent ~= Workspace or gallery.Name ~= GALLERY_NAME
+		or not gallery:IsA("Model")
+		or gallery:GetAttribute("DevGalleryOwner") ~= "Coordinator"
+	then
 		return
 	end
 	if gallery:GetAttribute("DevOnly") ~= true or gallery:GetAttribute("VisualOnly") ~= true then
@@ -378,8 +452,13 @@ local function buildOnGallery(gallery)
 	if typeof(galleryOrigin) ~= "Vector3" or not existingFloor or not existingFloor:IsA("BasePart") then
 		return
 	end
+	if typeof(galleryConfig.Origin) ~= "Vector3"
+		or (galleryOrigin - galleryConfig.Origin).Magnitude > 0.01
+	then
+		return
+	end
 	local existingRoot = gallery:FindFirstChild(ROOT_NAME)
-	if existingRoot and gallery:GetAttribute("MesaShapeShowcaseVersion") == BUILD_VERSION then
+	if isShowcaseRoot(existingRoot, gallery) and gallery:GetAttribute("MesaShapeShowcaseVersion") == BUILD_VERSION then
 		local hasAllTeleports = true
 		for _, attributeName in ipairs(TELEPORT_ATTRIBUTE_NAMES) do
 			if gallery:GetAttribute(attributeName) == nil then
@@ -391,12 +470,16 @@ local function buildOnGallery(gallery)
 			return
 		end
 	end
+	if existingRoot and not isShowcaseRoot(existingRoot, gallery) then
+		warn(("[DevMesaShowcase] %s is already used by another instance; leaving it untouched.")
+			:format(ROOT_NAME))
+		return
+	end
 	if buildingGalleries[gallery] then
 		return
 	end
 	buildingGalleries[gallery] = true
-	gallery:SetAttribute("MesaShapeShowcaseVersion", nil)
-	clearTeleportAttributes(gallery)
+	clearPublishedState(gallery)
 	if existingRoot then
 		existingRoot:Destroy()
 	end
@@ -406,6 +489,7 @@ local function buildOnGallery(gallery)
 	local ok, err = pcall(function()
 		root = Instance.new("Folder")
 		root.Name = ROOT_NAME
+		root:SetAttribute(OWNER_ATTRIBUTE, OWNER_VALUE)
 		root:SetAttribute("DevOnly", true)
 		root:SetAttribute("VisualOnly", true)
 		root:SetAttribute("BuildStatus", "StudioPrototype")
@@ -528,7 +612,7 @@ local function buildOnGallery(gallery)
 		if root then
 			root:Destroy()
 		end
-		clearTeleportAttributes(gallery)
+		clearPublishedState(gallery)
 		buildingGalleries[gallery] = nil
 		warn("[DevMesaShowcase] Could not build the Studio boundary comparison: " .. tostring(err))
 		return

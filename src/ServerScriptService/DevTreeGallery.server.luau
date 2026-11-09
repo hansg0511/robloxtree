@@ -1,7 +1,5 @@
--- Studio-only visual gallery for comparing tree builders and Grove metadata.
--- Enable manually for an inspection session, then sync/restart the server.
-local ENABLED = false
-
+-- Studio-only tree lab attached to the shared development gallery shell.
+-- The coordinator owns Workspace.DevTreeGallery; this script owns only TreeLab.
 local RunService = game:GetService("RunService")
 if not RunService:IsStudio() then
 	return
@@ -11,15 +9,177 @@ local Workspace = game:GetService("Workspace")
 local ServerScriptService = game:GetService("ServerScriptService")
 local ServerStorage = game:GetService("ServerStorage")
 
+local GALLERY_NAME = "DevTreeGallery"
+local TREE_LAB_NAME = "TreeLab"
+local TREE_LAB_OWNER = "TreeLab"
+local TREE_STUDIES_ARCHIVE_NAME = "TreeStudiesArchive"
+local TREE_STUDIES_ARCHIVE_OWNER = "TreeStudiesArchive"
+local ARCHIVE_LAB_NAME = "ArchiveLab"
+local ARCHIVE_LAB_OWNER = "Archive"
+local OWNER_ATTRIBUTE = "DevGalleryOwner"
+local TREE_LAB_PUBLISHED_ATTRIBUTES = {
+	"ShowcaseTeleportCFrame",
+	"ProceduralHarvestShowcaseTeleportCFrame",
+}
+
+local Config = require(ServerScriptService:WaitForChild("DevGallery"):WaitForChild("Config"))
+
+local function isOwnedTreeLab(instance)
+	return instance ~= nil
+		and instance.Name == TREE_LAB_NAME
+		and instance:GetAttribute(OWNER_ATTRIBUTE) == TREE_LAB_OWNER
+end
+
+local function clearPublishedTreeLabState(galleryRoot)
+	galleryRoot:SetAttribute("TreeLabReady", nil)
+	for _, attributeName in ipairs(TREE_LAB_PUBLISHED_ATTRIBUTES) do
+		galleryRoot:SetAttribute(attributeName, nil)
+	end
+end
+
+local function removeOwnedTreeLab(galleryRoot)
+	if not galleryRoot then
+		return false
+	end
+
+	local removed = false
+	for _, child in ipairs(galleryRoot:GetChildren()) do
+		if isOwnedTreeLab(child) then
+			child:Destroy()
+			removed = true
+		end
+	end
+	if removed then
+		clearPublishedTreeLabState(galleryRoot)
+	end
+	return removed
+end
+
+local function hasForeignTreeLab(galleryRoot)
+	for _, child in ipairs(galleryRoot:GetChildren()) do
+		if child.Name == TREE_LAB_NAME and not isOwnedTreeLab(child) then
+			return true
+		end
+	end
+	return false
+end
+
+local function getArchiveLab(galleryRoot)
+	local archiveLab = galleryRoot and galleryRoot:FindFirstChild(ARCHIVE_LAB_NAME)
+	if archiveLab and archiveLab:IsA("Model")
+		and archiveLab:GetAttribute(OWNER_ATTRIBUTE) == ARCHIVE_LAB_OWNER
+	then
+		return archiveLab
+	end
+	return nil
+end
+
+local function isOwnedTreeStudiesArchive(instance)
+	return instance ~= nil
+		and instance.Name == TREE_STUDIES_ARCHIVE_NAME
+		and instance:GetAttribute(OWNER_ATTRIBUTE) == TREE_STUDIES_ARCHIVE_OWNER
+end
+
+local function clearPublishedTreeStudiesArchiveState(galleryRoot)
+	galleryRoot:SetAttribute("TreeStudiesArchiveReady", nil)
+	galleryRoot:SetAttribute("TreeStudiesArchiveTeleportCFrame", nil)
+end
+
+local function removeOwnedTreeStudiesArchive(galleryRoot)
+	local archiveLab = getArchiveLab(galleryRoot)
+	if not archiveLab then
+		return false
+	end
+
+	local removed = false
+	for _, child in ipairs(archiveLab:GetChildren()) do
+		if isOwnedTreeStudiesArchive(child) then
+			child:Destroy()
+			removed = true
+		end
+	end
+	if removed then
+		clearPublishedTreeStudiesArchiveState(galleryRoot)
+	end
+	return removed
+end
+
+local function hasForeignTreeStudiesArchive(archiveLab)
+	if not archiveLab then
+		return false
+	end
+	for _, child in ipairs(archiveLab:GetChildren()) do
+		if child.Name == TREE_STUDIES_ARCHIVE_NAME and not isOwnedTreeStudiesArchive(child) then
+			return true
+		end
+	end
+	return false
+end
+
+local treeLabRequested = Config.Enabled == true
+	and type(Config.Labs) == "table"
+	and Config.Labs.Tree == true
+local archiveTreeStudiesRequested = Config.Enabled == true
+	and type(Config.Labs) == "table"
+	and Config.Labs.Archive == true
+	and type(Config.Archive) == "table"
+	and Config.Archive.TreeStudies == true
+if not treeLabRequested and not archiveTreeStudiesRequested then
+	local existingRoot = Workspace:FindFirstChild(GALLERY_NAME)
+	removeOwnedTreeLab(existingRoot)
+	removeOwnedTreeStudiesArchive(existingRoot)
+	return
+end
+
+local GALLERY_ORIGIN = Config.Origin
+assert(typeof(GALLERY_ORIGIN) == "Vector3", "DevGallery.Config.Origin must be a Vector3")
+-- These shared floor dimensions also bound the lab rows; the physical floor is
+-- owned and created directly under the coordinator root.
+local GALLERY_FLOOR_SIZE = Vector3.new(360, 1, 1000)
+local GALLERY_FLOOR_OFFSET = Vector3.new(180, -1, 400)
+
+local GALLERY_ROOT = Workspace:WaitForChild(GALLERY_NAME, 30)
+if not GALLERY_ROOT then
+	warn("[DevTreeGallery] Shared gallery coordinator root was not created; tree content was not built")
+	return
+end
+if GALLERY_ROOT:GetAttribute(OWNER_ATTRIBUTE) ~= "Coordinator" then
+	warn("[DevTreeGallery] Shared gallery root is not owned by the coordinator; tree content was not built")
+	return
+end
+
+local archiveLab = getArchiveLab(GALLERY_ROOT)
+local treeLabBlocked = treeLabRequested and hasForeignTreeLab(GALLERY_ROOT)
+local archiveBlocked = archiveTreeStudiesRequested and (
+	not archiveLab or hasForeignTreeStudiesArchive(archiveLab)
+)
+if treeLabBlocked then
+	warn("[DevTreeGallery] A TreeLab with a different owner already exists; leaving it untouched")
+end
+if archiveTreeStudiesRequested and not archiveLab then
+	warn("[DevTreeGallery] Coordinator ArchiveLab placeholder is missing or not owned by the coordinator; archived studies were not built")
+elseif archiveBlocked then
+	warn("[DevTreeGallery] A TreeStudiesArchive with a different owner already exists; leaving it untouched")
+end
+
+if not treeLabRequested then
+	removeOwnedTreeLab(GALLERY_ROOT)
+end
+if not archiveTreeStudiesRequested then
+	removeOwnedTreeStudiesArchive(GALLERY_ROOT)
+end
+
+local treeLabEnabled = treeLabRequested and not treeLabBlocked
+local archiveTreeStudiesEnabled = archiveTreeStudiesRequested and not archiveBlocked
+if not treeLabEnabled and not archiveTreeStudiesEnabled then
+	return
+end
+
 local TreeObject = require(ServerScriptService:WaitForChild("Trees"):WaitForChild("TreeObject"))
 local DevStarterOakGenerator = require(ServerScriptService:WaitForChild("DevStarterOakGenerator"))
 local TreeVisualModifiers = require(ServerStorage:WaitForChild("TreeVisualModifiers"))
 local SpeciesVisuals = require(ServerStorage:WaitForChild("SpeciesVisuals"))
 
-local GALLERY_NAME = "DevTreeGallery"
-local GALLERY_ORIGIN = Vector3.new(6000, 120, 6000)
-local GALLERY_FLOOR_SIZE = Vector3.new(360, 1, 1000)
-local GALLERY_FLOOR_OFFSET = Vector3.new(180, -1, 400)
 local STARTER_OAK_REFERENCE_ROW_Z = 600
 local STARTER_OAK_PROCEDURAL_ROW_START_Z = 680
 -- Change this Studio-only seed and restart the server to build a new reproducible set.
@@ -128,14 +288,6 @@ local PROCEDURAL_STARTER_OAK_HARVEST = {
 }
 local PROCEDURAL_STARTER_OAK_MIN_SEED = -2147483647
 local PROCEDURAL_STARTER_OAK_MAX_SEED = 2147483647
-
-if not ENABLED then
-	-- Turning the Studio tool off removes a gallery created during an earlier
-	-- inspection session, while published servers never reach this code path.
-	local existingGallery = Workspace:FindFirstChild(GALLERY_NAME)
-	if existingGallery then existingGallery:Destroy() end
-	return
-end
 
 local MUTATION_VARIANTS = {
 	{ Label = "No Mutation", Mutations = {} },
@@ -1680,28 +1832,16 @@ end
 
 local function createGallery()
 	local gallery = Instance.new("Model")
-	gallery.Name = GALLERY_NAME
+	gallery.Name = TREE_LAB_NAME
+	gallery:SetAttribute(OWNER_ATTRIBUTE, TREE_LAB_OWNER)
 	gallery:SetAttribute("DevOnly", true)
 	gallery:SetAttribute("VisualOnly", true)
 	gallery:SetAttribute("GalleryOrigin", GALLERY_ORIGIN)
 	gallery:SetAttribute("StarterOakGallerySeed", STARTER_OAK_GALLERY_SEED)
 	gallery:SetAttribute("StarterOakGallerySampleCount", STARTER_OAK_GALLERY_SAMPLE_COUNT)
 
-	-- Preview trees remain completely non-colliding. This Studio-only floor is
-	-- the sole walkable utility surface so a manually teleported tester can
-	-- inspect the rows without falling from the isolated gallery area.
-	local floorCenter = GALLERY_ORIGIN + GALLERY_FLOOR_OFFSET
-	local floor = createPart(
-		gallery,
-		"GalleryFloor",
-		GALLERY_FLOOR_SIZE,
-		CFrame.new(floorCenter),
-		Color3.fromRGB(54, 78, 62),
-		Enum.Material.SmoothPlastic
-	)
-	floor.CanCollide = true
-	floor.Transparency = 0.12
-
+	-- The shared coordinator provides the walkable root floor and its direct
+	-- navigation spawn. Retain this lab-local marker for Studio command-bar use.
 	local spawnPosition = GALLERY_ORIGIN + Vector3.new(20, 0.5, -78)
 	local spawnMarker = createPart(
 		gallery,
@@ -1717,57 +1857,8 @@ local function createGallery()
 	local firstHeaderPosition = GALLERY_ORIGIN + Vector3.new(20, 0, -57)
 	addSign(gallery, "DEV TREE GALLERY - START HERE", firstHeaderPosition, 40, "GalleryWelcome")
 
-	local nextZ = 0
-	local function addRow(title, entries)
-		local rowDepth = arrangeRow(gallery, title, entries, nextZ)
-		nextZ += rowDepth + ROW_GAP
-	end
-
-	for _, species in ipairs({
-		{ Label = "OAK", Kind = "GroveOak", SpeciesId = "Oak" },
-		{ Label = "BAMBOO", Kind = "Bamboo", SpeciesId = "Bamboo" },
-		{ Label = "IRONWOOD", Kind = "Ironwood", SpeciesId = "Ironwood" },
-	}) do
-		local entries = {}
-		for _, variant in ipairs(MUTATION_VARIANTS) do
-			table.insert(entries, makeEntry(
-				species.Kind,
-				species.SpeciesId,
-				"mature",
-				variant.Mutations,
-				species.Label .. " - " .. variant.Label
-			))
-		end
-		addRow("MATURE GROVE MUTATIONS / " .. species.Label, entries)
-	end
-
-	for _, species in ipairs({
-		{ Label = "OAK", Kind = "GroveOak", SpeciesId = "Oak" },
-		{ Label = "BAMBOO", Kind = "Bamboo", SpeciesId = "Bamboo" },
-		{ Label = "IRONWOOD", Kind = "Ironwood", SpeciesId = "Ironwood" },
-	}) do
-		local entries = {}
-		for _, stage in ipairs({
-			{ Label = "Sapling", Id = "sapling" },
-			{ Label = "Young", Id = "young" },
-			{ Label = "Mature", Id = "mature" },
-		}) do
-			table.insert(entries, makeEntry(
-				species.Kind,
-				species.SpeciesId,
-				stage.Id,
-				{},
-				species.Label .. " - " .. stage.Label
-			))
-		end
-		addRow("GROWTH STAGES / " .. species.Label, entries)
-	end
-
-	addRow("MATURE OAK BUILDER COMPARISON", {
-		makeEntry("WildOak", "Oak", "mature", {}, "Wild Oak"),
-		makeEntry("GroveOak", "Oak", "mature", {}, "Grove Oak"),
-	})
-
+	-- Mutation, growth-stage, and Wild Oak/Grove Oak comparisons are retained
+	-- in the opt-in TreeStudiesArchive model, separate from current TreeLab content.
 	local structuralStudy = makeStarterOakStructuralStudy()
 	local structuralComparisonEntries = {
 		makeStaticEntry(structuralStudy, "Starter Oak Structural Study"),
@@ -1847,19 +1938,140 @@ local function createGallery()
 	return gallery
 end
 
-local ok, galleryOrError = pcall(createGallery)
-if not ok then
-	warn("[DevTreeGallery] Build failed: " .. tostring(galleryOrError))
-	return
+local function createTreeStudiesArchive()
+	local archive = Instance.new("Model")
+	archive.Name = TREE_STUDIES_ARCHIVE_NAME
+	archive:SetAttribute(OWNER_ATTRIBUTE, TREE_STUDIES_ARCHIVE_OWNER)
+	archive:SetAttribute("DevOnly", true)
+	archive:SetAttribute("VisualOnly", true)
+	archive:SetAttribute("GalleryOrigin", GALLERY_ORIGIN)
+
+	local nextZ = 0
+	local firstTeleportCFrame
+	local function addRow(title, entries)
+		local rowDepth, rowWidth, rowCenterX = arrangeRow(archive, title, entries, nextZ)
+		assert(rowWidth <= GALLERY_FLOOR_SIZE.X - 8,
+			"Archived tree study row exceeds the gallery floor width")
+		assert(nextZ + rowDepth * 0.5
+			<= GALLERY_FLOOR_OFFSET.Z + GALLERY_FLOOR_SIZE.Z * 0.5 - 8,
+			"Archived tree study row exceeds the gallery floor depth")
+		assert(nextZ - rowDepth * 0.5
+			>= GALLERY_FLOOR_OFFSET.Z - GALLERY_FLOOR_SIZE.Z * 0.5 + 8,
+			"Archived tree study row crosses the gallery floor front edge")
+		if not firstTeleportCFrame then
+			firstTeleportCFrame = CFrame.new(
+				rowCenterX,
+				GALLERY_ORIGIN.Y + 4,
+				GALLERY_ORIGIN.Z + nextZ - 18
+			)
+		end
+		nextZ += rowDepth + ROW_GAP
+	end
+
+	for _, species in ipairs({
+		{ Label = "OAK", Kind = "GroveOak", SpeciesId = "Oak" },
+		{ Label = "BAMBOO", Kind = "Bamboo", SpeciesId = "Bamboo" },
+		{ Label = "IRONWOOD", Kind = "Ironwood", SpeciesId = "Ironwood" },
+	}) do
+		local entries = {}
+		for _, variant in ipairs(MUTATION_VARIANTS) do
+			table.insert(entries, makeEntry(
+				species.Kind,
+				species.SpeciesId,
+				"mature",
+				variant.Mutations,
+				species.Label .. " - " .. variant.Label
+			))
+		end
+		addRow("MATURE GROVE MUTATIONS / " .. species.Label, entries)
+	end
+
+	for _, species in ipairs({
+		{ Label = "OAK", Kind = "GroveOak", SpeciesId = "Oak" },
+		{ Label = "BAMBOO", Kind = "Bamboo", SpeciesId = "Bamboo" },
+		{ Label = "IRONWOOD", Kind = "Ironwood", SpeciesId = "Ironwood" },
+	}) do
+		local entries = {}
+		for _, stage in ipairs({
+			{ Label = "Sapling", Id = "sapling" },
+			{ Label = "Young", Id = "young" },
+			{ Label = "Mature", Id = "mature" },
+		}) do
+			table.insert(entries, makeEntry(
+				species.Kind,
+				species.SpeciesId,
+				stage.Id,
+				{},
+				species.Label .. " - " .. stage.Label
+			))
+		end
+		addRow("GROWTH STAGES / " .. species.Label, entries)
+	end
+
+	addRow("MATURE OAK BUILDER COMPARISON", {
+		makeEntry("WildOak", "Oak", "mature", {}, "Wild Oak"),
+		makeEntry("GroveOak", "Oak", "mature", {}, "Grove Oak"),
+	})
+	assert(firstTeleportCFrame, "Tree study archive did not create any comparison rows")
+	archive:SetAttribute("TreeStudiesArchiveTeleportCFrame", firstTeleportCFrame)
+	return archive
 end
 
-local previousGallery = Workspace:FindFirstChild(GALLERY_NAME)
-if previousGallery then
-	previousGallery:Destroy()
+local function attachTreeLab(treeLab)
+	if hasForeignTreeLab(GALLERY_ROOT) then
+		treeLab:Destroy()
+		warn("[DevTreeGallery] A TreeLab with a different owner appeared during build; leaving it untouched")
+		return false
+	end
+
+	-- The replacement is fully built; remove only our previous child and clear
+	-- its published destinations before the new values are made ready.
+	removeOwnedTreeLab(GALLERY_ROOT)
+	treeLab.Parent = GALLERY_ROOT
+	for _, attributeName in ipairs(TREE_LAB_PUBLISHED_ATTRIBUTES) do
+		GALLERY_ROOT:SetAttribute(attributeName, treeLab:GetAttribute(attributeName))
+	end
+	GALLERY_ROOT:SetAttribute("TreeLabReady", true)
+	return true
 end
 
-galleryOrError.Parent = Workspace
-print(
-	"[DevTreeGallery] Built at " .. tostring(GALLERY_ORIGIN)
-		.. ". Server Command Bar: local p=game:GetService(\"Players\"):GetPlayers()[1]; local g=workspace:FindFirstChild(\"DevTreeGallery\"); local s=g and g:FindFirstChild(\"GallerySpawn\"); if p and p.Character and s then p.Character:PivotTo(s.CFrame + Vector3.new(0, 4, 0)) end"
-)
+local function attachTreeStudiesArchive(archive)
+	local currentArchiveLab = getArchiveLab(GALLERY_ROOT)
+	if not currentArchiveLab or hasForeignTreeStudiesArchive(currentArchiveLab) then
+		archive:Destroy()
+		warn("[DevTreeGallery] ArchiveLab changed during build; leaving existing content untouched")
+		return false
+	end
+
+	removeOwnedTreeStudiesArchive(GALLERY_ROOT)
+	archive.Parent = currentArchiveLab
+	GALLERY_ROOT:SetAttribute(
+		"TreeStudiesArchiveTeleportCFrame",
+		archive:GetAttribute("TreeStudiesArchiveTeleportCFrame")
+	)
+	GALLERY_ROOT:SetAttribute("TreeStudiesArchiveReady", true)
+	return true
+end
+
+if treeLabEnabled then
+	local ok, treeLabOrError = pcall(createGallery)
+	if not ok then
+		warn("[DevTreeGallery] Build failed: " .. tostring(treeLabOrError))
+	elseif attachTreeLab(treeLabOrError) then
+		print(
+			"[DevTreeGallery] Built Workspace." .. GALLERY_NAME .. "." .. TREE_LAB_NAME
+				.. " at " .. tostring(GALLERY_ORIGIN)
+				.. ". Server Command Bar: "
+				.. [[local p=game:GetService("Players"):GetPlayers()[1]; local g=workspace:FindFirstChild("DevTreeGallery"); local s=g and g:FindFirstChild("GallerySpawn"); if p and p.Character and s then p.Character:PivotTo(s.CFrame + Vector3.new(0, 4, 0)) end]]
+		)
+	end
+end
+
+if archiveTreeStudiesEnabled then
+	local ok, archiveOrError = pcall(createTreeStudiesArchive)
+	if not ok then
+		warn("[DevTreeGallery] Archived tree studies failed to build: " .. tostring(archiveOrError))
+	else
+		attachTreeStudiesArchive(archiveOrError)
+	end
+end
