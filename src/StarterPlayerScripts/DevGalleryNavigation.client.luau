@@ -28,7 +28,8 @@ local NAV_ORDER = {
 	References = 8,
 	ForestSofter = 9,
 	ForestChunkier = 10,
-	Archive = 11,
+	ForestAssetSelection = 11,
+	Archive = 12,
 }
 
 local screenGui = Instance.new("ScreenGui")
@@ -336,6 +337,21 @@ local function resolveTarget(entry)
 			return nil
 		end
 		local walkableFloor = target:FindFirstChild("WalkableGrass", true)
+		if not walkableFloor or not walkableFloor:IsA("BasePart")
+			or walkableFloor:GetAttribute("WalkableUtilitySurface") ~= true
+			or walkableFloor.CanCollide ~= true
+		then
+			return nil
+		end
+	elseif targetName == "ForestAssetSelectionShowcase" then
+		if not target:IsA("Model")
+			or target:GetAttribute("DevGalleryOwner") ~= "ForestAssetSelectionShowcase"
+			or target:GetAttribute("BuildStatus") ~= "Ready"
+			or target.ModelStreamingMode ~= Enum.ModelStreamingMode.Atomic
+		then
+			return nil
+		end
+		local walkableFloor = target:FindFirstChild("AssetCatalogWalkway", true)
 		if not walkableFloor or not walkableFloor:IsA("BasePart")
 			or walkableFloor:GetAttribute("WalkableUtilitySurface") ~= true
 			or walkableFloor.CanCollide ~= true

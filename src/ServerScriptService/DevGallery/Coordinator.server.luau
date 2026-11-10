@@ -15,6 +15,7 @@ local ROOT_NAME = "DevTreeGallery"
 local NAV_REGISTRY_NAME = "DevGalleryNavRegistry"
 local NAV_ENTRIES_NAME = "Entries"
 local COORDINATOR_VERSION = 2
+local FOREST_SHOWCASE_SCHEMA_VERSION = 2
 
 local LABS = Config.Labs or {}
 local ARCHIVE_CONFIG = Config.Archive or {}
@@ -254,6 +255,10 @@ local FOREST_NAV_ATTRIBUTES = {
 	"ForestChunkierTeleportCFrame",
 	"ForestChunkierFocusPosition",
 	"ForestChunkierEstimatedInstances",
+	"ForestAssetSelectionReady",
+	"ForestAssetSelectionTeleportCFrame",
+	"ForestAssetSelectionFocusPosition",
+	"ForestAssetSelectionEstimatedInstances",
 }
 
 local function clearForestMetadata(targetGallery)
@@ -304,6 +309,23 @@ local function resolveForestFocus(candidate, fallback, destination)
 	return destination.Position + destination.LookVector * 16
 end
 
+local function hasWalkableCatalogFloor(target)
+	local floor = target:FindFirstChild("AssetCatalogWalkway", true)
+	return floor ~= nil
+		and floor:IsA("BasePart")
+		and floor:GetAttribute("WalkableUtilitySurface") == true
+		and floor.CanCollide
+end
+
+local function hasReadyAssetSelectionModel(showcase)
+	local target = showcase:FindFirstChild("ForestAssetSelectionShowcase")
+	return target ~= nil
+		and target:IsA("Model")
+		and target:GetAttribute("BuildStatus") == "Ready"
+		and target.ModelStreamingMode == Enum.ModelStreamingMode.Atomic
+		and hasWalkableCatalogFloor(target)
+end
+
 local function buildForestDesignLab(targetGallery)
 	if not isOwned(targetGallery, COORDINATOR_OWNER)
 		or targetGallery.Parent ~= Workspace
@@ -327,9 +349,24 @@ local function buildForestDesignLab(targetGallery)
 	if existingShowcase then
 		local existingSofter = targetGallery:GetAttribute("ForestSofterTeleportCFrame")
 		local existingChunkier = targetGallery:GetAttribute("ForestChunkierTeleportCFrame")
+		local assetSelectionModule = script.Parent:FindFirstChild("ForestAssetSelectionShowcase")
+		local assetSelectionExpected = assetSelectionModule and assetSelectionModule:IsA("ModuleScript")
+		local assetSelectionDestination = targetGallery:GetAttribute("ForestAssetSelectionTeleportCFrame")
+		local assetSelectionFocus = targetGallery:GetAttribute("ForestAssetSelectionFocusPosition")
+		local existingAssetSelectionReady = not assetSelectionExpected
+			or (
+				targetGallery:GetAttribute("ForestAssetSelectionReady") == true
+				and hasReadyAssetSelectionModel(existingShowcase)
+				and isValidCFrame(assetSelectionDestination)
+				and isValidVector3(assetSelectionFocus)
+				and isInsideGalleryBounds(assetSelectionDestination.Position)
+				and isInsideGalleryBounds(assetSelectionFocus)
+			)
 		if isOwned(existingShowcase, FOREST_OWNER)
 			and existingShowcase:IsA("Model")
 			and existingShowcase:GetAttribute("BuildStatus") == "Ready"
+			and existingShowcase:GetAttribute("ForestDesignLabSchemaVersion") == FOREST_SHOWCASE_SCHEMA_VERSION
+			and existingAssetSelectionReady
 			and forestLab:GetAttribute("BuildStatus") == "Ready"
 			and targetGallery:GetAttribute("ForestLabReady") == true
 			and isValidCFrame(existingSofter)
@@ -424,7 +461,24 @@ local function buildForestDesignLab(targetGallery)
 		return false
 	end
 
+	local assetSelectionMetadata = metadata.AssetSelection
+	local assetSelectionTarget = showcase:FindFirstChild("ForestAssetSelectionShowcase")
+	local assetSelectionDestination = if type(assetSelectionMetadata) == "table"
+		then assetSelectionMetadata.LandingCFrame else nil
+	local assetSelectionFocus = if type(assetSelectionMetadata) == "table"
+		then assetSelectionMetadata.FocusPosition else nil
+	local assetSelectionValid = hasReadyAssetSelectionModel(showcase)
+		and isValidCFrame(assetSelectionDestination)
+		and isValidVector3(assetSelectionFocus)
+		and isInsideGalleryBounds(assetSelectionDestination.Position)
+		and isInsideGalleryBounds(assetSelectionFocus)
+	if not assetSelectionValid and assetSelectionTarget then
+		assetSelectionTarget:Destroy()
+		warn("[DevGalleryCoordinator] Forest asset selection metadata or walkable target was invalid; A/B remain available.")
+	end
+
 	showcase.Name = "ForestDesignLab"
+	showcase:SetAttribute("ForestDesignLabSchemaVersion", FOREST_SHOWCASE_SCHEMA_VERSION)
 	showcase:SetAttribute(OWNER_ATTRIBUTE, FOREST_OWNER)
 	showcase:SetAttribute("LabId", "Forest")
 	showcase:SetAttribute("DevOnly", true)
@@ -444,6 +498,14 @@ local function buildForestDesignLab(targetGallery)
 		local chunkierEstimate = instanceCounts.Chunkier
 		targetGallery:SetAttribute("ForestSofterEstimatedInstances", if isFiniteNumber(softerEstimate) then softerEstimate else nil)
 		targetGallery:SetAttribute("ForestChunkierEstimatedInstances", if isFiniteNumber(chunkierEstimate) then chunkierEstimate else nil)
+	end
+	if assetSelectionValid then
+		targetGallery:SetAttribute("ForestAssetSelectionTeleportCFrame", assetSelectionDestination)
+		targetGallery:SetAttribute("ForestAssetSelectionFocusPosition", assetSelectionFocus)
+		targetGallery:SetAttribute("ForestAssetSelectionEstimatedInstances",
+			if type(assetSelectionMetadata) == "table" and isFiniteNumber(assetSelectionMetadata.InstanceCount)
+				then assetSelectionMetadata.InstanceCount else nil)
+		targetGallery:SetAttribute("ForestAssetSelectionReady", true)
 	end
 	targetGallery:SetAttribute("ForestLabReady", true)
 	return true
@@ -700,6 +762,32 @@ local function refreshNavigation()
 				"ChunkierStorybookClearing",
 				"Chunkier toy forms · same World 1 theme"
 			)
+
+			local designLab = forestLab:FindFirstChild("ForestDesignLab")
+			local assetSelectionTarget = designLab and designLab:FindFirstChild("ForestAssetSelectionShowcase")
+			local assetSelectionDestination = gallery:GetAttribute("ForestAssetSelectionTeleportCFrame")
+			local assetSelectionFocus = gallery:GetAttribute("ForestAssetSelectionFocusPosition")
+			if gallery:GetAttribute("ForestAssetSelectionReady") == true
+				and designLab and designLab:IsA("Model")
+				and designLab:GetAttribute("BuildStatus") == "Ready"
+				and hasReadyAssetSelectionModel(designLab)
+				and isValidCFrame(assetSelectionDestination)
+				and isValidVector3(assetSelectionFocus)
+				and isInsideGalleryBounds(assetSelectionDestination.Position)
+				and isInsideGalleryBounds(assetSelectionFocus)
+				and assetSelectionTarget
+			then
+				addRootEntry(
+					wanted,
+					"ForestAssetSelection",
+					"FOREST ASSET CATALOG",
+					"Forest",
+					assetSelectionDestination,
+					assetSelectionFocus,
+					"ForestAssetSelectionShowcase",
+					"Curated Creator Store model previews"
+				)
+			end
 		end
 		if LABS.Archive == true and gallery:GetAttribute("ArchiveLabReady") == true then
 			local studiesEnabled = ARCHIVE_CONFIG.TreeStudies == true

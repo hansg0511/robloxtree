@@ -5,13 +5,16 @@
 -- for harvesting in this showcase.
 local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
+local ServerStorage = game:GetService("ServerStorage")
 local DevStarterOakGenerator = require(ServerScriptService:WaitForChild("DevStarterOakGenerator"))
+local AssetSelectionModule = script.Parent:FindFirstChild("ForestAssetSelectionShowcase")
 
 local ForestDesignLab = {}
 
 local OWNER = "ForestDesignLab"
 local SOFT_OFFSET = Vector3.new(-46, 0, 0)
 local CHUNKY_OFFSET = Vector3.new(46, 0, 0)
+local ASSET_SELECTION_OFFSET = Vector3.new(0, 0, 230)
 local PLATFORM_SIZE = Vector3.new(72, 0.55, 66)
 
 local PALETTE = {
@@ -38,6 +41,90 @@ local function markVisual(instance: Instance)
 	instance:SetAttribute("VisualOnly", true)
 	instance:SetAttribute("PrototypeOnly", true)
 	instance:SetAttribute("NonHarvestable", true)
+end
+
+local function isFiniteNumber(value: any): boolean
+	return type(value) == "number" and value == value and math.abs(value) < 1_000_000
+end
+
+local function isValidVector3(value: any): boolean
+	return typeof(value) == "Vector3"
+		and isFiniteNumber(value.X)
+		and isFiniteNumber(value.Y)
+		and isFiniteNumber(value.Z)
+end
+
+local function isValidCFrame(value: any): boolean
+	if typeof(value) ~= "CFrame" then
+		return false
+	end
+	for _, component in ipairs({ value:GetComponents() }) do
+		if not isFiniteNumber(component) then
+			return false
+		end
+	end
+	return true
+end
+
+local function hasWalkableCatalogFloor(model: Model): boolean
+	local floor = model:FindFirstChild("AssetCatalogWalkway", true)
+	return floor ~= nil
+		and floor:IsA("BasePart")
+		and floor:GetAttribute("WalkableUtilitySurface") == true
+		and floor.CanCollide
+end
+
+local function buildAssetSelectionShowcase(parent: Model, center: Vector3)
+	if not AssetSelectionModule or not AssetSelectionModule:IsA("ModuleScript") then
+		warn("[ForestDesignLab] Asset selection module is missing; Forest A/B remain available.")
+		return nil, nil
+	end
+
+	local devToolboxAssets = ServerStorage:FindFirstChild("DevToolboxAssets")
+	local mesaCandidate = devToolboxAssets and devToolboxAssets:FindFirstChild("ApprovedMesaReference")
+	local mesaTemplate = if mesaCandidate and mesaCandidate:IsA("Model") then mesaCandidate else nil
+
+	local staging = Instance.new("Model")
+	staging.Name = "ForestAssetSelectionStaging"
+	staging.Parent = parent
+	local ok, showcase, metadata = pcall(function()
+		local builder = require(AssetSelectionModule)
+		assert(type(builder) == "table" and type(builder.Build) == "function",
+			"ForestAssetSelectionShowcase must export Build")
+		local builtShowcase, builtMetadata = builder.Build(staging, center + ASSET_SELECTION_OFFSET, {
+			StarterOakFactory = function(seed: number)
+				return DevStarterOakGenerator.Generate(seed, { Extreme = false })
+			end,
+			MesaTemplate = mesaTemplate,
+		})
+		assert(builtShowcase and builtShowcase:IsA("Model"),
+			"ForestAssetSelectionShowcase.Build returned no Model")
+		assert(builtShowcase.Parent == staging,
+			"ForestAssetSelectionShowcase.Build must parent its result to the supplied parent")
+		assert(type(builtMetadata) == "table",
+			"ForestAssetSelectionShowcase.Build returned no metadata")
+		assert(builtShowcase.Name == "ForestAssetSelectionShowcase",
+			"Forest asset selection returned an unexpected root name")
+		assert(builtShowcase:GetAttribute("BuildStatus") == "Ready",
+			"Forest asset selection root is not ready")
+		assert(isValidCFrame(builtMetadata.LandingCFrame),
+			"Forest asset selection returned an invalid landing CFrame")
+		assert(isValidVector3(builtMetadata.FocusPosition),
+			"Forest asset selection returned an invalid focus position")
+		assert(hasWalkableCatalogFloor(builtShowcase),
+			"Forest asset selection has no ready walkable catalog floor")
+		builtShowcase.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
+		return builtShowcase, builtMetadata
+	end)
+	if not ok then
+		staging:Destroy()
+		warn("[ForestDesignLab] Asset selection build failed; Forest A/B remain available: " .. tostring(showcase))
+		return nil, nil
+	end
+
+	showcase.Parent = parent
+	staging:Destroy()
+	return showcase, metadata
 end
 
 local function makePart(
@@ -741,8 +828,16 @@ function ForestDesignLab.Build(parent: Instance, center: Vector3)
 			buildVariation(root, "SofterStorybookClearing", softerCenter, "Softer")
 		local chunkier, chunkierLanding, chunkierFocus, chunkierCount, chunkierParts =
 			buildVariation(root, "ChunkierStorybookClearing", chunkierCenter, "Chunkier")
+		local assetSelection, assetSelectionMetadata = buildAssetSelectionShowcase(root, center)
 
 		root:SetAttribute("BuildStatus", "Ready")
+		root:SetAttribute("AssetSelectionReady", assetSelection ~= nil)
+		root:SetAttribute("AssetSelectionInstanceCount",
+			if assetSelectionMetadata and isFiniteNumber(assetSelectionMetadata.InstanceCount)
+				then assetSelectionMetadata.InstanceCount else nil)
+		root:SetAttribute("TotalInstanceCountIncludingAssetSelection",
+			softerCount + chunkierCount + 1 + (if assetSelectionMetadata and isFiniteNumber(assetSelectionMetadata.InstanceCount)
+				then assetSelectionMetadata.InstanceCount else 0))
 		root:SetAttribute("SofterStorybookInstanceCount", softerCount)
 		root:SetAttribute("ChunkierStorybookInstanceCount", chunkierCount)
 		root:SetAttribute("SofterStorybookBasePartCount", softerParts)
@@ -770,6 +865,11 @@ function ForestDesignLab.Build(parent: Instance, center: Vector3)
 				Chunkier = chunkierParts,
 				Total = softerParts + chunkierParts,
 			},
+			AssetSelection = if assetSelection and assetSelectionMetadata then {
+				LandingCFrame = assetSelectionMetadata.LandingCFrame,
+				FocusPosition = assetSelectionMetadata.FocusPosition,
+				InstanceCount = assetSelectionMetadata.InstanceCount,
+			} else nil,
 		}
 		return metadata
 	end)
