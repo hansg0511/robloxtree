@@ -18,14 +18,12 @@ local PALETTE = {
 	Grass = Color3.fromRGB(128, 190, 104),
 	GrassLight = Color3.fromRGB(151, 203, 126),
 	GrassShade = Color3.fromRGB(103, 163, 89),
-	Path = Color3.fromRGB(244, 207, 125),
-	PathLight = Color3.fromRGB(251, 224, 166),
-	PathShade = Color3.fromRGB(194, 144, 83),
+	Path = Color3.fromRGB(237, 188, 107),
+	PathLight = Color3.fromRGB(249, 214, 151),
+	PathShade = Color3.fromRGB(186, 130, 70),
 	MesaRock = Color3.fromRGB(101, 47, 32),
 	MesaRockMid = Color3.fromRGB(124, 59, 40),
 	MesaRockLight = Color3.fromRGB(150, 81, 56),
-	MesaGrass = Color3.fromRGB(70, 158, 54),
-	MesaGrassLight = Color3.fromRGB(94, 177, 70),
 	Wood = Color3.fromRGB(112, 78, 49),
 	WoodLight = Color3.fromRGB(177, 129, 65),
 	Cream = Color3.fromRGB(250, 239, 198),
@@ -123,73 +121,6 @@ local function makeCornerWedge(
 	return part
 end
 
-local OCTAGON_CORNER_SCALE = math.sqrt(2) - 1
-
--- The approved World 1 mesa profile is an octagonal vertical prism built from
--- two bars and four corner wedges. Keep this local copy visual-only and small.
-local function makeOctagonalMesaPrism(
-	parent: Instance,
-	name: string,
-	center: Vector3,
-	radius: number,
-	bottomY: number,
-	height: number,
-	color: Color3,
-	yaw: number
-)
-	local corner = radius * OCTAGON_CORNER_SCALE
-	local barWidth = corner * 2
-	local rotation = CFrame.Angles(0, yaw, 0)
-	local centerFrame = CFrame.new(center.X, bottomY + height * 0.5, center.Z) * rotation
-	local northSouth = makePart(
-		parent,
-		name .. "BarNS",
-		Vector3.new(barWidth, height, radius * 2),
-		centerFrame,
-		color,
-		false
-	)
-	local eastWest = makePart(
-		parent,
-		name .. "BarEW",
-		Vector3.new(radius * 2, height, barWidth),
-		centerFrame,
-		color,
-		false
-	)
-	for cornerIndex, signs in ipairs({ { -1, -1 }, { -1, 1 }, { 1, -1 }, { 1, 1 } }) do
-		local function worldPoint(x: number, z: number): Vector3
-			return Vector3.new(center.X, bottomY, center.Z) + rotation:VectorToWorldSpace(Vector3.new(x, 0, z))
-		end
-		local inner = worldPoint(signs[1] * corner, signs[2] * corner)
-		local edgeX = worldPoint(signs[1] * radius, signs[2] * corner)
-		local edgeZ = worldPoint(signs[1] * corner, signs[2] * radius)
-		local legA = edgeX - inner
-		local legB = edgeZ - inner
-		local lengthA = legA.Magnitude
-		local lengthB = legB.Magnitude
-		local yAxis = legA.Unit
-		local zAxis = -legB.Unit
-		local xAxis = yAxis:Cross(zAxis).Unit
-		local wedgePosition = Vector3.new(inner.X, bottomY, inner.Z)
-			+ yAxis * (lengthA * 0.5) - zAxis * (lengthB * 0.5)
-		wedgePosition = Vector3.new(wedgePosition.X, bottomY + height * 0.5, wedgePosition.Z)
-		local wedge = makeWedge(
-			parent,
-			name .. string.format("Corner%02d", cornerIndex),
-			Vector3.new(height, lengthA, lengthB),
-			CFrame.fromMatrix(wedgePosition, xAxis, yAxis, zAxis),
-			color
-		)
-		wedge:SetAttribute("BoundaryStyle", "World1MixedMesa")
-		wedge:SetAttribute("MesaProfile", "Mixed")
-	end
-	for _, part in ipairs({ northSouth, eastWest }) do
-		part:SetAttribute("BoundaryStyle", "World1MixedMesa")
-		part:SetAttribute("MesaProfile", "Mixed")
-	end
-end
-
 local function makeModel(parent: Instance, name: string, variation: string?): Model
 	local model = Instance.new("Model")
 	model.Name = name
@@ -254,37 +185,71 @@ end
 
 local function addTrail(scene: Model, center: Vector3, style: string)
 	local trail = makeModel(scene, "CurvingTrail", style)
-	trail:SetAttribute("AssetVariant", if style == "Softer" then "HoneyStoneMeander" else "SculptedStepWay")
+	trail:SetAttribute("AssetVariant", if style == "Softer" then "HoneyStoneMeander" else "WarmCobbleMeander")
 
 	local softSteps = {
-		{ 0.0, 25.0, -7 }, { -0.3, 21.1, 2 }, { -1.0, 17.2, -4 },
-		{ -1.4, 13.3, 5 }, { -0.9, 9.4, -3 }, { 0.1, 5.5, 4 },
+		{ 0.0, 25.0, -6 }, { -0.35, 22.5, 2 }, { -0.85, 20.0, -4 },
+		{ -1.15, 17.5, 5 }, { -1.0, 15.0, -3 }, { -0.25, 12.5, 4 },
+		{ 0.15, 10.0, -3 }, { 0.0, 7.5, 5 }, { -1.1, 5.0, 0 },
 	}
 	local chunkySteps = {
-		{ 0.0, 25.0, -5 }, { 0.8, 21.0, 4 }, { 1.8, 17.0, -3 },
-		{ 1.1, 13.0, 5 }, { -0.4, 9.0, -4 }, { -1.1, 5.0, 3 },
+		{ 0.0, 25.0, -5 }, { 0.4, 22.5, 4 }, { 1.1, 20.0, -3 },
+		{ 1.3, 17.5, 5 }, { 0.6, 15.0, -4 }, { -0.2, 12.5, 4 },
+		{ -0.8, 10.0, -3 }, { -1.2, 7.5, 5 }, { -1.1, 5.0, 0 },
 	}
 	local steps = if style == "Softer" then softSteps else chunkySteps
 	for index, step in ipairs(steps) do
 		local rotation = math.rad(step[3])
-		local pathCenter = Vector3.new(center.X + step[1], center.Y + 0.042, center.Z + step[2])
-		makePart(
+		local sectionWidth = 6.35 + (index % 3) * 0.3
+		local sectionLength = 3.4 + (index % 3) * 0.16
+		local pathCenter = Vector3.new(center.X + step[1], center.Y, center.Z + step[2])
+		local rotationFrame = CFrame.Angles(0, rotation, 0)
+
+		local earthEdge = makePart(
 			trail,
 			"WarmEarthEdge" .. index,
-			Vector3.new(if style == "Softer" then 8.6 else 9.1, 0.055, 4.8),
-			CFrame.new(pathCenter) * CFrame.Angles(0, rotation, 0),
+			Vector3.new(sectionWidth + 0.65, 0.035, sectionLength + 0.52),
+			CFrame.new(pathCenter.X, center.Y + 0.0175, pathCenter.Z) * rotationFrame,
 			PALETTE.PathShade,
 			false
 		)
-		makePart(
+		earthEdge:SetAttribute("DecorativeGroundLayer", true)
+
+		local primaryElevation = if index % 2 == 0 then 0.003 else 0
+		local primaryOffset = rotationFrame:VectorToWorldSpace(Vector3.new(if index % 2 == 0 then 0.18 else -0.18, 0, 0))
+		local primaryStone = makePart(
 			trail,
 			"TrailStone" .. index,
-			Vector3.new(if style == "Softer" then 7.9 else 8.25, 0.12, 4.35),
-			CFrame.new(pathCenter.X, center.Y + 0.12, pathCenter.Z)
-				* CFrame.Angles(0, rotation, 0),
+			Vector3.new(sectionWidth - 0.8 + (index % 3) * 0.15, 0.055, sectionLength - 0.35),
+			CFrame.new(pathCenter + primaryOffset + Vector3.new(0, 0.0475 + primaryElevation, 0.03)) * rotationFrame,
+			if index % 4 == 0 then PALETTE.PathLight else PALETTE.Path,
+			false
+		)
+		primaryStone:SetAttribute("TrailPiece", "PrimaryCobble")
+
+		local side = if index % 2 == 0 then 1 else -1
+		local sideOffset = rotationFrame:VectorToWorldSpace(Vector3.new(side * 1.55, 0, if index % 3 == 0 then 0.12 else -0.1))
+		local overlapStone = makePart(
+			trail,
+			"OverlapCobble" .. index,
+			Vector3.new(2.7 + (index % 2) * 0.35, 0.035, 1.85 + (index % 3) * 0.12),
+			CFrame.new(pathCenter + sideOffset + Vector3.new(0, 0.065, 0)) * CFrame.Angles(0, rotation + math.rad(if index % 2 == 0 then 4 else -4), 0),
 			if index % 3 == 0 then PALETTE.PathLight else PALETTE.Path,
 			false
 		)
+		overlapStone:SetAttribute("TrailPiece", "OverlappingCobble")
+
+		local chipSide = if index % 2 == 0 then -1 else 1
+		local chipOffset = rotationFrame:VectorToWorldSpace(Vector3.new(chipSide * (sectionWidth * 0.39), 0, if index % 3 == 0 then 0.88 else -0.82))
+		local edgeChip = makePart(
+			trail,
+			"EdgeCobble" .. index,
+			Vector3.new(1.35 + (index % 2) * 0.2, 0.035, 1.05 + (index % 3) * 0.08),
+			CFrame.new(pathCenter + chipOffset + Vector3.new(0, 0.0475, 0)) * CFrame.Angles(0, rotation + math.rad(if index % 2 == 0 then -7 else 6), 0),
+			if index % 2 == 0 then PALETTE.PathLight else PALETTE.Path,
+			false
+		)
+		edgeChip:SetAttribute("TrailPiece", "EdgeFragment")
 	end
 end
 
@@ -292,52 +257,58 @@ local BUSH_CONFIGS = {
 	Softer = {
 		CushionFern = {
 			Colors = { Color3.fromRGB(67, 133, 74), Color3.fromRGB(96, 166, 92), Color3.fromRGB(123, 186, 101) },
-			Lobes = {
-				{ -1.2, 0.45, 0.2, 2.8, 2.0, 2.2 },
-				{ 0.9, 0.55, -0.35, 2.6, 2.25, 2.3 },
-				{ 0.0, 1.05, -0.45, 2.15, 2.35, 2.05 },
+			Layers = {
+				{ 0.0, 0.44, 0.0, 5.35, 0.88, 3.65, 1, 0 },
+				{ -1.25, 0.78, 0.12, 3.35, 0.98, 2.85, 2, -12 },
+				{ 1.15, 0.78, -0.12, 3.25, 0.92, 2.8, 1, 13 },
+				{ -0.05, 1.17, -0.38, 3.2, 0.8, 2.3, 3, -3 },
 			},
 		},
 		TwinSprout = {
 			Colors = { Color3.fromRGB(61, 126, 70), Color3.fromRGB(92, 161, 86), Color3.fromRGB(129, 190, 104) },
-			Lobes = {
-				{ -1.0, 0.8, 0.25, 2.55, 2.5, 2.2 },
-				{ 0.9, 0.8, -0.3, 2.5, 2.45, 2.25 },
-				{ 0.35, 1.35, -0.5, 2.1, 2.25, 2.0 },
+			Layers = {
+				{ 0.0, 0.44, 0.0, 5.15, 0.88, 3.55, 1, 0 },
+				{ -1.3, 0.79, 0.2, 2.9, 1.0, 2.8, 2, -16 },
+				{ 1.05, 0.8, -0.24, 3.45, 0.94, 2.75, 1, 12 },
+				{ 0.12, 1.2, -0.48, 3.15, 0.82, 2.35, 3, 4 },
 			},
 		},
 		CloverFan = {
 			Colors = { Color3.fromRGB(65, 128, 70), Color3.fromRGB(105, 170, 91), Color3.fromRGB(139, 193, 112) },
-			Lobes = {
-				{ -1.15, 0.5, -0.25, 2.7, 1.9, 2.2 },
-				{ 0.85, 0.65, 0.15, 2.55, 2.15, 2.2 },
-				{ -0.1, 1.15, -0.4, 2.2, 2.3, 2.05 },
+			Layers = {
+				{ 0.0, 0.44, 0.0, 5.0, 0.88, 3.75, 1, 0 },
+				{ -1.2, 0.76, -0.22, 3.15, 0.94, 2.95, 2, -10 },
+				{ 1.05, 0.8, 0.16, 3.5, 0.98, 2.65, 1, 16 },
+				{ -0.05, 1.16, -0.5, 3.0, 0.78, 2.4, 3, -6 },
 			},
 		},
 	},
 	Chunkier = {
 		AcornFan = {
 			Colors = { Color3.fromRGB(58, 118, 66), Color3.fromRGB(87, 151, 78), Color3.fromRGB(119, 178, 91) },
-			Lobes = {
-				{ -1.3, 0.45, 0.2, 2.9, 2.15, 2.35 },
-				{ 0.9, 0.65, -0.4, 2.7, 2.35, 2.4 },
-				{ 0.1, 1.2, -0.5, 2.35, 2.55, 2.15 },
+			Layers = {
+				{ 0.0, 0.46, 0.0, 5.75, 0.92, 3.95, 1, 0 },
+				{ -1.45, 0.82, 0.2, 3.65, 1.02, 3.05, 2, -14 },
+				{ 1.2, 0.84, -0.28, 3.75, 1.0, 2.95, 1, 13 },
+				{ -0.1, 1.23, -0.5, 3.55, 0.86, 2.55, 3, -2 },
 			},
 		},
 		RidgeBloom = {
 			Colors = { Color3.fromRGB(55, 115, 63), Color3.fromRGB(84, 148, 74), Color3.fromRGB(120, 176, 90) },
-			Lobes = {
-				{ -1.1, 0.55, 0.2, 2.75, 2.05, 2.25 },
-				{ 1.0, 0.65, -0.35, 2.85, 2.25, 2.45 },
-				{ 0.2, 1.2, -0.5, 2.45, 2.45, 2.25 },
+			Layers = {
+				{ 0.0, 0.46, 0.0, 5.55, 0.92, 4.0, 1, 0 },
+				{ -1.3, 0.82, 0.15, 3.2, 0.98, 3.05, 2, -17 },
+				{ 1.35, 0.85, -0.26, 3.8, 1.04, 3.0, 1, 12 },
+				{ 0.12, 1.22, -0.52, 3.25, 0.84, 2.65, 3, 5 },
 			},
 		},
 		PocketFern = {
 			Colors = { Color3.fromRGB(56, 118, 66), Color3.fromRGB(92, 156, 79), Color3.fromRGB(129, 182, 94) },
-			Lobes = {
-				{ -1.2, 0.45, -0.15, 2.8, 2.0, 2.35 },
-				{ 0.9, 0.55, 0.25, 2.7, 2.0, 2.35 },
-				{ -0.1, 1.1, -0.4, 2.5, 2.25, 2.25 },
+			Layers = {
+				{ 0.0, 0.45, 0.0, 5.25, 0.9, 3.8, 1, 0 },
+				{ -1.3, 0.78, -0.15, 3.35, 0.96, 2.9, 2, -12 },
+				{ 1.12, 0.79, 0.2, 3.5, 0.94, 2.85, 1, 15 },
+				{ -0.08, 1.17, -0.44, 3.25, 0.8, 2.45, 3, -4 },
 			},
 		},
 	},
@@ -348,96 +319,20 @@ local function addBush(scene: Model, center: Vector3, assetName: string, positio
 	local bush = makeModel(scene, assetName, style)
 	bush:SetAttribute("AssetVariant", assetName)
 	bush:SetAttribute("ModularEnvironmentAsset", true)
-	local base = Vector3.new(center.X + position.X, center.Y + 0.58, center.Z + position.Z)
+	bush:SetAttribute("BushShape", "LayeredLowBroadCuboids")
+	local base = Vector3.new(center.X + position.X, center.Y, center.Z + position.Z)
 	local yaw = math.rad(yawDegrees)
-	makeCornerWedge(
-		bush,
-		"CutCornerLeafCushion",
-		Vector3.new(4.2, 1.15, 3.35),
-		CFrame.new(base) * CFrame.Angles(0, yaw, 0),
-		definition.Colors[1]
-	)
-	for index, lobe in ipairs(definition.Lobes) do
-		makeWedge(
+	local yawFrame = CFrame.Angles(0, yaw, 0)
+	for index, layer in ipairs(definition.Layers) do
+		local offset = yawFrame:VectorToWorldSpace(Vector3.new(layer[1], layer[2], layer[3]))
+		makePart(
 			bush,
-			"LayeredLeaf" .. index,
-			Vector3.new(lobe[4], lobe[5], lobe[6]),
-			CFrame.new(base + Vector3.new(lobe[1], lobe[2], lobe[3]))
-				* CFrame.Angles(0, yaw + math.rad((index - 2) * 18), math.rad((index - 2) * 7)),
-			definition.Colors[index]
+			"BroadLeafLayer" .. index,
+			Vector3.new(layer[4], layer[5], layer[6]),
+			CFrame.new(base + offset) * CFrame.Angles(0, yaw + math.rad(layer[8]), 0),
+			definition.Colors[layer[7]],
+			false
 		)
-	end
-	makePart(
-		bush,
-		"InsetLeafPlane",
-		Vector3.new(1.8, 0.72, 0.34),
-		CFrame.new(base + Vector3.new(-0.1, 0.72, -1.0)) * CFrame.Angles(math.rad(-13), yaw + math.rad(26), math.rad(8)),
-		definition.Colors[2],
-		false
-	)
-	if style == "Chunkier" then
-		makeWedge(
-			bush,
-			"OutwardLeaf",
-			Vector3.new(2.2, 1.25, 1.65),
-			CFrame.new(base + Vector3.new(1.8, 0.2, 0.65)) * CFrame.Angles(0, yaw + math.rad(22), 0),
-			definition.Colors[2]
-		)
-	end
-end
-
-local function addMesaCliff(scene: Model, center: Vector3, style: string)
-	local edge = makeModel(scene, "BrokenWorld1MesaEdge", style)
-	edge:SetAttribute("BoundaryStyle", "World1MixedMesa")
-	edge:SetAttribute("MesaProfile", "Mixed")
-	edge:SetAttribute("ModularEnvironmentAsset", true)
-
-	-- Three offset polygonal outcrops make a compact broken mesa edge. Their
-	-- radii, yaw, height and cap line vary, while each shape uses the approved
-	-- two-bar/four-wedge octagonal construction and the production color palette.
-	local layouts = if style == "Softer" then {
-		{ -24.5, -23.5, 6.2, 6.2, -16 },
-		{ -8.5, -25.0, 7.3, 7.6, 9 },
-		{ 10.0, -22.7, 5.9, 5.9, -12 },
-	} else {
-		{ -25.0, -24.0, 6.5, 7.2, -20 },
-		{ -8.7, -24.8, 7.6, 8.5, 14 },
-		{ 10.3, -22.5, 6.2, 6.6, -10 },
-	}
-	for index, form in ipairs(layouts) do
-		local radius = form[3]
-		local height = form[4]
-		local yaw = math.rad(form[5])
-		local base = Vector3.new(center.X + form[1], center.Y, center.Z + form[2])
-		local butte = makeModel(edge, "MesaOutcrop" .. index, style)
-		butte:SetAttribute("AssetVariant", if style == "Softer" then "BroadTieredOutcrop" else "FacetedBrokenButte")
-		butte:SetAttribute("ModularEnvironmentAsset", true)
-		makeOctagonalMesaPrism(butte, "MesaRockBody", base, radius, base.Y, height, PALETTE.MesaRock, yaw)
-		makeOctagonalMesaPrism(
-			butte,
-			"BrokenGreenCap",
-			base,
-			radius + 0.42,
-			base.Y + height,
-			0.82,
-			PALETTE.MesaGrass,
-			yaw + math.rad(if index == 2 then 4 else -3)
-		)
-		if index == 2 then
-			local upperCenter = base + Vector3.new(0.45, height + 0.82, -0.15)
-			local upperHeight = if style == "Softer" then 1.35 else 1.65
-			makeOctagonalMesaPrism(butte, "SteppedUpperRock", upperCenter, radius * 0.62, upperCenter.Y, upperHeight, PALETTE.MesaRockMid, yaw + math.rad(9))
-			makeOctagonalMesaPrism(
-				butte,
-				"UpperGrassCap",
-				upperCenter,
-				radius * 0.66,
-				upperCenter.Y + upperHeight,
-				0.62,
-				PALETTE.MesaGrass,
-				yaw + math.rad(13)
-			)
-		end
 	end
 end
 
@@ -613,7 +508,6 @@ local function buildVariation(parent: Model, name: string, center: Vector3, styl
 
 	createGround(scene, center, style)
 	addTrail(scene, center, style)
-	addMesaCliff(scene, center, style)
 	addTrees(scene, center, style)
 
 	local bushes = if style == "Softer" then {
