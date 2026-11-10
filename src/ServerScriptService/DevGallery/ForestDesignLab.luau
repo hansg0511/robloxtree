@@ -182,30 +182,39 @@ local function createGround(scene: Model, center: Vector3, style: string)
 		patchPart:SetAttribute("DecorativeGroundLayer", true)
 	end
 	if style == "Chunkier" then
-		-- Small paired meadow facets add a quiet blocky ground pattern near the
-		-- margins while leaving the central trail and oak roots clear.
-		local accents = {
-			{ -23.5, -25.0, 3.5, 1.1, PALETTE.GrassLight, -12 },
-			{ -18.4, -25.15, 2.8, 1.0, PALETTE.GrassShade, 16 },
-			{ -20.7, -21.1, 2.7, 0.9, PALETTE.GrassLight, -5 },
-			{ 19.2, -25.0, 3.5, 1.1, PALETTE.GrassShade, 12 },
-			{ 24.3, -28.5, 2.8, 1.0, PALETTE.GrassLight, -16 },
-			{ 21.0, -21.1, 2.7, 0.9, PALETTE.GrassShade, 5 },
-			{ -21.5, 9.0, 3.5, 1.2, PALETTE.GrassLight, 11 },
-			{ -16.3, 9.5, 3.0, 1.0, PALETTE.GrassShade, -14 },
-			{ -19.0, 13.2, 2.8, 0.9, PALETTE.GrassLight, 4 },
-			{ 21.5, 9.0, 3.5, 1.2, PALETTE.GrassShade, -11 },
-			{ 16.3, 9.5, 3.0, 1.0, PALETTE.GrassLight, 14 },
-			{ 19.0, 13.2, 2.8, 0.9, PALETTE.GrassShade, -4 },
+		-- Broad, flat meadow strokes carry the chunky palette through open grass
+		-- while leaving the trail, oak bases, and perimeter props clear.
+		local strokes = {
+			{ -23.0, -25.0, 6.4, 2.4, PALETTE.GrassLight, -12 },
+			{ -16.2, -27.5, 4.9, 1.8, PALETTE.GrassShade, 14 },
+			{ -9.0, -23.2, 5.3, 1.9, PALETTE.GrassLight, 8 },
+			{ 9.0, -26.1, 5.3, 2.0, PALETTE.GrassShade, -15 },
+			{ 16.2, -22.4, 5.7, 2.5, PALETTE.GrassLight, 10 },
+			{ 23.0, -27.0, 6.1, 2.4, PALETTE.GrassShade, -9 },
+			{ -11.2, -4.2, 5.4, 1.9, PALETTE.GrassLight, -12 },
+			{ 11.4, -2.2, 5.7, 2.2, PALETTE.GrassShade, 15 },
+			{ -18.0, 8.0, 5.8, 2.3, PALETTE.GrassShade, 10 },
+			{ -11.4, 9.3, 4.9, 1.9, PALETTE.GrassLight, -16 },
+			{ 11.3, 8.8, 4.9, 1.9, PALETTE.GrassShade, 11 },
+			{ 18.0, 8.1, 5.8, 2.3, PALETTE.GrassLight, -8 },
+			{ -18.0, 14.5, 5.4, 2.2, PALETTE.GrassLight, -13 },
+			{ -11.0, 17.0, 5.0, 1.8, PALETTE.GrassShade, 14 },
+			{ 11.0, 16.0, 5.4, 2.0, PALETTE.GrassLight, 9 },
+			{ 18.0, 14.0, 5.8, 2.4, PALETTE.GrassShade, -12 },
+			{ -11.0, 24.0, 5.6, 2.2, PALETTE.GrassLight, -11 },
+			{ 11.0, 23.0, 5.0, 1.8, PALETTE.GrassShade, 16 },
 		}
-		for index, accent in ipairs(accents) do
-			local accentPosition = Vector3.new(center.X + accent[1], center.Y + 0.018, center.Z + accent[2])
-			local accentFrame = CFrame.new(accentPosition) * CFrame.Angles(0, math.rad(accent[6]), 0)
-			local accentPart = if index % 2 == 0 then
-				makeCornerWedge(scene, "MeadowAccent" .. index, Vector3.new(accent[3], 0.035, accent[4]), accentFrame, accent[5])
+		for index, stroke in ipairs(strokes) do
+			local strokePosition = Vector3.new(center.X + stroke[1], center.Y + 0.045, center.Z + stroke[2])
+			local strokeFrame = CFrame.new(strokePosition) * CFrame.Angles(0, math.rad(stroke[6]), 0)
+			local strokeSize = Vector3.new(stroke[3], 0.07, stroke[4])
+			local strokePart = if index % 3 == 0 then
+				makeCornerWedge(scene, "GrassStroke" .. index, strokeSize, strokeFrame, stroke[5])
 			else
-				makeWedge(scene, "MeadowAccent" .. index, Vector3.new(accent[3], 0.035, accent[4]), accentFrame, accent[5])
-			accentPart:SetAttribute("DecorativeGroundLayer", true)
+				makeWedge(scene, "GrassStroke" .. index, strokeSize, strokeFrame, stroke[5])
+			strokePart.CastShadow = false
+			strokePart:SetAttribute("DecorativeGroundLayer", true)
+			strokePart:SetAttribute("GroundTextureAccent", true)
 		end
 	end
 end
@@ -362,7 +371,7 @@ local function addBush(scene: Model, center: Vector3, assetName: string, positio
 	local base = Vector3.new(center.X + position.X, center.Y, center.Z + position.Z)
 	local yaw = math.rad(yawDegrees)
 	local yawFrame = CFrame.Angles(0, yaw, 0)
-	local verticalScale = 1.35
+	local verticalScale = 1.6
 	for index, layer in ipairs(definition.Layers) do
 		local offset = yawFrame:VectorToWorldSpace(Vector3.new(layer[1], layer[2] * verticalScale, layer[3]))
 		makePart(
