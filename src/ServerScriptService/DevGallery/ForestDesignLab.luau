@@ -181,6 +181,33 @@ local function createGround(scene: Model, center: Vector3, style: string)
 			makeWedge(scene, "MeadowFacet" .. index, Vector3.new(patch[3], 0.035, patch[4]), patchFrame, patch[5])
 		patchPart:SetAttribute("DecorativeGroundLayer", true)
 	end
+	if style == "Chunkier" then
+		-- Small paired meadow facets add a quiet blocky ground pattern near the
+		-- margins while leaving the central trail and oak roots clear.
+		local accents = {
+			{ -23.5, -25.0, 3.5, 1.1, PALETTE.GrassLight, -12 },
+			{ -18.4, -25.15, 2.8, 1.0, PALETTE.GrassShade, 16 },
+			{ -20.7, -21.1, 2.7, 0.9, PALETTE.GrassLight, -5 },
+			{ 19.2, -25.0, 3.5, 1.1, PALETTE.GrassShade, 12 },
+			{ 24.3, -28.5, 2.8, 1.0, PALETTE.GrassLight, -16 },
+			{ 21.0, -21.1, 2.7, 0.9, PALETTE.GrassShade, 5 },
+			{ -21.5, 9.0, 3.5, 1.2, PALETTE.GrassLight, 11 },
+			{ -16.3, 9.5, 3.0, 1.0, PALETTE.GrassShade, -14 },
+			{ -19.0, 13.2, 2.8, 0.9, PALETTE.GrassLight, 4 },
+			{ 21.5, 9.0, 3.5, 1.2, PALETTE.GrassShade, -11 },
+			{ 16.3, 9.5, 3.0, 1.0, PALETTE.GrassLight, 14 },
+			{ 19.0, 13.2, 2.8, 0.9, PALETTE.GrassShade, -4 },
+		}
+		for index, accent in ipairs(accents) do
+			local accentPosition = Vector3.new(center.X + accent[1], center.Y + 0.018, center.Z + accent[2])
+			local accentFrame = CFrame.new(accentPosition) * CFrame.Angles(0, math.rad(accent[6]), 0)
+			local accentPart = if index % 2 == 0 then
+				makeCornerWedge(scene, "MeadowAccent" .. index, Vector3.new(accent[3], 0.035, accent[4]), accentFrame, accent[5])
+			else
+				makeWedge(scene, "MeadowAccent" .. index, Vector3.new(accent[3], 0.035, accent[4]), accentFrame, accent[5])
+			accentPart:SetAttribute("DecorativeGroundLayer", true)
+		end
+	end
 end
 
 local function addTrail(scene: Model, center: Vector3, style: string)
@@ -229,7 +256,8 @@ local function addTrail(scene: Model, center: Vector3, style: string)
 	end
 
 	local tileSize = Vector3.new(6.35, 0.075, 2.85)
-	local maxSampleSpacing = 0.8
+	local maxSampleSpacing = 0.3
+	local liftCycle = math.ceil(tileSize.X / maxSampleSpacing) + 5
 	local samples = {}
 	for segmentIndex = 1, #steps - 1 do
 		local start = steps[segmentIndex]
@@ -251,11 +279,12 @@ local function addTrail(scene: Model, center: Vector3, style: string)
 		local rotation = math.atan2(sample[3], sample[4])
 		local pathCenter = Vector3.new(center.X + sample[1], center.Y, center.Z + sample[2])
 		local rotationFrame = CFrame.Angles(0, rotation, 0)
+		local tileLift = ((index - 1) % liftCycle) * 0.001
 		local tile = makePart(
 			trail,
 			"TrailTile" .. index,
 			tileSize,
-			CFrame.new(pathCenter + Vector3.new(0, tileSize.Y * 0.5 + ((index - 1) % 8) * 0.001, 0)) * rotationFrame,
+			CFrame.new(pathCenter + Vector3.new(0, tileSize.Y * 0.5 + tileLift, 0)) * rotationFrame,
 			PALETTE.Path,
 			false
 		)
