@@ -185,24 +185,22 @@ local function createGround(scene: Model, center: Vector3, style: string)
 		-- Broad, flat meadow strokes carry the chunky palette through open grass
 		-- while leaving the trail, oak bases, and perimeter props clear.
 		local strokes = {
-			{ -23.0, -25.0, 6.4, 2.4, PALETTE.GrassLight, -12 },
-			{ -16.2, -27.5, 4.9, 1.8, PALETTE.GrassShade, 14 },
-			{ -9.0, -23.2, 5.3, 1.9, PALETTE.GrassLight, 8 },
-			{ 9.0, -26.1, 5.3, 2.0, PALETTE.GrassShade, -15 },
-			{ 16.2, -22.4, 5.7, 2.5, PALETTE.GrassLight, 10 },
-			{ 23.0, -27.0, 6.1, 2.4, PALETTE.GrassShade, -9 },
-			{ -11.2, -4.2, 5.4, 1.9, PALETTE.GrassLight, -12 },
-			{ 11.4, -2.2, 5.7, 2.2, PALETTE.GrassShade, 15 },
-			{ -18.0, 8.0, 5.8, 2.3, PALETTE.GrassShade, 10 },
-			{ -11.4, 9.3, 4.9, 1.9, PALETTE.GrassLight, -16 },
-			{ 11.3, 8.8, 4.9, 1.9, PALETTE.GrassShade, 11 },
-			{ 18.0, 8.1, 5.8, 2.3, PALETTE.GrassLight, -8 },
-			{ -18.0, 14.5, 5.4, 2.2, PALETTE.GrassLight, -13 },
-			{ -11.0, 17.0, 5.0, 1.8, PALETTE.GrassShade, 14 },
-			{ 11.0, 16.0, 5.4, 2.0, PALETTE.GrassLight, 9 },
-			{ 18.0, 14.0, 5.8, 2.4, PALETTE.GrassShade, -12 },
-			{ -11.0, 24.0, 5.6, 2.2, PALETTE.GrassLight, -11 },
-			{ 11.0, 23.0, 5.0, 1.8, PALETTE.GrassShade, 16 },
+			{ -26.0, -25.0, 5.8, 2.2, PALETTE.GrassLight, -11 },
+			{ -18.2, -27.5, 4.8, 1.8, PALETTE.GrassShade, 14 },
+			{ -12.0, -23.4, 5.0, 1.9, PALETTE.GrassLight, 8 },
+			{ -5.0, -26.2, 4.8, 1.7, PALETTE.GrassShade, -15 },
+			{ 5.0, -24.6, 5.2, 2.0, PALETTE.GrassLight, 11 },
+			{ 12.1, -27.0, 4.8, 1.8, PALETTE.GrassShade, -9 },
+			{ 19.2, -23.3, 5.6, 2.3, PALETTE.GrassLight, 10 },
+			{ 26.0, -26.8, 5.6, 2.2, PALETTE.GrassShade, -12 },
+			{ -15.2, 3.5, 5.4, 2.0, PALETTE.GrassLight, -12 },
+			{ 15.2, 3.5, 5.4, 2.0, PALETTE.GrassShade, 15 },
+			{ -15.4, 10.0, 5.8, 2.3, PALETTE.GrassShade, 10 },
+			{ 15.4, 10.0, 5.8, 2.3, PALETTE.GrassLight, -8 },
+			{ -15.2, 16.7, 5.2, 1.9, PALETTE.GrassLight, -13 },
+			{ 15.2, 16.7, 5.2, 1.9, PALETTE.GrassShade, 14 },
+			{ -15.0, 23.0, 5.6, 2.2, PALETTE.GrassLight, -11 },
+			{ 15.0, 23.0, 5.6, 2.2, PALETTE.GrassShade, 16 },
 		}
 		for index, stroke in ipairs(strokes) do
 			local strokePosition = Vector3.new(center.X + stroke[1], center.Y + 0.045, center.Z + stroke[2])
@@ -367,11 +365,11 @@ local function addBush(scene: Model, center: Vector3, assetName: string, positio
 	local bush = makeModel(scene, assetName, style)
 	bush:SetAttribute("AssetVariant", assetName)
 	bush:SetAttribute("ModularEnvironmentAsset", true)
-	bush:SetAttribute("BushShape", "LayeredLowBroadCuboids")
+	bush:SetAttribute("BushShape", if style == "Chunkier" then "LayeredTallBroadCuboids" else "LayeredLowBroadCuboids")
 	local base = Vector3.new(center.X + position.X, center.Y, center.Z + position.Z)
 	local yaw = math.rad(yawDegrees)
 	local yawFrame = CFrame.Angles(0, yaw, 0)
-	local verticalScale = 1.6
+	local verticalScale = if style == "Chunkier" then 2.2 else 1.6
 	for index, layer in ipairs(definition.Layers) do
 		local offset = yawFrame:VectorToWorldSpace(Vector3.new(layer[1], layer[2] * verticalScale, layer[3]))
 		makePart(
@@ -405,13 +403,90 @@ local function addBoulder(scene: Model, center: Vector3, style: string, name: st
 			PALETTE.MesaRockLight
 		)
 	else
-		makeWedge(rock, "BroadCutStone", mainSize, mainFrame, if variant == 1 then PALETTE.MesaRockMid else PALETTE.MesaRock)
-		makeCornerWedge(
+		rock:SetAttribute("ShapeLanguage", "LowRoundedGroundedCluster")
+		local bodySize = Vector3.new(4.0 + variant * 0.2, 1.5 + variant * 0.08, 3.15)
+		makePart(
 			rock,
-			"LayeredTopFacet",
-			Vector3.new(2.8, 1.55, 3.0),
-			CFrame.new(x + 0.9, y + 0.66, z - 0.28) * CFrame.Angles(0, yaw - math.rad(21), math.rad(4)),
-			PALETTE.MesaRockLight
+			"RoundedStoneBody",
+			bodySize,
+			CFrame.new(x, center.Y + bodySize.Y * 0.5 - 0.02, z) * CFrame.Angles(0, yaw, 0),
+			if variant == 1 then PALETTE.MesaRockMid else PALETTE.MesaRock,
+			false,
+			Enum.PartType.Ball
+		)
+		makePart(
+			rock,
+			"SunlitRoundedCap",
+			Vector3.new(2.15, 0.72, 1.8),
+			CFrame.new(x + 0.35, center.Y + bodySize.Y * 0.79, z - 0.24) * CFrame.Angles(0, yaw + math.rad(18), 0),
+			PALETTE.MesaRockLight,
+			false,
+			Enum.PartType.Ball
+		)
+		makePart(
+			rock,
+			"GroundedSideLobe",
+			Vector3.new(1.45, 0.78, 1.35),
+			CFrame.new(x - 1.65, center.Y + 0.37, z + 1.12) * CFrame.Angles(0, yaw - math.rad(12), 0),
+			PALETTE.MesaRockMid,
+			false,
+			Enum.PartType.Ball
+		)
+	end
+end
+
+local function addPebbleCluster(scene: Model, center: Vector3, position: Vector3, groupIndex: number)
+	local group = makeModel(scene, "PebbleGroup" .. groupIndex, "Chunkier")
+	group:SetAttribute("AssetVariant", "RoundedMeadowPebbles")
+	group:SetAttribute("ModularEnvironmentAsset", true)
+	local pebbles = {
+		{ Vector3.new(-0.58, 0, 0.0), Vector3.new(0.82, 0.42, 0.68), PALETTE.MesaRockMid },
+		{ Vector3.new(0.28, 0, -0.24), Vector3.new(0.72, 0.5, 0.62), PALETTE.MesaRockLight },
+		{ Vector3.new(0.85, 0, 0.5), Vector3.new(0.64, 0.36, 0.54), PALETTE.MesaRock },
+	}
+	local yaw = math.rad(groupIndex * 19)
+	local yawFrame = CFrame.Angles(0, yaw, 0)
+	for index, pebble in ipairs(pebbles) do
+		local offset = yawFrame:VectorToWorldSpace(pebble[1])
+		local size = pebble[2]
+		local pebblePosition = center + position + offset + Vector3.new(0, size.Y * 0.5 - 0.02, 0)
+		makePart(
+			group,
+			"SmoothPebble" .. index,
+			size,
+			CFrame.new(pebblePosition) * CFrame.Angles(0, yaw + math.rad(index * 13), 0),
+			pebble[3],
+			false,
+			Enum.PartType.Ball
+		)
+	end
+end
+
+local function addFenceSegment(scene: Model, center: Vector3, name: string, position: Vector3, length: number)
+	local fence = makeModel(scene, name, "Chunkier")
+	fence:SetAttribute("AssetVariant", "LowSplitRailOutskirts")
+	fence:SetAttribute("ModularEnvironmentAsset", true)
+	local span = length - 0.45
+	local x = center.X + position.X
+	local z = center.Z + position.Z
+	for index, direction in ipairs({ -1, 1 }) do
+		makePart(
+			fence,
+			"FencePost" .. index,
+			Vector3.new(0.46, 2.25, 0.46),
+			CFrame.new(x + direction * span * 0.5, center.Y + 1.125, z),
+			PALETTE.Wood,
+			false
+		)
+	end
+	for index, height in ipairs({ 0.72, 1.55 }) do
+		makePart(
+			fence,
+			"FenceRail" .. index,
+			Vector3.new(span, 0.22, 0.26),
+			CFrame.new(x, center.Y + height, z),
+			if index == 1 then PALETTE.WoodLight else PALETTE.Wood,
+			false
 		)
 	end
 end
@@ -439,7 +514,8 @@ local function addFlower(scene: Model, center: Vector3, position: Vector3, style
 	local flower = makeModel(scene, "WoodlandBloom" .. index, style)
 	flower:SetAttribute("AssetVariant", if index % 2 == 0 then "GoldenBell" else "MeadowPinwheel")
 	flower:SetAttribute("ModularEnvironmentAsset", true)
-	local origin = center + position + Vector3.new(0, 0.24, 0)
+	local flowerBaseOffset = if style == "Chunkier" then 0.075 else 0.24
+	local origin = center + position + Vector3.new(0, flowerBaseOffset, 0)
 	local petalColor = if index % 3 == 0 then PALETTE.FlowerLilac elseif index % 2 == 0 then PALETTE.FlowerGold else PALETTE.FlowerCoral
 	makePart(
 		flower,
@@ -468,6 +544,19 @@ local function addFlower(scene: Model, center: Vector3, position: Vector3, style
 		PALETTE.FlowerGold,
 		false
 	)
+end
+
+local function addBushBloomCluster(scene: Model, center: Vector3, position: Vector3, yawDegrees: number, bushIndex: number)
+	local flowerOffsets = {
+		Vector3.new(-0.65, 3.2, 1.02),
+		Vector3.new(0.65, 3.22, 1.02),
+	}
+	local yawFrame = CFrame.Angles(0, math.rad(yawDegrees), 0)
+	for index, offset in ipairs(flowerOffsets) do
+		local rotated = yawFrame:VectorToWorldSpace(Vector3.new(offset.X, 0, offset.Z))
+		local flowerPosition = Vector3.new(position.X + rotated.X, offset.Y, position.Z + rotated.Z)
+		addFlower(scene, center, flowerPosition, "Chunkier", 10 + (bushIndex - 1) * 2 + index)
+	end
 end
 
 local function addSign(scene: Model, center: Vector3, style: string)
@@ -517,6 +606,12 @@ local function addTrees(scene: Model, center: Vector3, style: string)
 		Vector3.new(19, center.Y, -7),
 	}
 	local seeds = { 418031, 418047, 418063 }
+	if style == "Chunkier" then
+		table.insert(positions, Vector3.new(-12, center.Y, -26))
+		table.insert(positions, Vector3.new(12, center.Y, -26))
+		table.insert(seeds, 418079)
+		table.insert(seeds, 418097)
+	end
 	for index, offset in ipairs(positions) do
 		local tree = DevStarterOakGenerator.Generate(seeds[index], { Extreme = false })
 		tree:ScaleTo(1.08)
@@ -553,7 +648,7 @@ local function buildVariation(parent: Model, name: string, center: Vector3, styl
 	scene.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
 	scene:SetAttribute("DesignDirection", if style == "Softer" then "SofterStorybook" else "ChunkierStorybook")
 	scene:SetAttribute("Theme", "World1BrightWoodland")
-	scene:SetAttribute("TreeCount", 3)
+	scene:SetAttribute("TreeCount", if style == "Chunkier" then 5 else 3)
 	scene:SetAttribute("Harvestable", false)
 	scene:SetAttribute("PaletteWorld1", true)
 
@@ -572,12 +667,21 @@ local function buildVariation(parent: Model, name: string, center: Vector3, styl
 		{ "PocketFern", Vector3.new(-30, 0, 5), 14 },
 		{ "AcornFan", Vector3.new(30, 0, 6), -18 },
 	}
-	for _, bush in ipairs(bushes) do
+	for bushIndex, bush in ipairs(bushes) do
 		addBush(scene, center, bush[1], bush[2], style, bush[3])
+		if style == "Chunkier" then
+			addBushBloomCluster(scene, center, bush[2], bush[3], bushIndex)
+		end
 	end
 
 	addBoulder(scene, center, style, "MesaBoulderWest", Vector3.new(-30, 0, 13), 1)
 	addBoulder(scene, center, style, "MesaBoulderEast", Vector3.new(30, 0, 15), 2)
+	if style == "Chunkier" then
+		addPebbleCluster(scene, center, Vector3.new(-25.8, 0, 15.7), 1)
+		addPebbleCluster(scene, center, Vector3.new(25.8, 0, 18.4), 2)
+		addFenceSegment(scene, center, "RearFenceWest", Vector3.new(-22.5, 0, -28.2), 11.5)
+		addFenceSegment(scene, center, "RearFenceEast", Vector3.new(22.5, 0, -28.2), 11.5)
+	end
 
 	local tuftPositions = if style == "Softer" then {
 		Vector3.new(-29, 0, 20), Vector3.new(-20, 0, 27), Vector3.new(25, 0, 22), Vector3.new(31, 0, -1),
