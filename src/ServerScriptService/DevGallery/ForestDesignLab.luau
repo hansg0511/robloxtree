@@ -185,71 +185,35 @@ end
 
 local function addTrail(scene: Model, center: Vector3, style: string)
 	local trail = makeModel(scene, "CurvingTrail", style)
-	trail:SetAttribute("AssetVariant", if style == "Softer" then "HoneyStoneMeander" else "WarmCobbleMeander")
+	trail:SetAttribute("AssetVariant", if style == "Softer" then "HoneyStoneTileMeander" else "WarmStoneTileMeander")
 
 	local softSteps = {
-		{ 0.0, 25.0, -6 }, { -0.35, 22.5, 2 }, { -0.85, 20.0, -4 },
-		{ -1.15, 17.5, 5 }, { -1.0, 15.0, -3 }, { -0.25, 12.5, 4 },
-		{ 0.15, 10.0, -3 }, { 0.0, 7.5, 5 }, { -1.1, 5.0, 0 },
+		{ 0.0, 25.0 }, { -0.35, 22.5 }, { -0.85, 20.0 },
+		{ -1.15, 17.5 }, { -1.0, 15.0 }, { -0.25, 12.5 },
+		{ 0.15, 10.0 }, { 0.0, 7.5 }, { -1.1, 5.0 },
 	}
 	local chunkySteps = {
-		{ 0.0, 25.0, -5 }, { 0.4, 22.5, 4 }, { 1.1, 20.0, -3 },
-		{ 1.3, 17.5, 5 }, { 0.6, 15.0, -4 }, { -0.2, 12.5, 4 },
-		{ -0.8, 10.0, -3 }, { -1.2, 7.5, 5 }, { -1.1, 5.0, 0 },
+		{ 0.0, 25.0 }, { 0.4, 22.5 }, { 1.1, 20.0 },
+		{ 1.3, 17.5 }, { 0.6, 15.0 }, { -0.2, 12.5 },
+		{ -0.8, 10.0 }, { -1.2, 7.5 }, { -1.1, 5.0 },
 	}
 	local steps = if style == "Softer" then softSteps else chunkySteps
+	local tileSize = Vector3.new(6.35, 0.075, 2.85)
 	for index, step in ipairs(steps) do
-		local rotation = math.rad(step[3])
-		local sectionWidth = 6.35 + (index % 3) * 0.3
-		local sectionLength = 3.4 + (index % 3) * 0.16
+		local previousStep = steps[math.max(index - 1, 1)]
+		local nextStep = steps[math.min(index + 1, #steps)]
+		local rotation = math.atan2(nextStep[1] - previousStep[1], nextStep[2] - previousStep[2])
 		local pathCenter = Vector3.new(center.X + step[1], center.Y, center.Z + step[2])
 		local rotationFrame = CFrame.Angles(0, rotation, 0)
-
-		local earthEdge = makePart(
+		local tile = makePart(
 			trail,
-			"WarmEarthEdge" .. index,
-			Vector3.new(sectionWidth + 0.65, 0.035, sectionLength + 0.52),
-			CFrame.new(pathCenter.X, center.Y + 0.0175, pathCenter.Z) * rotationFrame,
-			PALETTE.PathShade,
+			"TrailTile" .. index,
+			tileSize,
+			CFrame.new(pathCenter + Vector3.new(0, tileSize.Y * 0.5 + (index - 1) * 0.001, 0)) * rotationFrame,
+			PALETTE.Path,
 			false
 		)
-		earthEdge:SetAttribute("DecorativeGroundLayer", true)
-
-		local primaryElevation = if index % 2 == 0 then 0.003 else 0
-		local primaryOffset = rotationFrame:VectorToWorldSpace(Vector3.new(if index % 2 == 0 then 0.18 else -0.18, 0, 0))
-		local primaryStone = makePart(
-			trail,
-			"TrailStone" .. index,
-			Vector3.new(sectionWidth - 0.8 + (index % 3) * 0.15, 0.055, sectionLength - 0.35),
-			CFrame.new(pathCenter + primaryOffset + Vector3.new(0, 0.0475 + primaryElevation, 0.03)) * rotationFrame,
-			if index % 4 == 0 then PALETTE.PathLight else PALETTE.Path,
-			false
-		)
-		primaryStone:SetAttribute("TrailPiece", "PrimaryCobble")
-
-		local side = if index % 2 == 0 then 1 else -1
-		local sideOffset = rotationFrame:VectorToWorldSpace(Vector3.new(side * 1.55, 0, if index % 3 == 0 then 0.12 else -0.1))
-		local overlapStone = makePart(
-			trail,
-			"OverlapCobble" .. index,
-			Vector3.new(2.7 + (index % 2) * 0.35, 0.035, 1.85 + (index % 3) * 0.12),
-			CFrame.new(pathCenter + sideOffset + Vector3.new(0, 0.065, 0)) * CFrame.Angles(0, rotation + math.rad(if index % 2 == 0 then 4 else -4), 0),
-			if index % 3 == 0 then PALETTE.PathLight else PALETTE.Path,
-			false
-		)
-		overlapStone:SetAttribute("TrailPiece", "OverlappingCobble")
-
-		local chipSide = if index % 2 == 0 then -1 else 1
-		local chipOffset = rotationFrame:VectorToWorldSpace(Vector3.new(chipSide * (sectionWidth * 0.39), 0, if index % 3 == 0 then 0.88 else -0.82))
-		local edgeChip = makePart(
-			trail,
-			"EdgeCobble" .. index,
-			Vector3.new(1.35 + (index % 2) * 0.2, 0.035, 1.05 + (index % 3) * 0.08),
-			CFrame.new(pathCenter + chipOffset + Vector3.new(0, 0.0475, 0)) * CFrame.Angles(0, rotation + math.rad(if index % 2 == 0 then -7 else 6), 0),
-			if index % 2 == 0 then PALETTE.PathLight else PALETTE.Path,
-			false
-		)
-		edgeChip:SetAttribute("TrailPiece", "EdgeFragment")
+		tile:SetAttribute("TrailPiece", "UniformWarmTile")
 	end
 end
 
@@ -323,12 +287,13 @@ local function addBush(scene: Model, center: Vector3, assetName: string, positio
 	local base = Vector3.new(center.X + position.X, center.Y, center.Z + position.Z)
 	local yaw = math.rad(yawDegrees)
 	local yawFrame = CFrame.Angles(0, yaw, 0)
+	local verticalScale = 1.35
 	for index, layer in ipairs(definition.Layers) do
-		local offset = yawFrame:VectorToWorldSpace(Vector3.new(layer[1], layer[2], layer[3]))
+		local offset = yawFrame:VectorToWorldSpace(Vector3.new(layer[1], layer[2] * verticalScale, layer[3]))
 		makePart(
 			bush,
 			"BroadLeafLayer" .. index,
-			Vector3.new(layer[4], layer[5], layer[6]),
+			Vector3.new(layer[4], layer[5] * verticalScale, layer[6]),
 			CFrame.new(base + offset) * CFrame.Angles(0, yaw + math.rad(layer[8]), 0),
 			definition.Colors[layer[7]],
 			false
@@ -470,6 +435,7 @@ local function addTrees(scene: Model, center: Vector3, style: string)
 	local seeds = { 418031, 418047, 418063 }
 	for index, offset in ipairs(positions) do
 		local tree = DevStarterOakGenerator.Generate(seeds[index], { Extreme = false })
+		tree:ScaleTo(1.08)
 		tree.Name = "ShowcaseStarterOak" .. index
 		tree:SetAttribute("DevGalleryOwner", OWNER)
 		tree:SetAttribute("DevOnly", true)
@@ -478,6 +444,7 @@ local function addTrees(scene: Model, center: Vector3, style: string)
 		tree:SetAttribute("NonHarvestable", true)
 		tree:SetAttribute("HarvestingDisabled", true)
 		tree:SetAttribute("ShowcaseVariation", style)
+		tree:SetAttribute("ShowcaseVisualScale", 1.08)
 		for _, descendant in ipairs(tree:GetDescendants()) do
 			if descendant:IsA("BasePart") then
 				descendant.Anchored = true
