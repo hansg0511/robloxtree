@@ -198,18 +198,64 @@ local function addTrail(scene: Model, center: Vector3, style: string)
 		{ -0.8, 10.0 }, { -1.2, 7.5 }, { -1.1, 5.0 },
 	}
 	local steps = if style == "Softer" then softSteps else chunkySteps
+
+	local function evaluatePath(segmentIndex: number, t: number): (number, number, number, number)
+		local previous = steps[math.max(segmentIndex - 1, 1)]
+		local start = steps[segmentIndex]
+		local finish = steps[segmentIndex + 1]
+		local following = steps[math.min(segmentIndex + 2, #steps)]
+		local tSquared = t * t
+		local tCubed = tSquared * t
+
+		local x = 0.5
+			* (2 * start[1]
+				+ (-previous[1] + finish[1]) * t
+				+ (2 * previous[1] - 5 * start[1] + 4 * finish[1] - following[1]) * tSquared
+				+ (-previous[1] + 3 * start[1] - 3 * finish[1] + following[1]) * tCubed)
+		local z = 0.5
+			* (2 * start[2]
+				+ (-previous[2] + finish[2]) * t
+				+ (2 * previous[2] - 5 * start[2] + 4 * finish[2] - following[2]) * tSquared
+				+ (-previous[2] + 3 * start[2] - 3 * finish[2] + following[2]) * tCubed)
+		local tangentX = 0.5
+			* ((-previous[1] + finish[1])
+				+ 2 * (2 * previous[1] - 5 * start[1] + 4 * finish[1] - following[1]) * t
+				+ 3 * (-previous[1] + 3 * start[1] - 3 * finish[1] + following[1]) * tSquared)
+		local tangentZ = 0.5
+			* ((-previous[2] + finish[2])
+				+ 2 * (2 * previous[2] - 5 * start[2] + 4 * finish[2] - following[2]) * t
+				+ 3 * (-previous[2] + 3 * start[2] - 3 * finish[2] + following[2]) * tSquared)
+		return x, z, tangentX, tangentZ
+	end
+
 	local tileSize = Vector3.new(6.35, 0.075, 2.85)
-	for index, step in ipairs(steps) do
-		local previousStep = steps[math.max(index - 1, 1)]
-		local nextStep = steps[math.min(index + 1, #steps)]
-		local rotation = math.atan2(nextStep[1] - previousStep[1], nextStep[2] - previousStep[2])
-		local pathCenter = Vector3.new(center.X + step[1], center.Y, center.Z + step[2])
+	local maxSampleSpacing = 0.8
+	local samples = {}
+	for segmentIndex = 1, #steps - 1 do
+		local start = steps[segmentIndex]
+		local finish = steps[segmentIndex + 1]
+		local deltaX = finish[1] - start[1]
+		local deltaZ = finish[2] - start[2]
+		local segmentLength = math.sqrt(deltaX * deltaX + deltaZ * deltaZ)
+		local subdivisionCount = math.max(1, math.ceil(segmentLength / maxSampleSpacing))
+		for subdivisionIndex = 0, subdivisionCount - 1 do
+			local t = subdivisionIndex / subdivisionCount
+			local x, z, tangentX, tangentZ = evaluatePath(segmentIndex, t)
+			table.insert(samples, { x, z, tangentX, tangentZ })
+		end
+	end
+	local lastX, lastZ, lastTangentX, lastTangentZ = evaluatePath(#steps - 1, 1)
+	table.insert(samples, { lastX, lastZ, lastTangentX, lastTangentZ })
+
+	for index, sample in ipairs(samples) do
+		local rotation = math.atan2(sample[3], sample[4])
+		local pathCenter = Vector3.new(center.X + sample[1], center.Y, center.Z + sample[2])
 		local rotationFrame = CFrame.Angles(0, rotation, 0)
 		local tile = makePart(
 			trail,
 			"TrailTile" .. index,
 			tileSize,
-			CFrame.new(pathCenter + Vector3.new(0, tileSize.Y * 0.5 + (index - 1) * 0.001, 0)) * rotationFrame,
+			CFrame.new(pathCenter + Vector3.new(0, tileSize.Y * 0.5 + ((index - 1) % 8) * 0.001, 0)) * rotationFrame,
 			PALETTE.Path,
 			false
 		)
