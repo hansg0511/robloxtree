@@ -163,45 +163,90 @@ local function part(parent: Instance, name: string, size: Vector3, cf: CFrame, c
 	return p
 end
 
-local function label(parent: Instance, name: string, title: string, body: string, pos: Vector3, color: Color3, size: UDim2?, maxDistance: number?)
-	local anchor = part(parent, name .. "Anchor", Vector3.new(0.2, 0.2, 0.2), CFrame.new(pos), Color3.new(1, 1, 1), false)
-	anchor.Transparency = 1
-	local gui = Instance.new("BillboardGui")
-	gui.Name = name
-	gui.Size = size or UDim2.fromOffset(260, 112)
-	gui.MaxDistance = maxDistance or 80
-	gui.AlwaysOnTop = true
-	gui.Parent = anchor
-	local frame = Instance.new("Frame")
-	frame.Size = UDim2.fromScale(1, 1)
-	frame.BackgroundColor3 = color
-	frame.BackgroundTransparency = 0.08
-	frame.BorderSizePixel = 0
-	frame.Parent = gui
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 8)
-	corner.Parent = frame
-	local heading = Instance.new("TextLabel")
-	heading.Position = UDim2.fromOffset(7, 5)
-	heading.Size = UDim2.new(1, -14, 0, 25)
-	heading.BackgroundTransparency = 1
-	heading.Font = Enum.Font.GothamBold
-	heading.Text = title
-	heading.TextColor3 = COLORS.Text
-	heading.TextSize = 15
-	heading.TextWrapped = true
-	heading.Parent = frame
-	local details = Instance.new("TextLabel")
-	details.Position = UDim2.fromOffset(8, 30)
-	details.Size = UDim2.new(1, -16, 1, -36)
-	details.BackgroundTransparency = 1
-	details.Font = Enum.Font.Gotham
-	details.Text = body
-	details.TextColor3 = COLORS.Text
-	details.TextSize = 12
-	details.TextWrapped = true
-	details.TextYAlignment = Enum.TextYAlignment.Top
-	details.Parent = frame
+local function sign(
+	parent: Instance,
+	name: string,
+	title: string,
+	body: string,
+	center: Vector3,
+	color: Color3,
+	faceWidth: number,
+	faceHeight: number,
+	sideFacing: boolean?
+)
+	local side = sideFacing == true
+	local boardSize = if side
+		then Vector3.new(0.24, faceHeight, faceWidth)
+		else Vector3.new(faceWidth, faceHeight, 0.24)
+	local board = part(parent, name .. "Board", boardSize, CFrame.new(center),
+		Color3.fromRGB(78, 61, 43), false)
+	board.Material = Enum.Material.WoodPlanks
+	board:SetAttribute("WorldSpaceLabel", true)
+
+	local postSpan = faceWidth * 0.48
+	for index, direction in ipairs({ -1, 1 }) do
+		local postCenter = if side
+			then Vector3.new(center.X, center.Y, center.Z + direction * postSpan)
+			else Vector3.new(center.X + direction * postSpan, center.Y, center.Z)
+		local post = part(parent, name .. "Post" .. index, Vector3.new(0.3, faceHeight, 0.3),
+			CFrame.new(postCenter), Color3.fromRGB(58, 46, 34), false)
+		post.Material = Enum.Material.Wood
+	end
+
+	local faces = if side
+		then { Enum.NormalId.Left, Enum.NormalId.Right }
+		else { Enum.NormalId.Front, Enum.NormalId.Back }
+	for index, face in ipairs(faces) do
+		local gui = Instance.new("SurfaceGui")
+		gui.Name = name .. "Text" .. index
+		gui.Face = face
+		gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+		gui.PixelsPerStud = 32
+		gui.LightInfluence = 0
+		gui.AlwaysOnTop = false
+		gui.Parent = board
+
+		local frame = Instance.new("Frame")
+		frame.Size = UDim2.fromScale(1, 1)
+		frame.BackgroundColor3 = color
+		frame.BackgroundTransparency = 0.04
+		frame.BorderSizePixel = 0
+		frame.Parent = gui
+
+		local heading = Instance.new("TextLabel")
+		heading.Position = UDim2.fromOffset(7, 3)
+		heading.Size = UDim2.new(1, -14, 0, 28)
+		heading.BackgroundTransparency = 1
+		heading.Font = Enum.Font.GothamBold
+		heading.Text = title
+		heading.TextColor3 = COLORS.Text
+		heading.TextSize = 16
+		heading.TextScaled = true
+		heading.TextWrapped = true
+		heading.TextXAlignment = Enum.TextXAlignment.Center
+		heading.Parent = frame
+		local headingConstraint = Instance.new("UITextSizeConstraint")
+		headingConstraint.MinTextSize = 10
+		headingConstraint.MaxTextSize = 16
+		headingConstraint.Parent = heading
+
+		local details = Instance.new("TextLabel")
+		details.Position = UDim2.fromOffset(8, 36)
+		details.Size = UDim2.new(1, -16, 1, -42)
+		details.BackgroundTransparency = 1
+		details.Font = Enum.Font.Gotham
+		details.Text = body
+		details.TextColor3 = COLORS.Text
+		details.TextSize = 12
+		details.TextScaled = true
+		details.TextWrapped = true
+		details.TextYAlignment = Enum.TextYAlignment.Top
+		details.Parent = frame
+		local detailsConstraint = Instance.new("UITextSizeConstraint")
+		detailsConstraint.MinTextSize = 9
+		detailsConstraint.MaxTextSize = 12
+		detailsConstraint.Parent = details
+	end
 end
 
 local function normalized(text: string): string
@@ -683,8 +728,32 @@ local function addCard(parent: Instance, card: Card, center: Vector3, surfaceY: 
 	local displayCard = table.clone(card)
 	displayCard.Reason = status
 	local isAvailable = shown ~= nil or (card.PackFamily == true and card.Reason ~= nil and not string.find(card.Reason, "Not imported", 1, true))
-	label(item, "Attribution", card.Name, cardBody(displayCard), Vector3.new(center.X, surfaceY + 8.1, center.Z),
-		if isAvailable then COLORS.Available else COLORS.Unavailable, UDim2.fromOffset(270, 122), 18)
+	local completeDetails = cardBody(displayCard)
+	local listingStatus = card.ListingStatus or "Listing status unknown"
+	local listingQualifier = if string.find(listingStatus, "unverified", 1, true) then "availability unverified"
+		elseif string.find(listingStatus, "HTTP 502", 1, true) then "HTTP 502"
+		elseif string.find(listingStatus, "Source-controlled template imported", 1, true) then "source template"
+		elseif string.find(listingStatus, "Free listing", 1, true) then "free listing"
+		else "listing unknown"
+	local previewStatus = if shown then "Preview available"
+		elseif card.PackFamily == true and card.Reason ~= nil and not string.find(card.Reason, "Not imported", 1, true)
+		then "Variants listed"
+		elseif card.Template then "Not shown"
+		else "Not imported"
+	local displayStatus = previewStatus .. " · " .. listingQualifier
+	item:SetAttribute("CardDetails", completeDetails)
+	item:SetAttribute("DisplayStatus", displayStatus)
+	local pack = if card.Pack ~= "" then card.Pack else "Standalone listing"
+	local creator = if card.Creator ~= "" then card.Creator else "Creator metadata not supplied"
+	local signDetails = table.concat({
+		("ID: %s · Variant: %s"):format(card.Id, card.Variant),
+		"Pack: " .. pack,
+		"Creator: " .. creator,
+		"Status: " .. displayStatus,
+	}, "\n")
+	sign(item, "Attribution", card.Name, signDetails,
+		Vector3.new(center.X + 6.2, surfaceY + 1.65, center.Z),
+		if isAvailable then COLORS.Available else COLORS.Unavailable, 5, 3.3, true)
 	return item
 end
 
@@ -818,13 +887,21 @@ local function addComposition(
 			preview.Name = ("Composition%02d_%s"):format(index, template.Model.Name)
 			preview:SetAttribute("CompositionSourcePack", template.Pack)
 			shown += 1
+			local signDetails = table.concat({
+				"ID: " .. template.Id,
+				"Pack: " .. sourcePack,
+				"Variant: " .. template.Variant,
+			}, "\n")
+			sign(parent, ("Composition%02dAsset%02dSign"):format(index, i), template.Name, signDetails,
+				Vector3.new(positions[i].X + 5.8, center.Y + 1.4, positions[i].Z),
+				COLORS.Available, 4.6, 2.8, true)
 			table.insert(provenance, ("%s · %s · ID %s · variant %s · %s"):format(
 				template.Name, sourcePack, template.Id, template.Variant, creator
 			))
 		else
 			table.insert(skipped, template.Name .. ": " .. status)
-			table.insert(provenance, ("%s · %s · ID %s · variant %s · not shown"):format(
-				template.Name, sourcePack, template.Id, template.Variant
+			table.insert(provenance, ("%s · %s · ID %s · variant %s · %s · not shown"):format(
+				template.Name, sourcePack, template.Id, template.Variant, creator
 			))
 		end
 	end
@@ -850,9 +927,14 @@ local function addComposition(
 	}, "\n")
 	if #skipped > 0 then details ..= "\nSkipped: " .. table.concat(skipped, "; ") end
 	local title = definition.Name .. " · " .. pack.Name
-	label(parent, "Composition" .. index .. "Label", title, details,
-		Vector3.new(center.X, center.Y + 15, center.Z - 37),
-		if shown > 0 then COLORS.Available else COLORS.Unavailable, UDim2.fromOffset(500, 220), 80)
+	base:SetAttribute("CompositionSummary", summary)
+	base:SetAttribute("CompositionDetails", details)
+	base:SetAttribute("CompositionProvenance", table.concat(provenance, "\n"))
+	base:SetAttribute("SkippedCompositionAssets", table.concat(skipped, "\n"))
+	local signDetails = table.concat({ sourceHeader, summary, oakText, mesaText, pathText }, "\n")
+	sign(parent, "Composition" .. index .. "Sign", title, signDetails,
+		Vector3.new(center.X, center.Y + 1.75, center.Z - 40.5),
+		if shown > 0 then COLORS.Available else COLORS.Unavailable, 12, 3.5)
 	return Vector3.new(center.X, center.Y + 7, center.Z + 1)
 end
 
@@ -909,10 +991,10 @@ function Showcase.Build(parent: Instance, center: Vector3, options: any?)
 		local intro = if #templates > 0
 			then ("%d source-controlled model template(s) found. Only sanitized clones are shown."):format(#templates)
 			else "No verified source-controlled model templates found. Candidate cards are marked Not imported; no substitute geometry is shown."
-		label(root, "CatalogIntro", "FOREST TOOLBOX ASSET SELECTION",
+		sign(root, "CatalogIntro", "FOREST TOOLBOX ASSET SELECTION",
 			intro .. "\nNo Creator Store asset is loaded by ID at runtime.",
-			Vector3.new(catalogCenter.X, center.Y + 9, catalogCenter.Z - catalogDepth * 0.5 + 5),
-			if #templates > 0 then COLORS.Available else COLORS.Unavailable, UDim2.fromOffset(760, 104), 100)
+			Vector3.new(catalogCenter.X, center.Y + 1.5, catalogCenter.Z - catalogDepth * 0.5 + 5),
+			if #templates > 0 then COLORS.Available else COLORS.Unavailable, 14, 3)
 
 		local budget = { Models = 0, Instances = 0, Parts = 0 }
 		local firstRow = catalogCenter.Z - catalogDepth * 0.5 + 19
@@ -920,10 +1002,10 @@ function Showcase.Build(parent: Instance, center: Vector3, options: any?)
 		local cards = 0
 		for _, category in ipairs(CATEGORY_ORDER) do
 			local list = groups[category]
-			label(root, "Category_" .. string.gsub(category, "%W", ""), CATEGORY_LABEL[category] or category,
+			sign(root, "Category_" .. string.gsub(category, "%W", ""), CATEGORY_LABEL[category] or category,
 				("%d catalog entry/entries"):format(#list),
-				Vector3.new(catalogCenter.X, center.Y + 7, firstRow + row * ROW_PITCH),
-				COLORS.Available, UDim2.fromOffset(520, 64), 80)
+				Vector3.new(catalogCenter.X, center.Y + 1.3, firstRow + row * ROW_PITCH),
+				COLORS.Available, 12, 2.6)
 			row += 1
 			for i, card in ipairs(list) do
 				local r = math.floor((i - 1) / COLUMNS)
