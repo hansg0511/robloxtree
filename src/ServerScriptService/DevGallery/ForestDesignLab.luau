@@ -261,6 +261,12 @@ local function makeModel(parent: Instance, name: string, variation: string?): Mo
 	return model
 end
 
+-- The Chunkier gallery uses the Grass material to keep its green ground accents matte.
+local function applyMatteGrass(part: BasePart)
+	part.Material = Enum.Material.Grass
+	part.Reflectance = 0
+end
+
 local function createGround(scene: Model, center: Vector3, style: string)
 	local soil = makePart(
 		scene,
@@ -285,6 +291,9 @@ local function createGround(scene: Model, center: Vector3, style: string)
 	surface:SetAttribute("WalkableUtilitySurface", true)
 	surface:SetAttribute("NavigationTarget", true)
 	surface:SetAttribute("DecorativeGroundLayer", true)
+	if style == "Chunkier" then
+		applyMatteGrass(surface)
+	end
 
 	-- Faceted low meadow washes keep the outer margins varied without making
 	-- a repeated dotted texture or taking space from the chopping floor.
@@ -309,6 +318,9 @@ local function createGround(scene: Model, center: Vector3, style: string)
 		else
 			makeWedge(scene, "MeadowFacet" .. index, Vector3.new(patch[3], 0.035, patch[4]), patchFrame, patch[5])
 		patchPart:SetAttribute("DecorativeGroundLayer", true)
+		if style == "Chunkier" then
+			applyMatteGrass(patchPart)
+		end
 	end
 	if style == "Chunkier" then
 		-- Broad, flat meadow strokes carry the chunky palette through open grass
@@ -339,6 +351,7 @@ local function createGround(scene: Model, center: Vector3, style: string)
 				makeCornerWedge(scene, "GrassStroke" .. index, strokeSize, strokeFrame, stroke[5])
 			else
 				makeWedge(scene, "GrassStroke" .. index, strokeSize, strokeFrame, stroke[5])
+			applyMatteGrass(strokePart)
 			strokePart.CastShadow = false
 			strokePart:SetAttribute("DecorativeGroundLayer", true)
 			strokePart:SetAttribute("GroundTextureAccent", true)
