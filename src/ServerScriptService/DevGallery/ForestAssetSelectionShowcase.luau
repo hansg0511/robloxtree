@@ -111,6 +111,36 @@ local COMPOSITIONS = {
 	},
 }
 
+type ForestBDressingSpec = {
+	ModelName: string,
+	AssetId: string,
+	Role: string,
+	Position: Vector3,
+	TargetExtent: number,
+	YawDegrees: number,
+	Replaces: { string }?,
+}
+
+-- These are the exact source-backed ForestToolboxAssets selected for the
+-- Forest B preview. Positions stay around the clearing edge so the central
+-- warm tile trail remains open.
+local FOREST_B_SOURCE_DRESSING: { ForestBDressingSpec } = {
+	{ ModelName = "Stylised_Rock01", AssetId = "6503281311", Role = "West meadow rock", Position = Vector3.new(-30, 0, 13), TargetExtent = 5.2, YawDegrees = -18, Replaces = { "MesaBoulderWest" } },
+	{ ModelName = "Stylised_Rock02", AssetId = "6503281311", Role = "East meadow rock", Position = Vector3.new(30, 0, 15), TargetExtent = 5.2, YawDegrees = 24, Replaces = { "MesaBoulderEast" } },
+	{ ModelName = "Stylised_Rock03", AssetId = "6503281311", Role = "Northwest meadow rock", Position = Vector3.new(-20, 0, 19), TargetExtent = 5.2, YawDegrees = 9 },
+	{ ModelName = "Synty_Pebbles", AssetId = "6933438443", Role = "West pebble cluster", Position = Vector3.new(-25.8, 0, 15.7), TargetExtent = 5.0, YawDegrees = -13, Replaces = { "PebbleGroup1" } },
+	{ ModelName = "Synty_Pebbles", AssetId = "6933438443", Role = "East pebble cluster", Position = Vector3.new(25.8, 0, 18.4), TargetExtent = 5.0, YawDegrees = 17, Replaces = { "PebbleGroup2" } },
+	{ ModelName = "Individual_WoodFence", AssetId = "8399365124", Role = "West rear fence", Position = Vector3.new(-22.5, 0, -28.2), TargetExtent = 7.8, YawDegrees = 0, Replaces = { "RearFenceWest" } },
+	{ ModelName = "Individual_WoodFence", AssetId = "8399365124", Role = "East rear fence", Position = Vector3.new(22.5, 0, -28.2), TargetExtent = 7.8, YawDegrees = 0, Replaces = { "RearFenceEast" } },
+	{ ModelName = "Colored_Flower01", AssetId = "17638037773", Role = "West trailhead flower", Position = Vector3.new(-26, 0, 25), TargetExtent = 3.6, YawDegrees = -8, Replaces = { "WoodlandBloom1" } },
+	{ ModelName = "Colored_Flower02", AssetId = "17638037773", Role = "East trailhead flower", Position = Vector3.new(24, 0, 25), TargetExtent = 3.6, YawDegrees = 12, Replaces = { "WoodlandBloom2" } },
+	{ ModelName = "Colored_Flower03", AssetId = "17638037773", Role = "West meadow flower", Position = Vector3.new(-31, 0, -1), TargetExtent = 3.6, YawDegrees = -16 },
+	{ ModelName = "Synty_Log", AssetId = "6933438443", Role = "West fallen log", Position = Vector3.new(-21, 0, 1), TargetExtent = 7.4, YawDegrees = -20 },
+	{ ModelName = "Individual_LowPolyLog", AssetId = "11312714034", Role = "East fallen log", Position = Vector3.new(21, 0, 2), TargetExtent = 7.4, YawDegrees = 18 },
+	{ ModelName = "Synty_Sign", AssetId = "6933438443", Role = "Forest sign prop", Position = Vector3.new(29, 0, -12), TargetExtent = 4.6, YawDegrees = -8 },
+	{ ModelName = "Individual_DirtPath", AssetId = "5216151629", Role = "Dirt path comparison sample", Position = Vector3.new(12, 0, 27), TargetExtent = 8.2, YawDegrees = 0 },
+}
+
 type Template = {
 	Model: Model,
 	Name: string,
@@ -627,7 +657,8 @@ local function clonePreview(
 	position: Vector3,
 	surfaceY: number,
 	budget: { Models: number, Instances: number, Parts: number },
-	targetExtent: number?
+	targetExtent: number?,
+	yawDegrees: number?
 ): (Model?, string)
 	if template.Rejected then return nil, template.Rejected end
 	if budget.Models >= TOTAL_MODEL_CAP then return nil, "Not shown · gallery preview model cap reached" end
@@ -651,6 +682,13 @@ local function clonePreview(
 
 	local previewScale = 1
 	local placed, placeError = pcall(function()
+		if yawDegrees and math.abs(yawDegrees) > 0.01 then
+			local pivot = preview:GetPivot()
+			local yawedPivot = CFrame.new(pivot.Position)
+				* CFrame.Angles(0, math.rad(yawDegrees), 0)
+				* (pivot - pivot.Position)
+			preview:PivotTo(yawedPivot)
+		end
 		local bounds = getVisibleBounds(preview)
 		if not bounds then
 			error("Template has no visible BasePart bounds")
@@ -946,6 +984,121 @@ local function modelStats(model: Model): (number, number)
 		if item:IsA("BasePart") then parts += 1 end
 	end
 	return instances, parts
+end
+
+
+function Showcase.BuildForestBSourceDressing(parent: Model, center: Vector3, options: any?): (Model, any)
+	assert(RunService:IsStudio(), "Forest B source dressing is available only in Roblox Studio")
+	assert(parent ~= nil, "BuildForestBSourceDressing requires a parent Model")
+	assert(typeof(center) == "Vector3", "BuildForestBSourceDressing requires a world-space center")
+
+	local templateRoot = getTemplateRoot(options)
+	local templates = collectTemplates(templateRoot)
+	local templatesByKey: { [string]: Template } = {}
+	for _, template in ipairs(templates) do
+		templatesByKey[template.Id .. ":" .. template.Model.Name] = template
+	end
+
+	local dressing = Instance.new("Model")
+	dressing.Name = "ForestBApprovedSourceAssetDressing"
+	dressing.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
+	dressing:SetAttribute("IntegratedIntoForestB", true)
+	dressing:SetAttribute("BuildStatus", "Building")
+	mark(dressing)
+
+	local budget = { Models = 0, Instances = 0, Parts = 0 }
+	local missingNames: { [string]: boolean } = {}
+	local placedNames: { [string]: boolean } = {}
+	local replacedFallbacks: { [string]: boolean } = {}
+	local skippedPlacements = {}
+	local failedPlacementCount = 0
+	local pathSampleShown = false
+
+	for index, spec in ipairs(FOREST_B_SOURCE_DRESSING) do
+		local template = templatesByKey[spec.AssetId .. ":" .. spec.ModelName]
+		if not template then
+			missingNames[spec.ModelName] = true
+			table.insert(skippedPlacements, spec.ModelName .. " · exact source template not found")
+		else
+			local preview, status = clonePreview(
+				template,
+				dressing,
+				center + spec.Position,
+				center.Y + 0.02,
+				budget,
+				spec.TargetExtent,
+				spec.YawDegrees
+			)
+			if preview then
+				preview.Name = ("ForestBAsset%02d_%s"):format(index, spec.ModelName)
+				preview:SetAttribute("ForestBIntegratedAsset", true)
+				preview:SetAttribute("ForestBPlacementRole", spec.Role)
+				placedNames[spec.ModelName] = true
+				for _, fallbackName in ipairs(spec.Replaces or {}) do
+					replacedFallbacks[fallbackName] = true
+				end
+				if spec.Role == "Dirt path comparison sample" then
+					pathSampleShown = true
+					sign(
+						dressing,
+						"DirtPathComparisonLabel",
+						"DIRT PATH SAMPLE",
+						"Source asset · ID " .. spec.AssetId,
+						center + spec.Position + Vector3.new(0, 1.2, 5),
+						COLORS.Available,
+						6.8,
+						2.4
+					)
+				end
+			else
+				failedPlacementCount += 1
+				table.insert(skippedPlacements, spec.ModelName .. " · " .. status)
+			end
+		end
+	end
+
+	local function sortedNames(set: { [string]: boolean }): { string }
+		local names = {}
+		for name in pairs(set) do
+			table.insert(names, name)
+		end
+		table.sort(names)
+		return names
+	end
+
+	local placedNameList = sortedNames(placedNames)
+	local missingNameList = sortedNames(missingNames)
+	local replacedFallbackList = sortedNames(replacedFallbacks)
+	local status = if budget.Models == #FOREST_B_SOURCE_DRESSING
+		then "Ready"
+		elseif budget.Models > 0 then "Partial"
+		else "Unavailable"
+	local instanceCount, basePartCount = modelStats(dressing)
+	dressing:SetAttribute("BuildStatus", status)
+	dressing:SetAttribute("PlacedAssetCount", budget.Models)
+	dressing:SetAttribute("PlacedTemplateCount", #placedNameList)
+	dressing:SetAttribute("MissingTemplateCount", #missingNameList)
+	dressing:SetAttribute("FailedPlacementCount", failedPlacementCount)
+	dressing:SetAttribute("PlacedAssetNames", table.concat(placedNameList, ", "))
+	dressing:SetAttribute("SkippedPlacements", table.concat(skippedPlacements, "\n"))
+	dressing:SetAttribute("ReplacedFallbackNames", table.concat(replacedFallbackList, ", "))
+	dressing:SetAttribute("DirtPathSampleShown", pathSampleShown)
+	dressing:SetAttribute("SourceTemplateRoot", if templateRoot then templateRoot:GetFullName()
+		else "ServerStorage.DevToolboxAssets.ForestToolboxAssets (not found)")
+	dressing.Parent = parent
+
+	return dressing, {
+		BuildStatus = status,
+		AssetModelCount = budget.Models,
+		AssetInstanceCount = budget.Instances,
+		AssetBasePartCount = budget.Parts,
+		AssetNames = placedNameList,
+		MissingTemplateNames = missingNameList,
+		FailedPlacementCount = failedPlacementCount,
+		ReplacedFallbacks = replacedFallbackList,
+		InstanceCount = instanceCount,
+		BasePartCount = basePartCount,
+	}
 end
 
 function Showcase.Build(parent: Instance, center: Vector3, options: any?)

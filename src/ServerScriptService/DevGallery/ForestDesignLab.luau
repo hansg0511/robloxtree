@@ -127,6 +127,48 @@ local function buildAssetSelectionShowcase(parent: Model, center: Vector3)
 	return showcase, metadata
 end
 
+
+local function addChunkierSourceDressing(scene: Model, center: Vector3)
+	if not AssetSelectionModule or not AssetSelectionModule:IsA("ModuleScript") then
+		scene:SetAttribute("SourceAssetDressingBuildStatus", "Unavailable")
+		return nil, nil
+	end
+
+	local ok, dressing, metadata = pcall(function()
+		local builder = require(AssetSelectionModule)
+		assert(type(builder) == "table" and type(builder.BuildForestBSourceDressing) == "function",
+			"ForestAssetSelectionShowcase must export BuildForestBSourceDressing")
+		return builder.BuildForestBSourceDressing(scene, center)
+	end)
+	if not ok then
+		warn("[ForestDesignLab] Forest B source asset dressing failed; placeholder dressing remains: " .. tostring(dressing))
+		scene:SetAttribute("SourceAssetDressingBuildStatus", "Unavailable")
+		return nil, nil
+	end
+	if not dressing or not dressing:IsA("Model") or type(metadata) ~= "table" then
+		warn("[ForestDesignLab] Forest B source asset dressing returned incomplete metadata; placeholder dressing remains.")
+		scene:SetAttribute("SourceAssetDressingBuildStatus", "Unavailable")
+		return nil, nil
+	end
+
+	if type(metadata.ReplacedFallbacks) == "table" then
+		for _, fallbackName in ipairs(metadata.ReplacedFallbacks) do
+			local fallback = scene:FindFirstChild(fallbackName)
+			if fallback and fallback:GetAttribute("ModularEnvironmentAsset") == true then
+				fallback:Destroy()
+			end
+		end
+	end
+	scene:SetAttribute("SourceAssetDressingBuildStatus", tostring(metadata.BuildStatus or "Unavailable"))
+	scene:SetAttribute("SourceAssetDressingPlacedCount",
+		if isFiniteNumber(metadata.AssetModelCount) then metadata.AssetModelCount else 0)
+	scene:SetAttribute("SourceAssetDressingMissingCount",
+		if type(metadata.MissingTemplateNames) == "table" then #metadata.MissingTemplateNames else 0)
+	scene:SetAttribute("SourceAssetDressingAssets",
+		if type(metadata.AssetNames) == "table" then table.concat(metadata.AssetNames, ", ") else "")
+	return dressing, metadata
+end
+
 local function makePart(
 	parent: Instance,
 	name: string,
@@ -789,6 +831,9 @@ local function buildVariation(parent: Model, name: string, center: Vector3, styl
 	end
 
 	addSign(scene, center, style)
+	if style == "Chunkier" then
+		addChunkierSourceDressing(scene, center)
+	end
 
 	local focus = Vector3.new(center.X, center.Y + 7, center.Z - 6)
 	local landingPosition = Vector3.new(center.X, center.Y + 3.5, center.Z + 24)
