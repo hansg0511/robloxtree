@@ -5,6 +5,22 @@ local TreeDefinitions = require(game.ServerScriptService.Trees.TreeDefinitions)
 local Configuration = require(script.Parent.WorldLayoutConfiguration)
 local WorldStyleBaseline = require(script.Parent.WorldStyleBaseline)
 local World1Dressing = require(script.Parent.World1Dressing)
+local function loadWorld1EnvironmentKit()
+	local environmentKitModule = script.Parent:FindFirstChild("World1EnvironmentKit")
+	if not environmentKitModule then
+		return nil, "World1EnvironmentKit module is missing"
+	end
+
+	local loadSucceeded, loadedKit = pcall(require, environmentKitModule)
+	if not loadSucceeded then
+		return nil, loadedKit
+	end
+	if type(loadedKit) ~= "table" or type(loadedKit.Create) ~= "function" then
+		return nil, "World1EnvironmentKit module returned an invalid API"
+	end
+
+	return loadedKit
+end
 
 local WorldLayoutService = {}
 local spawnedTreesByRoot = {}
@@ -670,7 +686,61 @@ local function destroyTreesForExistingRoot(existing)
 	end
 end
 
+local function summarizeKitFailure(report, fallbackReason)
+	local details = {}
+	local missingTemplates = type(report) == "table" and report.MissingTemplates or nil
+	if type(missingTemplates) == "table" and #missingTemplates > 0 then
+		table.insert(details, "missing templates: " .. table.concat(missingTemplates, ", "))
+	end
+
+	if type(report) == "table" and type(report.Errors) == "table" then
+		for _, message in ipairs(report.Errors) do
+			table.insert(details, "kit: " .. tostring(message))
+		end
+
+		local pathReport = report.Path
+		if type(pathReport) == "table" and pathReport.Success ~= true then
+			if type(pathReport.Errors) == "table" and #pathReport.Errors > 0 then
+				for _, message in ipairs(pathReport.Errors) do
+					table.insert(details, "DirtPaths: " .. tostring(message))
+				end
+			else
+				table.insert(details, "DirtPaths: incomplete")
+			end
+		end
+
+		local incompleteForests = {}
+		if type(report.ByForest) == "table" then
+			for _, forestConfiguration in ipairs(Configuration.FORESTS) do
+				local forestReport = report.ByForest[forestConfiguration.ForestId]
+				if type(forestReport) == "table" and forestReport.Success ~= true then
+					if type(forestReport.Errors) == "table" and #forestReport.Errors > 0 then
+						for _, message in ipairs(forestReport.Errors) do
+							table.insert(details, forestConfiguration.ForestId .. ": " .. tostring(message))
+						end
+					elseif not (type(missingTemplates) == "table" and #missingTemplates > 0) then
+						table.insert(incompleteForests, forestConfiguration.ForestId)
+					end
+				elseif not forestReport and not (type(missingTemplates) == "table" and #missingTemplates > 0) then
+					table.insert(incompleteForests, forestConfiguration.ForestId)
+				end
+			end
+		end
+		if #incompleteForests > 0 then
+			table.insert(details, "incomplete forests: " .. table.concat(incompleteForests, ", "))
+		end
+	end
+
+	if fallbackReason ~= nil then
+		table.insert(details, tostring(fallbackReason))
+	end
+	if #details == 0 then
+		return "no diagnostic details"
+	end
+	return table.concat(details, " | ")
+end
 local function buildWorld()
+	local world1EnvironmentKit, environmentKitLoadFailure = loadWorld1EnvironmentKit()
 	local baseGround = Workspace:FindFirstChild("BaseGround")
 	if baseGround and baseGround:IsA("BasePart") then
 		WorldStyleBaseline.ApplyGround(baseGround, "BaseGround")
@@ -736,8 +806,10 @@ local function buildWorld()
 	end
 
 	local spawnedTrees = {}
+	local forestFoldersById = {}
 	for _, forestConfiguration in ipairs(Configuration.FORESTS) do
 		local forestFolder = createFolder(forestConfiguration.Name, forestRoot)
+		forestFoldersById[forestConfiguration.ForestId] = forestFolder
 		forestFolder:SetAttribute("ForestId", forestConfiguration.ForestId)
 		if forestConfiguration.Status then
 			forestFolder:SetAttribute("BuildStatus", forestConfiguration.Status)
@@ -768,7 +840,74 @@ local function buildWorld()
 	local starterForest = forestRoot:FindFirstChild("StarterForest")
 	local barrier = spawnTreeRecord(starterForest, Configuration.BARRIER.ForestId, Configuration.BARRIER)
 	if barrier then table.insert(spawnedTrees, barrier) end
-	World1Dressing.Create(environment)
+	local kitOk, kitFolder, kitReport = false, nil, nil
+	local kitFailureReason = environmentKitLoadFailure
+	if world1EnvironmentKit then
+		local staging = createFolder("World1EnvironmentKitStaging", environment)
+		staging:SetAttribute("WorldLayoutOwned", true)
+		local createSucceeded, generatedFolder, generatedReport = pcall(world1EnvironmentKit.Create, staging, Configuration)
+		if createSucceeded and type(generatedReport) == "table" then
+			kitReport = generatedReport
+		end
+		if createSucceeded
+			and typeof(generatedFolder) == "Instance"
+			and generatedFolder:IsA("Folder")
+			and generatedFolder:IsDescendantOf(staging)
+			and type(generatedReport) == "table"
+			and type(generatedReport.ByForest) == "table"
+			and type(generatedReport.Path) == "table" then
+			kitFolder = generatedFolder
+			kitReport = generatedReport
+			kitFolder.Parent = environment
+			staging:Destroy()
+			kitOk = true
+		else
+			if staging.Parent then
+				staging:Destroy()
+			end
+			if createSucceeded then
+				kitFailureReason = "World1EnvironmentKit.Create returned an invalid folder or report"
+			else
+				kitFailureReason = generatedFolder
+			end
+		end
+	end
+	if not kitOk then
+		warn("World 1 environment kit creation failed; retaining legacy forest dressing: " .. summarizeKitFailure(kitReport, kitFailureReason))
+	elseif kitReport.Success ~= true or kitReport.Path.Success ~= true then
+		warn("World 1 environment kit is incomplete; retaining legacy dressing for forests without successful kit output: " .. summarizeKitFailure(kitReport, nil))
+	end
+
+	-- Preserve the existing hub shrubs as a fallback, then remove only forest
+	-- placeholders whose approved kit generation succeeded for that footprint.
+	local legacyDressing = World1Dressing.Create(environment)
+	if kitFolder and type(kitReport) == "table" and type(kitReport.ByForest) == "table" then
+		for _, forestConfiguration in ipairs(Configuration.FORESTS) do
+			local forestResult = kitReport.ByForest[forestConfiguration.ForestId]
+			if type(forestResult) == "table" and forestResult.Success == true then
+				if forestConfiguration.ForestId == "Forest1" and legacyDressing then
+					local legacyShrubs = legacyDressing:FindFirstChild("Forest1Shrubs")
+					if legacyShrubs then
+						legacyShrubs:Destroy()
+					end
+				end
+
+				if forestConfiguration.Status == "Blockout" then
+					local forestFolder = forestFoldersById[forestConfiguration.ForestId]
+					if forestFolder then
+						for _, child in ipairs(forestFolder:GetChildren()) do
+							if child:IsA("BasePart")
+								and child.Name == forestConfiguration.ForestId .. "EdgeBoulder"
+								and child:GetAttribute("WorldLayoutOwned") == true
+								and child:GetAttribute("ForestBoundaryProp") == true then
+								child:Destroy()
+							end
+						end
+					end
+				end
+			end
+		end
+	end
 	root:SetAttribute("WorldLayoutVersion", Configuration.VERSION)
 	root:SetAttribute("ProceduralStarterOaksEnabled", proceduralStarterOaksEnabled)
 	spawnedTreesByRoot[root] = spawnedTrees

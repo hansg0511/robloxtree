@@ -47,6 +47,8 @@ local forest2Trees = makeTreeRecords("Forest2Tree", {
 	Vector3.new(-68, -0.5, 343),
 })
 
+local FOREST_DRESSING_DENSITY = 1.0
+
 local STATION_USE_DISTANCES = {
 	AxeShopStation = 14,
 	HomeEconomyStation = 14,
@@ -58,7 +60,7 @@ local WorldLayoutConfiguration = {
 	PROCEDURAL_STARTER_OAKS_ENABLED = true,
 
 	ROOT_NAME = "SourceWorld",
-	VERSION = 20,
+	VERSION = 21,
 	STATION_USE_DISTANCES = STATION_USE_DISTANCES,
 
 	-- Surface steps stay small: support ground -0.56, forest/base -0.5,
@@ -192,6 +194,7 @@ local WorldLayoutConfiguration = {
 		{
 			Name = "StarterForest",
 			ForestId = "Forest1",
+			Dressing = { Seed = 1001, Density = FOREST_DRESSING_DENSITY },
 			Corridor = "A",
 			ApproachFrom = "South",
 			GroundCenter = Vector3.new(-112, -0.75, 200),
@@ -203,6 +206,7 @@ local WorldLayoutConfiguration = {
 		{
 			Name = "Forest2",
 			ForestId = "Forest2",
+			Dressing = { Seed = 1002, Density = FOREST_DRESSING_DENSITY },
 			Corridor = "A",
 			ApproachFrom = "South",
 			GroundCenter = Vector3.new(-112, -0.75, 340),
@@ -215,6 +219,7 @@ local WorldLayoutConfiguration = {
 			Name = "Forest3",
 			ForestId = "Forest3",
 			Status = "Blockout",
+			Dressing = { Seed = 1003, Density = FOREST_DRESSING_DENSITY },
 			Corridor = "A",
 			ApproachFrom = "South",
 			GroundCenter = Vector3.new(-112, -0.75, 480),
@@ -227,6 +232,7 @@ local WorldLayoutConfiguration = {
 			Name = "Forest4",
 			ForestId = "Forest4",
 			Status = "Blockout",
+			Dressing = { Seed = 1004, Density = FOREST_DRESSING_DENSITY },
 			Corridor = "A",
 			ApproachFrom = "South",
 			GroundCenter = Vector3.new(-112, -0.75, 620),
@@ -239,6 +245,7 @@ local WorldLayoutConfiguration = {
 			Name = "Forest5",
 			ForestId = "Forest5",
 			Status = "Blockout",
+			Dressing = { Seed = 1005, Density = FOREST_DRESSING_DENSITY },
 			Corridor = "A",
 			ApproachFrom = "South",
 			GroundCenter = Vector3.new(-112, -0.75, 760),
@@ -251,6 +258,7 @@ local WorldLayoutConfiguration = {
 			Name = "Forest6",
 			ForestId = "Forest6",
 			Status = "Blockout",
+			Dressing = { Seed = 1006, Density = FOREST_DRESSING_DENSITY },
 			Corridor = "B",
 			ApproachFrom = "South",
 			GroundCenter = Vector3.new(112, -0.75, 200),
@@ -263,6 +271,7 @@ local WorldLayoutConfiguration = {
 			Name = "Forest7",
 			ForestId = "Forest7",
 			Status = "Blockout",
+			Dressing = { Seed = 1007, Density = FOREST_DRESSING_DENSITY },
 			Corridor = "B",
 			ApproachFrom = "South",
 			GroundCenter = Vector3.new(112, -0.75, 340),
@@ -275,6 +284,7 @@ local WorldLayoutConfiguration = {
 			Name = "Forest8",
 			ForestId = "Forest8",
 			Status = "Blockout",
+			Dressing = { Seed = 1008, Density = FOREST_DRESSING_DENSITY },
 			Corridor = "B",
 			ApproachFrom = "South",
 			GroundCenter = Vector3.new(112, -0.75, 480),
@@ -287,6 +297,7 @@ local WorldLayoutConfiguration = {
 			Name = "Forest9",
 			ForestId = "Forest9",
 			Status = "Blockout",
+			Dressing = { Seed = 1009, Density = FOREST_DRESSING_DENSITY },
 			Corridor = "B",
 			ApproachFrom = "South",
 			GroundCenter = Vector3.new(112, -0.75, 620),
@@ -299,6 +310,7 @@ local WorldLayoutConfiguration = {
 			Name = "Forest10",
 			ForestId = "Forest10",
 			Status = "Blockout",
+			Dressing = { Seed = 1010, Density = FOREST_DRESSING_DENSITY },
 			Corridor = "B",
 			ApproachFrom = "South",
 			GroundCenter = Vector3.new(112, -0.75, 760),
