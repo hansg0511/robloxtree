@@ -261,9 +261,9 @@ local function makeModel(parent: Instance, name: string, variation: string?): Mo
 	return model
 end
 
--- The Chunkier gallery uses the Grass material to keep its green ground accents matte.
-local function applyMatteGrass(part: BasePart)
-	part.Material = Enum.Material.Grass
+-- Keep Forest B's ground and meadow facets on a clean, smooth surface.
+local function applyCleanGrassSurface(part: BasePart)
+	part.Material = Enum.Material.SmoothPlastic
 	part.Reflectance = 0
 end
 
@@ -292,7 +292,7 @@ local function createGround(scene: Model, center: Vector3, style: string)
 	surface:SetAttribute("NavigationTarget", true)
 	surface:SetAttribute("DecorativeGroundLayer", true)
 	if style == "Chunkier" then
-		applyMatteGrass(surface)
+		applyCleanGrassSurface(surface)
 	end
 
 	-- Faceted low meadow washes keep the outer margins varied without making
@@ -304,11 +304,11 @@ local function createGround(scene: Model, center: Vector3, style: string)
 		{ 28, 11, 9.5, 5.0, PALETTE.GrassShade },
 		{ 14, 27, 9.0, 4.2, PALETTE.Grass },
 	} else {
-		{ -29, -17, 9.5, 5.2, PALETTE.GrassShade },
-		{ 29, -21, 10.5, 5.7, PALETTE.GrassLight },
+		{ -29, -17, 9.5, 5.2, Color3.fromRGB(120, 178, 97) },
+		{ 29, -21, 10.5, 5.7, Color3.fromRGB(138, 198, 116) },
 		{ -29, 9, 9.0, 5.0, PALETTE.Grass },
-		{ 29, 12, 10.0, 5.4, PALETTE.GrassShade },
-		{ -13, 28, 10.5, 4.5, PALETTE.GrassLight },
+		{ 29, 12, 10.0, 5.4, Color3.fromRGB(120, 178, 97) },
+		{ -13, 28, 10.5, 4.5, Color3.fromRGB(138, 198, 116) },
 	}
 	for index, patch in ipairs(patches) do
 		local patchPosition = Vector3.new(center.X + patch[1], center.Y + 0.018, center.Z + patch[2])
@@ -319,42 +319,7 @@ local function createGround(scene: Model, center: Vector3, style: string)
 			makeWedge(scene, "MeadowFacet" .. index, Vector3.new(patch[3], 0.035, patch[4]), patchFrame, patch[5])
 		patchPart:SetAttribute("DecorativeGroundLayer", true)
 		if style == "Chunkier" then
-			applyMatteGrass(patchPart)
-		end
-	end
-	if style == "Chunkier" then
-		-- Broad, flat meadow strokes carry the chunky palette through open grass
-		-- while leaving the trail, oak bases, and perimeter props clear.
-		local strokes = {
-			{ -26.0, -25.0, 5.8, 2.2, PALETTE.GrassLight, -11 },
-			{ -18.2, -27.5, 4.8, 1.8, PALETTE.GrassShade, 14 },
-			{ -12.0, -23.4, 5.0, 1.9, PALETTE.GrassLight, 8 },
-			{ -5.0, -26.2, 4.8, 1.7, PALETTE.GrassShade, -15 },
-			{ 5.0, -24.6, 5.2, 2.0, PALETTE.GrassLight, 11 },
-			{ 12.1, -27.0, 4.8, 1.8, PALETTE.GrassShade, -9 },
-			{ 19.2, -23.3, 5.6, 2.3, PALETTE.GrassLight, 10 },
-			{ 26.0, -26.8, 5.6, 2.2, PALETTE.GrassShade, -12 },
-			{ -15.2, 3.5, 5.4, 2.0, PALETTE.GrassLight, -12 },
-			{ 15.2, 3.5, 5.4, 2.0, PALETTE.GrassShade, 15 },
-			{ -15.4, 10.0, 5.8, 2.3, PALETTE.GrassShade, 10 },
-			{ 15.4, 10.0, 5.8, 2.3, PALETTE.GrassLight, -8 },
-			{ -15.2, 16.7, 5.2, 1.9, PALETTE.GrassLight, -13 },
-			{ 15.2, 16.7, 5.2, 1.9, PALETTE.GrassShade, 14 },
-			{ -15.0, 23.0, 5.6, 2.2, PALETTE.GrassLight, -11 },
-			{ 15.0, 23.0, 5.6, 2.2, PALETTE.GrassShade, 16 },
-		}
-		for index, stroke in ipairs(strokes) do
-			local strokePosition = Vector3.new(center.X + stroke[1], center.Y + 0.045, center.Z + stroke[2])
-			local strokeFrame = CFrame.new(strokePosition) * CFrame.Angles(0, math.rad(stroke[6]), 0)
-			local strokeSize = Vector3.new(stroke[3], 0.07, stroke[4])
-			local strokePart = if index % 3 == 0 then
-				makeCornerWedge(scene, "GrassStroke" .. index, strokeSize, strokeFrame, stroke[5])
-			else
-				makeWedge(scene, "GrassStroke" .. index, strokeSize, strokeFrame, stroke[5])
-			applyMatteGrass(strokePart)
-			strokePart.CastShadow = false
-			strokePart:SetAttribute("DecorativeGroundLayer", true)
-			strokePart:SetAttribute("GroundTextureAccent", true)
+			applyCleanGrassSurface(patchPart)
 		end
 	end
 end
@@ -828,7 +793,10 @@ local function buildVariation(parent: Model, name: string, center: Vector3, styl
 	local tuftPositions = if style == "Softer" then {
 		Vector3.new(-29, 0, 20), Vector3.new(-20, 0, 27), Vector3.new(25, 0, 22), Vector3.new(31, 0, -1),
 	} else {
+		-- Two small paired pockets sit beside the clear trail corridor.
 		Vector3.new(-29, 0, 20), Vector3.new(-20, 0, 27), Vector3.new(25, 0, 22), Vector3.new(31, 0, 0),
+		Vector3.new(-10.5, 0, -1.2), Vector3.new(-8.2, 0, -2.6),
+		Vector3.new(10.5, 0, -1.2), Vector3.new(8.2, 0, -2.6),
 	}
 	for index, position in ipairs(tuftPositions) do
 		addTuft(scene, center, position, style, index)
