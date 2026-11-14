@@ -38,22 +38,21 @@ local CONTROLLED_COMPARISON_CONFIG = {
 		Vector3.new(12, 0, -26),
 	},
 	OakFoliageRoles = {
-		{ Name = "Leaf", Source = Color3.fromRGB(105, 202, 67), Target = Color3.fromRGB(78, 170, 55) },
-		{ Name = "LeafHighlight", Source = Color3.fromRGB(156, 226, 77), Target = Color3.fromRGB(150, 220, 72) },
-		{ Name = "LeafShadow", Source = Color3.fromRGB(69, 160, 58), Target = Color3.fromRGB(45, 110, 38) },
+		{ Name = "Leaf", Source = Color3.fromRGB(105, 202, 67), Target = Color3.fromRGB(58, 145, 47) },
+		{ Name = "LeafHighlight", Source = Color3.fromRGB(156, 226, 77), Target = Color3.fromRGB(105, 190, 60) },
+		{ Name = "LeafShadow", Source = Color3.fromRGB(69, 160, 58), Target = Color3.fromRGB(28, 95, 30) },
 	},
 	CartoonyGrass = {
 		FallbackColor = Color3.fromRGB(121, 199, 93),
 		FallbackMaterial = Enum.Material.SmoothPlastic,
-		MintBlueChannelShift = 24,
+		MintBlueChannelShift = 56,
 	},
 	TreeShadow = {
-		Color = Color3.fromRGB(64, 98, 57),
-		Transparency = 0.64,
-		Thickness = 0.06,
-		Width = 8.6,
-		Depth = 6.2,
-		CenterLift = 0.035,
+		Color = Color3.fromRGB(48, 85, 42),
+		Layers = {
+			{ Name = "Outer", Transparency = 0.82, Thickness = 0.03, Width = 13, Depth = 9, CenterLift = 0.024 },
+			{ Name = "Inner", Transparency = 0.52, Thickness = 0.03, Width = 10, Depth = 7, CenterLift = 0.049 },
+		},
 	},
 	Tests = {
 		{
@@ -84,8 +83,8 @@ local CONTROLLED_COMPARISON_CONFIG = {
 			TestId = "Test3",
 			Name = "ForestContrastTest3",
 			Label = "TEST 3 · ORIGINAL + SHADOWS",
-			Summary = "Original bright Cartoony grass and oak foliage with subtle tree shadows",
-			EnvironmentChange = "OriginalBrightCartoonyGrassAndOakWithTreeShadows",
+			Summary = "Original bright Cartoony grass and oak foliage with paired soft tree shadows",
+			EnvironmentChange = "OriginalBrightCartoonyGrassAndOakWithSoftTreeShadows",
 			Offset = Vector3.new(-42, 0, 536),
 			CartoonyGrass = true,
 			MintGrass = false,
@@ -96,8 +95,8 @@ local CONTROLLED_COMPARISON_CONFIG = {
 			TestId = "Test4",
 			Name = "ForestContrastTest4",
 			Label = "TEST 4 · MINT + SHADOWS",
-			Summary = "Blue-shifted bright Cartoony grass with the same subtle tree shadows",
-			EnvironmentChange = "MintCartoonyGrassAndTreeShadowPatches",
+			Summary = "Blue-shifted bright Cartoony grass with the same paired soft tree shadows",
+			EnvironmentChange = "MintCartoonyGrassAndSoftTreeShadows",
 			Offset = Vector3.new(42, 0, 536),
 			CartoonyGrass = true,
 			MintGrass = true,
@@ -1128,29 +1127,49 @@ local function addTreeShadowPatches(scene: Model, center: Vector3)
 	assert(floor and floor:IsA("BasePart"), "Tree-shadow test has no WalkableGrass")
 	local floorTop = floor.Position.Y + floor.Size.Y * 0.5
 	local shadowConfig = CONTROLLED_COMPARISON_CONFIG.TreeShadow
-	for treeIndex, offset in ipairs(CONTROLLED_COMPARISON_CONFIG.TreeOffsets) do
-		local position = Vector3.new(center.X + offset.X, floorTop + shadowConfig.CenterLift, center.Z + offset.Z)
-		local yaw = math.rad((treeIndex * 17) % 43 - 21)
-		local shadow = makePart(
-			scene,
-			"DecorativeTreeShadow" .. treeIndex,
-			Vector3.new(shadowConfig.Thickness, shadowConfig.Width, shadowConfig.Depth),
-			CFrame.new(position) * CFrame.Angles(0, yaw, 0) * CFrame.Angles(0, 0, math.rad(90)),
-			shadowConfig.Color,
-			false,
-			Enum.PartType.Cylinder,
-			false
-		)
-		shadow.Transparency = shadowConfig.Transparency
-		shadow.CastShadow = false
-		shadow:SetAttribute("DecorativeTreeShadow", true)
-		shadow:SetAttribute("ShadowTreeName", "ShowcaseStarterOak" .. treeIndex)
-		shadow:SetAttribute("ShadowGroundPosition", position)
+	local layerNames = {}
+	local layerTransparencies = {}
+	local createdLayerCount = 0
+
+	for _, layer in ipairs(shadowConfig.Layers) do
+		table.insert(layerNames, layer.Name)
+		table.insert(layerTransparencies, string.format("%s:%.2f", layer.Name, layer.Transparency))
 	end
-	scene:SetAttribute("TreeShadowTreatment", "SubtleDecorativeGroundPatches")
-	scene:SetAttribute("TreeShadowPatchCount", #CONTROLLED_COMPARISON_CONFIG.TreeOffsets)
+
+	for treeIndex, offset in ipairs(CONTROLLED_COMPARISON_CONFIG.TreeOffsets) do
+		local groundPosition = Vector3.new(center.X + offset.X, floorTop, center.Z + offset.Z)
+		local yaw = math.rad((treeIndex * 17) % 43 - 21)
+		for _, layer in ipairs(shadowConfig.Layers) do
+			local position = Vector3.new(groundPosition.X, floorTop + layer.CenterLift, groundPosition.Z)
+			local shadow = makePart(
+				scene,
+				"DecorativeTreeShadow" .. layer.Name .. treeIndex,
+				Vector3.new(layer.Thickness, layer.Width, layer.Depth),
+				CFrame.new(position) * CFrame.Angles(0, yaw, 0) * CFrame.Angles(0, 0, math.rad(90)),
+				shadowConfig.Color,
+				false,
+				Enum.PartType.Cylinder,
+				false
+			)
+			shadow.Transparency = layer.Transparency
+			shadow.CastShadow = false
+			shadow:SetAttribute("DecorativeTreeShadow", true)
+			shadow:SetAttribute("ShadowTreeName", "ShowcaseStarterOak" .. treeIndex)
+			shadow:SetAttribute("ShadowGroundPosition", groundPosition)
+			shadow:SetAttribute("ShadowLayerRole", layer.Name)
+			shadow:SetAttribute("ShadowTransparency", layer.Transparency)
+			shadow:SetAttribute("ShadowCenterLift", layer.CenterLift)
+			shadow:SetAttribute("ShadowLayerSize", Vector3.new(layer.Width, layer.Thickness, layer.Depth))
+			createdLayerCount += 1
+		end
+	end
+	scene:SetAttribute("TreeShadowTreatment", "LayeredSoftDecorativeGroundEllipses")
+	scene:SetAttribute("TreeShadowPairCount", #CONTROLLED_COMPARISON_CONFIG.TreeOffsets)
+	scene:SetAttribute("TreeShadowPatchCount", createdLayerCount)
+	scene:SetAttribute("TreeShadowLayerCount", #shadowConfig.Layers)
+	scene:SetAttribute("TreeShadowLayerNames", table.concat(layerNames, ","))
 	scene:SetAttribute("TreeShadowColorRGB", colorToRgbString(shadowConfig.Color))
-	scene:SetAttribute("TreeShadowTransparency", shadowConfig.Transparency)
+	scene:SetAttribute("TreeShadowLayerTransparencies", table.concat(layerTransparencies, ","))
 end
 
 local function setComparisonLabel(scene: Model, text: string)
