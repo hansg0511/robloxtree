@@ -106,6 +106,104 @@ local CONTROLLED_COMPARISON_CONFIG = {
 	},
 }
 
+-- A separate, side-by-side simulator comparison. Keep this treatment config
+-- independent from ForestContrastTest1–4 so their existing results stay fixed.
+local CARTOON_SIM_COMPARISON_CONFIG = {
+	SchemaVersion = 1,
+	LandingOffset = Vector3.new(0, 3.5, 24),
+	FocusOffset = Vector3.new(0, 7, -6),
+	BaseColor = Color3.fromRGB(77, 173, 76), -- Approximation of the temporary Cartoony Grass direction.
+	Material = Enum.Material.SmoothPlastic,
+	PatternThickness = 0.025,
+	PatternSizeScale = {
+		Soft = 0.82,
+		Bold = 1.15,
+	},
+	PatternColors = {
+		SoftLight = Color3.fromRGB(89, 185, 82),
+		SoftShade = Color3.fromRGB(68, 158, 67),
+		BoldLight = Color3.fromRGB(107, 202, 83),
+		BoldShade = Color3.fromRGB(55, 145, 63),
+	},
+	-- Twenty broad, overlapping ellipsoids form six irregular grass clusters.
+	-- All stay clear of the warm center trail and remain inside the 72x66 floor.
+	Patches = {
+		{ -26.8, -22.4, 12.8, 7.6, -17, "Light" },
+		{ -20.4, -21.0, 9.6, 6.4, 24, "Shade" },
+		{ -28.2, -14.7, 11.0, 6.8, -8, "Light" },
+		{ 27.4, -22.6, 12.2, 8.2, 19, "Light" },
+		{ 20.2, -24.0, 10.5, 6.0, -12, "Shade" },
+		{ 28.7, -15.2, 10.6, 7.3, 4, "Shade" },
+		{ -27, -7.5, 12.4, 7.0, -14, "Shade" },
+		{ -14.6, -6.3, 9.8, 6.4, 26, "Light" },
+		{ -12.3, -0.7, 10.8, 7.4, -25, "Light" },
+		{ 26.2, -6.7, 12.1, 6.6, 17, "Light" },
+		{ 14.5, -8.4, 9.2, 6.5, -26, "Shade" },
+		{ 13, 2.2, 11.8, 7.0, 18, "Shade" },
+		{ -25, 10.5, 12.5, 7.3, -18, "Light" },
+		{ -20.5, 14.5, 10.4, 6.7, 28, "Shade" },
+		{ -27, 19, 11.7, 7.4, -6, "Shade" },
+		{ -23, 23, 9.0, 5.8, 32, "Light" },
+		{ 25, 11.3, 12.0, 7.8, 16, "Shade" },
+		{ 20.5, 14.5, 10.8, 6.4, -28, "Light" },
+		{ 28, 19, 10.8, 8.1, 10, "Light" },
+		{ 22, 23, 9.5, 5.7, -22, "Shade" },
+	},
+	RichOakTargets = {
+		Leaf = Color3.fromRGB(48, 145, 48),
+		LeafHighlight = Color3.fromRGB(171, 229, 70),
+		LeafShadow = Color3.fromRGB(35, 109, 58),
+	},
+	TreeShadow = {
+		Color = Color3.fromRGB(35, 105, 48),
+		Layers = {
+			{ Name = "Outer", Transparency = 0.90, Thickness = 0.03, Width = 15, Depth = 10, CenterLift = 0.022 },
+			{ Name = "Inner", Transparency = 0.76, Thickness = 0.03, Width = 11, Depth = 7, CenterLift = 0.045 },
+		},
+	},
+	Tests = {
+		{
+			TestId = "CartoonTest1",
+			Name = "CartoonForestTest1",
+			Label = "TEST 1 · SOFT CARTOON GRASS",
+			Summary = "Bright green ground with broad soft grass patterns and the original Starter Oak palette",
+			EnvironmentChange = "SoftCartoonGrass",
+			Offset = Vector3.new(-42, 0, 612),
+			PatternStyle = "Soft",
+		},
+		{
+			TestId = "CartoonTest2",
+			Name = "CartoonForestTest2",
+			Label = "TEST 2 · BOLD SIMULATOR GRASS",
+			Summary = "Bright green ground with larger bold grass patterns and the original Starter Oak palette",
+			EnvironmentChange = "BoldSimulatorGrass",
+			Offset = Vector3.new(42, 0, 612),
+			PatternStyle = "Bold",
+		},
+		{
+			TestId = "CartoonTest3",
+			Name = "CartoonForestTest3",
+			Label = "TEST 3 · BOLD GRASS + RICHER LEAVES",
+			Summary = "The same bold grass as Test 2 with richer Starter Oak canopy colors",
+			EnvironmentChange = "BoldGrassAndRicherLeaves",
+			Offset = Vector3.new(-42, 0, 688),
+			PatternStyle = "Bold",
+			RichOakFoliage = true,
+		},
+		{
+			TestId = "CartoonTest4",
+			Name = "CartoonForestTest4",
+			Label = "TEST 4 · FULL CARTOON SIMULATOR",
+			Summary = "The same bold grass and richer Starter Oak canopy as Test 3 with subtle ground shadows",
+			EnvironmentChange = "FullCartoonSimulator",
+			Offset = Vector3.new(42, 0, 688),
+			PatternStyle = "Bold",
+			RichOakFoliage = true,
+			TreeShadows = true,
+		},
+	},
+}
+
 local PALETTE = {
 	Grass = Color3.fromRGB(128, 190, 104),
 	GrassLight = Color3.fromRGB(151, 203, 126),
@@ -1070,7 +1168,9 @@ local function identifyOakFoliageRole(color: Color3)
 	return nearestRole
 end
 
-local function recolorRichOakFoliage(scene: Model)
+local function recolorRichOakFoliage(scene: Model, targetRoles: any?, brightnessTolerance: number?)
+	local sourceRoles = CONTROLLED_COMPARISON_CONFIG.OakFoliageRoles
+	local tolerance = brightnessTolerance or 0.04
 	local recoloredCount = 0
 	local roleCounts = { Leaf = 0, LeafHighlight = 0, LeafShadow = 0 }
 	for treeIndex, seed in ipairs(CONTROLLED_COMPARISON_CONFIG.TreeSeeds) do
@@ -1084,6 +1184,7 @@ local function recolorRichOakFoliage(scene: Model)
 		for _, descendant in ipairs(foliage:GetDescendants()) do
 			if descendant:IsA("BasePart") then
 				local role = identifyOakFoliageRole(descendant.Color)
+				local targetColor = if targetRoles then targetRoles[role.Name] else role.Target
 				local source = role.Source
 				local red = descendant.Color.R * 255
 				local green = descendant.Color.G * 255
@@ -1093,11 +1194,11 @@ local function recolorRichOakFoliage(scene: Model)
 				local sourceBlue = source.B * 255
 				local brightness = (red * sourceRed + green * sourceGreen + blue * sourceBlue)
 					/ (sourceRed ^ 2 + sourceGreen ^ 2 + sourceBlue ^ 2)
-				brightness = math.clamp(brightness, 0.96, 1.04)
+				brightness = math.clamp(brightness, 1 - tolerance, 1 + tolerance)
 				descendant.Color = Color3.new(
-					math.clamp(role.Target.R * brightness, 0, 1),
-					math.clamp(role.Target.G * brightness, 0, 1),
-					math.clamp(role.Target.B * brightness, 0, 1)
+					math.clamp(targetColor.R * brightness, 0, 1),
+					math.clamp(targetColor.G * brightness, 0, 1),
+					math.clamp(targetColor.B * brightness, 0, 1)
 				)
 				descendant:SetAttribute("ForestDesignLabFoliageRole", role.Name)
 				descendant:SetAttribute("ForestDesignLabRichFoliage", true)
@@ -1113,20 +1214,24 @@ local function recolorRichOakFoliage(scene: Model)
 		end
 	end
 	assert(recoloredCount > 0, "Controlled forest test found no cloned Oak foliage to tint")
-	scene:SetAttribute("RichOakFoliageTreatment", "RoleMappedDeeperAndRicher")
-	scene:SetAttribute("RichOakLeafRGB", colorToRgbString(CONTROLLED_COMPARISON_CONFIG.OakFoliageRoles[1].Target))
-	scene:SetAttribute("RichOakHighlightRGB", colorToRgbString(CONTROLLED_COMPARISON_CONFIG.OakFoliageRoles[2].Target))
-	scene:SetAttribute("RichOakShadowRGB", colorToRgbString(CONTROLLED_COMPARISON_CONFIG.OakFoliageRoles[3].Target))
+	local leafTarget = if targetRoles then targetRoles.Leaf else sourceRoles[1].Target
+	local highlightTarget = if targetRoles then targetRoles.LeafHighlight else sourceRoles[2].Target
+	local shadowTarget = if targetRoles then targetRoles.LeafShadow else sourceRoles[3].Target
+	scene:SetAttribute("RichOakFoliageTreatment",
+		if targetRoles then "CartoonSimulatorRoleMappedDeeperAndRicher" else "RoleMappedDeeperAndRicher")
+	scene:SetAttribute("RichOakLeafRGB", colorToRgbString(leafTarget))
+	scene:SetAttribute("RichOakHighlightRGB", colorToRgbString(highlightTarget))
+	scene:SetAttribute("RichOakShadowRGB", colorToRgbString(shadowTarget))
 	scene:SetAttribute("RichOakFoliagePartCount", recoloredCount)
 	scene:SetAttribute("RichOakFoliageRoleCounts", string.format("Leaf:%d,LeafHighlight:%d,LeafShadow:%d",
 		roleCounts.Leaf, roleCounts.LeafHighlight, roleCounts.LeafShadow))
 end
 
-local function addTreeShadowPatches(scene: Model, center: Vector3)
+local function addTreeShadowPatches(scene: Model, center: Vector3, shadowConfigOverride: any?)
 	local floor = scene:FindFirstChild("WalkableGrass", true)
 	assert(floor and floor:IsA("BasePart"), "Tree-shadow test has no WalkableGrass")
 	local floorTop = floor.Position.Y + floor.Size.Y * 0.5
-	local shadowConfig = CONTROLLED_COMPARISON_CONFIG.TreeShadow
+	local shadowConfig = shadowConfigOverride or CONTROLLED_COMPARISON_CONFIG.TreeShadow
 	local layerNames = {}
 	local layerTransparencies = {}
 	local createdLayerCount = 0
@@ -1316,6 +1421,198 @@ local function buildControlledComparisons(parent: Model, sourceScene: Model, cen
 	return metadataByTest
 end
 
+local function applyCartoonSimulatorGrass(scene: Model, style: string): number
+	local floorCandidate = scene:FindFirstChild("WalkableGrass", true)
+	assert(floorCandidate and floorCandidate:IsA("BasePart"), "Cartoon simulator test has no WalkableGrass")
+	local floor = floorCandidate :: BasePart
+	local floorTop = floor.Position.Y + floor.Size.Y * 0.5
+
+	for _, child in ipairs(scene:GetChildren()) do
+		if child:IsA("BasePart")
+			and string.match(child.Name, "^MeadowFacet%d+$")
+			and child:GetAttribute("DecorativeGroundLayer") == true
+		then
+			child:Destroy()
+		end
+	end
+
+	floor.Material = CARTOON_SIM_COMPARISON_CONFIG.Material
+	floor.Color = CARTOON_SIM_COMPARISON_CONFIG.BaseColor
+	floor.Reflectance = 0
+	floor.CanCollide = true
+	floor.CanTouch = false
+	floor.CanQuery = false
+	floor:SetAttribute("WalkableUtilitySurface", true)
+	floor:SetAttribute("NavigationTarget", true)
+
+	local lightColor = if style == "Soft"
+		then CARTOON_SIM_COMPARISON_CONFIG.PatternColors.SoftLight
+		else CARTOON_SIM_COMPARISON_CONFIG.PatternColors.BoldLight
+	local shadeColor = if style == "Soft"
+		then CARTOON_SIM_COMPARISON_CONFIG.PatternColors.SoftShade
+		else CARTOON_SIM_COMPARISON_CONFIG.PatternColors.BoldShade
+	local sizeScale = if style == "Soft"
+		then CARTOON_SIM_COMPARISON_CONFIG.PatternSizeScale.Soft
+		else CARTOON_SIM_COMPARISON_CONFIG.PatternSizeScale.Bold
+	local patternModel = makeModel(scene, "CartoonGrassPatterns", style)
+	local floorPosition = floor.Position
+
+	for index, rawPatch in ipairs(CARTOON_SIM_COMPARISON_CONFIG.Patches) do
+		local patch: any = rawPatch
+		local color = if patch[6] == "Light" then lightColor else shadeColor
+		local size = Vector3.new(
+			patch[3] * sizeScale,
+			CARTOON_SIM_COMPARISON_CONFIG.PatternThickness,
+			patch[4] * sizeScale
+		)
+		local microLift = ((index - 1) % 5) * 0.001
+		local patchPosition = Vector3.new(
+			floorPosition.X + patch[1],
+			floorTop + size.Y * 0.5 - 0.006 + microLift,
+			floorPosition.Z + patch[2]
+		)
+		local patchPart = makePart(
+			patternModel,
+			string.format("OrganicGrassLobe%02d", index),
+			size,
+			CFrame.new(patchPosition) * CFrame.Angles(0, math.rad(patch[5]), 0),
+			color,
+			false,
+			Enum.PartType.Ball,
+			false
+		)
+		patchPart.CastShadow = false
+		patchPart:SetAttribute("DecorativeGroundLayer", true)
+		patchPart:SetAttribute("GrassPatternRole", patch[6])
+	end
+
+	local baseColorRgb = colorToRgbString(CARTOON_SIM_COMPARISON_CONFIG.BaseColor)
+	scene:SetAttribute("GroundTreatment",
+		if style == "Soft" then "SoftCartoonGrassOrganicPatches" else "BoldSimulatorGrassOrganicPatches")
+	scene:SetAttribute("GroundColorRGB", baseColorRgb)
+	scene:SetAttribute("GroundMaterial", CARTOON_SIM_COMPARISON_CONFIG.Material.Name)
+	scene:SetAttribute("CartoonGrassApproximation", "SmoothPlastic; bright green approximation of the temporary Cartoony Grass direction")
+	scene:SetAttribute("CartoonGrassBaseRGB", baseColorRgb)
+	scene:SetAttribute("CartoonGrassPatternStyle", style)
+	scene:SetAttribute("CartoonGrassPatternPatchCount", #CARTOON_SIM_COMPARISON_CONFIG.Patches)
+	scene:SetAttribute("CartoonGrassPatternScale", sizeScale)
+	scene:SetAttribute("CartoonGrassSoftLightRGB", colorToRgbString(CARTOON_SIM_COMPARISON_CONFIG.PatternColors.SoftLight))
+	scene:SetAttribute("CartoonGrassSoftShadeRGB", colorToRgbString(CARTOON_SIM_COMPARISON_CONFIG.PatternColors.SoftShade))
+	scene:SetAttribute("CartoonGrassBoldLightRGB", colorToRgbString(CARTOON_SIM_COMPARISON_CONFIG.PatternColors.BoldLight))
+	scene:SetAttribute("CartoonGrassBoldShadeRGB", colorToRgbString(CARTOON_SIM_COMPARISON_CONFIG.PatternColors.BoldShade))
+	return #CARTOON_SIM_COMPARISON_CONFIG.Patches
+end
+
+local function cloneCartoonComparison(template: Model, parent: Model, name: string, fromCenter: Vector3, toCenter: Vector3): Model
+	local clone = template:Clone()
+	assert(clone and clone:IsA("Model"), "Could not clone a cartoon simulator forest source")
+	clone.Name = name
+	clone.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
+	clone.Parent = parent
+	clone:PivotTo(CFrame.new(toCenter - fromCenter) * clone:GetPivot())
+	return clone
+end
+
+local function finishCartoonComparison(scene: Model, testConfig, center: Vector3)
+	local focus = center + CARTOON_SIM_COMPARISON_CONFIG.FocusOffset
+	local landing = CFrame.lookAt(center + CARTOON_SIM_COMPARISON_CONFIG.LandingOffset, focus)
+	setComparisonLabel(scene, testConfig.Label)
+	markVisual(scene)
+	scene:SetAttribute("DevGalleryOwner", "Forest")
+	scene:SetAttribute("BuildStatus", "Building")
+	scene:SetAttribute("LabId", "Forest")
+	scene:SetAttribute("ControlledComparison", true)
+	scene:SetAttribute("ControlledComparisonTestId", testConfig.TestId)
+	scene:SetAttribute("ControlledComparisonSchemaVersion", CARTOON_SIM_COMPARISON_CONFIG.SchemaVersion)
+	scene:SetAttribute("CartoonSimComparisonSchemaVersion", CARTOON_SIM_COMPARISON_CONFIG.SchemaVersion)
+	scene:SetAttribute("CartoonSimComparisonTest", true)
+	scene:SetAttribute("ComparisonLabel", testConfig.Label)
+	scene:SetAttribute("EnvironmentChange", testConfig.EnvironmentChange)
+	scene:SetAttribute("TextureMode", "SmoothPlasticOrganicPatterns")
+	scene:SetAttribute("SceneDimensions", PLATFORM_SIZE)
+	scene:SetAttribute("Center", center)
+	scene:SetAttribute("LandingCFrame", landing)
+	scene:SetAttribute("FocusPosition", focus)
+	scene:SetAttribute("NavigationDestinationCFrame", landing)
+	scene:SetAttribute("NavigationFocusPosition", focus)
+	scene:SetAttribute("NavigationSummary", testConfig.Summary)
+	scene:SetAttribute("TreeCount", #CONTROLLED_COMPARISON_CONFIG.TreeSeeds)
+	scene:SetAttribute("OakSeeds", CONTROLLED_COMPARISON_CONFIG.TreeSeedList)
+	scene:SetAttribute("OakVisualScale", 1.08)
+	scene:SetAttribute("CartoonyGrassEnabled", true)
+	scene:SetAttribute("MintGrassEnabled", false)
+	scene:SetAttribute("RichOakFoliageEnabled", testConfig.RichOakFoliage == true)
+	scene:SetAttribute("TreeShadowsEnabled", testConfig.TreeShadows == true)
+	scene:SetAttribute("BuildStatus", "Ready")
+	local instanceCount, basePartCount = countSceneParts(scene)
+	scene:SetAttribute("InstanceCount", instanceCount)
+	scene:SetAttribute("BasePartCount", basePartCount)
+	return {
+		TargetName = scene.Name,
+		BuildStatus = "Ready",
+		ControlledComparisonTestId = testConfig.TestId,
+		Center = center,
+		LandingCFrame = landing,
+		FocusPosition = focus,
+		NavigationDestinationCFrame = landing,
+		NavigationFocusPosition = focus,
+		InstanceCount = instanceCount,
+		BasePartCount = basePartCount,
+	}
+end
+
+local function buildCartoonSimComparisons(parent: Model, sourceScene: Model, center: Vector3)
+	local sourceFloorCandidate = sourceScene:FindFirstChild("WalkableGrass", true)
+	assert(sourceFloorCandidate and sourceFloorCandidate:IsA("BasePart"), "Forest B source has no WalkableGrass")
+	local sourceFloor = sourceFloorCandidate :: BasePart
+	local sourceCenter = Vector3.new(sourceFloor.Position.X, sourceFloor.Position.Y + sourceFloor.Size.Y * 0.5, sourceFloor.Position.Z)
+	local test1Config = CARTOON_SIM_COMPARISON_CONFIG.Tests[1]
+	local test2Config = CARTOON_SIM_COMPARISON_CONFIG.Tests[2]
+	local test3Config = CARTOON_SIM_COMPARISON_CONFIG.Tests[3]
+	local test4Config = CARTOON_SIM_COMPARISON_CONFIG.Tests[4]
+	local test1Center = center + test1Config.Offset
+	local test2Center = center + test2Config.Offset
+	local test3Center = center + test3Config.Offset
+	local test4Center = center + test4Config.Offset
+	local metadataByTest = {}
+	local instanceCount = 0
+	local basePartCount = 0
+
+	local test1 = cloneCartoonComparison(sourceScene, parent, test1Config.Name, sourceCenter, test1Center)
+	applyCartoonSimulatorGrass(test1, "Soft")
+	local test1Metadata = finishCartoonComparison(test1, test1Config, test1Center)
+	metadataByTest[test1Config.TestId] = test1Metadata
+	instanceCount += test1Metadata.InstanceCount
+	basePartCount += test1Metadata.BasePartCount
+
+	local test2 = cloneCartoonComparison(sourceScene, parent, test2Config.Name, sourceCenter, test2Center)
+	applyCartoonSimulatorGrass(test2, "Bold")
+	local test2Metadata = finishCartoonComparison(test2, test2Config, test2Center)
+	metadataByTest[test2Config.TestId] = test2Metadata
+	instanceCount += test2Metadata.InstanceCount
+	basePartCount += test2Metadata.BasePartCount
+
+	local test3 = cloneCartoonComparison(test2, parent, test3Config.Name, test2Center, test3Center)
+	recolorRichOakFoliage(test3, CARTOON_SIM_COMPARISON_CONFIG.RichOakTargets, 0.02)
+	local test3Metadata = finishCartoonComparison(test3, test3Config, test3Center)
+	metadataByTest[test3Config.TestId] = test3Metadata
+	instanceCount += test3Metadata.InstanceCount
+	basePartCount += test3Metadata.BasePartCount
+
+	local test4 = cloneCartoonComparison(test3, parent, test4Config.Name, test3Center, test4Center)
+	addTreeShadowPatches(test4, test4Center, CARTOON_SIM_COMPARISON_CONFIG.TreeShadow)
+	local test4Metadata = finishCartoonComparison(test4, test4Config, test4Center)
+	metadataByTest[test4Config.TestId] = test4Metadata
+	instanceCount += test4Metadata.InstanceCount
+	basePartCount += test4Metadata.BasePartCount
+
+	parent:SetAttribute("CartoonSimComparisonSchemaVersion", CARTOON_SIM_COMPARISON_CONFIG.SchemaVersion)
+	parent:SetAttribute("CartoonSimComparisonsReady", true)
+	parent:SetAttribute("CartoonSimComparisonCount", #CARTOON_SIM_COMPARISON_CONFIG.Tests)
+	parent:SetAttribute("CartoonSimComparisonLayout", "2x2; 72x66 clearings; 12-stud X gap; 10-stud Z gap")
+	return metadataByTest, instanceCount, basePartCount
+end
+
 function ForestDesignLab.Build(parent: Instance, center: Vector3)
 	assert(RunService:IsStudio(), "ForestDesignLab is available only in Roblox Studio")
 	assert(parent ~= nil, "ForestDesignLab.Build requires a parent")
@@ -1330,6 +1627,8 @@ function ForestDesignLab.Build(parent: Instance, center: Vector3)
 	root:SetAttribute("BuildStatus", "Building")
 	root:SetAttribute("ControlledComparisonSchemaVersion", CONTROLLED_COMPARISON_CONFIG.SchemaVersion)
 	root:SetAttribute("ControlledComparisonsReady", false)
+	root:SetAttribute("CartoonSimComparisonSchemaVersion", CARTOON_SIM_COMPARISON_CONFIG.SchemaVersion)
+	root:SetAttribute("CartoonSimComparisonsReady", false)
 
 	local ok, result = pcall(function()
 		local softerCenter = center + SOFT_OFFSET
@@ -1386,6 +1685,49 @@ function ForestDesignLab.Build(parent: Instance, center: Vector3)
 				+ (if assetSelectionMetadata and isFiniteNumber(assetSelectionMetadata.InstanceCount)
 					then assetSelectionMetadata.InstanceCount else 0))
 
+		local cartoonSimComparisons: any = nil
+		local cartoonSimComparisonInstanceCount = 0
+		local cartoonSimComparisonBasePartCount = 0
+		local cartoonSimStage = Instance.new("Model")
+		cartoonSimStage.Name = "CartoonSimComparisonStaging"
+		markVisual(cartoonSimStage)
+		local cartoonBuildOk, cartoonResult, cartoonInstanceCount, cartoonPartCount = pcall(
+			buildCartoonSimComparisons,
+			cartoonSimStage,
+			chunkier,
+			center
+		)
+		if cartoonBuildOk and type(cartoonResult) == "table" then
+			cartoonSimComparisons = cartoonResult
+			for _, comparison in ipairs(cartoonSimStage:GetChildren()) do
+				comparison.Parent = root
+			end
+			root:SetAttribute("CartoonSimComparisonSchemaVersion",
+				cartoonSimStage:GetAttribute("CartoonSimComparisonSchemaVersion"))
+			root:SetAttribute("CartoonSimComparisonsReady",
+				cartoonSimStage:GetAttribute("CartoonSimComparisonsReady") == true)
+			root:SetAttribute("CartoonSimComparisonCount",
+				cartoonSimStage:GetAttribute("CartoonSimComparisonCount"))
+			root:SetAttribute("CartoonSimComparisonLayout",
+				cartoonSimStage:GetAttribute("CartoonSimComparisonLayout"))
+			cartoonSimComparisonInstanceCount = if isFiniteNumber(cartoonInstanceCount) then cartoonInstanceCount else 0
+			cartoonSimComparisonBasePartCount = if isFiniteNumber(cartoonPartCount) then cartoonPartCount else 0
+		else
+			warn("[ForestDesignLab] Cartoon simulator comparisons failed; Forest A/B, prior comparisons, and the asset catalog remain available: "
+				.. tostring(cartoonResult))
+			root:SetAttribute("CartoonSimComparisonsReady", false)
+			root:SetAttribute("CartoonSimComparisonCount", 0)
+		end
+		cartoonSimStage:Destroy()
+		root:SetAttribute("CartoonSimComparisonInstanceCount", cartoonSimComparisonInstanceCount)
+		root:SetAttribute("CartoonSimComparisonBasePartCount", cartoonSimComparisonBasePartCount)
+		root:SetAttribute("TotalInstanceCountIncludingAssetSelectionAndAllComparisons",
+			softerCount + chunkierCount + 1 + controlledComparisonInstanceCount + cartoonSimComparisonInstanceCount
+				+ (if assetSelectionMetadata and isFiniteNumber(assetSelectionMetadata.InstanceCount)
+					then assetSelectionMetadata.InstanceCount else 0))
+		root:SetAttribute("TotalBasePartCountIncludingAllComparisons",
+			softerParts + chunkierParts + controlledComparisonBasePartCount + cartoonSimComparisonBasePartCount)
+
 		root:SetAttribute("BuildStatus", "Ready")
 		root:SetAttribute("AssetSelectionReady", assetSelection ~= nil)
 		root:SetAttribute("AssetSelectionInstanceCount",
@@ -1427,6 +1769,7 @@ function ForestDesignLab.Build(parent: Instance, center: Vector3)
 				InstanceCount = assetSelectionMetadata.InstanceCount,
 			} else nil,
 			ControlledComparisons = controlledComparisons,
+			CartoonSimComparisons = cartoonSimComparisons,
 		}
 		return metadata
 	end)

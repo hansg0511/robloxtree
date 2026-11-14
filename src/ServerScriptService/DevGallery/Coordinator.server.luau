@@ -38,6 +38,38 @@ local FOREST_CONTROLLED_COMPARISONS = {
 		TargetName = "ForestContrastTest4",
 		Label = "TEST 4 · MINT + SHADOWS",
 	},
+	{
+		EntryId = "CartoonTest1",
+		TargetName = "CartoonForestTest1",
+		Label = "TEST 1 · SOFT CARTOON GRASS",
+		ReadyAttribute = "CartoonSimComparisonsReady",
+		SchemaAttribute = "CartoonSimComparisonSchemaVersion",
+		SchemaVersion = 1,
+	},
+	{
+		EntryId = "CartoonTest2",
+		TargetName = "CartoonForestTest2",
+		Label = "TEST 2 · BOLD SIMULATOR GRASS",
+		ReadyAttribute = "CartoonSimComparisonsReady",
+		SchemaAttribute = "CartoonSimComparisonSchemaVersion",
+		SchemaVersion = 1,
+	},
+	{
+		EntryId = "CartoonTest3",
+		TargetName = "CartoonForestTest3",
+		Label = "TEST 3 · BOLD GRASS + RICHER LEAVES",
+		ReadyAttribute = "CartoonSimComparisonsReady",
+		SchemaAttribute = "CartoonSimComparisonSchemaVersion",
+		SchemaVersion = 1,
+	},
+	{
+		EntryId = "CartoonTest4",
+		TargetName = "CartoonForestTest4",
+		Label = "TEST 4 · FULL CARTOON SIMULATOR",
+		ReadyAttribute = "CartoonSimComparisonsReady",
+		SchemaAttribute = "CartoonSimComparisonSchemaVersion",
+		SchemaVersion = 1,
+	},
 }
 
 local LABS = Config.Labs or {}
@@ -362,8 +394,9 @@ local function getReadyControlledComparison(targetGallery, designLab, comparison
 		or targetGallery.Parent ~= Workspace
 		or targetGallery:GetAttribute("BuildStatus") ~= "Ready"
 		or designLab:GetAttribute("ForestDesignLabSchemaVersion") ~= FOREST_SHOWCASE_SCHEMA_VERSION
-		or designLab:GetAttribute("ControlledComparisonSchemaVersion") ~= CONTROLLED_COMPARISON_SCHEMA_VERSION
-		or designLab:GetAttribute("ControlledComparisonsReady") ~= true
+		or designLab:GetAttribute(comparison.SchemaAttribute or "ControlledComparisonSchemaVersion")
+			~= (comparison.SchemaVersion or CONTROLLED_COMPARISON_SCHEMA_VERSION)
+		or designLab:GetAttribute(comparison.ReadyAttribute or "ControlledComparisonsReady") ~= true
 	then
 		return nil
 	end

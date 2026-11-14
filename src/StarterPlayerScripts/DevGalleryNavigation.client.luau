@@ -29,6 +29,34 @@ local CONTROLLED_COMPARISON_TARGETS = {
 	Test2 = { TargetName = "ForestContrastTest2", TestId = "Test2" },
 	Test3 = { TargetName = "ForestContrastTest3", TestId = "Test3" },
 	Test4 = { TargetName = "ForestContrastTest4", TestId = "Test4" },
+	CartoonTest1 = {
+		TargetName = "CartoonForestTest1",
+		TestId = "CartoonTest1",
+		ReadyAttribute = "CartoonSimComparisonsReady",
+		SchemaAttribute = "CartoonSimComparisonSchemaVersion",
+		SchemaVersion = 1,
+	},
+	CartoonTest2 = {
+		TargetName = "CartoonForestTest2",
+		TestId = "CartoonTest2",
+		ReadyAttribute = "CartoonSimComparisonsReady",
+		SchemaAttribute = "CartoonSimComparisonSchemaVersion",
+		SchemaVersion = 1,
+	},
+	CartoonTest3 = {
+		TargetName = "CartoonForestTest3",
+		TestId = "CartoonTest3",
+		ReadyAttribute = "CartoonSimComparisonsReady",
+		SchemaAttribute = "CartoonSimComparisonSchemaVersion",
+		SchemaVersion = 1,
+	},
+	CartoonTest4 = {
+		TargetName = "CartoonForestTest4",
+		TestId = "CartoonTest4",
+		ReadyAttribute = "CartoonSimComparisonsReady",
+		SchemaAttribute = "CartoonSimComparisonSchemaVersion",
+		SchemaVersion = 1,
+	},
 }
 local NAV_ORDER = {
 	Entry = 1,
@@ -46,7 +74,11 @@ local NAV_ORDER = {
 	Test2 = 13,
 	Test3 = 14,
 	Test4 = 15,
-	Archive = 16,
+	CartoonTest1 = 16,
+	CartoonTest2 = 17,
+	CartoonTest3 = 18,
+	CartoonTest4 = 19,
+	Archive = 20,
 }
 
 local screenGui = Instance.new("ScreenGui")
@@ -831,6 +863,9 @@ local function resolveTarget(entry)
 
 		local forestLab = targetRoot:FindFirstChild("ForestLab")
 		local designLab = forestLab and forestLab:FindFirstChild("ForestDesignLab")
+		local schemaAttribute = comparison.SchemaAttribute or "ControlledComparisonSchemaVersion"
+		local schemaVersion = comparison.SchemaVersion or CONTROLLED_COMPARISON_SCHEMA_VERSION
+		local readyAttribute = comparison.ReadyAttribute or "ControlledComparisonsReady"
 		if not forestLab
 			or not forestLab:IsA("Model")
 			or forestLab:GetAttribute(OWNER_ATTRIBUTE) ~= FOREST_OWNER
@@ -840,8 +875,8 @@ local function resolveTarget(entry)
 			or designLab:GetAttribute(OWNER_ATTRIBUTE) ~= FOREST_OWNER
 			or designLab:GetAttribute("BuildStatus") ~= "Ready"
 			or designLab:GetAttribute("ForestDesignLabSchemaVersion") ~= FOREST_DESIGN_LAB_SCHEMA_VERSION
-			or designLab:GetAttribute("ControlledComparisonSchemaVersion") ~= CONTROLLED_COMPARISON_SCHEMA_VERSION
-			or designLab:GetAttribute("ControlledComparisonsReady") ~= true
+			or designLab:GetAttribute(schemaAttribute) ~= schemaVersion
+			or designLab:GetAttribute(readyAttribute) ~= true
 			or target ~= designLab:FindFirstChild(comparison.TargetName)
 		then
 			return nil
