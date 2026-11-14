@@ -8,7 +8,7 @@ The gallery is a Studio-only workspace for tree, terrain, reference-asset, and f
 | `Origin` | `Vector3.new(6000, 120, 6000)` | Shared world origin for the gallery shell and lab layout. |
 | `Labs.Tree` | `true` | Builds the current tree lab. |
 | `Labs.Terrain` | `true` | Builds the Mesa and boundary studies; also gates the reference-asset island. |
-| `Labs.Forest` | `true` | Builds the Studio-only World 1 Forest Design Lab, its A/B scenes, and the optional asset catalog navigation entry. |
+| `Labs.Forest` | `true` | Builds the Studio-only World 1 Forest Design Lab, its A/B scenes, four controlled contrast tests, and the optional asset catalog navigation entry. |
 | `Labs.Archive` | `true` | Shows the archive landing section. |
 | `Archive.TreeStudies` | `false` | Optionally builds the archived tree comparisons under the Archive section. |
 
@@ -22,7 +22,20 @@ When enabled, `ArchiveLab.TreeStudiesArchive` contains the older Grove mutation 
 
 The Terrain lab adds a Mesa overview and Terrain, Faceted, and Mixed boundary studies west of the shared gallery floor. The reference island clones the tracked `TerrainReference.rbxm` and `BorderReference.rbxm` backups from `ServerStorage.DevAssetReferences`; the reference builder does not edit those source files. See [REFERENCE_ASSETS.md](REFERENCE_ASSETS.md) for source IDs and caveats. In particular, the tracked TerrainReference backup is present, but restoration into the intended Studio hierarchy through Rojo has not been proven.
 
-The Forest Design Lab builds two independently reachable interpretations of one bright, toy-like World 1 woodland clearing: **Forest A · Softer Storybook** emphasizes warmth and gentler silhouettes; **Forest B · Chunkier Storybook** uses stronger sculpted shapes. The unified navigation also has one **FOREST ASSET CATALOG** entry for categorized Creator Store candidates and comparison compositions. All three scenes remain under `Workspace.DevTreeGallery.ForestLab.ForestDesignLab`; a catalog build failure leaves A/B and the other enabled labs available. Turn the lab off with `Labs.Forest = false`.
+The Forest Design Lab builds two independently reachable interpretations of one bright, toy-like World 1 woodland clearing: **Forest A · Softer Storybook** emphasizes warmth and gentler silhouettes; **Forest B · Chunkier Storybook** uses stronger sculpted shapes. Unified navigation includes the **FOREST ASSET CATALOG** and four controlled contrast destinations. The A/B scenes, catalog, and tests remain under `Workspace.DevTreeGallery.ForestLab.ForestDesignLab`; if the controlled comparison build fails, A/B and the catalog remain available. Turn the lab off with `Labs.Forest = false`.
+
+## Controlled Forest contrasts
+
+With `Labs.Forest = true`, sync the updated Forest module and coordinator, then start a **fresh Studio Play/Start Server session**. The coordinator preserves an already-built schema-2 ForestDesignLab to keep A/B and the catalog intact, so Test1–Test4 appear after a fresh Play builds the new scenes. Open **DEV GALLERY** and select one of these entries; use **RETURN TO WORLD** when finished.
+
+| Entry | Controlled change |
+| --- | --- |
+| **TEST 1 · RICH OAK** | Baseline bright grass with richer, deeper oak foliage. |
+| **TEST 2 · MINT GRASS** | Blue-shifted grass only (+24 blue channel); oak foliage and shadows stay unchanged. |
+| **TEST 3 · ORIGINAL + SHADOWS** | Original bright grass and oak colors with five subtle tree-shadow patches. |
+| **TEST 4 · MINT + SHADOWS** | The same mint grass as Test2 plus the same five shadow patches as Test3. |
+
+All four use five Chunkier-scene Oaks with seeds `418031, 418047, 418063, 418079, 418097`. Their ground treatment uses an optional temporary sample at `MaterialService.TemporaryForestGrassComparisonArchive_20261114.GrassFloorPreview_Temporary.GrassSample_07` (AssetId `7213563087`; top texture `rbxassetid://7209230195`). The sample may be absent after Studio closes and reopens. If it or its texture cannot be used, the tests still build: all ground surfaces use `SmoothPlastic`, the main floor uses visible green `RGB 121, 199, 93`, and the five facets keep their varied green shades. Test2 and Test4 apply the same +24 blue shift to those fallback surfaces, and their scene plaques show **SMOOTH PLASTIC APPROX**.
 
 The catalog reads source-controlled model templates, preferring `ServerStorage.DevToolboxAssets.ForestToolboxAssets` and falling back to `ServerStorage.DevToolboxAssets`. The tracked source model is `src/ServerStorage/DevToolboxAssets/ForestToolboxAssets.rbxm`. The comparison compositions also use `src/ServerStorage/DevToolboxAssets/ApprovedMesaReference.rbxm`, an approved World 1 mixed mesa junction reference with 49 visual BaseParts and no scripts or invisible collision pieces. Its preview is scaled down and made non-collidable. It does not load Creator Store IDs at runtime; missing templates are labeled unavailable. The module and its coordinator/navigation entry are guarded by `RunService:IsStudio()`. To inspect it, sync with Rojo, start a Studio Play/Start Server session, open **DEV GALLERY**, then select **FOREST ASSET CATALOG**. Stop the session before editing the .rbxm; save the template and restart the Studio server to rebuild the previews. MeshId, TextureID, and SurfaceAppearance dependencies inside a template may still require separate asset permission and availability in Studio.
 

@@ -16,6 +16,29 @@ local NAV_REGISTRY_NAME = "DevGalleryNavRegistry"
 local NAV_ENTRIES_NAME = "Entries"
 local COORDINATOR_VERSION = 2
 local FOREST_SHOWCASE_SCHEMA_VERSION = 2
+local CONTROLLED_COMPARISON_SCHEMA_VERSION = 1
+local FOREST_CONTROLLED_COMPARISONS = {
+	{
+		EntryId = "Test1",
+		TargetName = "ForestContrastTest1",
+		Label = "TEST 1 · RICH OAK",
+	},
+	{
+		EntryId = "Test2",
+		TargetName = "ForestContrastTest2",
+		Label = "TEST 2 · MINT GRASS",
+	},
+	{
+		EntryId = "Test3",
+		TargetName = "ForestContrastTest3",
+		Label = "TEST 3 · ORIGINAL + SHADOWS",
+	},
+	{
+		EntryId = "Test4",
+		TargetName = "ForestContrastTest4",
+		Label = "TEST 4 · MINT + SHADOWS",
+	},
+}
 
 local LABS = Config.Labs or {}
 local ARCHIVE_CONFIG = Config.Archive or {}
@@ -326,6 +349,54 @@ local function hasReadyAssetSelectionModel(showcase)
 		and hasWalkableCatalogFloor(target)
 end
 
+local function hasWalkableControlledComparisonFloor(target)
+	local floor = target:FindFirstChild("WalkableGrass", true)
+	return floor ~= nil
+		and floor:IsA("BasePart")
+		and floor:GetAttribute("WalkableUtilitySurface") == true
+		and floor.CanCollide
+end
+
+local function getReadyControlledComparison(targetGallery, designLab, comparison)
+	if not isOwned(targetGallery, COORDINATOR_OWNER)
+		or targetGallery.Parent ~= Workspace
+		or targetGallery:GetAttribute("BuildStatus") ~= "Ready"
+		or designLab:GetAttribute("ForestDesignLabSchemaVersion") ~= FOREST_SHOWCASE_SCHEMA_VERSION
+		or designLab:GetAttribute("ControlledComparisonSchemaVersion") ~= CONTROLLED_COMPARISON_SCHEMA_VERSION
+		or designLab:GetAttribute("ControlledComparisonsReady") ~= true
+	then
+		return nil
+	end
+
+	local target = designLab:FindFirstChild(comparison.TargetName)
+	if not target
+		or not target:IsA("Model")
+		or not isOwned(target, FOREST_OWNER)
+		or target:GetAttribute("BuildStatus") ~= "Ready"
+		or target:GetAttribute("ControlledComparison") ~= true
+		or target:GetAttribute("ControlledComparisonTestId") ~= comparison.EntryId
+		or target.ModelStreamingMode ~= Enum.ModelStreamingMode.Atomic
+		or not hasWalkableControlledComparisonFloor(target)
+	then
+		return nil
+	end
+
+	local destination = target:GetAttribute("NavigationDestinationCFrame")
+	local focus = target:GetAttribute("NavigationFocusPosition")
+	if not isValidCFrame(destination)
+		or not isValidVector3(focus)
+		or not isInsideGalleryBounds(destination.Position)
+		or not isInsideGalleryBounds(focus)
+	then
+		return nil
+	end
+
+	local summary = target:GetAttribute("NavigationSummary")
+	if type(summary) ~= "string" or summary == "" then
+		summary = "Controlled forest contrast"
+	end
+	return target, destination, focus, summary
+end
 local function buildForestDesignLab(targetGallery)
 	if not isOwned(targetGallery, COORDINATOR_OWNER)
 		or targetGallery.Parent ~= Workspace
@@ -787,6 +858,38 @@ local function refreshNavigation()
 					"ForestAssetSelectionShowcase",
 					"Curated Creator Store model previews"
 				)
+			end
+		end
+		-- Older schema-2 showcases remain intact; Test1-Test4 appear after a fresh build reports the comparison schema.
+		if LABS.Forest == true and gallery:GetAttribute("ForestLabReady") == true then
+			local forestLab = gallery:FindFirstChild("ForestLab")
+			local designLab = forestLab and forestLab:FindFirstChild("ForestDesignLab")
+			if forestLab
+				and isOwned(forestLab, FOREST_OWNER)
+				and forestLab:GetAttribute("BuildStatus") == "Ready"
+				and designLab
+				and designLab:IsA("Model")
+				and isOwned(designLab, FOREST_OWNER)
+				and designLab:GetAttribute("BuildStatus") == "Ready"
+			then
+				for _, comparison in ipairs(FOREST_CONTROLLED_COMPARISONS) do
+					local target, destination, focus, summary = getReadyControlledComparison(gallery, designLab, comparison)
+					if target then
+						wanted[comparison.EntryId] = true
+						upsertEntry(comparison.EntryId, {
+							LabId = "Forest",
+							Label = comparison.Label,
+							DestinationCFrame = destination,
+							FocusPosition = focus,
+							TargetRootName = ROOT_NAME,
+							TargetName = comparison.TargetName,
+							Summary = summary,
+							CameraDistance = 20,
+							CameraHeight = 8,
+							ControlledComparisonTestId = comparison.EntryId,
+						})
+					end
+				end
 			end
 		end
 		if LABS.Archive == true and gallery:GetAttribute("ArchiveLabReady") == true then

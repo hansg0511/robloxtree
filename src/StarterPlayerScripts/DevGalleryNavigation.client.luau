@@ -21,6 +21,15 @@ local REFERENCE_OWNER_ATTRIBUTE = "DevStudioReferenceGalleryOwner"
 local REFERENCE_OWNER = "DevStudioReferenceGallery.server"
 local RETURN_TIMEOUT = 8
 local TARGET_TIMEOUT = 8
+local FOREST_OWNER = "Forest"
+local FOREST_DESIGN_LAB_SCHEMA_VERSION = 2
+local CONTROLLED_COMPARISON_SCHEMA_VERSION = 1
+local CONTROLLED_COMPARISON_TARGETS = {
+	Test1 = { TargetName = "ForestContrastTest1", TestId = "Test1" },
+	Test2 = { TargetName = "ForestContrastTest2", TestId = "Test2" },
+	Test3 = { TargetName = "ForestContrastTest3", TestId = "Test3" },
+	Test4 = { TargetName = "ForestContrastTest4", TestId = "Test4" },
+}
 local NAV_ORDER = {
 	Entry = 1,
 	Tree = 2,
@@ -33,7 +42,11 @@ local NAV_ORDER = {
 	ForestSofter = 9,
 	ForestChunkier = 10,
 	ForestAssetSelection = 11,
-	Archive = 12,
+	Test1 = 12,
+	Test2 = 13,
+	Test3 = 14,
+	Test4 = 15,
+	Archive = 16,
 }
 
 local screenGui = Instance.new("ScreenGui")
@@ -804,6 +817,49 @@ local function resolveTarget(entry)
 		end
 		local walkableFloor = target:FindFirstChild("AssetCatalogWalkway", true)
 		if not walkableFloor or not walkableFloor:IsA("BasePart")
+			or walkableFloor:GetAttribute("WalkableUtilitySurface") ~= true
+			or walkableFloor.CanCollide ~= true
+		then
+			return nil
+		end
+	end
+	local comparison = CONTROLLED_COMPARISON_TARGETS[entry.Name]
+	if comparison then
+		if targetName ~= comparison.TargetName then
+			return nil
+		end
+
+		local forestLab = targetRoot:FindFirstChild("ForestLab")
+		local designLab = forestLab and forestLab:FindFirstChild("ForestDesignLab")
+		if not forestLab
+			or not forestLab:IsA("Model")
+			or forestLab:GetAttribute(OWNER_ATTRIBUTE) ~= FOREST_OWNER
+			or forestLab:GetAttribute("BuildStatus") ~= "Ready"
+			or not designLab
+			or not designLab:IsA("Model")
+			or designLab:GetAttribute(OWNER_ATTRIBUTE) ~= FOREST_OWNER
+			or designLab:GetAttribute("BuildStatus") ~= "Ready"
+			or designLab:GetAttribute("ForestDesignLabSchemaVersion") ~= FOREST_DESIGN_LAB_SCHEMA_VERSION
+			or designLab:GetAttribute("ControlledComparisonSchemaVersion") ~= CONTROLLED_COMPARISON_SCHEMA_VERSION
+			or designLab:GetAttribute("ControlledComparisonsReady") ~= true
+			or target ~= designLab:FindFirstChild(comparison.TargetName)
+		then
+			return nil
+		end
+
+		local focus = entry:GetAttribute("FocusPosition")
+		local walkableFloor = target:FindFirstChild("WalkableGrass", true)
+		if target:GetAttribute(OWNER_ATTRIBUTE) ~= FOREST_OWNER
+			or target:GetAttribute("BuildStatus") ~= "Ready"
+			or target:GetAttribute("ControlledComparison") ~= true
+			or target:GetAttribute("ControlledComparisonTestId") ~= comparison.TestId
+			or entry:GetAttribute("ControlledComparisonTestId") ~= comparison.TestId
+			or target.ModelStreamingMode ~= Enum.ModelStreamingMode.Atomic
+			or typeof(focus) ~= "Vector3"
+			or target:GetAttribute("NavigationDestinationCFrame") ~= destination
+			or target:GetAttribute("NavigationFocusPosition") ~= focus
+			or not walkableFloor
+			or not walkableFloor:IsA("BasePart")
 			or walkableFloor:GetAttribute("WalkableUtilitySurface") ~= true
 			or walkableFloor.CanCollide ~= true
 		then

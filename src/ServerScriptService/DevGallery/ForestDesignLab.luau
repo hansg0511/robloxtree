@@ -6,6 +6,7 @@
 local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
 local ServerStorage = game:GetService("ServerStorage")
+local MaterialService = game:GetService("MaterialService")
 local DevStarterOakGenerator = require(ServerScriptService:WaitForChild("DevStarterOakGenerator"))
 local AssetSelectionModule = script.Parent:FindFirstChild("ForestAssetSelectionShowcase")
 
@@ -16,6 +17,95 @@ local SOFT_OFFSET = Vector3.new(-46, 0, 0)
 local CHUNKY_OFFSET = Vector3.new(46, 0, 0)
 local ASSET_SELECTION_OFFSET = Vector3.new(0, 0, 230)
 local PLATFORM_SIZE = Vector3.new(72, 0.55, 66)
+local CARTOONY_SAMPLE_ASSET_ID = 7213563087
+local CARTOONY_SAMPLE_TEXTURE_URI = "rbxassetid://7209230195"
+local CARTOONY_SAMPLE_PATH = "MaterialService.TemporaryForestGrassComparisonArchive_20261114.GrassFloorPreview_Temporary.GrassSample_07"
+
+-- These four playable copies share the existing Chunkier scene geometry,
+-- seeds, props, and paths. Keep treatment values here so every difference is
+-- explicit and the two shadow scenes use the same local shadow placement.
+local CONTROLLED_COMPARISON_CONFIG = {
+	SchemaVersion = 1,
+	LandingOffset = Vector3.new(0, 3.5, 24),
+	FocusOffset = Vector3.new(0, 7, -6),
+	TreeSeeds = { 418031, 418047, 418063, 418079, 418097 },
+	TreeSeedList = "418031,418047,418063,418079,418097",
+	TreeOffsets = {
+		Vector3.new(-18, 0, -8),
+		Vector3.new(1, 0, -15),
+		Vector3.new(19, 0, -7),
+		Vector3.new(-12, 0, -26),
+		Vector3.new(12, 0, -26),
+	},
+	OakFoliageRoles = {
+		{ Name = "Leaf", Source = Color3.fromRGB(105, 202, 67), Target = Color3.fromRGB(78, 170, 55) },
+		{ Name = "LeafHighlight", Source = Color3.fromRGB(156, 226, 77), Target = Color3.fromRGB(150, 220, 72) },
+		{ Name = "LeafShadow", Source = Color3.fromRGB(69, 160, 58), Target = Color3.fromRGB(45, 110, 38) },
+	},
+	CartoonyGrass = {
+		FallbackColor = Color3.fromRGB(121, 199, 93),
+		FallbackMaterial = Enum.Material.SmoothPlastic,
+		MintBlueChannelShift = 24,
+	},
+	TreeShadow = {
+		Color = Color3.fromRGB(64, 98, 57),
+		Transparency = 0.64,
+		Thickness = 0.06,
+		Width = 8.6,
+		Depth = 6.2,
+		CenterLift = 0.035,
+	},
+	Tests = {
+		{
+			TestId = "Test1",
+			Name = "ForestContrastTest1",
+			Label = "TEST 1 · RICH OAK",
+			Summary = "Bright Cartoony grass with deeper, richer oak foliage",
+			EnvironmentChange = "CartoonyGrassAndRichOakFoliage",
+			Offset = Vector3.new(-42, 0, 460),
+			CartoonyGrass = true,
+			MintGrass = false,
+			RichOakFoliage = true,
+			TreeShadows = false,
+		},
+		{
+			TestId = "Test2",
+			Name = "ForestContrastTest2",
+			Label = "TEST 2 · MINT GRASS",
+			Summary = "Blue-shifted bright Cartoony grass with unchanged oak foliage",
+			EnvironmentChange = "MintCartoonyGrassOnly",
+			Offset = Vector3.new(42, 0, 460),
+			CartoonyGrass = true,
+			MintGrass = true,
+			RichOakFoliage = false,
+			TreeShadows = false,
+		},
+		{
+			TestId = "Test3",
+			Name = "ForestContrastTest3",
+			Label = "TEST 3 · ORIGINAL + SHADOWS",
+			Summary = "Original bright Cartoony grass and oak foliage with subtle tree shadows",
+			EnvironmentChange = "OriginalBrightCartoonyGrassAndOakWithTreeShadows",
+			Offset = Vector3.new(-42, 0, 536),
+			CartoonyGrass = true,
+			MintGrass = false,
+			RichOakFoliage = false,
+			TreeShadows = true,
+		},
+		{
+			TestId = "Test4",
+			Name = "ForestContrastTest4",
+			Label = "TEST 4 · MINT + SHADOWS",
+			Summary = "Blue-shifted bright Cartoony grass with the same subtle tree shadows",
+			EnvironmentChange = "MintCartoonyGrassAndTreeShadowPatches",
+			Offset = Vector3.new(42, 0, 536),
+			CartoonyGrass = true,
+			MintGrass = true,
+			RichOakFoliage = false,
+			TreeShadows = true,
+		},
+	},
+}
 
 local PALETTE = {
 	Grass = Color3.fromRGB(128, 190, 104),
@@ -834,6 +924,379 @@ local function buildVariation(parent: Model, name: string, center: Vector3, styl
 	return scene, landing, focus, instanceCount, basePartCount
 end
 
+local function colorToRgbString(color: Color3): string
+	return string.format("%d,%d,%d",
+		math.floor(color.R * 255 + 0.5),
+		math.floor(color.G * 255 + 0.5),
+		math.floor(color.B * 255 + 0.5))
+end
+
+local function findCartoonyGrassSample()
+	local archive = MaterialService:FindFirstChild("TemporaryForestGrassComparisonArchive_20261114")
+	local preview = archive and archive:FindFirstChild("GrassFloorPreview_Temporary")
+	local sample = preview and preview:FindFirstChild("GrassSample_07")
+	if not archive
+		or archive:GetAttribute("TemporaryForestGrassComparisonOwner") ~= "CodexTemporary"
+		or not sample
+		or not sample:IsA("BasePart")
+	then
+		return nil
+	end
+
+	local assetId = sample:GetAttribute("AssetId")
+	if assetId ~= CARTOONY_SAMPLE_ASSET_ID and assetId ~= tostring(CARTOONY_SAMPLE_ASSET_ID) then
+		return nil
+	end
+	if sample.Material ~= Enum.Material.SmoothPlastic then
+		return nil
+	end
+
+	local texture = sample:FindFirstChild("Texture")
+	if not texture
+		or not texture:IsA("Texture")
+		or texture.Texture ~= CARTOONY_SAMPLE_TEXTURE_URI
+		or texture.Face ~= Enum.NormalId.Top
+	then
+		return nil
+	end
+
+	return {
+		Part = sample,
+		Texture = texture,
+	}
+end
+
+local function applyCartoonyGrass(scene: Model, source, mint: boolean): (string, Color3, number)
+	local floor = scene:FindFirstChild("WalkableGrass", true)
+	assert(floor and floor:IsA("BasePart"), "Controlled forest test has no WalkableGrass")
+	local meadowFacets = {}
+	for _, child in ipairs(scene:GetChildren()) do
+		if child:IsA("BasePart")
+			and string.match(child.Name, "^MeadowFacet%d+$")
+			and child:GetAttribute("DecorativeGroundLayer") == true
+		then
+			table.insert(meadowFacets, child)
+		end
+	end
+	table.sort(meadowFacets, function(first: BasePart, second: BasePart): boolean
+		return first.Name < second.Name
+	end)
+	assert(#meadowFacets == 5, "Controlled forest clone must have all five Chunkier meadow facets")
+
+	local surfaces = { floor :: BasePart }
+	local originalFacetColors = {}
+	for _, facet in ipairs(meadowFacets) do
+		table.insert(surfaces, facet)
+		table.insert(originalFacetColors, facet.Color)
+	end
+
+	local sampleUsed = false
+	local baselineColor = CONTROLLED_COMPARISON_CONFIG.CartoonyGrass.FallbackColor
+	local textureClones = {}
+	if source then
+		local allTextureClonesReady = true
+		for _ = 1, #surfaces do
+			local cloneOk, result = pcall(function()
+				return source.Texture:Clone()
+			end)
+			if not cloneOk or not result or not result:IsA("Texture") then
+				allTextureClonesReady = false
+				break
+			end
+			table.insert(textureClones, result)
+		end
+		if allTextureClonesReady then
+			sampleUsed = true
+			baselineColor = source.Part.Color
+		else
+			for _, textureClone in ipairs(textureClones) do
+				textureClone:Destroy()
+			end
+			table.clear(textureClones)
+		end
+	end
+
+	local blueShift = if mint then CONTROLLED_COMPARISON_CONFIG.CartoonyGrass.MintBlueChannelShift / 255 else 0
+	for surfaceIndex, surface in ipairs(surfaces) do
+		local surfaceBaseline = if surfaceIndex == 1
+			then if sampleUsed then source.Part.Color else CONTROLLED_COMPARISON_CONFIG.CartoonyGrass.FallbackColor
+			else originalFacetColors[surfaceIndex - 1]
+		surface.Material = if sampleUsed then source.Part.Material else CONTROLLED_COMPARISON_CONFIG.CartoonyGrass.FallbackMaterial
+		surface.Reflectance = if sampleUsed then source.Part.Reflectance else 0
+		surface.Color = Color3.new(
+			surfaceBaseline.R,
+			surfaceBaseline.G,
+			math.clamp(surfaceBaseline.B + blueShift, 0, 1)
+		)
+		if sampleUsed then
+			textureClones[surfaceIndex].Parent = surface
+		end
+	end
+	if sampleUsed then
+		baselineColor = source.Part.Color
+	end
+	local resolvedColor = floor.Color
+
+	local textureMode = if sampleUsed then "TemporarySampleTextureReused" else "SmoothPlasticApproximation"
+	scene:SetAttribute("CartoonyGrassStatus", textureMode)
+	scene:SetAttribute("CartoonyGrassSourcePath", if sampleUsed then CARTOONY_SAMPLE_PATH else "Unavailable; SmoothPlastic approximation")
+	scene:SetAttribute("CartoonyGrassSourceAssetId", if sampleUsed then CARTOONY_SAMPLE_ASSET_ID else nil)
+	scene:SetAttribute("CartoonyGrassBaselineColorRGB", colorToRgbString(baselineColor))
+	scene:SetAttribute("CartoonyGrassBlueChannelShift", if mint then CONTROLLED_COMPARISON_CONFIG.CartoonyGrass.MintBlueChannelShift else 0)
+	scene:SetAttribute("GroundColorRGB", colorToRgbString(resolvedColor))
+	scene:SetAttribute("GroundMaterial", floor.Material.Name)
+	scene:SetAttribute("GroundTreatment", if mint then "CartoonyGrassBlueShift" else "CartoonyGrassBaseline")
+	scene:SetAttribute("CartoonyGrassFacetCount", #meadowFacets)
+	return textureMode, resolvedColor, #meadowFacets
+end
+
+local function colorDistanceSquared(first: Color3, second: Color3): number
+	local red = (first.R - second.R) * 255
+	local green = (first.G - second.G) * 255
+	local blue = (first.B - second.B) * 255
+	return red * red + green * green + blue * blue
+end
+
+local function identifyOakFoliageRole(color: Color3)
+	local nearestRole = CONTROLLED_COMPARISON_CONFIG.OakFoliageRoles[1]
+	local nearestDistance = colorDistanceSquared(color, nearestRole.Source)
+	for index = 2, #CONTROLLED_COMPARISON_CONFIG.OakFoliageRoles do
+		local candidate = CONTROLLED_COMPARISON_CONFIG.OakFoliageRoles[index]
+		local distance = colorDistanceSquared(color, candidate.Source)
+		if distance < nearestDistance then
+			nearestRole = candidate
+			nearestDistance = distance
+		end
+	end
+	return nearestRole
+end
+
+local function recolorRichOakFoliage(scene: Model)
+	local recoloredCount = 0
+	local roleCounts = { Leaf = 0, LeafHighlight = 0, LeafShadow = 0 }
+	for treeIndex, seed in ipairs(CONTROLLED_COMPARISON_CONFIG.TreeSeeds) do
+		local treeCandidate = scene:FindFirstChild("ShowcaseStarterOak" .. treeIndex, true)
+		assert(treeCandidate and treeCandidate:IsA("Model"), "Controlled forest test is missing an Oak clone")
+		local tree = treeCandidate :: Model
+		assert(tree:GetAttribute("Seed") == seed, "Controlled forest Oak clone has an unexpected seed")
+		assert(tree:GetAttribute("ShowcaseVisualScale") == 1.08, "Controlled forest Oak clone has an unexpected scale")
+		local foliage = tree:FindFirstChild("FoliageDecorations")
+		assert(foliage and foliage:IsA("Folder"), "Controlled forest Oak clone has no FoliageDecorations folder")
+		for _, descendant in ipairs(foliage:GetDescendants()) do
+			if descendant:IsA("BasePart") then
+				local role = identifyOakFoliageRole(descendant.Color)
+				local source = role.Source
+				local red = descendant.Color.R * 255
+				local green = descendant.Color.G * 255
+				local blue = descendant.Color.B * 255
+				local sourceRed = source.R * 255
+				local sourceGreen = source.G * 255
+				local sourceBlue = source.B * 255
+				local brightness = (red * sourceRed + green * sourceGreen + blue * sourceBlue)
+					/ (sourceRed ^ 2 + sourceGreen ^ 2 + sourceBlue ^ 2)
+				brightness = math.clamp(brightness, 0.96, 1.04)
+				descendant.Color = Color3.new(
+					math.clamp(role.Target.R * brightness, 0, 1),
+					math.clamp(role.Target.G * brightness, 0, 1),
+					math.clamp(role.Target.B * brightness, 0, 1)
+				)
+				descendant:SetAttribute("ForestDesignLabFoliageRole", role.Name)
+				descendant:SetAttribute("ForestDesignLabRichFoliage", true)
+				if role.Name == "Leaf" then
+					roleCounts.Leaf += 1
+				elseif role.Name == "LeafHighlight" then
+					roleCounts.LeafHighlight += 1
+				else
+					roleCounts.LeafShadow += 1
+				end
+				recoloredCount += 1
+			end
+		end
+	end
+	assert(recoloredCount > 0, "Controlled forest test found no cloned Oak foliage to tint")
+	scene:SetAttribute("RichOakFoliageTreatment", "RoleMappedDeeperAndRicher")
+	scene:SetAttribute("RichOakLeafRGB", colorToRgbString(CONTROLLED_COMPARISON_CONFIG.OakFoliageRoles[1].Target))
+	scene:SetAttribute("RichOakHighlightRGB", colorToRgbString(CONTROLLED_COMPARISON_CONFIG.OakFoliageRoles[2].Target))
+	scene:SetAttribute("RichOakShadowRGB", colorToRgbString(CONTROLLED_COMPARISON_CONFIG.OakFoliageRoles[3].Target))
+	scene:SetAttribute("RichOakFoliagePartCount", recoloredCount)
+	scene:SetAttribute("RichOakFoliageRoleCounts", string.format("Leaf:%d,LeafHighlight:%d,LeafShadow:%d",
+		roleCounts.Leaf, roleCounts.LeafHighlight, roleCounts.LeafShadow))
+end
+
+local function addTreeShadowPatches(scene: Model, center: Vector3)
+	local floor = scene:FindFirstChild("WalkableGrass", true)
+	assert(floor and floor:IsA("BasePart"), "Tree-shadow test has no WalkableGrass")
+	local floorTop = floor.Position.Y + floor.Size.Y * 0.5
+	local shadowConfig = CONTROLLED_COMPARISON_CONFIG.TreeShadow
+	for treeIndex, offset in ipairs(CONTROLLED_COMPARISON_CONFIG.TreeOffsets) do
+		local position = Vector3.new(center.X + offset.X, floorTop + shadowConfig.CenterLift, center.Z + offset.Z)
+		local yaw = math.rad((treeIndex * 17) % 43 - 21)
+		local shadow = makePart(
+			scene,
+			"DecorativeTreeShadow" .. treeIndex,
+			Vector3.new(shadowConfig.Thickness, shadowConfig.Width, shadowConfig.Depth),
+			CFrame.new(position) * CFrame.Angles(0, yaw, 0) * CFrame.Angles(0, 0, math.rad(90)),
+			shadowConfig.Color,
+			false,
+			Enum.PartType.Cylinder,
+			false
+		)
+		shadow.Transparency = shadowConfig.Transparency
+		shadow.CastShadow = false
+		shadow:SetAttribute("DecorativeTreeShadow", true)
+		shadow:SetAttribute("ShadowTreeName", "ShowcaseStarterOak" .. treeIndex)
+		shadow:SetAttribute("ShadowGroundPosition", position)
+	end
+	scene:SetAttribute("TreeShadowTreatment", "SubtleDecorativeGroundPatches")
+	scene:SetAttribute("TreeShadowPatchCount", #CONTROLLED_COMPARISON_CONFIG.TreeOffsets)
+	scene:SetAttribute("TreeShadowColorRGB", colorToRgbString(shadowConfig.Color))
+	scene:SetAttribute("TreeShadowTransparency", shadowConfig.Transparency)
+end
+
+local function setComparisonLabel(scene: Model, text: string)
+	local board = scene:FindFirstChild("VariationPlaque", true)
+	local surface = board and board:FindFirstChild("VariationLabel")
+	local label = surface and surface:FindFirstChild("Label")
+	if label and label:IsA("TextLabel") then
+		label.Text = text
+	end
+end
+
+local function countSceneParts(scene: Model): (number, number)
+	local instanceCount = 1
+	local basePartCount = 0
+	for _, descendant in ipairs(scene:GetDescendants()) do
+		instanceCount += 1
+		if descendant:IsA("BasePart") then
+			basePartCount += 1
+		end
+	end
+	return instanceCount, basePartCount
+end
+
+local function buildControlledComparisons(parent: Model, sourceScene: Model, center: Vector3)
+	local sourceFloorCandidate = sourceScene:FindFirstChild("WalkableGrass", true)
+	assert(sourceFloorCandidate and sourceFloorCandidate:IsA("BasePart"), "Chunkier source scene has no WalkableGrass")
+	local sourceFloor = sourceFloorCandidate :: BasePart
+	local sourceCenter = Vector3.new(
+		sourceFloor.Position.X,
+		sourceFloor.Position.Y + sourceFloor.Size.Y * 0.5,
+		sourceFloor.Position.Z
+	)
+	local cartoonySource = findCartoonyGrassSample()
+	local metadataByTest = {}
+
+	for _, testConfig in ipairs(CONTROLLED_COMPARISON_CONFIG.Tests) do
+		local clone = sourceScene:Clone()
+		assert(clone and clone:IsA("Model"), "Could not clone the Chunkier forest source")
+		local test = clone :: Model
+		test.Name = testConfig.Name
+		test.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
+		local testCenter = center + testConfig.Offset
+		test.Parent = parent
+		test:PivotTo(CFrame.new(testCenter - sourceCenter) * test:GetPivot())
+		for treeIndex, seed in ipairs(CONTROLLED_COMPARISON_CONFIG.TreeSeeds) do
+			local treeCandidate = test:FindFirstChild("ShowcaseStarterOak" .. treeIndex, true)
+			assert(treeCandidate and treeCandidate:IsA("Model"), "Controlled forest clone is missing an Oak")
+			assert(treeCandidate:GetAttribute("Seed") == seed, "Controlled forest clone has an unexpected Oak seed")
+			assert(treeCandidate:GetAttribute("ShowcaseVisualScale") == 1.08, "Controlled forest clone has an unexpected Oak scale")
+		end
+
+		local floorCandidate = test:FindFirstChild("WalkableGrass", true)
+		assert(floorCandidate and floorCandidate:IsA("BasePart"), "Controlled forest clone has no walkable grass")
+		local floor = floorCandidate :: BasePart
+		floor.CanCollide = true
+		floor:SetAttribute("WalkableUtilitySurface", true)
+		floor:SetAttribute("NavigationTarget", true)
+
+		local textureMode = "OriginalBrightSmoothPlastic"
+		if testConfig.CartoonyGrass then
+			local isMint = testConfig.MintGrass == true
+			local resolvedMode, resolvedColor = applyCartoonyGrass(test, cartoonySource, isMint)
+			textureMode = resolvedMode
+			test:SetAttribute("MintGrassColorRGB", if isMint then colorToRgbString(resolvedColor) else nil)
+		else
+			test:SetAttribute("GroundTreatment", "OriginalChunkierBrightGrass")
+			test:SetAttribute("GroundColorRGB", colorToRgbString(floor.Color))
+			test:SetAttribute("GroundMaterial", floor.Material.Name)
+		end
+
+		if testConfig.RichOakFoliage then
+			recolorRichOakFoliage(test)
+		end
+		if testConfig.TreeShadows then
+			addTreeShadowPatches(test, testCenter)
+		end
+
+		local focus = testCenter + CONTROLLED_COMPARISON_CONFIG.FocusOffset
+		local landingPosition = testCenter + CONTROLLED_COMPARISON_CONFIG.LandingOffset
+		local landing = CFrame.lookAt(landingPosition, focus)
+		local summary = testConfig.Summary
+		local labelText = testConfig.Label
+		if testConfig.CartoonyGrass and textureMode == "SmoothPlasticApproximation" then
+			summary ..= "; smooth-plastic approximation used because the temporary texture sample is unavailable"
+			labelText ..= "\nSMOOTH PLASTIC APPROX"
+		elseif testConfig.CartoonyGrass then
+			labelText ..= "\nCARTOONY GRASS"
+		end
+		setComparisonLabel(test, labelText)
+
+		markVisual(test)
+		test:SetAttribute("DevGalleryOwner", "Forest")
+		test:SetAttribute("BuildStatus", "Building")
+		test:SetAttribute("LabId", "Forest")
+		test:SetAttribute("ControlledComparison", true)
+		test:SetAttribute("ControlledComparisonTestId", testConfig.TestId)
+		test:SetAttribute("ControlledComparisonSchemaVersion", CONTROLLED_COMPARISON_CONFIG.SchemaVersion)
+		test:SetAttribute("ComparisonLabel", testConfig.Label)
+		test:SetAttribute("EnvironmentChange", testConfig.EnvironmentChange)
+		test:SetAttribute("TextureMode", textureMode)
+		test:SetAttribute("SceneDimensions", PLATFORM_SIZE)
+		test:SetAttribute("Center", testCenter)
+		test:SetAttribute("LandingCFrame", landing)
+		test:SetAttribute("FocusPosition", focus)
+		test:SetAttribute("NavigationDestinationCFrame", landing)
+		test:SetAttribute("NavigationFocusPosition", focus)
+		test:SetAttribute("NavigationSummary", summary)
+		test:SetAttribute("TreeCount", #CONTROLLED_COMPARISON_CONFIG.TreeSeeds)
+		test:SetAttribute("OakSeeds", CONTROLLED_COMPARISON_CONFIG.TreeSeedList)
+		test:SetAttribute("OakVisualScale", 1.08)
+		test:SetAttribute("CartoonyGrassEnabled", testConfig.CartoonyGrass)
+		test:SetAttribute("MintGrassEnabled", testConfig.MintGrass)
+		test:SetAttribute("RichOakFoliageEnabled", testConfig.RichOakFoliage)
+		test:SetAttribute("TreeShadowsEnabled", testConfig.TreeShadows)
+		if not testConfig.CartoonyGrass then
+			test:SetAttribute("CartoonyGrassStatus", "NotApplied")
+			test:SetAttribute("CartoonyGrassSourcePath", "NotApplied")
+			test:SetAttribute("CartoonyGrassSourceAssetId", nil)
+			test:SetAttribute("CartoonyGrassBlueChannelShift", 0)
+		end
+
+		local instanceCount, basePartCount = countSceneParts(test)
+		test:SetAttribute("InstanceCount", instanceCount)
+		test:SetAttribute("BasePartCount", basePartCount)
+		test:SetAttribute("BuildStatus", "Ready")
+		metadataByTest[testConfig.TestId] = {
+			TargetName = test.Name,
+			BuildStatus = "Ready",
+			ControlledComparisonTestId = testConfig.TestId,
+			Center = testCenter,
+			LandingCFrame = landing,
+			FocusPosition = focus,
+			NavigationDestinationCFrame = landing,
+			NavigationFocusPosition = focus,
+			InstanceCount = instanceCount,
+			BasePartCount = basePartCount,
+		}
+	end
+
+	parent:SetAttribute("ControlledComparisonSchemaVersion", CONTROLLED_COMPARISON_CONFIG.SchemaVersion)
+	parent:SetAttribute("ControlledComparisonsReady", true)
+	parent:SetAttribute("ControlledComparisonCount", #CONTROLLED_COMPARISON_CONFIG.Tests)
+	parent:SetAttribute("ControlledComparisonLayout", "2x2; 72x66 clearings; 12-stud X gap; 10-stud Z gap")
+	return metadataByTest
+end
+
 function ForestDesignLab.Build(parent: Instance, center: Vector3)
 	assert(RunService:IsStudio(), "ForestDesignLab is available only in Roblox Studio")
 	assert(parent ~= nil, "ForestDesignLab.Build requires a parent")
@@ -846,6 +1309,8 @@ function ForestDesignLab.Build(parent: Instance, center: Vector3)
 	root:SetAttribute("Theme", "World1BrightWoodland")
 	root:SetAttribute("VariationCount", 2)
 	root:SetAttribute("BuildStatus", "Building")
+	root:SetAttribute("ControlledComparisonSchemaVersion", CONTROLLED_COMPARISON_CONFIG.SchemaVersion)
+	root:SetAttribute("ControlledComparisonsReady", false)
 
 	local ok, result = pcall(function()
 		local softerCenter = center + SOFT_OFFSET
@@ -855,6 +1320,52 @@ function ForestDesignLab.Build(parent: Instance, center: Vector3)
 		local chunkier, chunkierLanding, chunkierFocus, chunkierCount, chunkierParts =
 			buildVariation(root, "ChunkierStorybookClearing", chunkierCenter, "Chunkier")
 		local assetSelection, assetSelectionMetadata = buildAssetSelectionShowcase(root, center)
+		local controlledComparisons: any = nil
+		local controlledComparisonInstanceCount = 0
+		local controlledComparisonBasePartCount = 0
+		local comparisonStage = Instance.new("Model")
+		comparisonStage.Name = "ControlledComparisonStaging"
+		markVisual(comparisonStage)
+		local comparisonBuildOk, comparisonResult = pcall(
+			buildControlledComparisons,
+			comparisonStage,
+			chunkier,
+			center
+		)
+		if comparisonBuildOk and type(comparisonResult) == "table" then
+			controlledComparisons = comparisonResult
+			for _, comparison in ipairs(comparisonStage:GetChildren()) do
+				comparison.Parent = root
+			end
+			root:SetAttribute("ControlledComparisonSchemaVersion",
+				comparisonStage:GetAttribute("ControlledComparisonSchemaVersion"))
+			root:SetAttribute("ControlledComparisonsReady",
+				comparisonStage:GetAttribute("ControlledComparisonsReady") == true)
+			root:SetAttribute("ControlledComparisonCount",
+				comparisonStage:GetAttribute("ControlledComparisonCount"))
+			root:SetAttribute("ControlledComparisonLayout",
+				comparisonStage:GetAttribute("ControlledComparisonLayout"))
+			for _, comparisonMetadata in pairs(controlledComparisons) do
+				controlledComparisonInstanceCount += comparisonMetadata.InstanceCount or 0
+				controlledComparisonBasePartCount += comparisonMetadata.BasePartCount or 0
+			end
+		else
+			warn("[ForestDesignLab] Controlled forest comparisons failed; Forest A/B and the asset catalog remain available: "
+				.. tostring(comparisonResult))
+			root:SetAttribute("ControlledComparisonsReady", false)
+			root:SetAttribute("ControlledComparisonCount", 0)
+		end
+		comparisonStage:Destroy()
+		root:SetAttribute("ControlledComparisonInstanceCount", controlledComparisonInstanceCount)
+		root:SetAttribute("ControlledComparisonBasePartCount", controlledComparisonBasePartCount)
+		root:SetAttribute("TotalInstanceCountIncludingControlledComparisons",
+			softerCount + chunkierCount + 1 + controlledComparisonInstanceCount)
+		root:SetAttribute("TotalBasePartCountIncludingControlledComparisons",
+			softerParts + chunkierParts + controlledComparisonBasePartCount)
+		root:SetAttribute("TotalInstanceCountIncludingAssetSelectionAndControlledComparisons",
+			softerCount + chunkierCount + 1 + controlledComparisonInstanceCount
+				+ (if assetSelectionMetadata and isFiniteNumber(assetSelectionMetadata.InstanceCount)
+					then assetSelectionMetadata.InstanceCount else 0))
 
 		root:SetAttribute("BuildStatus", "Ready")
 		root:SetAttribute("AssetSelectionReady", assetSelection ~= nil)
@@ -896,6 +1407,7 @@ function ForestDesignLab.Build(parent: Instance, center: Vector3)
 				FocusPosition = assetSelectionMetadata.FocusPosition,
 				InstanceCount = assetSelectionMetadata.InstanceCount,
 			} else nil,
+			ControlledComparisons = controlledComparisons,
 		}
 		return metadata
 	end)
