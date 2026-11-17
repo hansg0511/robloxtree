@@ -46,7 +46,12 @@ for _, case in ipairs({
 	}) do
 		local native = tree:FindFirstChild(item.Name, true)
 		local proxy = proxyFor(tree, item.Name)
-		check("Ironwood source and proxy exist " .. item.Name, native and proxy)
+		check("Ironwood native part exists " .. item.Name, native ~= nil)
+		if item.Expected == "native" then
+			check("Growing proxy gets freed after handoff", proxy == nil)
+		else
+			check("Nonmature piece still has its proxy", proxy ~= nil)
+		end
 		local actual = if visible(native) then "native"
 			else if visible(proxy) then "proxy" else "hidden"
 		check(item.Name .. " at progress " .. case.Progress, actual == item.Expected)
@@ -89,7 +94,12 @@ for _, sample in ipairs({
 	for cane in pairs(caneNames) do
 		local native = tree:FindFirstChild(cane, true)
 		local proxy = proxyFor(tree, cane)
-		check("Bamboo native and proxy exist " .. cane, native and proxy)
+		check("Bamboo native exists " .. cane, native ~= nil)
+		if sample.Native then
+			check("Bamboo proxy released at maturity", proxy == nil)
+		else
+			check("Bamboo proxy exists while growing", proxy ~= nil)
+		end
 		check("Bamboo native state " .. cane .. " at " .. sample.Progress,
 			visible(native) == sample.Native)
 		check("Bamboo proxy state " .. cane .. " at " .. sample.Progress,
