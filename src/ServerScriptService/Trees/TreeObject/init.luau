@@ -1372,6 +1372,7 @@ function Tree:CanChop(player)
 end
 
 function Tree:CanHarvestFromPrompt(player)
+	if typeof(player) ~= "Instance" or not player:IsA("Player") then return false end
 	if not self.IsPersistentGrove or self.GroveStage ~= "mature"
 		or self.destroyed or self.isDead or self.HarvestInProgress
 		or not self.model or not self.model.Parent
