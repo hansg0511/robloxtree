@@ -1653,8 +1653,19 @@ local function renderForge(data)
 				local species = if typeof(record.SpeciesId) == "string" and #record.SpeciesId > 0 then record.SpeciesId else "Unknown Species"
 				local uidSuffix = if #uid > 6 then "..." .. string.sub(uid, -6) else uid
 				local ordinal = string.format("%03d", index)
+				local origin = if record.Source == "Storage" then "SAVED" else "BAG"
+				local sizeText = string.format("%.2fx", tonumber(record.SizeScale) or 1)
+				local mutationSummary = ""
+				if type(record.Mutations) == "table" then
+					for mutation, active in pairs(record.Mutations) do
+						if type(mutation) == "string" and active ~= false then
+							mutationSummary = mutationSummary .. " " .. mutation
+						end
+					end
+				end
 				local rowText = (if isSelected then "SELECTED  •  " else if canAdd then "ADD  •  " else "FULL  •  ")
-					.. species .. "\nLOG " .. ordinal .. "  •  UID " .. uidSuffix
+					.. species .. "  " .. sizeText .. "  •  " .. origin
+					.. "\nUID " .. uidSuffix .. mutationSummary
 				local logButton = button(candidateList, "EligibleLog_" .. ordinal, rowText, UDim2.new(1, -8, 0, 60), UDim2.new(), isSelected and COLORS.BagSelected or COLORS.BagSlot)
 				logButton.LayoutOrder = index
 				logButton.TextSize = 14
