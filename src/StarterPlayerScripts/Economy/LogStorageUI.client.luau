@@ -9,6 +9,7 @@ local getLogs = remotes:WaitForChild("GetLogsDataRF")
 local updated = remotes:WaitForChild("EconomyStateUpdated")
 local transfer = remotes:WaitForChild("TransferLogRE")
 local keepRules = remotes:WaitForChild("UpdateAutoKeepRE")
+local processingFX = remotes:WaitForChild("LogProcessingFXRE")
 local PAGE_SIZE = 24
 local THRESHOLDS = { 1.2, 1.4, 1.5, 1.6, 1.8, 2.0, 2.5 }
 
@@ -313,6 +314,21 @@ end
 keepMutated.Activated:Connect(function() changePreference("Mutations") end)
 keepLarge.Activated:Connect(function() changePreference("Oversized") end)
 minSize.Activated:Connect(function() changePreference("Threshold") end)
+
+local noticeRevision = 0
+processingFX.OnClientEvent:Connect(function(payload)
+	if type(payload) ~= "table" or payload.Mode ~= "StorageNotice"
+		or type(payload.Message) ~= "string" then return end
+	noticeRevision += 1
+	local currentRevision = noticeRevision
+	rulesNote.TextColor3 = colors.Gold
+	rulesNote.Text = payload.Message
+	task.delay(4, function()
+		if noticeRevision ~= currentRevision then return end
+		rulesNote.Text = "Auto-keep applies to new pickups. Saved logs never use bag capacity."
+		rulesNote.TextColor3 = colors.Line
+	end)
+end)
 
 updated.OnClientEvent:Connect(function(snapshot)
 	if type(snapshot) ~= "table" then return end
