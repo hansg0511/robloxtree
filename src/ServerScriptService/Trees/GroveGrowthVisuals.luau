@@ -199,6 +199,8 @@ local function makeBambooGrowthSegments(model, canes)
 		for layer = 1, BAMBOO_LAYERS do
 			local segment = Instance.new("Part")
 			segment.Name = "GroveBambooGrowthSegment"
+			segment:SetAttribute("GroveGrowthCane", cane.Name)
+			segment:SetAttribute("GroveGrowthLayer", layer)
 			segment.Size = Vector3.new(
 				cane.Size.X, cane.Size.Y / BAMBOO_LAYERS + 0.005, cane.Size.Z)
 			local offset = -cane.Size.Y * 0.5
