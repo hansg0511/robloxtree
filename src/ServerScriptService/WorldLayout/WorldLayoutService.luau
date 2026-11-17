@@ -779,7 +779,9 @@ local function buildWorld()
 	local proceduralStarterOaksEnabled = Configuration.PROCEDURAL_STARTER_OAKS_ENABLED == true
 	if existing
 		and existing:GetAttribute("WorldLayoutVersion") == Configuration.VERSION
-		and (existing:GetAttribute("ProceduralStarterOaksEnabled") == true) == proceduralStarterOaksEnabled then
+		and (existing:GetAttribute("ProceduralStarterOaksEnabled") == true) == proceduralStarterOaksEnabled
+		and existing:FindFirstChild("HomeEconomyStation")
+		and existing.HomeEconomyStation:FindFirstChild("ProcessorIntake") then
 		return existing
 	end
 	if existing then
