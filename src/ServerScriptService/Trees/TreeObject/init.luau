@@ -1064,56 +1064,48 @@ end
 -- kind: "GroveOak", "WildOak", "Bamboo", or "Ironwood"
 -- context: { GroveStage = "sapling" | "young" | "mature", SizePotential = number, Mutations = { [id] = true } }
 function Tree.BuildPreviewModel(kind, context)
-	if not RunService:IsStudio() then return nil end
-	if type(kind) ~= "string" then return nil end
+	if not RunService:IsStudio() or type(kind) ~= "string" then return nil end
 	context = if type(context) == "table" then context else {}
-
-	local groveStage = context.GroveStage or "mature"
-	local stageScale = GROVE_STAGE_SCALE[groveStage]
-	if not stageScale then return nil end
-
+	local stage = context.GroveStage or "mature"
+	if not GROVE_STAGES[stage] then return nil end
 	local sizePotential = context.SizePotential
 	if sizePotential == nil then sizePotential = 1 end
-	if type(sizePotential) ~= "number"
-		or sizePotential ~= sizePotential
-		or sizePotential < 0.1
-		or sizePotential > 2
-		or sizePotential == math.huge then
-		return nil
-	end
-
-	local model
+	if not isFiniteNumber(sizePotential) or sizePotential < 0.1 or sizePotential > 2 then return nil end
 	local speciesId
-	if kind == "GroveOak" then
-		model = if groveStage == "mature" then makeStarterForestTree()
-			else makeGroveStageModel("Oak", groveStage)
-		speciesId = "Oak"
-	elseif kind == "WildOak" then
-		-- Three authored sections provide a representative mature wild Oak while
-		-- using the same harvest-core construction path as live forest trees.
-		model = makeStarterForestHarvestOak(3)
+	local model
+	local visualScale
+	if kind == "GroveOak" or kind == "WildOak" then
+		model, visualScale = makeGroveMatureOak(12917, sizePotential)
 		speciesId = "Oak"
 	elseif kind == "Bamboo" then
-		model = if groveStage == "mature" then makeBambooClump()
-			else makeGroveStageModel("Bamboo", groveStage)
+		model = makeBambooClump()
 		speciesId = "Bamboo"
 	elseif kind == "Ironwood" then
-		-- The mature stage keeps the existing forest definition and style.
-		model = if groveStage == "mature" then makeForest2Tree(nil)
-			else makeGroveStageModel("Ironwood", groveStage)
+		model = makeForest2Tree(nil)
 		speciesId = "Ironwood"
 	else
 		return nil
 	end
-
 	if not model then return nil end
-	local currentScale = sizePotential * stageScale
+	local currentScale = visualScale or sizePotential
 	model:ScaleTo(currentScale)
 	model.Name = "DevTreePreview_" .. kind
 	model:SetAttribute("DevTreePreviewKind", kind)
 
-	-- Previews only display the builder output: remove the invisible chop target
-	-- and make every remaining part static and non-interactive before parenting.
+	-- Same final model and growth adapter used by actual planted Grove trees.
+	-- Tests can observe visible parts at any fraction (not just 3 labels).
+	if kind ~= "WildOak" then
+		local progress = context.GrowthProgress
+		if not isFiniteNumber(progress) then progress = GROVE_PREVIEW_PROGRESS[stage] end
+		local growth = GroveGrowthVisuals.Prepare(model, speciesId)
+		if growth then
+			-- Prepare builds the stump before parenting. Apply accepts models
+			-- that are unparented ONLY for the Studio preview path.
+			GroveGrowthVisuals.Apply(growth, progress, true)
+		end
+	end
+
+	-- Previews are never server-registered chop targets or interactables.
 	local chopHitbox = model:FindFirstChild("ChopHitbox", true)
 	if chopHitbox then chopHitbox:Destroy() end
 	for _, descendant in ipairs(model:GetDescendants()) do
@@ -1124,11 +1116,10 @@ function Tree.BuildPreviewModel(kind, context)
 			descendant.CanQuery = false
 		end
 	end
-
 	TreeVisualModifiers.Apply(model, {
 		SpeciesId = speciesId,
 		Mutations = context.Mutations,
-		GroveStage = groveStage,
+		GroveStage = stage,
 		SizePotential = sizePotential,
 		CurrentScale = currentScale,
 	})
@@ -1199,7 +1190,7 @@ function Tree.new(options)
 		self.GroveHarvestCount = math.max(0, math.floor(tonumber(options.HarvestCount) or 0))
 		self.GrovePlantedAt = plantedAt
 		self.GroveMaturesAt = maturesAt
-		self.GroveStage = if GROVE_STAGE_SCALE[options.GroveStage] then options.GroveStage else "sapling"
+		self.GroveStage = if GROVE_STAGES[options.GroveStage] then options.GroveStage else "sapling"
 		self.YieldsLog = false
 		self.RespawnSeconds = nil
 		self.OwnerOnly = true
