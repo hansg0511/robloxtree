@@ -511,10 +511,10 @@ local function refreshPiledLogPickupEligibility(player, data)
 				and entry.Model.Parent == entry.Bundle
 			local enabled = active
 				and metrics ~= nil
-				and not metrics.HasUnknownMaterial
-				and (LogStorageRules.ShouldStore(entry.LogRecord, data.AutoKeep)
-					and #data.StoredLogs < MAX_STORED_LOGS
-					or (#data.Logs < MAX_OWNED_LOGS
+				and ((LogStorageRules.ShouldStore(entry.LogRecord, data.AutoKeep)
+					and #data.StoredLogs < MAX_STORED_LOGS)
+					or (not metrics.HasUnknownMaterial
+						and #data.Logs < MAX_OWNED_LOGS
 						and capacityKg ~= nil
 						and metrics.RemainingKg + CAPACITY_TOLERANCE_KG >= capacityKg))
 			if entry.PickupEnabled ~= enabled then
