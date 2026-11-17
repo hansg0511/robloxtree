@@ -8,6 +8,10 @@ local SpeciesVisuals = require(game.ServerStorage.SpeciesVisuals)
 
 local GrowthVisuals = {}
 GrowthVisuals.STEPS = 40
+-- A leaf cluster starts as a small cuboid and grows to its source size
+-- over several updates. No leaf geometry needs to be sliced or replaced.
+GrowthVisuals.LEAF_EXPAND_DURATION = 0.17
+GrowthVisuals.LEAF_MIN_SIZE = 0.05
 
 local BAMBOO_LAYERS = 6
 local BAMBOO_FIRST_LAYER_AT = 0.12
@@ -114,6 +118,17 @@ local function attachVisualPart(part, model)
 	weld.Part0 = model.PrimaryPart
 	weld.Part1 = part
 	weld.Parent = part
+end
+
+local function growingLeafSize(size, fraction)
+	-- Prevent invalid extremely small block dimensions while retaining the
+	-- exact authored leaf shape and aspect ratio by the final growth tick.
+	local factor = math.clamp(fraction, 0.08, 1)
+	return Vector3.new(
+		math.min(size.X, math.max(GrowthVisuals.LEAF_MIN_SIZE, size.X * factor)),
+		math.min(size.Y, math.max(GrowthVisuals.LEAF_MIN_SIZE, size.Y * factor)),
+		math.min(size.Z, math.max(GrowthVisuals.LEAF_MIN_SIZE, size.Z * factor))
+	)
 end
 
 local function makeCutStumpParts(model, centerCFrame, width, height, palette, prefix)
@@ -236,27 +251,68 @@ function GrowthVisuals.Prepare(model, speciesId)
 	local height = model:GetExtentsSize().Y
 	local bambooCanes = if speciesId == "Bamboo" then getBambooCanes(model) else {}
 	local records = {}
+
 	for _, part in ipairs(model:GetDescendants()) do
 		if part:IsA("BasePart") then
-			-- Ironwood's optional brick studs look like detached floating
-			-- particles on a growing tree; omit these decorative details
-			-- from the Grove prototype. Wild forest visuals are unaffected.
+			-- Ironwood's optional bark-dot cylinders resemble detached
+			-- particles during growth. Keep them out of Grove only.
 			if speciesId == "Ironwood" and part.Name == "BarkStud" then
 				part.Transparency = 1
 				part.CanCollide = false
 			else
 				local unlockAt = timeForPart(part, model, height, speciesId)
 				if unlockAt then
-					table.insert(records, {
+					local record = {
 						Part = part,
 						At = unlockAt,
 						Transparency = part.Transparency,
 						CanCollide = part.CanCollide,
-					})
+					}
+					if classify(part, model) == "leaves" then
+						-- The old interval near 63%..99% was effectively
+						-- a one-shot reveal. Start leaves earlier and let
+						-- each full-sized existing block grow for 6-7 ticks.
+						record.At = math.clamp(
+							0.60 + (unlockAt - 0.63) * 0.58, 0.60, 0.81)
+						record.GrowDuration = GrowthVisuals.LEAF_EXPAND_DURATION
+						record.FullSize = part.Size
+					end
+					table.insert(records, record)
 				end
 			end
 		end
 	end
+
+	if speciesId == "Oak" then
+		-- A procedural Oak has multiple genuine HarvestableCore sections,
+		-- while thin Warm/Recessed bark accent strips are independent parts.
+		-- The strips must NOT materialize before the exact supporting core.
+		-- Keep original core timing and only postpone its attached texture.
+		local lastCoreAtBySection = {}
+		for _, record in ipairs(records) do
+			local part = record.Part
+			local section = part:GetAttribute("HarvestSectionIndex")
+			if part:GetAttribute("HarvestableCore") == true
+				and type(section) == "number" then
+				lastCoreAtBySection[section] =
+					math.max(lastCoreAtBySection[section] or 0, record.At)
+			end
+		end
+		for _, record in ipairs(records) do
+			local part = record.Part
+			if part:GetAttribute("HarvestableBarkAccent") == true then
+				local section = part:GetAttribute("HarvestSectionIndex")
+					or part:GetAttribute("CoreSectionIndex")
+				local supportAt = lastCoreAtBySection[section]
+				if supportAt then
+					-- One presentation step later, to avoid a single frame
+					-- where the narrow accent floats above invisible bark.
+					record.At = math.max(record.At, supportAt + 1 / GrowthVisuals.STEPS)
+				end
+			end
+		end
+	end
+
 	local stump = addStump(model, speciesId, bambooCanes)
 	if speciesId == "Bamboo" then
 		for _, segment in ipairs(makeBambooGrowthSegments(model, bambooCanes)) do
@@ -291,6 +347,16 @@ function GrowthVisuals.Apply(state, fraction, allowUnparented)
 			local visible = step >= unlockStep and not hiddenAgain
 			part.Transparency = if visible then record.Transparency else 1
 			part.CanCollide = visible and record.CanCollide
+			if record.FullSize then
+				-- Smooth a single authored cuboid's SIZE over several Grove
+				-- growth ticks. CFrame, weld and final visual stay unchanged.
+				local alpha = if visible then
+					math.clamp((step / GrowthVisuals.STEPS - record.At)
+						/ record.GrowDuration, 0, 1)
+					else 0
+				part.Size = if alpha >= 1 then record.FullSize
+					else growingLeafSize(record.FullSize, alpha)
+			end
 		end
 	end
 
