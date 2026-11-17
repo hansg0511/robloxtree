@@ -1239,10 +1239,10 @@ function Tree:Spawn()
 	local oakHarvestSections
 	local authoredHarvestSections
 	local modelScale = self.SizeScale
-	if self.IsPersistentGrove then
-		modelScale *= GROVE_STAGE_SCALE[self.GroveStage]
-	end
-	if self.DefinitionId == "StarterForestTree" and oakHarvestCount then
+	if self.IsPersistentGrove and self.SpeciesId == "Oak" then
+		model, modelScale = makeGroveMatureOak(getStableProceduralOakSeed(self), self.SizeScale)
+		modelScale = modelScale or self.SizeScale
+	elseif self.DefinitionId == "StarterForestTree" and oakHarvestCount then
 		if shouldUseProceduralStarterOak(self) then
 			local seed = getStableProceduralOakSeed(self)
 			local generationOk, generatedModel, generatedSections, generatedScale = pcall(
@@ -1272,9 +1272,9 @@ function Tree:Spawn()
 	elseif self.DefinitionId == "BambooClump" and hasLogDrop then
 		model, authoredHarvestSections = makeBambooClump()
 	end
-	if self.IsPersistentGrove and self.GroveStage ~= "mature" then
-		model = makeGroveStageModel(self.SpeciesId, self.GroveStage)
-	elseif not model and builder then
+	if not model and builder then
+		-- Oak shares its production forest builder above; Bamboo and
+		-- Ironwood retain their exact mature forest species builders here.
 		model = builder()
 	end
 	if not model then
@@ -1314,7 +1314,7 @@ function Tree:Spawn()
 	if self.DefinitionId == "StarterForestTree" then
 		self.OakHarvestSections = oakHarvestSections
 	end
-	self.HarvestSections = oakHarvestSections or authoredHarvestSections
+	self.HarvestSections = if self.IsPersistentGrove then nil else oakHarvestSections or authoredHarvestSections
 	self.isDead = false
 	local interactionPart = model:FindFirstChild(self.InteractionPartName, true)
 	if not interactionPart or not interactionPart:IsA("BasePart") then
@@ -1325,49 +1325,42 @@ function Tree:Spawn()
 	end
 	self.InteractionPart = interactionPart
 	self:BuildLeafPool()
-	if self.IsPersistentGrove then self:RefreshGroveHarvestPrompt() end
+	if self.IsPersistentGrove then
+		self.GroveGrowthVisual = GroveGrowthVisuals.Prepare(model, self.SpeciesId)
+		local record = {
+			PlantedAt = self.GrovePlantedAt,
+			MaturesAt = self.GroveMaturesAt,
+			HarvestCount = self.GroveHarvestCount,
+		}
+		GroveGrowthVisuals.Apply(self.GroveGrowthVisual, GroveGrowthRules.Progress(record, os.time()))
+		self:RefreshGroveHarvestPrompt()
+	end
 	return model
 end
 
-function Tree:SetGroveStage(stage)
-	if not self.IsPersistentGrove or not GROVE_STAGE_SCALE[stage] then return false end
-	if self.GroveStage == stage then return true end
-
-	-- Build the next AGE SILHOUETTE before destroying the old one. A model
-	-- failure must not erase the Grove tree or its permanent profile record.
-	local previous = {
-		Stage = self.GroveStage,
-		Model = self.model,
-		InteractionPart = self.InteractionPart,
-		Pool = self.pool,
-		TotalLeaves = self.totalLeaves,
-		LeavesRemaining = self.leavesRemaining,
-		HP = self.HP,
-		MaxHP = self.MaxHP,
-	}
+-- Called by the server Grove clock once a second. Only visual parts become
+-- visible; the model stays the same from first stump to final mature tree.
+function Tree:SetGroveStage(stage, progress)
+	if not self.IsPersistentGrove or not GROVE_STAGES[stage]
+		or not self.model or not self.model.Parent then return false end
+	local oldStage = self.GroveStage
 	self.GroveStage = stage
-	local ok, result = pcall(function() return self:Spawn() end)
-	if not ok or not result then
-		if result and result.Parent then result:Destroy() end
-		self.GroveStage = previous.Stage
-		self.model = previous.Model
-		self.InteractionPart = previous.InteractionPart
-		self.pool = previous.Pool
-		self.totalLeaves = previous.TotalLeaves
-		self.leavesRemaining = previous.LeavesRemaining
-		self.HP = previous.HP
-		self.MaxHP = previous.MaxHP
-		warn("[Grove] Growth-stage model failed; retaining previous appearance",
-			self.SpeciesId, stage, result)
+	local fraction = if isFiniteNumber(progress) then progress
+		else GroveGrowthRules.Progress({
+			PlantedAt = self.GrovePlantedAt,
+			MaturesAt = self.GroveMaturesAt,
+			HarvestCount = self.GroveHarvestCount,
+		}, os.time())
+	if not GroveGrowthVisuals.Apply(self.GroveGrowthVisual, fraction) then
+		self.GroveStage = oldStage
 		return false
 	end
-	if previous.Model and previous.Model ~= result and previous.Model.Parent then
-		previous.Model:Destroy()
+	if oldStage ~= stage then
+		local model = self.model
+		model:SetAttribute("GroveStage", stage)
+		applyVisualModifiers(self, model, model:GetScale())
+		self:RefreshGroveHarvestPrompt()
 	end
-	-- Cosmetic fade errors must never interrupt a server-owned growth tick.
-	-- The silhouette changes immediately; no miniature mature-tree scaling.
-	local effectOk, effectErr = pcall(FXService.FadeIn, FXService, result)
-	if not effectOk then warn("[Grove] Growth-stage fade failed", effectErr) end
 	return true
 end
 
