@@ -446,7 +446,9 @@ end
 local function getLogValue(logRecord)
 	if type(logRecord) ~= "table" or logRecord.ItemType ~= "Log" then return nil end
 	local definition = getMaterialDefinition(logRecord.SpeciesId)
-	return definition and definition.SellValue or nil
+	if not definition then return nil end
+	local size = LogStorageRules.SizeScale(logRecord)
+	return math.max(1, math.floor(definition.SellValue * size * size + 0.5))
 end
 
 local function getRecordCapacityKg(logRecord)
@@ -508,9 +510,11 @@ local function refreshPiledLogPickupEligibility(player, data)
 			local enabled = active
 				and metrics ~= nil
 				and not metrics.HasUnknownMaterial
-				and #data.Logs < MAX_OWNED_LOGS
-				and capacityKg ~= nil
-				and metrics.RemainingKg + CAPACITY_TOLERANCE_KG >= capacityKg
+				and (LogStorageRules.ShouldStore(entry.LogRecord, data.AutoKeep)
+					and #data.StoredLogs < MAX_STORED_LOGS
+					or (#data.Logs < MAX_OWNED_LOGS
+						and capacityKg ~= nil
+						and metrics.RemainingKg + CAPACITY_TOLERANCE_KG >= capacityKg))
 			if entry.PickupEnabled ~= enabled then
 				entry.PickupEnabled = enabled
 				if active then
@@ -844,6 +848,15 @@ LogService.LogsChanged:Connect(function(player, records)
 	end
 	rebuildCarryVisuals(player, records)
 end)
+
+local function findStoredLog(data, uid)
+	for index, record in ipairs(data.StoredLogs) do
+		if type(record) == "table" and record.UID == uid and record.ItemType == "Log" then
+			return record, index
+		end
+	end
+	return nil
+end
 
 local function findLog(data, uid)
 	for index, logRecord in ipairs(data.Logs) do
@@ -2615,12 +2628,47 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 	if not primaryCapacityKg then
 		return rejectPickup(player, uid, "unknown material capacity")
 	end
-	if findLog(data, uid) then
+	if findLog(data, uid) or findStoredLog(data, uid) then
 		return rejectPickup(player, uid, "duplicate UID already owned")
 	end
 	if not consumeRemoteBudget(player, "Pickup") then
 		return rejectPickup(player, uid, "rate limited")
 	end
+	-- A protected log is collected directly into persistent storage and never
+	-- joins the bag/cargo renderer. A full storage never auto-sells the log.
+	local keep = LogStorageRules.ShouldStore(entry.LogRecord, data.AutoKeep)
+	if keep and #data.StoredLogs < MAX_STORED_LOGS then
+		if pickupHomingsByUid[uid] then return rejectPickup(player, uid, "already homing") end
+		if primaryState == "Piled" then
+			local ownerPiles = pilesByPlayer[player.UserId]
+			local actualPile = ownerPiles and ownerPiles[entry.PileId]
+			if not actualPile or actualPile.SpeciesId ~= entry.LogRecord.SpeciesId
+				or actualPile.ItemsByUid[uid] ~= entry or actualPile.Slots[entry.PileSlot] ~= entry then
+				return rejectPickup(player, uid, "invalid protected pile membership")
+			end
+			unregisterPileMembership(player.UserId, uid, entry)
+		elseif entry.PileId ~= nil or entry.PileSlot ~= nil then
+			return rejectPickup(player, uid, "fresh protected log with pile metadata")
+		end
+		cancelGroundDropReveal(entry)
+		drop.LogRecordsByUid[uid] = nil
+		drop.Count -= 1
+		entry.PickupEnabled = false
+		entry.State = "Stored"
+		entry.LogRecord.Locked = false
+		table.insert(data.StoredLogs, entry.LogRecord)
+		if drop.Count <= 0 then clearGroundDropBundle(bundle, drop) end
+		LogService.NotifyState(player)
+		LogProcessingFXRE:FireAllClients({
+			Mode = "StoragePickup", OwnerUserId = player.UserId,
+			SourceCFrame = model:GetPivot(), SpeciesId = entry.LogRecord.SpeciesId,
+		})
+		model:Destroy()
+		return true
+	end
+	-- Fail-safe when protected storage is full: any carried fallback stays
+	-- locked, never included in bulk processor sales.
+	if keep then entry.LogRecord.Locked = true end
 	if logCount(data) >= MAX_OWNED_LOGS and entry.State == "Piled" then
 		refreshPiledLogPickupEligibility(player, data)
 		return rejectPickup(player, uid, "physical item limit")
@@ -2684,7 +2732,9 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 			and candidateCapacityKg
 			and os.clock() <= candidateEntry.ReservedUntil
 			and getDistanceToModelBounds(root.Position, candidateModel) <= MAX_PICKUP_DISTANCE
-			and not findLog(data, candidateUid) then
+			and not findLog(data, candidateUid)
+			and not findStoredLog(data, candidateUid)
+			and not LogStorageRules.ShouldStore(candidateLogRecord, data.AutoKeep) then
 			local candidateDistance = getDistanceToModelBounds(root.Position, candidateModel)
 			table.insert(nearby, {
 				UID = candidateUid,
@@ -2981,7 +3031,8 @@ local function createLogRecord(tree)
 		UID = HttpService:GenerateGUID(false),
 		ItemType = "Log",
 		SpeciesId = tree.SpeciesId,
-		Mutations = {},
+		Mutations = copyMutations(tree.Mutations),
+		SizeScale = LogStorageRules.SizeScale(tree),
 		Locked = false,
 		CreatedAt = os.time(),
 	}
@@ -3027,6 +3078,7 @@ function LogService.CaptureTreeLogAward(tree, contributions, fallRotation)
 		SpeciesId = tree.SpeciesId,
 		LogYield = tree.LogYield,
 		SizeScale = tree.SizeScale,
+		Mutations = copyMutations(tree.Mutations),
 		Contributions = contributionSnapshot,
 		FallPlacement = getFallPlacement(tree, fallRotation),
 	}
@@ -3095,7 +3147,7 @@ function LogService.AwardTreeLog(awardSnapshot, options)
 	end
 	local logRecords = {}
 	for index = 1, rewardCount do
-		table.insert(logRecords, createLogRecord({ SpeciesId = awardSnapshot.SpeciesId }))
+		table.insert(logRecords, createLogRecord({ SpeciesId = awardSnapshot.SpeciesId, SizeScale = awardSnapshot.SizeScale, Mutations = awardSnapshot.Mutations }))
 	end
 
 	local fallPlacement = awardSnapshot.FallPlacement
