@@ -306,9 +306,9 @@ local function cloneMutations(mutations)
 	return cloneMutationValue(mutations, {}) or {}
 end
 
-local function restoreCraftLogs(player, recipe, removedLogs)
+local function restoreCraftLogs(player, recipe, removedLogs, sourceByUid)
 	local restoreOk, restored = pcall(function()
-		return LogService.RestoreCraftLogRecords(player, removedLogs)
+		return LogService.RestoreCraftLogRecords(player, removedLogs, sourceByUid)
 	end)
 	if not restoreOk or restored ~= true then
 		warn(string.format("Could not roll back source logs after failed %s craft for %s", recipe.Id, player.Name))
@@ -350,7 +350,7 @@ craftRecipe.OnServerEvent:Connect(function(player, recipeId, selectedLogUids, ..
 
 	-- Exact selection is revalidated against authoritative logs in this atomic
 	-- take. Mutation data remains attached to the original records for metadata.
-	local removedLogs = LogService.TakeCraftLogUIDs(player, selectedLogUids, recipe.RequiredLogCount)
+	local removedLogs, sourceByUid = LogService.TakeCraftLogUIDs(player, selectedLogUids, recipe.RequiredLogCount)
 	if not removedLogs or #removedLogs ~= recipe.RequiredLogCount then return end
 
 	local bonusTotal = 0
@@ -360,13 +360,15 @@ craftRecipe.OnServerEvent:Connect(function(player, recipeId, selectedLogUids, ..
 		if logRecord.ItemType ~= "Log"
 			or not definition
 			or not isFiniteNumber(definition.CraftPowerBonus) then
-			restoreCraftLogs(player, recipe, removedLogs)
+			restoreCraftLogs(player, recipe, removedLogs, sourceByUid)
 			return
 		end
 		bonusTotal += definition.CraftPowerBonus
 		table.insert(sourceMaterials, {
 			SourceUID = logRecord.UID,
 			SpeciesId = logRecord.SpeciesId,
+			SizeScale = logRecord.SizeScale,
+			Source = sourceByUid and sourceByUid[logRecord.UID] or "Bag",
 			Mutations = cloneMutations(logRecord.Mutations),
 		})
 	end
@@ -390,7 +392,7 @@ craftRecipe.OnServerEvent:Connect(function(player, recipeId, selectedLogUids, ..
 		}
 	end)
 	if not itemRecordOk or type(itemRecord) ~= "table" then
-		restoreCraftLogs(player, recipe, removedLogs)
+		restoreCraftLogs(player, recipe, removedLogs, sourceByUid)
 		return
 	end
 
@@ -404,7 +406,7 @@ craftRecipe.OnServerEvent:Connect(function(player, recipeId, selectedLogUids, ..
 	if not invokeOk or added ~= true then
 		data.AxeHeads[head.Id] = headCount
 		progress.StandardAxeTier = previousTier
-		restoreCraftLogs(player, recipe, removedLogs)
+		restoreCraftLogs(player, recipe, removedLogs, sourceByUid)
 		return
 	end
 
