@@ -53,17 +53,17 @@ local function timeForPart(part, model, height)
 	if role == "leaves" then
 		-- Leaf groups arrive after their branches, a few at a time. A high
 		-- crown fills in later than a low one.
-		return math.clamp(0.68 + 0.29 * (yFraction * 0.65 + jitter * 0.35), 0.68, 0.99)
+		return math.clamp(0.63 + 0.35 * (yFraction * 0.65 + jitter * 0.35), 0.63, 0.99)
 	elseif role == "branches" then
-		return 0.42 + 0.22 * (yFraction * 0.65 + jitter * 0.35)
+		return 0.36 + 0.25 * (yFraction * 0.65 + jitter * 0.35)
 	else
-		if name == "RootFoot" then return 0.10 end
+		if name == "RootFoot" then return 0.04 end
 		local sectionIndex = part:GetAttribute("CoreSectionIndex")
 		if type(sectionIndex) == "number" and sectionIndex >= 1 then
-			return math.min(0.40, 0.16 + 0.09 * (sectionIndex - 1))
+			return math.min(0.31, 0.08 + 0.10 * (sectionIndex - 1))
 		end
 		-- Bark blocks appear from bottom to top, before branches.
-		return 0.14 + 0.24 * (yFraction * 0.75 + jitter * 0.25)
+		return 0.06 + 0.27 * (yFraction * 0.75 + jitter * 0.25)
 	end
 end
 
@@ -163,7 +163,7 @@ function GrowthVisuals.Apply(state, fraction, allowUnparented)
 
 	-- The stump's diameter already reflects the ACTUAL next tree size.
 	-- It stays in place while the first trunk blocks appear.
-	local showStump = step < math.ceil(0.30 * GrowthVisuals.STEPS)
+	local showStump = step < math.ceil(0.28 * GrowthVisuals.STEPS)
 	for _, stumpPart in ipairs(state.Stump or {}) do
 		if stumpPart.Parent then stumpPart.Transparency = if showStump then 0 else 1 end
 	end
