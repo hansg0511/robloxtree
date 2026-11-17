@@ -304,6 +304,15 @@ function GroveService.RestorePlayer(player)
 	local plot, plotModel, area = getAssignedGrove(player)
 	if not data or not plot then return false end
 	if RestoredPlotByPlayer[player] == plot then
+		-- Recover a missing runtime incarnation after a failed visual rebuild.
+		-- During the brief tree-fall interval, the scheduled regrowth callback
+		-- handles the replacement; do not overlap the falling tree.
+		for _, record in ipairs(data.GroveTrees) do
+			if isValidGroveTree(record) and not RuntimeTreesByUID[record.UID]
+				and os.time() >= record.PlantedAt + GroveGrowthRules.STUMP_SECONDS then
+				spawnGroveTree(player, plotModel, area, record)
+			end
+		end
 		publishState(player)
 		return true
 	end
@@ -541,6 +550,15 @@ function GroveService.HarvestPersistentTree(player, treeObject)
 	-- TreeObject after this callback accepts the harvest.
 	LogService.NotifyState(player)
 	publishState(player)
+	local economy = ReplicatedStorage:FindFirstChild("Economy")
+	local notice = economy and economy:FindFirstChild("LogProcessingFXRE")
+	if notice then
+		notice:FireClient(player, {
+			Mode = "StorageNotice",
+			Message = string.format("GROVE HARVEST: 1 %s LOG SAVED (%.2fx)!",
+				record.SpeciesId, treeObject.GroveCurrentSize),
+		})
+	end
 
 	-- Leave enough time for the existing tree-fall animation to complete,
 	-- then spawn an explicit stump; its lifetime is driven by plantedAt.
