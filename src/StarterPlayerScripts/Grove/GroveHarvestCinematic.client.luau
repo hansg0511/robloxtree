@@ -4,6 +4,7 @@
 local Players = game:GetService("Players")
 local Debris = game:GetService("Debris")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ProximityPromptService = game:GetService("ProximityPromptService")
 local SoundService = game:GetService("SoundService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -64,6 +65,7 @@ constraint.Parent = reward
 local active
 local notificationGeneration = 0
 local seenRewardUids = {}
+local recentRewardOrder = {}
 
 local function playLocalWindup()
 	local sounds = ReplicatedStorage:FindFirstChild("LeavesSound")
@@ -76,6 +78,7 @@ local function playLocalWindup()
 	sound.Parent = SoundService
 	sound:Play()
 	Debris:AddItem(sound, 4)
+	return sound
 end
 
 local function finishCamera(state)
@@ -85,6 +88,10 @@ local function finishCamera(state)
 	skipButton.Visible = false
 	if state.Tween then state.Tween:Cancel() end
 	if state.Died then state.Died:Disconnect() end
+	if state.WindupSound and state.WindupSound.Parent then
+		state.WindupSound:Stop()
+		state.WindupSound:Destroy()
+	end
 	local camera = Workspace.CurrentCamera
 	if camera and camera == state.Camera and camera.CameraType == Enum.CameraType.Scriptable then
 		-- Let Roblox's camera controller reacquire the current character;
@@ -109,6 +116,10 @@ end
 local function showReward(payload)
 	if type(payload.RewardUID) ~= "string" or seenRewardUids[payload.RewardUID] then return end
 	seenRewardUids[payload.RewardUID] = true
+	table.insert(recentRewardOrder, payload.RewardUID)
+	if #recentRewardOrder > 128 then
+		seenRewardUids[table.remove(recentRewardOrder, 1)] = nil
+	end
 	local names = {}
 	if type(payload.Mutations) == "table" then
 		for _, mutation in ipairs({ "Golden", "Giant", "Crystal" }) do
@@ -178,7 +189,7 @@ local function beginCinematic(payload)
 		{ CFrame = target, FieldOfView = 60 })
 	state.Tween = tween
 	tween:Play()
-	playLocalWindup()
+	state.WindupSound = playLocalWindup()
 	skipButton.Visible = true
 
 	-- A tiny impact shake timed to the server's fall. It is cosmetic only.
@@ -242,7 +253,13 @@ local function hideForeignPrompt(instance)
 		instance.Enabled = false
 	end
 end
-Workspace.DescendantAdded:Connect(hideForeignPrompt)
+Workspace.DescendantAdded:Connect(function(instance)
+	if instance:IsA("ProximityPrompt") and instance.Name == "GroveHarvestPrompt" then
+		task.defer(hideForeignPrompt, instance)
+		task.delay(0.25, hideForeignPrompt, instance)
+	end
+end)
+ProximityPromptService.PromptShown:Connect(hideForeignPrompt)
 for _, item in ipairs(Workspace:GetDescendants()) do
 	hideForeignPrompt(item)
 end
