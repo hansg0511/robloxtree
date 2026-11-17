@@ -24,6 +24,10 @@ This is a scoped prototype correction following the 2026-11-18 Grove playtest. *
 - At ~62%, the assembled layer visuals switch to the same full mature bamboo stalk parts, keeping the final model and its interactions identical. Nodes and foliage continue appearing in their own height/late-canopy phases.
 - Temporary visible segments are cosmetic only, welded to the original model root. They don't collide, harvest or add materials, and are hidden once their mature stalks are visible.
 
+**Oak bark timing follow-up:** The forest procedural Oak may have thin warm/recessed bark-accent parts assigned separately from the genuine Core section underneath. Those accents now wait until **all supporting core parts from the same authored harvest section are visible**, plus one growth step. This fixes early floating-looking wood strips without changing the approved Oak trunk-and-branch progression.
+
+**Leaf growth follow-up:** Each existing cubic/cuboid foliage part now expands **in place** from a little block to its original mature size over ~17% of the growth cycle (~6–7 ticks). Individual starts are staggered, and they finish before maturity. This uses `BasePart.Size`, not extra leaf pieces; it does not alter leaf appearance when fully grown. At 45-second maturity and a 1-second server tick, the visible change is stepwise. Smooth easing remains a future polish item.
+
 **Unchanged:** Grove genetics, per-cycle actual size, mutation inheritance, regrowth timers, E-harvest cinematic, owner-only checks, one protected log per harvest, Forge and processor logic.
 
 ## Switch to the new branch
@@ -44,7 +48,9 @@ If the feature branch already exists locally: `git switch feature/grove-ironwood
 3. **Bamboo:** Early growth shows five narrow culm stumps (not a fat square). Observe all **five canes** gaining height at each step together. At maturity the existing full Bamboo clump remains visible and E harvesting works.
 4. After each mature harvest, confirm the original E cinematic runs and **exactly one** unique saved log is credited; regrowth repeats the same patterns.
 5. Check multiplayer visibility, owner-only harvest access, and full saved-storage handling.
-6. Paste the contents of `tests/GroveIronwoodBambooGrowth.smoke.luau` and `tests/GroveStageVisuals.smoke.luau` into Roblox Studio's **SERVER Command Bar**. They build read-only 0%–100% preview models and check the order, stump widths and synchronized segments.
+6. Watch Oak's thin warm bark accents: no orange texture strip should appear before the supporting trunk core.
+7. Watch individual leaf cuboids grow gradually rather than materializing instantly at full size; they should finish at the normal mature shape.
+8. Paste the contents of `tests/GroveIronwoodBambooGrowth.smoke.luau`, `tests/GroveStageVisuals.smoke.luau`, and `tests/GroveOakFoliageGrowth.smoke.luau` into Roblox Studio's **SERVER Command Bar**. They build read-only 0%–100% preview models and check the order, stump widths and synchronized segments.
 
 ## Caveats and polish
 
