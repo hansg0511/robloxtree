@@ -430,13 +430,20 @@ function GrowthVisuals.Apply(state, fraction, allowUnparented)
 				part.Transparency = if finished then record.Transparency else 1
 				part.CanCollide = finished and record.CanCollide
 				local proxy = record.Proxy
-				if proxy.Parent then
-					local growing = step >= unlockStep and not finished
-					proxy.Transparency = if growing then record.Transparency else 1
-					if growing then
-						local alpha = math.clamp(
-							(current - record.At) / record.GrowDuration, 0, 1)
-						resizeWoodFromBase(record, alpha)
+				if proxy and proxy.Parent then
+					if finished then
+						-- The real full-size model is now visible. Release the
+						-- temporary anchored copy, so mature Grove trees don't
+						-- retain duplicate hidden trunk/branch instances.
+						proxy:Destroy()
+					else
+						local growing = step >= unlockStep
+						proxy.Transparency = if growing then record.Transparency else 1
+						if growing then
+							local alpha = math.clamp(
+								(current - record.At) / record.GrowDuration, 0, 1)
+							resizeWoodFromBase(record, alpha)
+						end
 					end
 				end
 			else
