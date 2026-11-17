@@ -10,6 +10,7 @@ local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDef
 local MutationDefinitions = require(script.Parent.MutationDefinitions)
 local GroveGrowthRules = require(script.Parent.GroveGrowthRules)
 local LogService = require(game.ServerScriptService.Inventory.LogService)
+local GroveHarvestPresentation = require(ReplicatedStorage.Shared.GroveHarvestPresentation)
 
 local GroveService = {}
 
@@ -32,12 +33,14 @@ local GROVE_FOLDER = ReplicatedStorage:WaitForChild("Grove")
 local GetGroveStateRF = GROVE_FOLDER:WaitForChild("GetGroveStateRF")
 local PlantSaplingRE = GROVE_FOLDER:WaitForChild("PlantSaplingRE")
 local GroveStateUpdatedRE = GROVE_FOLDER:WaitForChild("GroveStateUpdatedRE")
+local GroveHarvestFXRE = GROVE_FOLDER:WaitForChild("GroveHarvestFXRE")
 
 -- Required runtime index: persistent Grove UID -> non-farm TreeObject.
 local RuntimeTreesByUID = {}
 local PlayerRuntimeUIDs = {}
 local RestoredPlotByPlayer = {}
 local LastPlantRequestAt = {}
+local LastSuccessfulHarvestAt = {}
 -- A state response and a state-update event travel over separate remotes. Keep a
 -- monotonically increasing revision so an older RemoteFunction response cannot
 -- overwrite a newer pushed update on the client during player initialization.
@@ -345,6 +348,7 @@ end
 function GroveService.CleanUp(player)
 	GroveService.CleanRuntime(player)
 	LastPlantRequestAt[player] = nil
+	LastSuccessfulHarvestAt[player] = nil
 	StateRevisionByPlayer[player] = nil
 end
 
@@ -509,6 +513,8 @@ end
 function GroveService.HarvestPersistentTree(player, treeObject)
 	local data, plot, plotModel, area, record = validateRuntimeGroveTree(player, treeObject)
 	if not data or not record or not isValidGroveTree(record) then return false end
+	if os.clock() - (LastSuccessfulHarvestAt[player] or -math.huge)
+		< GroveHarvestPresentation.HarvestCooldownSeconds then return false end
 
 	local now = os.time()
 	local cycle = GroveGrowthRules.NextCycle(record, now, Random.new():NextNumber())
@@ -543,22 +549,35 @@ function GroveService.HarvestPersistentTree(player, treeObject)
 	record.MaturesAt = cycle.MaturesAt
 	record.CurrentSizeScale = cycle.CurrentSizeScale
 	record.HarvestCount = cycle.HarvestCount
+	LastSuccessfulHarvestAt[player] = os.clock()
 	RuntimeTreesByUID[groveUID] = nil
 
 	-- Keep PlayerRuntimeUIDs[groveUID] reserved for cleanup until the new
 	-- incarnation appears. The old dying tree is removed from ActiveTrees by
 	-- TreeObject after this callback accepts the harvest.
+	-- Inventory is already committed. The cinematic only reveals the reward;
+	-- it does not control or authorize item grants.
+	local reward = {
+		RewardUID = logUID,
+		GroveTreeUID = groveUID,
+		SourceSaplingUID = record.SourceSaplingUID,
+		SpeciesId = record.SpeciesId,
+		SizeScale = treeObject.GroveCurrentSize,
+		Mutations = copyMutations(record.Mutations),
+		WorldCFrame = worldCFrameForRecord(area, record),
+	}
 	LogService.NotifyState(player)
 	publishState(player)
-	local economy = ReplicatedStorage:FindFirstChild("Economy")
-	local notice = economy and economy:FindFirstChild("LogProcessingFXRE")
-	if notice then
-		notice:FireClient(player, {
-			Mode = "StorageNotice",
-			Message = string.format("GROVE HARVEST: 1 %s LOG SAVED (%.2fx)!",
-				record.SpeciesId, treeObject.GroveCurrentSize),
-		})
-	end
+	GroveHarvestFXRE:FireClient(player, {
+		Mode = "Start",
+		RewardUID = logUID,
+		GroveTreeUID = groveUID,
+		TreeModel = treeObject.model,
+		WorldCFrame = reward.WorldCFrame,
+		SpeciesId = reward.SpeciesId,
+		Mutations = copyMutations(reward.Mutations),
+		SizeScale = reward.SizeScale,
+	})
 
 	-- Leave enough time for the existing tree-fall animation to complete,
 	-- then spawn an explicit stump; its lifetime is driven by plantedAt.
@@ -576,7 +595,7 @@ function GroveService.HarvestPersistentTree(player, treeObject)
 			warn("[Grove] Failed to spawn regrowing tree; recover on next plot restore", groveUID)
 		end
 	end)
-	return true
+	return true, reward
 end
 
 local function plantSapling(player, saplingUID, localX, localZ)
