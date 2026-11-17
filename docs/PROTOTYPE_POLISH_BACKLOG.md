@@ -21,10 +21,13 @@ This is the canonical list for *polish*, separate from new mechanics. Update it 
 - [ ] Final art for each species and stage, distinctive tree species silhouettes, rare genetics and mutations.
 - [ ] Polish the additive growth: more granular trunk-building pieces, satisfying branch/leaf pop, growth sound and particles without long waiting animations.
 - [x] Fix Ironwood's out-of-order three trunk pieces and hide loose-looking Grove bark studs during growth (wild forest unchanged).
-- [x] Fix Bamboo's oversized single stump and sequential cane pops; now uses five thin culms growing upward in synchronized segments.
+- [x] Fix Bamboo's oversized single stump and sequential cane pops; now uses five thin culms extending upward together using five anchored growth proxies.
 - [x] Correct Oak decorative bark accent timing so skinny texture strips never lead their supporting log sections.
 - [x] Make each existing leaf block expand through several growth ticks rather than pop in at its full final size.
 - [ ] Refine Ironwood bark accents and smooth Bamboo's segmented growth after the core loop works.
+- [x] Add bottom-anchored trunk and branch extension using one lightweight temporary visual copy per major wood Part (no per-stud segmentation). Bamboo's five canes now grow from one proxy each.
+- [x] Keep Grove growth world-replicated so nearby players see the same sequence, with the server retaining timers, rewards and harvest validation.
+- [ ] Smooth the ~1-second growth visual steps for all observers using client-side interpolation if playtesting shows noticeable popping; avoid replicating every render frame.
 - [ ] Tune leaf growth staggering/easing and server-to-client visual smoothness after gameplay pacing is proven.
 - [ ] Timing indicators / clear maturation and ready-to-harvest indicators; tune 45-second prototype maturity.
 - [ ] Planting ghost/preview consistency with real species and stage models.
