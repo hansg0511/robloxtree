@@ -80,6 +80,9 @@ local function addBarkStuds(brick, root, palette)
 	local function attachStud(position, rotation, color)
 		local stud = Instance.new("Part")
 		stud.Name = "BarkStud"
+		-- Let the Grove growth visual reveal this decoration at the same
+		-- instant as its supporting trunk/branch, never as floating debris.
+		stud:SetAttribute("GroveGrowthAttachment", brick.Name)
 		stud.Shape = Enum.PartType.Cylinder
 		stud.Size = Vector3.new(studDepth, studDiameter, studDiameter)
 		stud.CFrame = brick.CFrame * CFrame.new(position) * rotation
