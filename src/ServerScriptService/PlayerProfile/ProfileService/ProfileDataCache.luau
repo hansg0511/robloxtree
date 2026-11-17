@@ -6,6 +6,7 @@ local ProfileService = playerProfileFolder.ProfileService
 local AxeShopCatalog = require(game.ServerScriptService.Economy.AxeShopCatalog)
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
 local MutationDefinitions = require(game.ServerScriptService.Grove.MutationDefinitions)
+local GroveGrowthRules = require(game.ServerScriptService.Grove.GroveGrowthRules)
 
 local PlayerProfileCache = {}
 
@@ -160,6 +161,8 @@ function PlayerProfileCache.NormalizeGroveData(data)
 					SpeciesId = record.SpeciesId,
 					Mutations = copyGroveMutations(record.Mutations),
 					SizePotential = record.SizePotential,
+					CurrentSizeScale = GroveGrowthRules.NormalizeCurrentSize(record.CurrentSizeScale, record.SizePotential),
+					HarvestCount = GroveGrowthRules.NormalizeHarvestCount(record.HarvestCount),
 					LocalX = record.LocalX,
 					LocalZ = record.LocalZ,
 					Yaw = record.Yaw,
