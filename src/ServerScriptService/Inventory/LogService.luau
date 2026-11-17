@@ -3234,8 +3234,15 @@ SellUnlockedLogsRE.OnServerEvent:Connect(function(player, ...)
 	data.Logs = remaining
 	EconomyManager.Add(player, "Coins", total)
 	LogService.NotifyState(player)
-	LogProcessingFXRE:FireClient(player, {
-		Mode = "ProcessSale", Sold = sold, SoldCount = #sold, Coins = total,
+	local displaySold = {}
+	for index = 1, math.min(#sold, 20) do
+		displaySold[index] = sold[index]
+	end
+	-- The public visual is limited to 20 cosmetic logs. Coin payout and
+	-- inventory ownership remain private, authoritative server mutations.
+	LogProcessingFXRE:FireAllClients({
+		Mode = "ProcessSale", OwnerUserId = player.UserId,
+		Sold = displaySold, SoldCount = #sold,
 	})
 end)
 
