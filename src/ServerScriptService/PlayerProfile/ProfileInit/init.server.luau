@@ -20,6 +20,9 @@ local ProfileTemplate = {
 	},
 	-- One unique physical log per record; material kg cost is resolved server-side.
 	Logs = {},
+	-- Protected, individually identified crafting materials; outside carry kg.
+	StoredLogs = {},
+	AutoKeep = { Mutations = true, Oversized = true, SizeThreshold = 1.5 },
 	-- Personal Grove ownership is stored as primitive profile records. Runtime
 	-- TreeObjects and world transforms are rebuilt after the player's plot loads.
 	Saplings = {},
