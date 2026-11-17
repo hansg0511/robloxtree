@@ -2639,7 +2639,7 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 	local keep = LogStorageRules.ShouldStore(entry.LogRecord, data.AutoKeep)
 	if keep and #data.StoredLogs < MAX_STORED_LOGS then
 		if pickupHomingsByUid[uid] then return rejectPickup(player, uid, "already homing") end
-		if primaryState == "Piled" then
+		if entry.State == "Piled" then
 			local ownerPiles = pilesByPlayer[player.UserId]
 			local actualPile = ownerPiles and ownerPiles[entry.PileId]
 			if not actualPile or actualPile.SpeciesId ~= entry.LogRecord.SpeciesId
@@ -2651,6 +2651,7 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 			return rejectPickup(player, uid, "fresh protected log with pile metadata")
 		end
 		cancelGroundDropReveal(entry)
+		local sourceCFrame = model:GetPivot()
 		drop.LogRecordsByUid[uid] = nil
 		drop.Count -= 1
 		entry.PickupEnabled = false
@@ -2661,7 +2662,7 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 		LogService.NotifyState(player)
 		LogProcessingFXRE:FireAllClients({
 			Mode = "StoragePickup", OwnerUserId = player.UserId,
-			SourceCFrame = model:GetPivot(), SpeciesId = entry.LogRecord.SpeciesId,
+			SourceCFrame = sourceCFrame, SpeciesId = entry.LogRecord.SpeciesId,
 		})
 		model:Destroy()
 		return true
@@ -3185,6 +3186,7 @@ end
 LogService.DEFAULT_CAPACITY_KG = DEFAULT_CAPACITY_KG
 LogService.MAX_CAPACITY_KG = MAX_CAPACITY_KG
 LogService.MAX_OWNED_LOGS = MAX_OWNED_LOGS
+LogService.MAX_STORED_LOGS = MAX_STORED_LOGS
 LogService.MAX_PICKUP_BATCH = MAX_PICKUP_BATCH
 LogService.MAX_GROUND_LOG_DROPS_PER_PLAYER = MAX_GROUND_LOG_DROPS_PER_PLAYER
 LogService.CAPACITY_TIERS_KG = AxeShopCatalog.CAPACITY_TIERS_KG
@@ -3205,22 +3207,73 @@ SellUnlockedLogsRE.OnServerEvent:Connect(function(player, ...)
 	local data = getPlayerData(player)
 	if not data then return end
 
-	local remaining = {}
-	local saleTotal = 0
-	local soldCount = 0
-	for _, logRecord in ipairs(data.Logs) do
-		local value = getLogValue(logRecord)
-		if value and logRecord.Locked ~= true then
-			saleTotal += value
-			soldCount += 1
+	local remaining, sold = {}, {}
+	local total = 0
+	local pending = pendingCarryArrivalUids[player]
+	for _, record in ipairs(data.Logs) do
+		local value = getLogValue(record)
+		if value and record.Locked ~= true and not (pending and pending[record.UID]) then
+			total += value
+			table.insert(sold, { SpeciesId = record.SpeciesId, SizeScale = LogStorageRules.SizeScale(record) })
 		else
-			table.insert(remaining, logRecord)
+			table.insert(remaining, record)
 		end
 	end
-	if soldCount == 0 or saleTotal <= 0 then return end
+	if #sold == 0 or total <= 0 then return end
 
+	-- Commit ownership and coins before any client-only cosmetic animation.
 	data.Logs = remaining
-	EconomyManager.Add(player, "Coins", saleTotal)
+	EconomyManager.Add(player, "Coins", total)
+	LogService.NotifyState(player)
+	LogProcessingFXRE:FireClient(player, {
+		Mode = "ProcessSale", Sold = sold, SoldCount = #sold, Coins = total,
+	})
+end)
+
+-- Explicit, per-UID manual transfer. No client-supplied item records or
+-- weights are trusted. Bag capacity is validated before removing from storage.
+TransferLogRE.OnServerEvent:Connect(function(player, uid, destination, ...)
+	if select("#", ...) ~= 0 or not consumeRemoteBudget(player, "Transfer") then return end
+	if not isValidUid(uid) or (destination ~= "Bag" and destination ~= "Storage") then return end
+	local data = getPlayerData(player)
+	if not data then return end
+	if destination == "Storage" then
+		if #data.StoredLogs >= MAX_STORED_LOGS then return end
+		local record, index = findLog(data, uid)
+		if not record or (pendingCarryArrivalUids[player] and pendingCarryArrivalUids[player][uid])
+			or findStoredLog(data, uid) then return end
+		table.remove(data.Logs, index)
+		record.Locked = false
+		table.insert(data.StoredLogs, record)
+	else
+		if #data.Logs >= MAX_OWNED_LOGS then return end
+		local record, index = findStoredLog(data, uid)
+		if not record or findLog(data, uid) then return end
+		local cost = getRecordCapacityKg(record)
+		local metrics = calculateCapacityMetrics(data)
+		if not cost or metrics.HasUnknownMaterial
+			or cost > metrics.RemainingKg + CAPACITY_TOLERANCE_KG then return end
+		table.remove(data.StoredLogs, index)
+		record.Locked = false
+		table.insert(data.Logs, record)
+	end
+	LogService.NotifyState(player)
+end)
+
+UpdateAutoKeepRE.OnServerEvent:Connect(function(player, mutations, oversized, threshold, ...)
+	if select("#", ...) ~= 0 or not consumeRemoteBudget(player, "AutoKeep") then return end
+	if type(mutations) ~= "boolean" or type(oversized) ~= "boolean"
+		or type(threshold) ~= "number" or threshold ~= threshold
+		or math.abs(threshold) == math.huge
+		or threshold < LogStorageRules.MIN_THRESHOLD
+		or threshold > LogStorageRules.MAX_THRESHOLD then return end
+	local data = getPlayerData(player)
+	if not data then return end
+	data.AutoKeep = {
+		Mutations = mutations,
+		Oversized = oversized,
+		SizeThreshold = math.floor(threshold * 10 + 0.5) / 10,
+	}
 	LogService.NotifyState(player)
 end)
 
