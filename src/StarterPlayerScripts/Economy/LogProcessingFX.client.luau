@@ -70,9 +70,15 @@ end
 local function showSale(payload)
 	if type(payload.Sold) ~= "table" then return end
 	local intake = processorIntake()
-	local character = player.Character
+	local owner = Players:GetPlayerByUserId(payload.OwnerUserId)
+	local character = owner and owner.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	if not intake or not root then return end
+	if player ~= owner then
+		local localCharacter = player.Character
+		local localRoot = localCharacter and localCharacter:FindFirstChild("HumanoidRootPart")
+		if not localRoot or (localRoot.Position - root.Position).Magnitude > 130 then return end
+	end
 
 	local total = math.min(#payload.Sold, 96)
 	if total < 1 then return end
