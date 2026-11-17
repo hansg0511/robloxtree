@@ -45,11 +45,14 @@ for _, kind in ipairs({ "GroveOak", "Bamboo", "Ironwood" }) do
 		check(kind .. " preview built", model ~= nil)
 		check(kind .. " progress metadata",
 			math.abs((model:GetAttribute("GroveGrowthProgress") or -1) - progress) <= 0.025)
-		local stump = model:FindFirstChild("GroveGrowthStump")
+		local stumpName = if kind == "Bamboo" then "GroveBambooCulm1Stump"
+			else "GroveGrowthStump"
+		local stump = model:FindFirstChild(stumpName)
 		check(kind .. " predictive stump exists", stump ~= nil)
+		local stumpCutoff = if kind == "Bamboo" then 0.17 else 0.28
+		local shouldBeStump = progress < stumpCutoff
 		check(kind .. " stump visibility",
-			(progress <= 0.22 and stump.Transparency == 0)
-				or (progress >= 0.50 and stump.Transparency == 1))
+			(stump.Transparency == 0) == shouldBeStump)
 		if kind == "GroveOak" and Configuration.PROCEDURAL_STARTER_OAKS_ENABLED == true then
 			check("Grove Oak uses Forest 1 procedural generator",
 				model:GetAttribute("ProceduralStarterOak") == true)
@@ -79,8 +82,10 @@ for _, kind in ipairs({ "GroveOak", "Bamboo", "Ironwood" }) do
 		GroveStage = "stump", GrowthProgress = 0, SizePotential = 1.75,
 	})
 	check(kind .. " small and large stumps built", small ~= nil and huge ~= nil)
-	local smallWidth = small.GroveGrowthStump.Size.X
-	local hugeWidth = huge.GroveGrowthStump.Size.X
+	local stumpName = if kind == "Bamboo" then "GroveBambooCulm1Stump"
+		else "GroveGrowthStump"
+	local smallWidth = small:FindFirstChild(stumpName).Size.X
+	local hugeWidth = huge:FindFirstChild(stumpName).Size.X
 	check(kind .. " huge stump predicts bigger growth", hugeWidth > smallWidth)
 	small:Destroy()
 	huge:Destroy()
