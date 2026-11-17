@@ -20,13 +20,17 @@ This is a scoped prototype correction following the 2026-11-18 Grove playtest. *
 
 **Bamboo**
 - Initial stump is **five small, slim cut culms** matching the positions and thicknesses of the final five mature canes.
-- All five canes now progress upward through **six layers each** on the same timeline, from ~12% to ~56% of growth. Each cane shows layer one before layer two—there are no sequential full-height pops.
-- At ~62%, the assembled layer visuals switch to the same full mature bamboo stalk parts, keeping the final model and its interactions identical. Nodes and foliage continue appearing in their own height/late-canopy phases.
-- Temporary visible segments are cosmetic only, welded to the original model root. They don't collide, harvest or add materials, and are hidden once their mature stalks are visible.
+- All five canes now grow upward through **bottom-anchored height resizing** of one temporary visual Part per cane, from ~12% to ~62% of growth. They move together; no sequential full-height pops and no 30 temporary segments.
+- At ~62%, the expanding visual copies are replaced by the exact original mature bamboo stalk parts. Nodes and foliage still appear progressively.
+- Temporary copies are anchored, collisionless, and **not welded to the original model**; they never generate actual materials or affect harvest behavior.
 
 **Oak bark timing follow-up:** The forest procedural Oak may have thin warm/recessed bark-accent parts assigned separately from the genuine Core section underneath. Those accents now wait until **all supporting core parts from the same authored harvest section are visible**, plus one growth step. This fixes early floating-looking wood strips without changing the approved Oak trunk-and-branch progression.
 
 **Leaf growth follow-up:** Each existing cubic/cuboid foliage part now expands **in place** from a little block to its original mature size over ~17% of the growth cycle (~6–7 ticks). Individual starts are staggered, and they finish before maturity. This uses `BasePart.Size`, not extra leaf pieces; it does not alter leaf appearance when fully grown. At 45-second maturity and a 1-second server tick, the visible change is stepwise. Smooth easing remains a future polish item.
+
+**Structural growth follow-up:** Large Oak/Ironwood trunk sections and major branches now extend from their local bases using a temporary, collisionless visual copy of the original Part. The copy grows by changing its `Size` and `CFrame`, leaving the original welded/anchored model geometry intact. When it reaches its full length, the original Part becomes visible and the copy is hidden. This works even for a giant trunk made from just two enormous pieces. Procedural Oak branches (local Y) and Ironwood horizontal boughs (local X) grow along their correct orientations. Oak bark accents are delayed until their *full* supporting trunk section finishes expanding.
+
+**Multiplayer:** The growth presentation is updated by the **server** (existing ~1-second Grove tick) inside replicated Workspace models. All nearby players see the same bottom-anchored growth; nothing is exclusive to the tree owner. Interpolation for truly fluid per-frame animation remains a future polish task, without making harvest or growth client-authoritative.
 
 **Unchanged:** Grove genetics, per-cycle actual size, mutation inheritance, regrowth timers, E-harvest cinematic, owner-only checks, one protected log per harvest, Forge and processor logic.
 
@@ -50,11 +54,12 @@ If the feature branch already exists locally: `git switch feature/grove-ironwood
 5. Check multiplayer visibility, owner-only harvest access, and full saved-storage handling.
 6. Watch Oak's thin warm bark accents: no orange texture strip should appear before the supporting trunk core.
 7. Watch individual leaf cuboids grow gradually rather than materializing instantly at full size; they should finish at the normal mature shape.
-8. Paste the contents of `tests/GroveIronwoodBambooGrowth.smoke.luau`, `tests/GroveStageVisuals.smoke.luau`, and `tests/GroveOakFoliageGrowth.smoke.luau` into Roblox Studio's **SERVER Command Bar**. They build read-only 0%–100% preview models and check the order, stump widths and synchronized segments.
+8. With a second Studio client standing nearby, watch a Grove tree grow and confirm both players see the same increasing trunk, branches and leaves.
+9. Paste `tests/GroveIronwoodBambooGrowth.smoke.luau`, `tests/GroveStageVisuals.smoke.luau`, `tests/GroveOakFoliageGrowth.smoke.luau` and the stress case `tests/GroveLargeTrunkGrowth.smoke.luau` into the Studio **SERVER Command Bar**. The last test simulates a 120-stud tree with only two huge wood Parts and checks their bottom positions stay fixed.
 
 ## Caveats and polish
 
-- This is stepwise visual growth, not continuously stretched stems. The segments are intentionally chunky for a first prototype. Their transitions can be smoothed later.
+- This is **bottom-anchored growth in server-replicated steps** (roughly one update per second), not smooth per-frame animation. Optional client-side interpolation for all observers can be added later. No huge number of extra segments are created.
 - The thin bamboo stumps reflect the actual next-cycle size.
 - Hidden Ironwood bark studs are a visual workaround pending better authored bark details. Forest Ironwood's decorations are unaffected.
 - Source code can be reviewed through GitHub, but **Roblox Studio execution cannot be performed here**. Keep the branch a draft until its playtest passes.
