@@ -7,6 +7,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local profileCache = require(ServerScriptService.PlayerProfile.ProfileService.ProfileDataCache)
 local itemDataBase = require(game.ServerStorage.Items.ItemDataBase)
 local catalog = require(script.Parent.AxeShopCatalog)
+local WeaponRecipeRules = require(script.Parent.WeaponRecipeRules)
 local MaterialDefinitions = require(script.Parent.MaterialDefinitions)
 local LogService = require(ServerScriptService.Inventory.LogService)
 local WorldProgressService = require(ServerScriptService.WorldProgressService)
@@ -71,8 +72,10 @@ local function canUseForge(player)
 end
 
 local function validOutputDefinition(recipe)
-	local info = itemDataBase.Info[recipe.OutputItemID]
-	local template = itemDataBase.Instances[recipe.OutputItemID]
+	local fixedOutput = WeaponRecipeRules.ResolveFixedOutput(recipe)
+	if not fixedOutput then return false end
+	local info = itemDataBase.Info[fixedOutput.ItemID]
+	local template = itemDataBase.Instances[fixedOutput.ItemID]
 	return info ~= nil
 		and info.Type == "Weapon"
 		and template ~= nil
@@ -193,6 +196,7 @@ local function buildShopSnapshot(player, profile)
 		recipes[#recipes + 1] = {
 			Id = recipe.Id,
 			Name = recipe.Name,
+			WeaponKind = recipe.WeaponKind,
 			Tier = recipe.Tier,
 			HeadId = recipe.HeadId,
 			HeadName = head and head.Name or recipe.HeadId,
@@ -278,28 +282,6 @@ purchaseAxeHead.OnServerEvent:Connect(function(player, headId, ...)
 	economyUpdated:FireClient(player, "Progression")
 end)
 
-local function isExactUidSelection(value, expectedCount)
-	if type(value) ~= "table" or type(expectedCount) ~= "number" or expectedCount < 1
-		or expectedCount % 1 ~= 0 then
-		return false
-	end
-	local count = 0
-	local maxIndex = 0
-	for key in pairs(value) do
-		if type(key) ~= "number" or key < 1 or key % 1 ~= 0 then return false end
-		count += 1
-		maxIndex = math.max(maxIndex, key)
-	end
-	if count ~= expectedCount or maxIndex ~= expectedCount then return false end
-	local seen = {}
-	for index = 1, expectedCount do
-		local uid = value[index]
-		if typeof(uid) ~= "string" or #uid < 1 or #uid > 80 or seen[uid] then return false end
-		seen[uid] = true
-	end
-	return true
-end
-
 local function cloneMutationValue(value, seen)
 	local valueType = type(value)
 	if valueType == "string" or valueType == "number" or valueType == "boolean" then
@@ -337,7 +319,8 @@ craftRecipe.OnServerEvent:Connect(function(player, recipeId, selectedLogUids, ..
 	if select("#", ...) ~= 0 or not takeBudget(player, "CraftRecipe") then return end
 	if typeof(recipeId) ~= "string" or #recipeId < 1 or #recipeId > 64 then return end
 	local recipe = catalog.FindStandardAxeRecipe(recipeId)
-	if not recipe or not isExactUidSelection(selectedLogUids, recipe.RequiredLogCount) then return end
+	local fixedOutput = WeaponRecipeRules.ResolveFixedOutput(recipe)
+	if not fixedOutput or not WeaponRecipeRules.IsExactUidSelection(selectedLogUids, recipe.RequiredLogCount) then return end
 	if not canUseForge(player) then return end
 	local profile, data = getProfileData(player)
 	if not profile then return end
@@ -391,12 +374,14 @@ craftRecipe.OnServerEvent:Connect(function(player, recipeId, selectedLogUids, ..
 	local finalPower = math.floor((recipe.HeadBasePower + bonusTotal / #removedLogs) * 10 + 0.5) / 10
 	local itemRecordOk, itemRecord = pcall(function()
 		return {
-			ItemID = recipe.OutputItemID,
+			ItemID = fixedOutput.ItemID,
 			UID = HttpService:GenerateGUID(false),
 			Stats = { Attack = finalPower - catalog.BaseAttack },
 			Substat = {},
 			Rarity = "Common",
 			WeaponData = {
+				RecipeId = fixedOutput.RecipeId,
+				WeaponKind = fixedOutput.WeaponKind,
 				AxeTier = recipe.Tier,
 				HeadId = recipe.HeadId,
 				CraftedPower = finalPower,
