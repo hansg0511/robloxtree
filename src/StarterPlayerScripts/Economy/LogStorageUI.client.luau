@@ -66,6 +66,15 @@ gui.DisplayOrder = 30
 gui.Parent = player:WaitForChild("PlayerGui")
 
 local openButton = button(gui, "STORAGE  N", UDim2.new(1, -180, 0, 18), UDim2.fromOffset(158, 46), colors.Panel)
+local noticeToast = label(gui, "", UDim2.new(0.5, -260, 0, 75), UDim2.fromOffset(520, 45), 17, colors.Gold)
+noticeToast.Name = "StorageToast"
+noticeToast.BackgroundTransparency = 0.1
+noticeToast.BackgroundColor3 = colors.Back
+noticeToast.TextXAlignment = Enum.TextXAlignment.Center
+noticeToast.TextWrapped = true
+noticeToast.Visible = false
+rounded(noticeToast, 9)
+
 local overlay = Instance.new("Frame")
 overlay.Name = "StorageOverlay"
 overlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
@@ -323,10 +332,13 @@ processingFX.OnClientEvent:Connect(function(payload)
 	local currentRevision = noticeRevision
 	rulesNote.TextColor3 = colors.Gold
 	rulesNote.Text = payload.Message
+	noticeToast.Text = payload.Message
+	noticeToast.Visible = true
 	task.delay(4, function()
 		if noticeRevision ~= currentRevision then return end
 		rulesNote.Text = "Auto-keep applies to new pickups. Saved logs never use bag capacity."
 		rulesNote.TextColor3 = colors.Line
+		noticeToast.Visible = false
 	end)
 end)
 
