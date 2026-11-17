@@ -89,6 +89,8 @@ local function isValidGroveTree(record)
 		and isFiniteNumber(record.SizePotential)
 		and record.SizePotential >= MIN_SIZE_POTENTIAL
 		and record.SizePotential <= MAX_SIZE_POTENTIAL
+		and GroveGrowthRules.NormalizeCurrentSize(record.CurrentSizeScale, record.SizePotential) == record.CurrentSizeScale
+		and GroveGrowthRules.NormalizeHarvestCount(record.HarvestCount) == record.HarvestCount
 		and isFiniteNumber(record.LocalX)
 		and math.abs(record.LocalX) <= GROVE_COORDINATE_LIMIT
 		and isFiniteNumber(record.LocalZ)
@@ -491,51 +493,70 @@ function GroveService.CanChopPersistentTree(player, treeObject)
 	return data ~= nil and record ~= nil
 end
 
+-- A successful harvest never consumes the planted tree: instead it creates
+-- one unique protected log and starts another timed growth on the same stump.
+-- This is server-only and triggered exclusively by TreeObject's lethal chop.
 function GroveService.HarvestPersistentTree(player, treeObject)
-	local data, _, _, _, record, recordIndex = validateRuntimeGroveTree(player, treeObject)
+	local data, plot, plotModel, area, record = validateRuntimeGroveTree(player, treeObject)
 	if not data or not record or not isValidGroveTree(record) then return false end
-	local uid = newGroveUID(data)
-	if not uid then return false end
-	local createdAt = os.time()
-	if not isFiniteNumber(createdAt) or createdAt < 0 then return false end
-	local heartwood = {
-		UID = uid,
-		MaterialType = "Heartwood",
+
+	local now = os.time()
+	local cycle = GroveGrowthRules.NextCycle(record, now, Random.new():NextNumber())
+	if not cycle then return false end
+
+	-- Do not harvest (and do not reset growth) when protected storage cannot
+	-- accept the one unique output. No coins, overflow or temporary cargo.
+	local logUID = LogService.GrantGroveHarvestLog(player, {
 		SpeciesId = record.SpeciesId,
 		Mutations = copyMutations(record.Mutations),
-		SizePotential = record.SizePotential,
+		SizeScale = record.CurrentSizeScale,
 		SourceGroveTreeUID = record.UID,
 		SourceSaplingUID = record.SourceSaplingUID,
-		CreatedAt = createdAt,
-	}
-	if not isValidHeartwood(heartwood) or uidAlreadyUsed(data, uid) then return false end
-	local committed, wasRemoved = false, false
-	local ok = pcall(function()
-		table.insert(data.GroveMaterials, heartwood)
-		if not removeByIdentity(data.GroveTrees, record) then error("Grove tree identity changed during harvest") end
-		wasRemoved = true
-		for index = #data.ActiveGroveTreeUIDs, 1, -1 do
-			if data.ActiveGroveTreeUIDs[index] == record.UID then table.remove(data.ActiveGroveTreeUIDs, index) end
+	})
+	if not logUID then
+		local economy = ReplicatedStorage:FindFirstChild("Economy")
+		local notice = economy and economy:FindFirstChild("LogProcessingFXRE")
+		if notice then
+			notice:FireClient(player, {
+				Mode = "StorageNotice",
+				Message = "GROVE HARVEST BLOCKED: SAVED LOG STORAGE IS FULL.",
+			})
 		end
-		data.ActiveGroveTreeUIDs = {}
-		committed = true
-	end)
-	if not ok or not committed then
-		removeByIdentity(data.GroveMaterials, heartwood)
-		if wasRemoved then
-			table.insert(data.GroveTrees, math.min(recordIndex, #data.GroveTrees + 1), record)
-		end
-		data.ActiveGroveTreeUIDs = {}
 		return false
 	end
 
-	RuntimeTreesByUID[record.UID] = nil
-	local playerUIDs = PlayerRuntimeUIDs[player]
-	if playerUIDs then
-		playerUIDs[record.UID] = nil
-		if next(playerUIDs) == nil then PlayerRuntimeUIDs[player] = nil end
-	end
+	local groveUID = record.UID
+	-- Atomic within this synchronous server callback: all validations above
+	-- complete before the next cycle is committed and before a new TreeObject
+	-- can be registered. A second lethal hit is rejected as stale.
+	record.PlantedAt = cycle.PlantedAt
+	record.MaturesAt = cycle.MaturesAt
+	record.CurrentSizeScale = cycle.CurrentSizeScale
+	record.HarvestCount = cycle.HarvestCount
+	RuntimeTreesByUID[groveUID] = nil
+
+	-- Keep PlayerRuntimeUIDs[groveUID] reserved for cleanup until the new
+	-- incarnation appears. The old dying tree is removed from ActiveTrees by
+	-- TreeObject after this callback accepts the harvest.
+	LogService.NotifyState(player)
 	publishState(player)
+
+	-- Leave enough time for the existing tree-fall animation to complete,
+	-- then spawn an explicit stump; its lifetime is driven by plantedAt.
+	task.delay(2.6, function()
+		if not player:IsDescendantOf(Players) then return end
+		if RestoredPlotByPlayer[player] ~= plot or RuntimeTreesByUID[groveUID] then return end
+		local fresh = getProfileData(player)
+		local assigned, freshPlotModel, freshArea = getAssignedGrove(player)
+		local current = fresh and findUniqueGroveTree(fresh, groveUID)
+		if assigned ~= plot or not freshPlotModel or not current
+			or current.PlantedAt ~= cycle.PlantedAt
+			or current.MaturesAt ~= cycle.MaturesAt
+			or current.HarvestCount ~= cycle.HarvestCount then return end
+		if not spawnGroveTree(player, freshPlotModel, freshArea, current) then
+			warn("[Grove] Failed to spawn regrowing tree; recover on next plot restore", groveUID)
+		end
+	end)
 	return true
 end
 
