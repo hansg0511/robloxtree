@@ -1005,11 +1005,26 @@ local SOURCE_BUILT_MODELS = {
 	BarrierTree = makeBarrierTree,
 }
 
+-- Stump geometry is authored already short; its base size is not shrunk
+-- again by the sapling growth scale.
 local GROVE_STAGE_SCALE = {
+	stump = 1,
 	sapling = 0.18,
 	young = 0.52,
 	mature = 1,
 }
+
+local function makeGroveStump(speciesId)
+	local palette = SpeciesVisuals.GetPalette(speciesId)
+	local model, trunk = makeTreeFrame(
+		"GroveStump", Vector3.new(3, 2.4, 3), Vector3.new(0, 1.2, 0), palette
+	)
+	local top = makeBrickPart("CutSurface", Vector3.new(2.65, 0.14, 2.65),
+		Vector3.new(0, 2.45, 0), palette.CutEnd, model, trunk, false)
+	top.CanCollide = false
+	addChopHitbox(model, trunk, Vector3.new(6, 4, 6), Vector3.new(0, 1.8, 0))
+	return model
+end
 
 Tree.ActiveTrees = {}
 Tree._nextCreationId = 0
@@ -1138,6 +1153,7 @@ function Tree.new(options)
 	if self.IsPersistentGrove then
 		local speciesConfig = Definitions.PersistentGroveSpecies[options.SpeciesId]
 		local sizePotential = options.SizePotential
+		local currentSizeScale = options.CurrentSizeScale
 		local plantedAt = options.PlantedAt
 		local maturesAt = options.MaturesAt
 		assert(type(options.GroveTreeUID) == "string" and #options.GroveTreeUID > 0, "Persistent Grove tree UID required")
@@ -1146,6 +1162,7 @@ function Tree.new(options)
 		assert(type(speciesConfig.MaxHP) == "number" and speciesConfig.MaxHP > 1, "Invalid Persistent Grove prototype HP")
 		assert(type(speciesConfig.ChopRadius) == "number" and speciesConfig.ChopRadius > 0, "Invalid Persistent Grove chop radius")
 		assert(type(sizePotential) == "number" and sizePotential == sizePotential and sizePotential >= 0.1 and sizePotential <= 2, "Invalid Persistent Grove size potential")
+		assert(type(currentSizeScale) == "number" and currentSizeScale == currentSizeScale and currentSizeScale > 0 and currentSizeScale <= sizePotential, "Invalid Grove current size")
 		assert(type(plantedAt) == "number" and plantedAt == plantedAt and plantedAt >= 0 and plantedAt < math.huge, "Invalid Persistent Grove planting time")
 		assert(type(maturesAt) == "number" and maturesAt > plantedAt and maturesAt < math.huge, "Invalid Persistent Grove maturity time")
 		self.ModelName = speciesConfig.ModelName
@@ -1158,6 +1175,8 @@ function Tree.new(options)
 		self.SourceSaplingUID = options.SourceSaplingUID
 		self.Mutations = MutationDefinitions.CopyKnown(options.Mutations)
 		self.GroveSizePotential = sizePotential
+		self.GroveCurrentSize = currentSizeScale
+		self.GroveHarvestCount = math.max(0, math.floor(tonumber(options.HarvestCount) or 0))
 		self.GrovePlantedAt = plantedAt
 		self.GroveMaturesAt = maturesAt
 		self.GroveStage = if GROVE_STAGE_SCALE[options.GroveStage] then options.GroveStage else "sapling"
@@ -1187,7 +1206,7 @@ function Tree:Spawn()
 		and self.Category ~= "Barrier"
 		and hasKnownMaterial
 	self.SizeScale = if self.IsPersistentGrove
-		then self.GroveSizePotential
+		then self.GroveCurrentSize
 		elseif type(self.FixedSizeScale) == "number" and self.FixedSizeScale > 0
 		then self.FixedSizeScale
 		elseif hasLogDrop
@@ -1242,7 +1261,9 @@ function Tree:Spawn()
 	elseif self.DefinitionId == "BambooClump" and hasLogDrop then
 		model, authoredHarvestSections = makeBambooClump()
 	end
-	if not model and builder then
+	if self.IsPersistentGrove and self.GroveStage == "stump" then
+		model = makeGroveStump(self.SpeciesId)
+	elseif not model and builder then
 		model = builder()
 	end
 	if not model then
@@ -1273,6 +1294,7 @@ function Tree:Spawn()
 		model:SetAttribute("SourceSaplingUID", self.SourceSaplingUID)
 		model:SetAttribute("GroveStage", self.GroveStage)
 		model:SetAttribute("GroveSizeScale", modelScale)
+		model:SetAttribute("GroveCurrentSize", self.GroveCurrentSize)
 		model:SetAttribute("GrovePlantedAt", self.GrovePlantedAt)
 		model:SetAttribute("GroveMaturesAt", self.GroveMaturesAt)
 	end
@@ -1298,10 +1320,20 @@ end
 function Tree:SetGroveStage(stage)
 	local stageScale = GROVE_STAGE_SCALE[stage]
 	if not self.IsPersistentGrove or not stageScale then return false end
+	local previous = self.GroveStage
+	if previous == "stump" and stage ~= "stump" then
+		-- A stump has deliberately different geometry from a growing tree.
+		-- Rebuild it once on the stump -> sapling transition.
+		if self.model then self.model:Destroy() end
+		self.model = nil
+		self.InteractionPart = nil
+		self.GroveStage = stage
+		return self:Spawn() ~= nil
+	end
 	self.GroveStage = stage
 	local model = self.model
 	if model and model.Parent then
-		local modelScale = self.GroveSizePotential * stageScale
+		local modelScale = self.GroveCurrentSize * stageScale
 		model:ScaleTo(modelScale)
 		model:SetAttribute("GroveStage", stage)
 		model:SetAttribute("GroveSizeScale", modelScale)
@@ -1328,6 +1360,7 @@ function Tree:CanChop(player)
 	if self.destroyed or self.isDead or not self.model or not self.model.Parent then return false end
 	if typeof(player) ~= "Instance" or not player:IsA("Player") then return false end
 	if self.IsPersistentGrove then
+		if self.GroveStage ~= "mature" then return false end
 		if self.OwnerUserId ~= player.UserId or type(self.CanChopCallback) ~= "function" then return false end
 		local ok, canChop = pcall(self.CanChopCallback, player, self)
 		return ok and canChop == true
