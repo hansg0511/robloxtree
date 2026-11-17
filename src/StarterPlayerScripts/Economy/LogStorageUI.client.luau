@@ -223,8 +223,9 @@ local function render()
 		row.Parent = list
 		rounded(row, 7)
 
-		local description = string.format("%s  |  SIZE %.2fx  |  %s",
-			tostring(record.SpeciesId), tonumber(record.SizeScale) or 1, mutationText(record.Mutations))
+		local origin = if record.SourceType == "Grove" then "GROVE" else "WILD"
+		local description = string.format("%s  |  SIZE %.2fx  |  %s  |  %s",
+			tostring(record.SpeciesId), tonumber(record.SizeScale) or 1, mutationText(record.Mutations), origin)
 		label(row, description, UDim2.fromOffset(12, 5), UDim2.new(1, -130, 0, 27), 16)
 		local detail = string.format("UID %s   •   ~%d coins", string.sub(record.UID, 1, 8), tonumber(record.LogValue) or 0)
 		label(row, detail, UDim2.fromOffset(12, 31), UDim2.new(1, -130, 0, 25), 12, colors.Line)
