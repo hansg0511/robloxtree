@@ -1487,9 +1487,10 @@ function Tree:SetGroveStage(stage)
 	if previous.Model and previous.Model ~= result and previous.Model.Parent then
 		previous.Model:Destroy()
 	end
-	-- Small visibility transition only: the silhouette changes immediately,
-	-- rather than stretching a miniature mature tree over the entire cycle.
-	FXService:FadeIn(result)
+	-- Cosmetic fade errors must never interrupt a server-owned growth tick.
+	-- The silhouette changes immediately; no miniature mature-tree scaling.
+	local effectOk, effectErr = pcall(FXService.FadeIn, FXService, result)
+	if not effectOk then warn("[Grove] Growth-stage fade failed", effectErr) end
 	return true
 end
 
