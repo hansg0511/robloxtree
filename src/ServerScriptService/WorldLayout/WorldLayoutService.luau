@@ -419,6 +419,35 @@ local function createHomeEconomyStation(parent)
 	)
 	counter:SetAttribute("WorldLayoutOwned", true)
 
+	-- A bright, chunky wood processor: the machine pays Coins directly.
+	-- There is no timber currency or secondary processed inventory.
+	local housing = createPart(
+		"ProcessorHousing", Vector3.new(6.4, 3.0, 3.6),
+		CFrame.new(position + Vector3.new(0, 3.5, 0.2)),
+		Color3.fromRGB(55, 145, 173), Enum.Material.Metal, station
+	)
+	housing:SetAttribute("WorldLayoutOwned", true)
+	createPart(
+		"ProcessorMouth", Vector3.new(4.8, 2.1, 0.25),
+		CFrame.new(position + Vector3.new(0, 3.5, -1.7)),
+		Color3.fromRGB(28, 37, 47), Enum.Material.SmoothPlastic, station
+	)
+	createPart(
+		"ProcessorStripe", Vector3.new(6.0, 0.35, 3.75),
+		CFrame.new(position + Vector3.new(0, 4.9, 0.2)),
+		Color3.fromRGB(255, 192, 57), Enum.Material.Neon, station
+	)
+	local intake = createPart(
+		"ProcessorIntake", Vector3.new(3, 2, 1),
+		CFrame.new(position + Vector3.new(0, 3.5, -2.15)),
+		Color3.fromRGB(34, 46, 56), Enum.Material.SmoothPlastic, station
+	)
+	intake.Transparency = 1
+	intake.CanCollide = false
+	intake.CanQuery = false
+	intake.CanTouch = false
+	intake:SetAttribute("WorldLayoutOwned", true)
+
 	local interaction = createPart(
 		"Interaction",
 		Vector3.new(8, 6, 5),
@@ -436,8 +465,8 @@ local function createHomeEconomyStation(parent)
 
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = "EconomyPrompt"
-	prompt.ActionText = "Sell logs"
-	prompt.ObjectText = "Lumber Depot"
+	prompt.ActionText = "Process carried logs"
+	prompt.ObjectText = "Wood Processor"
 	prompt.MaxActivationDistance = Configuration.STATION_USE_DISTANCES.HomeEconomyStation
 	prompt.RequiresLineOfSight = false
 	prompt.HoldDuration = 0
@@ -455,8 +484,8 @@ local function createHomeEconomyStation(parent)
 	createStationSign(
 		station,
 		"LumberDepot",
-		"Lumber Depot",
-		"Sell Logs",
+		"WOOD PROCESSOR",
+		"Log Stack → Coins",
 		position + Vector3.new(0, 6.1, 0),
 		Color3.fromRGB(235, 159, 57),
 		Color3.fromRGB(255, 234, 181)
