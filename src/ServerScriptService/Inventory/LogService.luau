@@ -784,9 +784,10 @@ local function makeSellSummary(player)
 
 	local eligibleCount = 0
 	local totalValue = 0
+	local pending = pendingCarryArrivalUids[player]
 	for _, logRecord in ipairs(data.Logs) do
 		local value = getLogValue(logRecord)
-		if value and logRecord.Locked ~= true then
+		if value and logRecord.Locked ~= true and not (pending and pending[logRecord.UID]) then
 			eligibleCount += 1
 			totalValue += value
 		end
@@ -2669,7 +2670,13 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 	end
 	-- Fail-safe when protected storage is full: any carried fallback stays
 	-- locked, never included in bulk processor sales.
-	if keep then entry.LogRecord.Locked = true end
+	if keep then
+		entry.LogRecord.Locked = true
+		LogProcessingFXRE:FireClient(player, {
+			Mode = "StorageNotice",
+			Message = "PROTECTED STORAGE FULL — CLEAR SPACE. THIS LOG WILL NOT AUTO-SELL.",
+		})
+	end
 	if logCount(data) >= MAX_OWNED_LOGS and entry.State == "Piled" then
 		refreshPiledLogPickupEligibility(player, data)
 		return rejectPickup(player, uid, "physical item limit")
