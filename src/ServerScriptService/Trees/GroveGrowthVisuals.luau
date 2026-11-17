@@ -126,6 +126,7 @@ local function makeCutStumpParts(model, centerCFrame, width, height, palette, pr
 	body.TopSurface = Enum.SurfaceType.Smooth
 	body.BottomSurface = Enum.SurfaceType.Smooth
 	attachVisualPart(body, model)
+	body.CastShadow = true -- Preserve the approved Oak stump's original shadow.
 
 	local cut = Instance.new("Part")
 	cut.Name = prefix .. "CutEnd"
@@ -134,6 +135,7 @@ local function makeCutStumpParts(model, centerCFrame, width, height, palette, pr
 	cut.Color = palette.CutEnd
 	cut.Material = Enum.Material.SmoothPlastic
 	attachVisualPart(cut, model)
+	cut.CastShadow = true
 	return body, cut
 end
 
