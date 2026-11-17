@@ -257,6 +257,10 @@ local function newGrowthProxy(part)
 	proxy.CanTouch = false
 	proxy.CanQuery = false
 	proxy:SetAttribute("GroveGrowthSource", part.Name)
+	proxy:SetAttribute("GroveGrowthAxis", "Y")
+	if part.Name == "BambooCore" or string.match(part.Name, "^BambooStalk%d+$") then
+		proxy:SetAttribute("GroveGrowthCane", part.Name)
+	end
 	proxy.Parent = part:FindFirstAncestorOfClass("Model")
 	return proxy
 end
@@ -335,6 +339,7 @@ function GrowthVisuals.Prepare(model, speciesId)
 									else WOOD_EXPAND_DURATION
 								record.NativeAt = record.At + record.GrowDuration
 								record.Proxy = newGrowthProxy(part)
+								record.Proxy:SetAttribute("GroveGrowthAxis", axis)
 								if not isBranch and not isBambooCane then
 									latestTrunkFinish = math.max(latestTrunkFinish, record.NativeAt)
 								end
