@@ -18,6 +18,7 @@ export type LogItem = {
 	Mutations: { [string]: any },
 	Locked: boolean,
 	CreatedAt: number,
+	SizeScale: number?,
 }
 
 export type GroveMutations = { [string]: boolean }
@@ -64,6 +65,8 @@ export type RunProgress = {
 export type PlayerData = {
 	Inventory: { InventoryItem },
 	Logs: { LogItem },
+	StoredLogs: { LogItem },
+	AutoKeep: { Mutations: boolean, Oversized: boolean, SizeThreshold: number },
 	Saplings: { Sapling },
 	GroveTrees: { GroveTree },
 	GroveMaterials: { Heartwood },
