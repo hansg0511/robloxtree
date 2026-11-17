@@ -8,6 +8,8 @@ local TreeObject = require(game.ServerScriptService.Trees.TreeObject)
 local PlotManager = require(game.ServerStorage.PlotManager)
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
 local MutationDefinitions = require(script.Parent.MutationDefinitions)
+local GroveGrowthRules = require(script.Parent.GroveGrowthRules)
+local LogService = require(game.ServerScriptService.Inventory.LogService)
 
 local GroveService = {}
 
@@ -15,8 +17,9 @@ GroveService.Constants = {
 	Capacity = 25,
 	PlacementMargin = 2,
 	MinimumSpacing = 4.5,
-	MaturitySeconds = 45,
-	SaplingStageFraction = 0.25,
+	MaturitySeconds = GroveGrowthRules.MATURITY_SECONDS,
+	SaplingStageFraction = GroveGrowthRules.SAPLING_FRACTION,
+	StumpSeconds = GroveGrowthRules.STUMP_SECONDS,
 	PlantRequestCooldownSeconds = 0.75,
 	StageUpdateIntervalSeconds = 1,
 }
@@ -149,11 +152,7 @@ local function isInsidePlacementBounds(area, localX, localZ)
 end
 
 local function deriveStage(record, now)
-	local saplingEnd = record.PlantedAt
-		+ (record.MaturesAt - record.PlantedAt) * GroveService.Constants.SaplingStageFraction
-	if now < saplingEnd then return "sapling" end
-	if now < record.MaturesAt then return "young" end
-	return "mature"
+	return GroveGrowthRules.Stage(record, now)
 end
 
 local function copySapling(record)
@@ -173,6 +172,8 @@ local function copyGroveTree(record, now)
 		SpeciesId = record.SpeciesId,
 		Mutations = copyMutations(record.Mutations),
 		SizePotential = record.SizePotential,
+		CurrentSizeScale = record.CurrentSizeScale,
+		HarvestCount = record.HarvestCount,
 		LocalX = record.LocalX,
 		LocalZ = record.LocalZ,
 		Yaw = record.Yaw,
@@ -272,6 +273,7 @@ local function spawnGroveTree(player, plotModel, area, record)
 			-- mutable persisted record table or trust unknown mutation identifiers.
 			Mutations = MutationDefinitions.CopyKnown(record.Mutations),
 			SizePotential = record.SizePotential,
+			CurrentSizeScale = record.CurrentSizeScale,
 			PlantedAt = record.PlantedAt,
 			MaturesAt = record.MaturesAt,
 			GroveStage = deriveStage(record, os.time()),
@@ -474,6 +476,7 @@ local function validateRuntimeGroveTree(player, treeObject)
 		or record.SizePotential ~= treeObject.GroveSizePotential
 		or record.PlantedAt ~= treeObject.GrovePlantedAt
 		or record.MaturesAt ~= treeObject.GroveMaturesAt
+		or record.CurrentSizeScale ~= treeObject.GroveCurrentSize
 		or treeObject.CFrame ~= worldCFrameForRecord(area, record)
 		or sourceSaplingReferenceCount(data, record.SourceSaplingUID) ~= 1
 		or heartwoodSourceTreeCount(data, uid) ~= 0
@@ -568,6 +571,8 @@ local function plantSapling(player, saplingUID, localX, localZ)
 		SpeciesId = sapling.SpeciesId,
 		Mutations = copyMutations(sapling.Mutations),
 		SizePotential = sapling.SizePotential,
+		CurrentSizeScale = GroveGrowthRules.RollSize(sapling.SizePotential, Random.new():NextNumber()),
+		HarvestCount = 0,
 		LocalX = localX,
 		LocalZ = localZ,
 		Yaw = yaw,
@@ -613,6 +618,7 @@ local function updateRuntimeStages()
 				PlantedAt = treeObject.GrovePlantedAt,
 				MaturesAt = treeObject.GroveMaturesAt,
 			}
+			record.HarvestCount = treeObject.GroveHarvestCount
 			local stage = deriveStage(record, now)
 			if stage ~= treeObject.GroveStage then
 				treeObject:SetGroveStage(stage)
