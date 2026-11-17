@@ -143,8 +143,8 @@ function GrowthVisuals.Prepare(model, speciesId)
 	return { Model = model, Records = records, Stump = stump, LastStep = -1 }
 end
 
-function GrowthVisuals.Apply(state, fraction)
-	if not state or not state.Model or not state.Model.Parent then return false end
+function GrowthVisuals.Apply(state, fraction, allowUnparented)
+	if not state or not state.Model or (not allowUnparented and not state.Model.Parent) then return false end
 	if type(fraction) ~= "number" or fraction ~= fraction then return false end
 	fraction = math.clamp(fraction, 0, 1)
 	local step = math.min(GrowthVisuals.STEPS, math.floor(fraction * GrowthVisuals.STEPS + 1e-6))
