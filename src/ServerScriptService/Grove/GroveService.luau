@@ -566,18 +566,25 @@ function GroveService.HarvestPersistentTree(player, treeObject)
 		Mutations = copyMutations(record.Mutations),
 		WorldCFrame = worldCFrameForRecord(area, record),
 	}
-	LogService.NotifyState(player)
-	publishState(player)
-	GroveHarvestFXRE:FireClient(player, {
-		Mode = "Start",
-		RewardUID = logUID,
-		GroveTreeUID = groveUID,
-		TreeModel = treeObject.model,
-		WorldCFrame = reward.WorldCFrame,
-		SpeciesId = reward.SpeciesId,
-		Mutations = copyMutations(reward.Mutations),
-		SizeScale = reward.SizeScale,
-	})
+	-- Post-commit presentation must NEVER throw back into TreeObject.Die:
+	-- the log and growth-cycle change are already authoritative at this point.
+	local inventoryNotified, inventoryError = pcall(LogService.NotifyState, player)
+	if not inventoryNotified then warn("[Grove] Inventory state notice failed", inventoryError) end
+	local groveNotified, groveError = pcall(publishState, player)
+	if not groveNotified then warn("[Grove] Grove state notice failed", groveError) end
+	local cinematicSent, cinematicError = pcall(function()
+		GroveHarvestFXRE:FireClient(player, {
+			Mode = "Start",
+			RewardUID = logUID,
+			GroveTreeUID = groveUID,
+			TreeModel = treeObject.model,
+			WorldCFrame = reward.WorldCFrame,
+			SpeciesId = reward.SpeciesId,
+			Mutations = copyMutations(reward.Mutations),
+			SizeScale = reward.SizeScale,
+		})
+	end)
+	if not cinematicSent then warn("[Grove] Cosmetic harvest start failed", cinematicError) end
 
 	-- Leave enough time for the existing tree-fall animation to complete,
 	-- then spawn an explicit stump; its lifetime is driven by plantedAt.
