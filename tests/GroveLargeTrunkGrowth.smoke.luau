@@ -76,8 +76,8 @@ for _, fraction in ipairs({ 0, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 1 }) do
 end
 check("Original complete native trunk is visible at maturity",
 	first.Part.Transparency < 0.99 and second.Part.Transparency < 0.99)
-check("Growth proxies are invisible after maturity",
-	first.Proxy.Transparency >= 0.99 and second.Proxy.Transparency >= 0.99)
+check("Temporary visual copies are destroyed after maturity",
+	first.Proxy.Parent == nil and second.Proxy.Parent == nil)
 
 fakeTree:Destroy()
 print("Huge two-part Grove trunk growth smoke checks passed")
