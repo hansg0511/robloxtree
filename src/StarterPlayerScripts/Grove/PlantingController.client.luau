@@ -353,7 +353,7 @@ local function makePreview()
 	previewModel.Name = "LocalGrovePlantingPreview"
 	previewTrunk = createPreviewPart(
 		"PreviewTrunk",
-		Vector3.new(0.45, 2.6, 0.45),
+		Vector3.new(0.65, 3.8, 0.65),
 		Color3.fromRGB(126, 87, 57),
 		Enum.Material.Wood,
 		nil,
@@ -361,10 +361,10 @@ local function makePreview()
 	)
 	previewLeaves = createPreviewPart(
 		"PreviewCanopy",
-		Vector3.new(2.7, 2.7, 2.7),
+		Vector3.new(2.6, 1.9, 2.4),
 		Color3.fromRGB(105, 174, 93),
-		Enum.Material.Grass,
-		Enum.PartType.Ball,
+		Enum.Material.Plastic,
+		nil,
 		0.22
 	)
 	previewModel.PrimaryPart = previewTrunk
@@ -419,16 +419,38 @@ local function updatePreview()
 		return
 	end
 
+	local selected = getSelectedSapling()
+	local species = selected and selected.SpeciesId or "Oak"
+	local trunkHeight = if species == "Bamboo" then 2.7
+		else if species == "Ironwood" then 5.4 else 3.8
+	previewTrunk.Size = Vector3.new(
+		if species == "Bamboo" then 0.45 else if species == "Ironwood" then 0.95 else 0.65,
+		trunkHeight,
+		if species == "Bamboo" then 0.45 else if species == "Ironwood" then 0.95 else 0.65
+	)
+	previewLeaves.Size = if species == "Bamboo"
+		then Vector3.new(2.3, 0.22, 0.6)
+		else if species == "Ironwood"
+		then Vector3.new(3.2, 2.3, 3.1)
+		else Vector3.new(2.6, 1.9, 2.4)
+	previewTrunk.Color = if species == "Bamboo"
+		then Color3.fromRGB(127, 179, 80)
+		else if species == "Ironwood" then Color3.fromRGB(79, 50, 36)
+		else Color3.fromRGB(126, 87, 57)
+	previewLeaves.Color = if species == "Bamboo"
+		then Color3.fromRGB(63, 151, 68)
+		else if species == "Ironwood" then Color3.fromRGB(48, 141, 91)
+		else Color3.fromRGB(105, 174, 93)
 	previewTrunk.Transparency = 0.12
 	previewLeaves.Transparency = 0.22
 	previewTrunk.CFrame = area.CFrame * CFrame.new(
 		coordinates.visualX,
-		coordinates.groundY + 1.3,
+		coordinates.groundY + trunkHeight * 0.5,
 		coordinates.visualZ
 	)
 	previewLeaves.CFrame = area.CFrame * CFrame.new(
 		coordinates.visualX,
-		coordinates.groundY + 3.0,
+		coordinates.groundY + trunkHeight + 0.5,
 		coordinates.visualZ
 	)
 end
