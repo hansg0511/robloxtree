@@ -42,6 +42,23 @@ function Rules.RollSize(potential, roll)
 		math.floor(raw * 1000 + 0.5) / 1000))
 end
 
+-- A continuous 0..1 presentation value, independent of the legacy
+-- sapling/young/mature labels used for gameplay status. Regrowth retains
+-- a visible stump briefly before its trunk begins growing.
+function Rules.Progress(record, now)
+	if type(record) ~= "table" or not finite(record.PlantedAt)
+		or not finite(record.MaturesAt) or not finite(now)
+		or record.MaturesAt <= record.PlantedAt then return 0 end
+	local start = record.PlantedAt
+	if Rules.NormalizeHarvestCount(record.HarvestCount) > 0 then
+		start += Rules.STUMP_SECONDS
+	end
+	if now <= start then return 0 end
+	local duration = record.MaturesAt - start
+	if duration <= 0 then return 1 end
+	return math.clamp((now - start) / duration, 0, 1)
+end
+
 function Rules.Stage(record, now)
 	if type(record) ~= "table" or not finite(record.PlantedAt)
 		or not finite(record.MaturesAt) or not finite(now) then return "sapling" end
