@@ -18,6 +18,8 @@ local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDef
 local SaplingDiscoveryService = require(game.ServerScriptService.Grove.SaplingDiscoveryService)
 local GroveHarvestVisualService = require(game.ServerScriptService.Grove.GroveHarvestVisualService)
 local GroveHarvestPresentation = require(game.ReplicatedStorage.Shared.GroveHarvestPresentation)
+local GroveGrowthRules = require(game.ServerScriptService.Grove.GroveGrowthRules)
+local GroveGrowthVisuals = require(script.Parent.GroveGrowthVisuals)
 local StarterOakGenerator
 local generatorFolder = game.ServerScriptService:FindFirstChild("Trees")
 local generatorModule = generatorFolder and generatorFolder:FindFirstChild("StarterOakGenerator")
@@ -1007,155 +1009,39 @@ local SOURCE_BUILT_MODELS = {
 	BarrierTree = makeBarrierTree,
 }
 
--- Every Grove age has a DIFFERENT silhouette. Don't mimic growth by
--- scaling down the full mature tree. Genetic CurrentSizeScale applies to all.
-local GROVE_STAGE_SCALE = {
-	stump = 1,
-	sapling = 1,
-	young = 1,
+-- Gameplay status remains stump/sapling/young/mature, but their visual
+-- presentation uses progressively REVEALED PARTS OF ONE MATURE MODEL.
+local GROVE_STAGES = { stump = true, sapling = true, young = true, mature = true }
+
+local GROVE_PREVIEW_PROGRESS = {
+	stump = 0,
+	sapling = 0.25,
+	young = 0.58,
 	mature = 1,
 }
 
-local function makeGroveStump(speciesId)
-	local palette = SpeciesVisuals.GetPalette(speciesId)
-	local isBamboo = speciesId == "Bamboo"
-	local thick = speciesId == "Ironwood"
-	local diameter = if isBamboo then 0.75 else if thick then 3.6 else 3
-	local height = if isBamboo then 1.3 else if thick then 2.8 else 2.4
-	local model, trunk = makeTreeFrame(
-		"GroveStump", Vector3.new(diameter, height, diameter),
-		Vector3.new(0, height * 0.5, 0), palette
-	)
-	local top = makeBrickPart("CutSurface",
-		Vector3.new(diameter * 0.88, 0.14, diameter * 0.88),
-		Vector3.new(0, height + 0.045, 0), palette.CutEnd, model, trunk, false)
-	top.CanCollide = false
-	if isBamboo then
-		-- Multiple little cut culms keep Bamboo distinct even as a stump.
-		for index, offset in ipairs({
-			Vector3.new(-1, 0, -0.5),
-			Vector3.new(0.95, 0, 0.65),
-		}) do
-			local h = if index == 1 then 1.05 else 1.55
-			makeBrickPart("CutStalk" .. index,
-				Vector3.new(0.55, h, 0.55), offset + Vector3.new(0, h * 0.5, 0),
-				palette.Bark, model, trunk, false)
-			makeBrickPart("CutStalkTop" .. index,
-				Vector3.new(0.50, 0.13, 0.50), offset + Vector3.new(0, h + 0.05, 0),
-				palette.CutEnd, model, trunk, false)
+-- Oak trees in the Grove and Forest 1 use the same generator and adaptation
+-- contract, so a fully grown Grove Oak actually looks like the forest Oak.
+-- The generated variant is deterministic per planting location and stable
+-- across regrowth; only the overall size roll changes with each cycle.
+local function makeGroveMatureOak(seed, sizeScale)
+	local model
+	local visualScale
+	if WorldLayoutConfiguration.PROCEDURAL_STARTER_OAKS_ENABLED == true and StarterOakGenerator then
+		local ok, generated, _sections, generatedScale = pcall(makeProceduralStarterOak, seed, 3, sizeScale)
+		if ok and generated and generated:IsA("Model")
+			and isFiniteNumber(generatedScale) and generatedScale > 0 then
+			model = generated
+			visualScale = generatedScale
+		elseif generated and typeof(generated) == "Instance" then
+			generated:Destroy()
 		end
 	end
-	addChopHitbox(model, trunk, Vector3.new(6, 4.6, 6), Vector3.new(0, 2.3, 0))
-	return model
-end
-
--- Small tree frame without the full-grown bark studs. A sprout should
--- look like a sprout, not a miniature copy of a mature tree's decorative bark.
-local function makeGroveJuvenileFrame(name, size, center, palette)
-	local model = Instance.new("Model")
-	model.Name = name
-	local trunk = makeBrickPart("Bark", size, center, palette.Bark, model)
-	trunk.PivotOffset = CFrame.new(0, -size.Y * 0.5, 0)
-	model.PrimaryPart = trunk
-	local leaves = Instance.new("Folder")
-	leaves.Name = "Leaves"
-	leaves.Parent = model
-	return model, trunk, leaves
-end
-
--- Prototyped distinct stage geometry for the three currently-supported Grove
--- species. WORLD 1 Oak uses cubic/cuboid leaves exclusively.
-local function makeGroveSapling(speciesId)
-	local palette = SpeciesVisuals.GetPalette(speciesId)
-	if speciesId == "Bamboo" then
-		local model, root, leaves = makeGroveJuvenileFrame("BambooSprout",
-			Vector3.new(0.45, 2.7, 0.45), Vector3.new(0, 1.35, 0), palette)
-		addLeafBricks(leaves, root, {
-			{ Size = Vector3.new(2.3, 0.2, 0.55), Position = Vector3.new(-0.8, 2.85, 0), Color = palette.Leaf },
-			{ Size = Vector3.new(1.9, 0.2, 0.55), Position = Vector3.new(0.75, 3.05, 0.15), Color = palette.LeafHighlight },
-		}, false)
-		addChopHitbox(model, root, Vector3.new(3.5, 3.5, 3.5), Vector3.new(0, 1.75, 0))
-		return model
+	if not model then
+		-- Same established Oak fallback as the wild StarterForestTree.
+		model = makeStarterForestHarvestOak(3)
 	end
-
-	local ironwood = speciesId == "Ironwood"
-	local height = if ironwood then 5.4 else 3.8
-	local width = if ironwood then 0.95 else 0.65
-	local model, root, leaves = makeGroveJuvenileFrame("GroveSapling",
-		Vector3.new(width, height, width), Vector3.new(0, height * 0.5, 0), palette)
-	local topY = height + 0.5
-	addLeafBricks(leaves, root, {
-		{ Size = if ironwood then Vector3.new(3.2, 2.3, 3.1) else Vector3.new(2.6, 1.9, 2.4),
-			Position = Vector3.new(0, topY, 0), Color = palette.Leaf },
-		{ Size = Vector3.new(1.8, 1.5, 1.8),
-			Position = Vector3.new(-1.0, topY - 0.35, -0.6), Color = palette.LeafHighlight },
-		{ Size = Vector3.new(1.5, 1.3, 1.6),
-			Position = Vector3.new(0.95, topY + 0.45, 0.4), Color = palette.LeafShadow },
-	}, false)
-	addChopHitbox(model, root, Vector3.new(4, height + 2.6, 4),
-		Vector3.new(0, (height + 2.6) * 0.5, 0))
-	return model
-end
-
-local function makeGroveYoungTree(speciesId)
-	local palette = SpeciesVisuals.GetPalette(speciesId)
-	if speciesId == "Bamboo" then
-		local model, root, leaves = makeGroveJuvenileFrame("YoungBamboo",
-			Vector3.new(0.65, 6.5, 0.65), Vector3.new(0, 3.25, 0), palette)
-		for index, stalk in ipairs({
-			{ X = -1.2, Z = -0.65, Height = 5.3 },
-			{ X = 1.05, Z = 0.5, Height = 5.8 },
-		}) do
-			local stem = makeBrickPart("YoungBambooStalk" .. index,
-				Vector3.new(0.48, stalk.Height, 0.48),
-				Vector3.new(stalk.X, stalk.Height * 0.5, stalk.Z), palette.BarkHighlight, model, root, false)
-			stem.CanTouch = false
-		end
-		addLeafBricks(leaves, root, {
-			{ Size = Vector3.new(3.0, 0.26, 0.65), Position = Vector3.new(-1.0, 6.65, 0), Color = palette.Leaf },
-			{ Size = Vector3.new(2.8, 0.26, 0.65), Position = Vector3.new(1.0, 6.85, 0), Color = palette.LeafHighlight },
-			{ Size = Vector3.new(2.6, 0.26, 0.65), Position = Vector3.new(-1.8, 5.45, -0.65), Color = palette.LeafShadow },
-			{ Size = Vector3.new(2.5, 0.26, 0.65), Position = Vector3.new(1.8, 5.8, 0.5), Color = palette.Leaf },
-			{ Size = Vector3.new(0.7, 0.22, 2.3), Position = Vector3.new(0, 6.95, 1.0), Color = palette.LeafHighlight },
-		}, false)
-		addChopHitbox(model, root, Vector3.new(6, 8, 6), Vector3.new(0, 4, 0))
-		return model
-	end
-
-	local ironwood = speciesId == "Ironwood"
-	local height = if ironwood then 17 else 11.5
-	local width = if ironwood then 2.4 else 1.9
-	local model, root, leaves = makeGroveJuvenileFrame("YoungGroveTree",
-		Vector3.new(width, height, width), Vector3.new(0, height * 0.5, 0), palette)
-	local branchY = height * 0.81
-	makeBrickPart("ShortBranchLeft",
-		Vector3.new(if ironwood then 6 else 4, 1.1, 1.2),
-		Vector3.new(-2.1, branchY, 0), palette.BarkHighlight, model, root, false)
-	makeBrickPart("ShortBranchRight",
-		Vector3.new(if ironwood then 6 else 4, 1.1, 1.2),
-		Vector3.new(2.1, branchY + 1.0, 0.3), palette.Bark, model, root, false)
-	local canopyY = height + 1.0
-	local crownW = if ironwood then 7 else 6.2
-	addLeafBricks(leaves, root, {
-		{ Size = Vector3.new(crownW, 4.6, crownW * 0.8),
-			Position = Vector3.new(0, canopyY, 0), Color = palette.Leaf },
-		{ Size = Vector3.new(4.0, 3.5, 4.2),
-			Position = Vector3.new(-3.0, canopyY - 1.2, -0.5), Color = palette.LeafShadow },
-		{ Size = Vector3.new(4.2, 3.7, 4.0),
-			Position = Vector3.new(3.1, canopyY + 0.15, 0.7), Color = palette.LeafHighlight },
-		{ Size = Vector3.new(4.1, 3.0, 4.2),
-			Position = Vector3.new(0.35, canopyY + 3.2, -0.4), Color = palette.LeafHighlight },
-	}, false)
-	addChopHitbox(model, root, Vector3.new(9, height + 7, 9),
-		Vector3.new(0, (height + 7) * 0.5, 0))
-	return model
-end
-
-local function makeGroveStageModel(speciesId, stage)
-	if stage == "stump" then return makeGroveStump(speciesId) end
-	if stage == "sapling" then return makeGroveSapling(speciesId) end
-	if stage == "young" then return makeGroveYoungTree(speciesId) end
-	return nil -- Mature uses the original species tree model.
+	return model, visualScale
 end
 
 Tree.ActiveTrees = {}
