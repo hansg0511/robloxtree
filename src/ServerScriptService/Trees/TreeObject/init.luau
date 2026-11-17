@@ -16,6 +16,8 @@ local WorldProgressService = require(game.ServerScriptService.WorldProgressServi
 local LogService = require(game.ServerScriptService.Inventory.LogService)
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
 local SaplingDiscoveryService = require(game.ServerScriptService.Grove.SaplingDiscoveryService)
+local GroveHarvestVisualService = require(game.ServerScriptService.Grove.GroveHarvestVisualService)
+local GroveHarvestPresentation = require(game.ReplicatedStorage.Shared.GroveHarvestPresentation)
 local StarterOakGenerator
 local generatorFolder = game.ServerScriptService:FindFirstChild("Trees")
 local generatorModule = generatorFolder and generatorFolder:FindFirstChild("StarterOakGenerator")
@@ -1314,6 +1316,7 @@ function Tree:Spawn()
 	end
 	self.InteractionPart = interactionPart
 	self:BuildLeafPool()
+	if self.IsPersistentGrove then self:RefreshGroveHarvestPrompt() end
 	return model
 end
 
@@ -1339,6 +1342,7 @@ function Tree:SetGroveStage(stage)
 		model:SetAttribute("GroveSizeScale", modelScale)
 		applyVisualModifiers(self, model, modelScale)
 	end
+	self:RefreshGroveHarvestPrompt()
 	return true
 end
 
@@ -1356,18 +1360,64 @@ function Tree:BuildLeafPool()
 	self.leavesRemaining = self.totalLeaves
 end
 
+-- Wild trees remain attack targets. A planted Grove tree is intentionally
+-- never eligible for the generic ChopEvent / TakeDamage path.
 function Tree:CanChop(player)
 	if self.destroyed or self.isDead or not self.model or not self.model.Parent then return false end
 	if typeof(player) ~= "Instance" or not player:IsA("Player") then return false end
-	if self.IsPersistentGrove then
-		if self.GroveStage ~= "mature" then return false end
-		if self.OwnerUserId ~= player.UserId or type(self.CanChopCallback) ~= "function" then return false end
-		local ok, canChop = pcall(self.CanChopCallback, player, self)
-		return ok and canChop == true
-	end
+	if self.IsPersistentGrove then return false end
 	if not self.Choppable then return false end
 	if self.OwnerOnly and self.OwnerUserId ~= player.UserId then return false end
 	return true
+end
+
+function Tree:CanHarvestFromPrompt(player)
+	if not self.IsPersistentGrove or self.GroveStage ~= "mature"
+		or self.destroyed or self.isDead or self.HarvestInProgress
+		or not self.model or not self.model.Parent
+		or self.OwnerUserId ~= player.UserId
+		or type(self.CanChopCallback) ~= "function" then return false end
+	local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+	local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	if not root or not humanoid or humanoid.Health <= 0 then return false end
+	-- Validate distance to the planted trunk's base, not its oversized hitbox,
+	-- to reject spoofed ProximityPrompt activations from across the plot.
+	if (root.Position - self.CFrame.Position).Magnitude > GroveHarvestPresentation.InteractionDistance then
+		return false
+	end
+	local ok, canHarvest = pcall(self.CanChopCallback, player, self)
+	return ok and canHarvest == true
+end
+
+function Tree:TryHarvestFromPrompt(player)
+	if not self:CanHarvestFromPrompt(player) then return false end
+	return self:Die(player) == true
+end
+
+function Tree:RefreshGroveHarvestPrompt()
+	if not self.IsPersistentGrove or not self.InteractionPart
+		or not self.InteractionPart.Parent then return end
+	local old = self.InteractionPart:FindFirstChild("GroveHarvestPrompt")
+	if self.GroveStage ~= "mature" or self.isDead or self.HarvestInProgress then
+		if old then old:Destroy() end
+		return
+	end
+	if old then return end
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "GroveHarvestPrompt"
+	prompt.ActionText = "Harvest"
+	prompt.ObjectText = self.SpeciesId .. " Grove Tree"
+	prompt.KeyboardKeyCode = Enum.KeyCode.E
+	prompt.MaxActivationDistance = GroveHarvestPresentation.PromptDistance
+	prompt.HoldDuration = 0.12
+	prompt.RequiresLineOfSight = false
+	prompt.Exclusivity = Enum.ProximityPromptExclusivity.OnePerButton
+	prompt.Triggered:Connect(function(player)
+		if self:TryHarvestFromPrompt(player) then
+			prompt.Enabled = false
+		end
+	end)
+	prompt.Parent = self.InteractionPart
 end
 
 function Tree:GetInteractionDistance(worldPosition)
@@ -1947,17 +1997,20 @@ end
 function Tree:Die(player)
 	if self.isDead or self.destroyed then return end
 	if self.IsPersistentGrove then
-		if self.HarvestInProgress then return false end
+		-- Only the server-owned E prompt can invoke this path. Axe strikes
+		-- never target Grove trees and do not award profile materials.
+		if not self:CanHarvestFromPrompt(player) then return false end
 		self.HarvestInProgress = true
 		local fallenModel = self.model
 		local fallRotation = FXService.GetTreeFallRotation(fallenModel, player)
-		local harvested = false
+		local harvested, reward = false, nil
 		if type(self.OnPersistentHarvest) == "function" then
-			local ok, result = pcall(self.OnPersistentHarvest, player, self)
+			local ok, result, details = pcall(self.OnPersistentHarvest, player, self)
 			harvested = ok and result == true
+			if harvested then reward = details end
 		end
 		if not harvested then
-			self.HP = 1
+			self.HP = self.MaxHP
 			self.HarvestInProgress = false
 			return false
 		end
@@ -1965,8 +2018,29 @@ function Tree:Die(player)
 		self.Choppable = false
 		self.DamageContributions = {}
 		Tree.ActiveTrees[self] = nil
+		self:RefreshGroveHarvestPrompt()
 		task.spawn(function()
-			FXService:TreeFall(fallenModel, player, fallRotation, nil)
+			-- The camera gets a brief wind-up before the existing tree-fall
+			-- animation begins. The log appears at the fall's reveal beat,
+			-- never as an additional real ground pickup.
+			task.wait(GroveHarvestPresentation.WindupSeconds)
+			if fallenModel and fallenModel.Parent then
+				GroveHarvestVisualService.PlaySlash(fallenModel)
+			end
+			local revealed = false
+			local function revealOnce()
+				if revealed then return end
+				revealed = true
+				if type(reward) == "table" then
+					task.spawn(GroveHarvestVisualService.Reveal, player, reward)
+				end
+			end
+			-- FXService may abort a fall when a model vanishes. Still show the
+			-- granted reward to the owner exactly once in that failure case.
+			task.delay(GroveHarvestPresentation.LogRevealFallbackSeconds, revealOnce)
+			local ok, err = pcall(FXService.TreeFall, FXService, fallenModel, player, fallRotation, revealOnce)
+			if not ok then warn("[Grove] Harvest fall visual failed", err) end
+			revealOnce()
 			self.destroyed = true
 			self.model = nil
 			self.InteractionPart = nil
