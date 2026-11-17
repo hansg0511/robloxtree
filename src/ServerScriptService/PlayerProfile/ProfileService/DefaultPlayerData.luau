@@ -37,6 +37,8 @@ export type GroveTree = {
 	SpeciesId: string,
 	Mutations: GroveMutations,
 	SizePotential: number,
+	CurrentSizeScale: number?,
+	HarvestCount: number?,
 	LocalX: number,
 	LocalZ: number,
 	Yaw: number,
