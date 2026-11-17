@@ -13,10 +13,11 @@ GrowthVisuals.STEPS = 40
 GrowthVisuals.LEAF_EXPAND_DURATION = 0.17
 GrowthVisuals.LEAF_MIN_SIZE = 0.05
 
-local BAMBOO_LAYERS = 6
+-- The native final bamboo canes replace five growing visual copies together.
 local BAMBOO_FIRST_LAYER_AT = 0.12
-local BAMBOO_LAST_LAYER_AT = 0.56
 local BAMBOO_FULL_STALKS_AT = 0.62
+local WOOD_EXPAND_DURATION = 0.11
+local BRANCH_EXPAND_DURATION = 0.09
 
 local function stableHash(part)
 	local name = part.Name
@@ -81,13 +82,16 @@ local function timeForPart(part, model, height, speciesId)
 	if speciesId == "Bamboo" then
 		local name = part.Name
 		if name == "BambooCore" or string.match(name, "^BambooStalk%d+$") then
-			-- Full-length native stalks replace their short segment proxies
-			-- together only AFTER those proxies have fully grown.
+			-- Five native canes become visible together after their own
+			-- bottom-anchored visual copies finish extending upward.
 			return BAMBOO_FULL_STALKS_AT
 		elseif string.match(name, "^BambooNode%d+_%d+$") then
-			-- All canes receive their matching nodes as the growing layer
-			-- reaches the same fractional height.
-			return math.clamp(0.15 + yFraction * 0.44, 0.15, 0.59)
+			-- Tie each decorative node to the height that the synchronized
+			-- growing cane has already reached. No floating rings.
+			local layerIndex = tonumber(string.match(name, "_(%d+)$")) or 1
+			return BAMBOO_FIRST_LAYER_AT
+				+ (BAMBOO_FULL_STALKS_AT - BAMBOO_FIRST_LAYER_AT)
+				* (layerIndex * 0.25)
 		end
 	end
 
@@ -206,44 +210,82 @@ local function addStump(model, speciesId, bambooCanes)
 	return { body, cut }
 end
 
-local function makeBambooGrowthSegments(model, canes)
-	local root = model.PrimaryPart
-	if not root then return {} end
-	local segments = {}
-	for _, cane in ipairs(canes) do
-		-- Every cane gets the SAME step schedule. The stems grow UPWARD
-		-- together, not one full-length bamboo popping in after another.
-		for layer = 1, BAMBOO_LAYERS do
-			local segment = Instance.new("Part")
-			segment.Name = "GroveBambooGrowthSegment"
-			segment:SetAttribute("GroveGrowthCane", cane.Name)
-			segment:SetAttribute("GroveGrowthLayer", layer)
-			segment.Size = Vector3.new(
-				cane.Size.X, cane.Size.Y / BAMBOO_LAYERS + 0.005, cane.Size.Z)
-			local offset = -cane.Size.Y * 0.5
-				+ (layer - 0.5) * cane.Size.Y / BAMBOO_LAYERS
-			segment.CFrame = cane.CFrame * CFrame.new(0, offset, 0)
-			segment.Color = cane.Color
-			segment.Material = cane.Material
-			segment.TopSurface = cane.TopSurface
-			segment.BottomSurface = cane.BottomSurface
-			segment.LeftSurface = cane.LeftSurface
-			segment.RightSurface = cane.RightSurface
-			segment.FrontSurface = cane.FrontSurface
-			segment.BackSurface = cane.BackSurface
-			attachVisualPart(segment, model)
-			table.insert(segments, {
-				Part = segment,
-				At = BAMBOO_FIRST_LAYER_AT
-					+ (layer - 1) / (BAMBOO_LAYERS - 1)
-					* (BAMBOO_LAST_LAYER_AT - BAMBOO_FIRST_LAYER_AT),
-				HideAt = BAMBOO_FULL_STALKS_AT,
-				Transparency = 0,
-				CanCollide = false,
-			})
-		end
+-- Only prominent, structural wood gets height/length animation.
+-- Small decorative bark blocks keep their existing reveal timing so a
+-- hundred tiny pieces don't each need a temporary visual part.
+local function growthAxis(part, speciesId)
+	if not part:IsA("Part") or part.Shape ~= Enum.PartType.Block then return nil end
+	local name = part.Name
+	if speciesId == "Bamboo" and (name == "BambooCore"
+		or string.match(name, "^BambooStalk%d+$")) then
+		return "Y"
 	end
-	return segments
+	if part:GetAttribute("HarvestableCore") == true then return "Y" end
+	if speciesId == "Ironwood" then
+		if name == "Bark" or string.match(name, "^BarkBrick%d+$") then return "Y" end
+		if name == "BoughLeft" or name == "BoughRight" then return "X" end
+	end
+	if name == "Bark" or string.match(name, "^BarkBrick%d+$") then return "Y" end
+	if inNamedFolder(part, part:FindFirstAncestorOfClass("Model") or part.Parent,
+		{ DecorativeBranches = true })
+		or string.match(name, "^Branch%d+$") then
+		return "Y" -- procedural Oak branches use their LOCAL Y axis
+	end
+	return nil
+end
+
+local function newGrowthProxy(part)
+	-- Don't Clone() the original: it may contain WeldConstraints that would
+	-- move the actual tree assembly. Render one simple collisionless copy
+	-- per major wood piece; no per-stud segmentation.
+	local proxy = Instance.new("Part")
+	proxy.Name = "GroveGrowthProxy"
+	proxy.Shape = part.Shape
+	proxy.Color = part.Color
+	proxy.Material = part.Material
+	proxy.Reflectance = part.Reflectance
+	proxy.Transparency = 1
+	proxy.Size = part.Size
+	proxy.CFrame = part.CFrame
+	proxy.CastShadow = part.CastShadow
+	proxy.TopSurface = part.TopSurface
+	proxy.BottomSurface = part.BottomSurface
+	proxy.LeftSurface = part.LeftSurface
+	proxy.RightSurface = part.RightSurface
+	proxy.FrontSurface = part.FrontSurface
+	proxy.BackSurface = part.BackSurface
+	proxy.Anchored = true
+	proxy.CanCollide = false
+	proxy.CanTouch = false
+	proxy.CanQuery = false
+	proxy:SetAttribute("GroveGrowthSource", part.Name)
+	proxy.Parent = part:FindFirstAncestorOfClass("Model")
+	return proxy
+end
+
+local function resizeWoodFromBase(record, alpha)
+	local proxy = record.Proxy
+	if not proxy or not proxy.Parent then return end
+	local source = record.Part
+	if not source or not source.Parent then return end
+	local axis = record.Axis
+	local originalSize = record.FullSize
+	local factor = math.clamp(alpha, 0.025, 1)
+	local newSize
+	local offset
+	if axis == "X" then
+		newSize = Vector3.new(originalSize.X * factor, originalSize.Y, originalSize.Z)
+		-- Left bough grows toward -X; right bough grows toward +X.
+		local direction = if source.Name == "BoughLeft" then -1 else 1
+		offset = Vector3.new(-direction * originalSize.X * (1 - factor) * 0.5, 0, 0)
+	else
+		newSize = Vector3.new(originalSize.X, originalSize.Y * factor, originalSize.Z)
+		offset = Vector3.new(0, -originalSize.Y * (1 - factor) * 0.5, 0)
+	end
+	proxy.Size = newSize
+	-- Position follows the ORIGINAL source CFrame, preserving its local
+	-- orientation. A growing rotated branch still extends from its base.
+	proxy.CFrame = source.CFrame * CFrame.new(offset)
 end
 
 function GrowthVisuals.Prepare(model, speciesId)
