@@ -687,7 +687,11 @@ local function updateRuntimeStages()
 				HarvestCount = treeObject.GroveHarvestCount,
 			}
 			local stage = deriveStage(record, now)
-			if stage ~= treeObject.GroveStage and treeObject:SetGroveStage(stage) then
+			local stageChanged = stage ~= treeObject.GroveStage
+			local progress = GroveGrowthRules.Progress(record, now)
+			-- Reveal the finished model's parts every tick, not just when the
+			-- legacy sapling/young/mature status label changes.
+			if treeObject:SetGroveStage(stage, progress) and stageChanged then
 				local player = Players:GetPlayerByUserId(treeObject.OwnerUserId)
 				if player then ownersChanged[player] = true end
 			end
