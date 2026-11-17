@@ -23,6 +23,7 @@ AxeShopCatalog.StandardAxeRecipes = {
 	{
 		Id = "copper_axe",
 		Name = "Copper Axe",
+		WeaponKind = "Axe",
 		HeadId = "copper_head",
 		OutputItemID = 102,
 		Tier = 1,
@@ -33,6 +34,7 @@ AxeShopCatalog.StandardAxeRecipes = {
 	{
 		Id = "iron_axe",
 		Name = "Iron Axe",
+		WeaponKind = "Axe",
 		HeadId = "iron_head",
 		OutputItemID = 103,
 		Tier = 2,
