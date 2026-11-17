@@ -8,7 +8,7 @@ Branch: `feature/log-storage-processor-prototype`, based on `design/fixed-weapon
 - Original species, mutation flags, UID and **source tree SizeScale** survive pickup, storage and forge. Legacy records without SizeScale normalize to **1.0x**. Older bag-locked logs migrate to Saved Storage when room exists.
 - **Auto-keep** defaults: mutations ON, oversized ON, threshold **1.5x** source-tree size. Change from the **STORAGE N** overlay; the chosen preferences apply to **future pickups**, not retroactively. Save/To Bag moves individual UIDs. Old bag LOCK also protects/moves a log when there is room.
 - Chopped ordinary logs remain visually stacked on the back. Auto-kept pickups go directly into Saved Storage (without consuming bag kg); a small local fly-and-fade effect marks collection.
-- **E at WOOD PROCESSOR** immediately sells eligible ordinary *carried* logs; server credits Coins and broadcasts an owner-only unload visual aimed at `ProcessorIntake`. No timber items.
+- **E at WOOD PROCESSOR** immediately sells eligible ordinary *carried* logs; server credits Coins and broadcasts a bounded unload visual to nearby players aimed at `ProcessorIntake`. No timber items.
 - Forge lists unique eligible logs from **both** inventories, labeled BAG/SAVED plus size. Server consumes exact UIDs and restores each record to its source on failed output insertion.
 - Sell value is a **prototype** `floor(BaseSellValue * SizeScale^2 + 0.5)`. This is a visual/progression demo, not a finalized economy.
 - No new weapons, special-quality RNG, Grove regrowth, sapling shop, or finished weapon size scaling were added.
