@@ -369,6 +369,9 @@ craftRecipe.OnServerEvent:Connect(function(player, recipeId, selectedLogUids, ..
 			SpeciesId = logRecord.SpeciesId,
 			SizeScale = logRecord.SizeScale,
 			Source = sourceByUid and sourceByUid[logRecord.UID] or "Bag",
+			SourceType = logRecord.SourceType,
+			SourceGroveTreeUID = logRecord.SourceGroveTreeUID,
+			SourceSaplingUID = logRecord.SourceSaplingUID,
 			Mutations = cloneMutations(logRecord.Mutations),
 		})
 	end
