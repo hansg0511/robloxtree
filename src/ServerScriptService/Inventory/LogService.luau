@@ -521,39 +521,47 @@ local function refreshPiledLogPickupEligibility(player, data)
 	end
 end
 
+local function snapshotLog(record)
+	if not isValidUid(record.UID) then return nil end
+	local value = getLogValue(record) or 0
+	return {
+		UID = record.UID,
+		ItemType = "Log",
+		SpeciesId = record.SpeciesId,
+		Mutations = copyMutations(record.Mutations),
+		Locked = record.Locked == true,
+		CreatedAt = type(record.CreatedAt) == "number" and record.CreatedAt or 0,
+		SizeScale = LogStorageRules.SizeScale(record),
+		LogValue = value,
+		EstimatedSellValue = value,
+		CapacityKg = getRecordCapacityKg(record),
+	}
+end
+
 local function makeClientSnapshot(player)
 	local data = getPlayerData(player)
 	if not data then return nil end
-
-	local logs = {}
-	for _, logRecord in ipairs(data.Logs) do
-		if isValidUid(logRecord.UID) then
-			local value = getLogValue(logRecord) or 0
-			local materialCapacityKg = getRecordCapacityKg(logRecord)
-			table.insert(logs, {
-				UID = logRecord.UID,
-				ItemType = "Log",
-				SpeciesId = logRecord.SpeciesId,
-				Mutations = copyMutations(logRecord.Mutations),
-				Locked = logRecord.Locked == true,
-				CreatedAt = type(logRecord.CreatedAt) == "number" and logRecord.CreatedAt or 0,
-				LogValue = value,
-				EstimatedSellValue = value,
-				-- Derived from server-owned species config for display only; never read
-				-- back as an authoritative per-record weight.
-				CapacityKg = materialCapacityKg,
-			})
-		end
+	local logs, stored = {}, {}
+	for _, record in ipairs(data.Logs) do
+		local item = snapshotLog(record)
+		if item then table.insert(logs, item) end
 	end
-
-	local capacityMetrics = calculateCapacityMetrics(data)
+	for _, record in ipairs(data.StoredLogs) do
+		local item = snapshotLog(record)
+		if item then table.insert(stored, item) end
+	end
+	local metrics = calculateCapacityMetrics(data)
 	return {
 		Logs = logs,
-		ItemCount = capacityMetrics.ItemCount,
-		UsedKg = capacityMetrics.UsedKg,
-		CarryCapacityKg = capacityMetrics.CarryCapacityKg,
-		RemainingKg = capacityMetrics.RemainingKg,
-		HasUnknownMaterial = capacityMetrics.HasUnknownMaterial,
+		StoredLogs = stored,
+		StorageCount = #stored,
+		StorageCapacity = MAX_STORED_LOGS,
+		AutoKeep = table.clone(data.AutoKeep),
+		ItemCount = metrics.ItemCount,
+		UsedKg = metrics.UsedKg,
+		CarryCapacityKg = metrics.CarryCapacityKg,
+		RemainingKg = metrics.RemainingKg,
+		HasUnknownMaterial = metrics.HasUnknownMaterial,
 		Coins = data.Coins,
 	}
 end
@@ -569,6 +577,8 @@ function LogService.GetCapacitySnapshot(player)
 		RemainingKg = metrics.RemainingKg,
 		HasUnknownMaterial = metrics.HasUnknownMaterial,
 		Coins = data.Coins,
+		StorageCount = #data.StoredLogs,
+		StorageCapacity = MAX_STORED_LOGS,
 	}
 end
 
