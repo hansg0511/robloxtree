@@ -343,8 +343,10 @@ local function normalizeLogRecord(logRecord, seenUids)
 
 	local speciesId = logRecord.SpeciesId
 	local uid = logRecord.UID
-	if seenUids[uid] then return nil end
-	if not isValidUid(uid) then
+	if not isValidUid(uid) or seenUids[uid] then
+		-- Preserve the legacy record-repair behavior instead of silently
+		-- discarding an owned item due to an invalid or duplicated UID.
+		warn("[LogService] Repairing an invalid/duplicate log UID in profile")
 		uid = HttpService:GenerateGUID(false)
 	end
 	seenUids[uid] = true
