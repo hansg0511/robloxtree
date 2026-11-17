@@ -637,7 +637,7 @@ forgeEmptyState.TextXAlignment = Enum.TextXAlignment.Center
 forgeEmptyState.ZIndex = 3
 forgeEmptyState.Visible = true
 
-local sellOverlay, sellPanel = makeModal(screen, "SellLogs", "SELL LOGS", "Cash out your ready logs for Coins.")
+local sellOverlay, sellPanel = makeModal(screen, "SellLogs", "SELL LOGS", "Drop your carried logs into the processor to earn Coins.")
 styleStationModal(sellPanel, "LUMBER DEPOT", "TURN READY LOGS INTO COINS")
 local sellCard = Instance.new("Frame")
 sellCard.Name = "SaleSummary"
@@ -664,7 +664,7 @@ local sellValue = label(sellCard, "TotalValue", "0 COINS", UDim2.new(1, -32, 0, 
 sellValue.TextXAlignment = Enum.TextXAlignment.Center
 sellValue.TextStrokeColor3 = COLORS.BagLine
 sellValue.TextStrokeTransparency = 0
-local sellHint = label(sellCard, "LockHint", "LOCKED LOGS STAY SAFE IN YOUR BAG.", UDim2.new(1, -32, 0, 26), UDim2.new(0, 16, 0, 154), 15, COLORS.BagMuted, Enum.Font.GothamBold)
+local sellHint = label(sellCard, "LockHint", "SAVED LOGS ARE KEPT OUT OF THE PROCESSOR.", UDim2.new(1, -32, 0, 26), UDim2.new(0, 16, 0, 154), 15, COLORS.BagMuted, Enum.Font.GothamBold)
 sellHint.TextXAlignment = Enum.TextXAlignment.Center
 local sellButton = button(sellCard, "SellUnlockedButton", "SELL ALL", UDim2.new(1, -36, 0, 70), UDim2.new(0, 18, 1, -86), COLORS.BagAction)
 sellButton.TextSize = 26
@@ -1777,8 +1777,22 @@ local function openForge()
 end
 
 local function openLumberDepot()
-	showPanel(sellOverlay)
-	refreshSellSummary()
+	-- Physical processor interaction: a single E press sells only the carry
+	-- bag's unprotected logs. The server decides eligibility and pays Coins;
+	-- an independent cosmetic event flies logs into the machine.
+	if sellPending then return end
+	sellPending = true
+	task.spawn(function()
+		local ok, summary = pcall(function() return getSellSummary:InvokeServer() end)
+		if ok and type(summary) == "table" and (summary.EligibleCount or 0) > 0 then
+			saleCoinsBefore = summary.Coins
+			sellUnlockedLogs:FireServer()
+			showFeedback("PROCESSING YOUR LOGS...", COLORS.Gold)
+		else
+			showFeedback("NO CARRIED LOGS TO PROCESS", COLORS.Orange)
+		end
+		task.delay(0.45, function() sellPending = false end)
+	end)
 end
 
 bagButton.Activated:Connect(openBag)
