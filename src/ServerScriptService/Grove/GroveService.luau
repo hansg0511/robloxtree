@@ -634,19 +634,22 @@ end
 
 local function updateRuntimeStages()
 	local now = os.time()
+	local ownersChanged = {}
 	for _, treeObject in pairs(RuntimeTreesByUID) do
 		if treeObject and not treeObject.destroyed then
 			local record = {
 				PlantedAt = treeObject.GrovePlantedAt,
 				MaturesAt = treeObject.GroveMaturesAt,
+				HarvestCount = treeObject.GroveHarvestCount,
 			}
-			record.HarvestCount = treeObject.GroveHarvestCount
 			local stage = deriveStage(record, now)
-			if stage ~= treeObject.GroveStage then
-				treeObject:SetGroveStage(stage)
+			if stage ~= treeObject.GroveStage and treeObject:SetGroveStage(stage) then
+				local player = Players:GetPlayerByUserId(treeObject.OwnerUserId)
+				if player then ownersChanged[player] = true end
 			end
 		end
 	end
+	for owner in pairs(ownersChanged) do publishState(owner) end
 end
 
 function GroveService.Start()
