@@ -276,6 +276,7 @@ local function spawnGroveTree(player, plotModel, area, record)
 			Mutations = MutationDefinitions.CopyKnown(record.Mutations),
 			SizePotential = record.SizePotential,
 			CurrentSizeScale = record.CurrentSizeScale,
+			HarvestCount = record.HarvestCount,
 			PlantedAt = record.PlantedAt,
 			MaturesAt = record.MaturesAt,
 			GroveStage = deriveStage(record, os.time()),
