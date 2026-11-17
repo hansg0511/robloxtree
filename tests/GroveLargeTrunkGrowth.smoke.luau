@@ -80,5 +80,49 @@ check("Temporary visual copies are destroyed after maturity",
 	first.Proxy.Parent == nil and second.Proxy.Parent == nil)
 
 fakeTree:Destroy()
-print("Huge two-part Grove trunk growth smoke checks passed")
+
+-- A single 30-stud ROTATED branch also extends along its LOCAL Y axis.
+-- Its base stays attached to its own original starting point, not to the
+-- model's world Y coordinate (important for angled branches in later worlds).
+local branchTree = Instance.new("Model")
+branchTree.Name = "OneHugeRotatedBranch"
+local pivot = Instance.new("Part")
+pivot.Name = "RootCarrier"
+pivot.Size = Vector3.new(0.2, 0.2, 0.2)
+pivot.CFrame = CFrame.new()
+pivot.Transparency = 1
+pivot.Anchored = true
+pivot:SetAttribute("AlwaysInvisible", true)
+pivot.Parent = branchTree
+branchTree.PrimaryPart = pivot
+local bigBranch = Instance.new("Part")
+bigBranch.Name = "Branch1"
+bigBranch.Size = Vector3.new(2, 30, 2)
+bigBranch.CFrame = CFrame.new(0, 13, 0) * CFrame.Angles(0, 0, math.rad(65))
+bigBranch.Anchored = true
+bigBranch.Parent = branchTree
+local branchState = Visuals.Prepare(branchTree, "Oak")
+local branchRecord
+for _, record in ipairs(branchState.Records) do
+	if record.Part == bigBranch then branchRecord = record end
+end
+check("Angled branch gets a single height-growth proxy",
+	branchRecord and branchRecord.Proxy and branchRecord.Axis == "Y")
+local mid = math.min(0.95, branchRecord.At + branchRecord.GrowDuration * 0.5)
+check("Angled branch can progress", Visuals.Apply(branchState, mid, true))
+local proxy = branchRecord.Proxy
+check("Angled branch is growing", proxy.Parent and proxy.Transparency < 0.99)
+local sourceFoot = bigBranch.CFrame * CFrame.new(0, -bigBranch.Size.Y * 0.5, 0)
+local proxyFoot = proxy.CFrame * CFrame.new(0, -proxy.Size.Y * 0.5, 0)
+check("Rotated branch begins at its own fixed foot",
+	(sourceFoot.Position - proxyFoot.Position).Magnitude < 0.015)
+check("Angled source remains full-size and unmoved",
+	bigBranch.Size.Y == 30 and (bigBranch.CFrame.Position
+		- Vector3.new(0, 13, 0)).Magnitude < 0.01)
+check("Angled branch fully matures", Visuals.Apply(branchState, 1, true))
+check("Angled temporary proxy is freed", proxy.Parent == nil)
+check("Angled native source is visible", bigBranch.Transparency < 0.99)
+branchTree:Destroy()
+
+print("Huge two-part trunk and rotated-branch Grove growth checks passed")
 return true
