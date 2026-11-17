@@ -1395,29 +1395,41 @@ function Tree:TryHarvestFromPrompt(player)
 end
 
 function Tree:RefreshGroveHarvestPrompt()
-	if not self.IsPersistentGrove or not self.InteractionPart
-		or not self.InteractionPart.Parent then return end
-	local old = self.InteractionPart:FindFirstChild("GroveHarvestPrompt")
+	if not self.IsPersistentGrove or not self.model
+		or not self.model.Parent or not self.InteractionPart then return end
+	local anchor = self.model:FindFirstChild("GroveHarvestPromptAnchor")
 	if self.GroveStage ~= "mature" or self.isDead or self.HarvestInProgress then
-		if old then old:Destroy() end
+		if anchor then anchor:Destroy() end
 		return
 	end
-	if old then return end
+	if anchor then return end
+	-- Attach E at the trunk BASE, not at the middle of a tall ChopHitbox.
+	-- Otherwise a large Ironwood can be impossible to harvest from ground.
+	anchor = Instance.new("Part")
+	anchor.Name = "GroveHarvestPromptAnchor"
+	anchor.Size = Vector3.one
+	anchor.CFrame = self.CFrame * CFrame.new(0, 2.5, 0)
+	anchor.Transparency = 1
+	anchor.Anchored = true
+	anchor.CanCollide = false
+	anchor.CanTouch = false
+	anchor.CanQuery = false
+	anchor.CastShadow = false
+	anchor:SetAttribute("AlwaysInvisible", true)
+	anchor.Parent = self.model
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = "GroveHarvestPrompt"
 	prompt.ActionText = "Harvest"
 	prompt.ObjectText = self.SpeciesId .. " Grove Tree"
 	prompt.KeyboardKeyCode = Enum.KeyCode.E
 	prompt.MaxActivationDistance = GroveHarvestPresentation.PromptDistance
-	prompt.HoldDuration = 0.12
+	prompt.HoldDuration = 0
 	prompt.RequiresLineOfSight = false
 	prompt.Exclusivity = Enum.ProximityPromptExclusivity.OnePerButton
 	prompt.Triggered:Connect(function(player)
-		if self:TryHarvestFromPrompt(player) then
-			prompt.Enabled = false
-		end
+		if self:TryHarvestFromPrompt(player) then prompt.Enabled = false end
 	end)
-	prompt.Parent = self.InteractionPart
+	prompt.Parent = anchor
 end
 
 function Tree:GetInteractionDistance(worldPosition)
