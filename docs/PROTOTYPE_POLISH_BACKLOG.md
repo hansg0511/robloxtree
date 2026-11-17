@@ -17,9 +17,9 @@ This is the canonical list for *polish*, separate from new mechanics. Update it 
 
 ## Grove — Growth appearance
 
-- [x] **Prototype stage silhouettes**: stump → distinct sapling → distinct young tree → mature for Oak, Bamboo and Ironwood; no generic miniature mature tree in early stages.
+- [x] **Prototype additive growth**: size-predictive stump → original forest tree's real trunk → branches → foliage, incrementally revealed, without full-model fade or miniature mature-tree model swaps. All three current Grove species use final forest models.
 - [ ] Final art for each species and stage, distinctive tree species silhouettes, rare genetics and mutations.
-- [ ] Growth transition motion, sound and particles; make stump-to-sapling feel alive without long waiting animations.
+- [ ] Polish the additive growth: more granular trunk-building pieces, satisfying branch/leaf pop, growth sound and particles without long waiting animations.
 - [ ] Timing indicators / clear maturation and ready-to-harvest indicators; tune 45-second prototype maturity.
 - [ ] Planting ghost/preview consistency with real species and stage models.
 - [ ] Visual performance and streaming with many Grove trees and observers.
