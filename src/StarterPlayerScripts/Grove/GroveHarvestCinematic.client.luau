@@ -204,6 +204,25 @@ local function beginCinematic(payload)
 		end)
 	end)
 
+	-- After the impact, reframe toward the actual log landing spot. This
+	-- makes the reward reveal readable instead of keeping the canopy centered.
+	task.delay(Config.WindupSeconds + 1.18, function()
+		if active ~= state or state.Closed or Workspace.CurrentCamera ~= camera then return end
+		local size = math.clamp(tonumber(payload.SizeScale) or 1, 0.2, 2)
+		local landing = payload.WorldCFrame:PointToWorldSpace(Vector3.new(
+			2.5 + size * 0.5, 0.75 + size * 0.18, 0))
+		local rewardFocus = landing + Vector3.new(0, 1.35, 0)
+		local newPosition = basePosition
+			+ toward * (10.5 + treeHeight * 0.37)
+			+ side * (5 + treeHeight * 0.13)
+			+ Vector3.new(0, 5.4 + treeHeight * 0.18, 0)
+		local panTween = TweenService:Create(camera, TweenInfo.new(
+			0.4, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut),
+			{ CFrame = CFrame.lookAt(newPosition, rewardFocus) })
+		state.Tween = panTween
+		panTween:Play()
+	end)
+
 	task.delay(Config.CameraHoldSeconds, function()
 		if active ~= state or state.Closed then return end
 		-- A small, soft return toward the player's position before handing
