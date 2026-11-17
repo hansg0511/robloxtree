@@ -9,6 +9,7 @@ local ProfileCache = require(game.ServerScriptService.PlayerProfile.ProfileServi
 local EconomyManager = require(game.ServerScriptService.Economy.EconomyManager)
 local AxeShopCatalog = require(game.ServerScriptService.Economy.AxeShopCatalog)
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
+local LogStorageRules = require(script.Parent.LogStorageRules)
 local SpeciesVisuals = require(game.ServerStorage:WaitForChild("SpeciesVisuals"))
 local BaseStationAccess = require(game.ServerScriptService.WorldLayout.BaseStationAccess)
 local LogCarryVisualService = require(game.ServerScriptService.Inventory.LogCarryVisualService)
@@ -23,6 +24,7 @@ local MAX_CAPACITY_KG = AxeShopCatalog.MAX_CAPACITY_KG
 -- This physical-record ceiling is independent of weight. 40 kg supports up to
 -- 80 Bamboo records at 0.5 kg each; spare room keeps the limit forward-safe.
 local MAX_OWNED_LOGS = 96
+local MAX_STORED_LOGS = LogStorageRules.MAX_STORED_LOGS
 local MAX_HARVEST_LOGS = 6
 local MAX_STANDARD_TREE_LOGS = 3
 -- Uncollected rewards are bounded by model count, not the player's kg bag.
@@ -85,6 +87,8 @@ local REMOTE_INTERVALS = {
 	Sell = 1,
 	Lock = 0.15,
 	Pickup = 0.08,
+	Transfer = 0.18,
+	AutoKeep = 0.3,
 }
 
 local economyRemotes = ReplicatedStorage:WaitForChild("Economy")
@@ -94,6 +98,9 @@ local SellUnlockedLogsRE = economyRemotes:WaitForChild("SellUnlockedLogsRE")
 local SetLogLockedRE = economyRemotes:WaitForChild("SetLogLockedRE")
 local PickupGroundLogRE = economyRemotes:WaitForChild("PickupGroundLogRE")
 local PickupLogFXRE = economyRemotes:WaitForChild("PickupLogFXRE")
+local TransferLogRE = economyRemotes:WaitForChild("TransferLogRE")
+local UpdateAutoKeepRE = economyRemotes:WaitForChild("UpdateAutoKeepRE")
+local LogProcessingFXRE = economyRemotes:WaitForChild("LogProcessingFXRE")
 local EconomyStateUpdated = economyRemotes:WaitForChild("EconomyStateUpdated")
 
 local profileLoaded = game.ServerScriptService.PlayerProfile.ProfileInit.ProfileLoadedEvent
@@ -336,7 +343,8 @@ local function normalizeLogRecord(logRecord, seenUids)
 
 	local speciesId = logRecord.SpeciesId
 	local uid = logRecord.UID
-	if not isValidUid(uid) or seenUids[uid] then
+	if seenUids[uid] then return nil end
+	if not isValidUid(uid) then
 		uid = HttpService:GenerateGUID(false)
 	end
 	seenUids[uid] = true
@@ -346,6 +354,7 @@ local function normalizeLogRecord(logRecord, seenUids)
 		createdAt = 0
 	end
 	local locked = logRecord.Locked == true
+	local sizeScale = LogStorageRules.SizeScale(logRecord)
 
 	-- Rewrite in place so legacy WeightKg/SizeScale and stale fields disappear
 	-- from the profile without replacing the owned record itself.
@@ -357,6 +366,7 @@ local function normalizeLogRecord(logRecord, seenUids)
 	logRecord.Mutations = mutations
 	logRecord.Locked = locked
 	logRecord.CreatedAt = createdAt
+	logRecord.SizeScale = sizeScale
 	return logRecord
 end
 
@@ -392,7 +402,8 @@ end
 -- exact-UID transaction checks it.
 local function getRawCraftData(player)
 	local profile = ProfileCache.GetProfile(player)
-	if not profile or type(profile.Data) ~= "table" or type(profile.Data.Logs) ~= "table" then
+	if not profile or type(profile.Data) ~= "table" or type(profile.Data.Logs) ~= "table"
+		or type(profile.Data.StoredLogs) ~= "table" then
 		return nil
 	end
 	return profile.Data
