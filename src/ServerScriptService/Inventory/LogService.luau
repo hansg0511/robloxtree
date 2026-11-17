@@ -3237,6 +3237,12 @@ SellUnlockedLogsRE.OnServerEvent:Connect(function(player, ...)
 	})
 end)
 
+-- The result is a server-owned UI notice, never a client-authored
+-- achievement or resource event.
+local function storageNotice(player, message)
+	LogProcessingFXRE:FireClient(player, { Mode = "StorageNotice", Message = message })
+end
+
 -- Explicit, per-UID manual transfer. No client-supplied item records or
 -- weights are trusted. Bag capacity is validated before removing from storage.
 TransferLogRE.OnServerEvent:Connect(function(player, uid, destination, ...)
@@ -3245,7 +3251,10 @@ TransferLogRE.OnServerEvent:Connect(function(player, uid, destination, ...)
 	local data = getPlayerData(player)
 	if not data then return end
 	if destination == "Storage" then
-		if #data.StoredLogs >= MAX_STORED_LOGS then return end
+		if #data.StoredLogs >= MAX_STORED_LOGS then
+			storageNotice(player, "SAVED STORAGE FULL — MOVE OR USE SOME LOGS FIRST.")
+			return
+		end
 		local record, index = findLog(data, uid)
 		if not record or (pendingCarryArrivalUids[player] and pendingCarryArrivalUids[player][uid])
 			or findStoredLog(data, uid) then return end
@@ -3253,13 +3262,19 @@ TransferLogRE.OnServerEvent:Connect(function(player, uid, destination, ...)
 		record.Locked = false
 		table.insert(data.StoredLogs, record)
 	else
-		if #data.Logs >= MAX_OWNED_LOGS then return end
+		if #data.Logs >= MAX_OWNED_LOGS then
+			storageNotice(player, "BAG ITEM LIMIT REACHED.")
+			return
+		end
 		local record, index = findStoredLog(data, uid)
 		if not record or findLog(data, uid) then return end
 		local cost = getRecordCapacityKg(record)
 		local metrics = calculateCapacityMetrics(data)
 		if not cost or metrics.HasUnknownMaterial
-			or cost > metrics.RemainingKg + CAPACITY_TOLERANCE_KG then return end
+			or cost > metrics.RemainingKg + CAPACITY_TOLERANCE_KG then
+			storageNotice(player, "NOT ENOUGH SPACE IN CARRY BAG.")
+			return
+		end
 		table.remove(data.StoredLogs, index)
 		record.Locked = false
 		table.insert(data.Logs, record)
