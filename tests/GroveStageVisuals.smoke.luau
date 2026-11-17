@@ -57,9 +57,21 @@ for _, kind in ipairs({ "GroveOak", "Bamboo", "Ironwood" }) do
 			check("Grove Oak uses Forest 1 procedural generator",
 				model:GetAttribute("ProceduralStarterOak") == true)
 		end
-		local parts = #model:GetDescendants()
-		totalParts = totalParts or parts
-		check(kind .. " model remains the same complexity across growth", parts == totalParts)
+		-- Cosmetic wood proxies disappear once their native source is
+		-- visible; compare the permanent source geometry instead of raw
+		-- temporary descendant counts.
+		local permanentParts = 0
+		for _, part in ipairs(model:GetDescendants()) do
+			if part:IsA("BasePart") and part.Name ~= "GroveGrowthProxy"
+				and part.Name ~= "GroveGrowthStump"
+				and part.Name ~= "GroveGrowthCutEnd"
+				and not string.match(part.Name, "^GroveBambooCulm%d+Stump$")
+				and not string.match(part.Name, "^GroveBambooCulm%d+CutEnd$") then
+				permanentParts += 1
+			end
+		end
+		totalParts = totalParts or permanentParts
+		check(kind .. " permanent source geometry never changes", permanentParts == totalParts)
 		table.insert(series, describe(model))
 		model:Destroy()
 	end
