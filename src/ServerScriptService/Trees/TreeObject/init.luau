@@ -1018,13 +1018,34 @@ local GROVE_STAGE_SCALE = {
 
 local function makeGroveStump(speciesId)
 	local palette = SpeciesVisuals.GetPalette(speciesId)
+	local isBamboo = speciesId == "Bamboo"
+	local thick = speciesId == "Ironwood"
+	local diameter = if isBamboo then 0.75 else if thick then 3.6 else 3
+	local height = if isBamboo then 1.3 else if thick then 2.8 else 2.4
 	local model, trunk = makeTreeFrame(
-		"GroveStump", Vector3.new(3, 2.4, 3), Vector3.new(0, 1.2, 0), palette
+		"GroveStump", Vector3.new(diameter, height, diameter),
+		Vector3.new(0, height * 0.5, 0), palette
 	)
-	local top = makeBrickPart("CutSurface", Vector3.new(2.65, 0.14, 2.65),
-		Vector3.new(0, 2.45, 0), palette.CutEnd, model, trunk, false)
+	local top = makeBrickPart("CutSurface",
+		Vector3.new(diameter * 0.88, 0.14, diameter * 0.88),
+		Vector3.new(0, height + 0.045, 0), palette.CutEnd, model, trunk, false)
 	top.CanCollide = false
-	addChopHitbox(model, trunk, Vector3.new(6, 4, 6), Vector3.new(0, 1.8, 0))
+	if isBamboo then
+		-- Multiple little cut culms keep Bamboo distinct even as a stump.
+		for index, offset in ipairs({
+			Vector3.new(-1, 0, -0.5),
+			Vector3.new(0.95, 0, 0.65),
+		}) do
+			local h = if index == 1 then 1.05 else 1.55
+			makeBrickPart("CutStalk" .. index,
+				Vector3.new(0.55, h, 0.55), offset + Vector3.new(0, h * 0.5, 0),
+				palette.Bark, model, trunk, false)
+			makeBrickPart("CutStalkTop" .. index,
+				Vector3.new(0.50, 0.13, 0.50), offset + Vector3.new(0, h + 0.05, 0),
+				palette.CutEnd, model, trunk, false)
+		end
+	end
+	addChopHitbox(model, trunk, Vector3.new(6, 4.6, 6), Vector3.new(0, 2.3, 0))
 	return model
 end
 
