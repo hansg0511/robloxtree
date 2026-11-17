@@ -357,6 +357,12 @@ local function normalizeLogRecord(logRecord, seenUids)
 	end
 	local locked = logRecord.Locked == true
 	local sizeScale = LogStorageRules.SizeScale(logRecord)
+	local groveSource = logRecord.SourceType == "Grove"
+		and isValidUid(logRecord.SourceGroveTreeUID)
+		and isValidUid(logRecord.SourceSaplingUID)
+		and logRecord.SourceGroveTreeUID ~= logRecord.SourceSaplingUID
+	local groveTreeUID = if groveSource then logRecord.SourceGroveTreeUID else nil
+	local saplingUID = if groveSource then logRecord.SourceSaplingUID else nil
 
 	-- Rewrite in place so legacy WeightKg/SizeScale and stale fields disappear
 	-- from the profile without replacing the owned record itself.
@@ -369,6 +375,11 @@ local function normalizeLogRecord(logRecord, seenUids)
 	logRecord.Locked = locked
 	logRecord.CreatedAt = createdAt
 	logRecord.SizeScale = sizeScale
+	if groveSource then
+		logRecord.SourceType = "Grove"
+		logRecord.SourceGroveTreeUID = groveTreeUID
+		logRecord.SourceSaplingUID = saplingUID
+	end
 	return logRecord
 end
 
@@ -538,6 +549,9 @@ local function snapshotLog(record)
 		Locked = record.Locked == true,
 		CreatedAt = type(record.CreatedAt) == "number" and record.CreatedAt or 0,
 		SizeScale = LogStorageRules.SizeScale(record),
+		SourceType = record.SourceType,
+		SourceGroveTreeUID = record.SourceGroveTreeUID,
+		SourceSaplingUID = record.SourceSaplingUID,
 		LogValue = value,
 		EstimatedSellValue = value,
 		CapacityKg = getRecordCapacityKg(record),
@@ -806,6 +820,49 @@ local function makeSellSummary(player)
 		RemainingKg = capacityMetrics.RemainingKg,
 		HasUnknownMaterial = capacityMetrics.HasUnknownMaterial,
 	}
+end
+
+-- Only the server-side Grove harvest callback calls this method. Return
+-- nil without modifying the Grove when protected storage is full. This makes
+-- the unique log reward an atomic prerequisite for regrowth.
+function LogService.GrantGroveHarvestLog(player, harvest)
+	if type(harvest) ~= "table"
+		or type(harvest.SpeciesId) ~= "string"
+		or not getMaterialDefinition(harvest.SpeciesId)
+		or not isValidUid(harvest.SourceGroveTreeUID)
+		or not isValidUid(harvest.SourceSaplingUID)
+		or harvest.SourceGroveTreeUID == harvest.SourceSaplingUID
+		or type(harvest.SizeScale) ~= "number"
+		or harvest.SizeScale ~= harvest.SizeScale
+		or harvest.SizeScale < LogStorageRules.MIN_SIZE_SCALE
+		or harvest.SizeScale > LogStorageRules.MAX_SIZE_SCALE then
+		return nil
+	end
+	local data = getPlayerData(player)
+	if not data or #data.StoredLogs >= MAX_STORED_LOGS then return nil end
+	local uid
+	for _ = 1, 8 do
+		local candidate = HttpService:GenerateGUID(false)
+		local found = false
+		for _, list in ipairs({ data.Logs, data.StoredLogs, data.Saplings, data.GroveTrees, data.GroveMaterials }) do
+			for _, record in ipairs(type(list) == "table" and list or {}) do
+				if record.UID == candidate then found = true break end
+			end
+			if found then break end
+		end
+		if not found then uid = candidate break end
+	end
+	if not uid then return nil end
+	table.insert(data.StoredLogs, {
+		UID = uid, ItemType = "Log", SpeciesId = harvest.SpeciesId,
+		Mutations = copyMutations(harvest.Mutations),
+		SizeScale = harvest.SizeScale,
+		SourceType = "Grove",
+		SourceGroveTreeUID = harvest.SourceGroveTreeUID,
+		SourceSaplingUID = harvest.SourceSaplingUID,
+		Locked = false, CreatedAt = os.time(),
+	})
+	return uid
 end
 
 function LogService.NotifyState(player)
