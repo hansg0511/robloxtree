@@ -371,16 +371,39 @@ local function normalizeLogRecord(logRecord, seenUids)
 end
 
 local function normalizeLogs(data)
-	local sourceLogs = type(data.Logs) == "table" and data.Logs or {}
-	local normalizedLogs = {}
+	local rawBag = type(data.Logs) == "table" and data.Logs or {}
+	local rawStored = type(data.StoredLogs) == "table" and data.StoredLogs or {}
+	LogStorageRules.NormalizeSettings(data)
+	local carry = {}
+	local stored = {}
 	local seenUids = {}
-	for _, logRecord in ipairs(sourceLogs) do
-		local normalizedRecord = normalizeLogRecord(logRecord, seenUids)
-		if normalizedRecord then
-			table.insert(normalizedLogs, normalizedRecord)
+	-- Protected ownership comes first. An old locked log in the bag moves to
+	-- storage if there is room, and remains locked in the bag otherwise.
+	for _, record in ipairs(rawStored) do
+		local normalized = normalizeLogRecord(record, seenUids)
+		if normalized then
+			if #stored < MAX_STORED_LOGS then
+				normalized.Locked = false
+				table.insert(stored, normalized)
+			else
+				normalized.Locked = true
+				table.insert(carry, normalized)
+			end
 		end
 	end
-	data.Logs = normalizedLogs
+	for _, record in ipairs(rawBag) do
+		local normalized = normalizeLogRecord(record, seenUids)
+		if normalized then
+			if normalized.Locked and #stored < MAX_STORED_LOGS then
+				normalized.Locked = false
+				table.insert(stored, normalized)
+			else
+				table.insert(carry, normalized)
+			end
+		end
+	end
+	data.Logs = carry
+	data.StoredLogs = stored
 end
 
 local function getPlayerData(player)
