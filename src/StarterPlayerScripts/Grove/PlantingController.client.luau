@@ -34,6 +34,7 @@ local hasAssignedGrove = false
 local latestStateRevision = -1
 local saplings = {}
 local groveMaterials = {}
+local groveTrees = {}
 local selectedSaplingUID
 local plantingMode = false
 local pendingPlantUID
@@ -290,7 +291,11 @@ local function render()
 
 	local selected = getSelectedSapling()
 	saplingsLabel.Text = string.format("Saplings remaining: %d", #saplings)
-	heartwoodLabel.Text = string.format("Heartwood: %d", #groveMaterials)
+	local mature = 0
+	for _, groveTree in ipairs(groveTrees) do
+		if groveTree.Stage == "mature" then mature += 1 end
+	end
+	heartwoodLabel.Text = string.format("Grove: %d planted • %d mature • %d growing", #groveTrees, mature, #groveTrees - mature)
 	if selected then
 		selectedSaplingLabel.Text = string.format(
 			"Selected: %s\nSize: %.2fx",
@@ -490,6 +495,15 @@ local function applySnapshot(snapshot)
 				and sapling.UID ~= ""
 			then
 				table.insert(saplings, sapling)
+			end
+		end
+	end
+
+	groveTrees = {}
+	if type(snapshot.GroveTrees) == "table" then
+		for _, groveTree in ipairs(snapshot.GroveTrees) do
+			if type(groveTree) == "table" and type(groveTree.UID) == "string" then
+				table.insert(groveTrees, groveTree)
 			end
 		end
 	end
