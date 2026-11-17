@@ -16,6 +16,7 @@ local MutationDefinitions = require(game.ServerScriptService.Grove.MutationDefin
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
 
 local VALID_GROVE_STAGES = {
+	stump = true,
 	sapling = true,
 	young = true,
 	mature = true,
