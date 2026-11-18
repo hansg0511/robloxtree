@@ -41,11 +41,29 @@ local function isChopInput(input)
 		or (input.UserInputType == Enum.UserInputType.Gamepad1 and input.KeyCode == Enum.KeyCode.ButtonR2)
 end
 
+local nextLocalSwingAt = 0
 UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then return end
 	if isChopInput(input) then
-		if track then track:Play() end
-		-- Intent only: the server finds the closest eligible tree itself.
+		local rate
+		local character = player.Character
+		if character then
+			for _, tool in ipairs(character:GetChildren()) do
+				if tool:IsA("Tool") and tool:GetAttribute("EquippedAxe") == true then
+					rate = tool:GetAttribute("CraftAttackRate")
+					break
+				end
+			end
+		end
+		local interval = 0.3
+		if type(rate) == "number" and rate == rate and rate >= 0.1 and rate <= 10 then
+			interval = math.max(0.3, 1 / rate)
+		end
+		local now = os.clock()
+		if now < nextLocalSwingAt then return end
+		nextLocalSwingAt = now + interval
+		if track then track:Play(0.05, 1, if rate then math.clamp(rate, 0.5, 2.2) else 1) end
+		-- Intent only: the server validates hit rate and selects the target.
 		ChopEvent:FireServer()
 	end
 end)
