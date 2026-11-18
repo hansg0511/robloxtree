@@ -117,7 +117,10 @@ function Rules.Stage(record, now)
 	local plantedAt, maturesAt = record.PlantedAt, record.MaturesAt
 	if Rules.NormalizeHarvestCount(record.HarvestCount) > 0
 		and now < plantedAt + Rules.STUMP_SECONDS then return "stump" end
-	local saplingEnd = plantedAt + (maturesAt - plantedAt) * Rules.SAPLING_FRACTION
+	local growingStart = if Rules.NormalizeHarvestCount(record.HarvestCount) > 0
+		then plantedAt + Rules.STUMP_SECONDS else plantedAt
+	local saplingEnd = growingStart
+		+ (maturesAt - growingStart) * Rules.SAPLING_FRACTION
 	if now < saplingEnd then return "sapling" end
 	if now < maturesAt then return "young" end
 	return "mature"
