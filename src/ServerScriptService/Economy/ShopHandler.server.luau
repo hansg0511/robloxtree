@@ -1,7 +1,9 @@
 -- Server-authoritative axe-head purchases, standard-axe crafting, and bag upgrades.
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ExperimentalForgeRules = require(ReplicatedStorage.Shared.ExperimentalForgeRules)
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local profileCache = require(ServerScriptService.PlayerProfile.ProfileService.ProfileDataCache)
@@ -82,6 +84,20 @@ local function validOutputDefinition(recipe)
 		and template:IsA("Tool")
 end
 
+-- Prototype recipes use existing Tool templates until distinct weapon models exist.
+local function validExperimentalOutputs(recipe)
+	if type(recipe) ~= "table" or type(recipe.Outputs) ~= "table" then return false end
+	for _, class in ipairs(ExperimentalForgeRules.CLASSES) do
+		local itemId = recipe.Outputs[class]
+		local info = itemDataBase.Info[itemId]
+		local tool = itemDataBase.Instances[itemId]
+		if not info or info.Type ~= "Weapon" or not tool or not tool:IsA("Tool") then
+			return false
+		end
+	end
+	return true
+end
+
 local function buildOwnedAxes(profile)
 	local axes = {}
 	local data = profile.Data
@@ -98,10 +114,20 @@ local function buildOwnedAxes(profile)
 		local recipe = catalog.FindRecipeForOutput(item.ItemID)
 		local attack = type(item.Stats) == "table" and item.Stats.Attack or 0
 		if not isFiniteNumber(attack) then attack = 0 end
+		local weaponData = type(item.WeaponData) == "table" and item.WeaponData or nil
+		local experimentalClass = weaponData and weaponData.ExperimentalClass
+		local experimentalName = if (experimentalClass == "Dagger"
+			or experimentalClass == "Axe" or experimentalClass == "Battlehammer")
+			and (weaponData.Metal == "Copper" or weaponData.Metal == "Iron")
+			then weaponData.Metal .. " " .. experimentalClass else nil
 		table.insert(axes, {
 			Id = recipe and recipe.Id or ("item_" .. tostring(item.ItemID)),
-			Name = info.Name,
+			Name = experimentalName or info.Name,
 			Power = catalog.BaseAttack + attack,
+			Experimental = experimentalName ~= nil,
+			MaterialQuality = weaponData and weaponData.MaterialQuality,
+			AttacksPerSecond = weaponData and weaponData.AttacksPerSecond,
+			Reach = weaponData and weaponData.Reach,
 			ItemID = item.ItemID,
 			UID = item.UID,
 			Owned = true,
@@ -213,6 +239,34 @@ local function buildShopSnapshot(player, profile)
 				and outputDefined
 				and ownedHeadCount >= 1,
 		}
+	end
+
+	-- New RNG mode is visible in Studio only. The old fixed recipe buttons
+	-- remain available, so comparative playtests do not replace progression.
+	if RunService:IsStudio() then
+		for _, recipe in ipairs(catalog.ExperimentalForgeRecipes) do
+			local head = catalog.FindAxeHead(recipe.HeadId)
+			local count = head and headCounts[head.Id] or 0
+			if not isNonnegativeInteger(count) then count = 0 end
+			local unlocked = WorldProgressService.CanAccessForest(player, recipe.RequiredForestId)
+			local progressionValid = recipe.Tier <= standardTier
+				or recipe.Tier == standardTier + 1
+			recipes[#recipes + 1] = {
+				Id = recipe.Id, Name = recipe.Name, Experimental = true,
+				Tier = recipe.Tier,
+				HeadId = recipe.HeadId,
+				HeadName = head and head.Name or recipe.HeadId,
+				HeadOwned = count,
+				HeadBasePower = recipe.HeadBasePower,
+				RequiredLogCount = 1, -- minimum, not exact quantity
+				MaxLogCount = ExperimentalForgeRules.MAX_OFFERED_LOGS,
+				RequiredForestId = recipe.RequiredForestId,
+				Unlocked = unlocked, ProgressionValid = progressionValid,
+				AtForge = atForge,
+				CanCraft = atForge and unlocked and progressionValid
+					and validExperimentalOutputs(recipe) and count >= 1,
+			}
+		end
 	end
 
 	local upgrades = {}
