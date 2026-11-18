@@ -2,7 +2,12 @@
 -- stays fixed while each mature growth cycle rolls a bounded actual size.
 local Rules = {}
 
-Rules.MATURITY_SECONDS = 45
+-- Prototype tuning: each visible milestone advances once per five seconds.
+-- Tree duration is computed from the rolled actual size, not genetic maximum.
+Rules.SECONDS_PER_VISUAL_STEP = 5
+Rules.MATURITY_SECONDS = 30 -- base duration for a 1.0-sized tree
+Rules.MIN_MATURITY_SECONDS = 15
+Rules.MAX_MATURITY_SECONDS = 90
 Rules.STUMP_SECONDS = 5
 Rules.SAPLING_FRACTION = 0.25
 Rules.MIN_POTENTIAL = 0.1
@@ -12,6 +17,17 @@ Rules.MAX_HARVEST_COUNT = 1000000
 
 local function finite(x)
 	return type(x) == "number" and x == x and x > -math.huge and x < math.huge
+end
+
+-- Round growth time to an exact whole number of five-second milestones.
+-- Existing planted trees keep their persisted MaturesAt; only NEW cycles
+-- use this function so mid-growth saves are not unexpectedly retimed.
+function Rules.DurationForSize(currentSize)
+	if not finite(currentSize) or currentSize <= 0 then return nil end
+	local steps = math.floor(Rules.MATURITY_SECONDS * currentSize
+		/ Rules.SECONDS_PER_VISUAL_STEP + 0.5)
+	return math.clamp(steps * Rules.SECONDS_PER_VISUAL_STEP,
+		Rules.MIN_MATURITY_SECONDS, Rules.MAX_MATURITY_SECONDS)
 end
 
 function Rules.ValidPotential(x)
@@ -59,6 +75,29 @@ function Rules.Progress(record, now)
 	return math.clamp((now - start) / duration, 0, 1)
 end
 
+-- Discrete presentation-only progress: the server still checks maturity
+-- against MaturesAt. Regrowth's 5-second stump hold is excluded from the
+-- visible-growth steps. The server can poll each second while geometry only
+-- updates at five-second boundaries (also safe after player rejoin).
+function Rules.VisualProgress(record, now)
+	if type(record) ~= "table" or not finite(record.PlantedAt)
+		or not finite(record.MaturesAt) or not finite(now)
+		or record.MaturesAt <= record.PlantedAt then return 0, 0, 0 end
+	local start = record.PlantedAt
+	if Rules.NormalizeHarvestCount(record.HarvestCount) > 0 then
+		start += Rules.STUMP_SECONDS
+	end
+	local duration = record.MaturesAt - start
+	if duration <= 0 then
+		return if now >= record.MaturesAt then 1 else 0,
+			if now >= record.MaturesAt then 1 else 0, 1
+	end
+	local total = math.max(1, math.ceil(duration / Rules.SECONDS_PER_VISUAL_STEP))
+	local step = math.clamp(math.floor((now - start) / Rules.SECONDS_PER_VISUAL_STEP), 0, total)
+	if now >= record.MaturesAt then step = total end
+	return step / total, step, total
+end
+
 function Rules.Stage(record, now)
 	if type(record) ~= "table" or not finite(record.PlantedAt)
 		or not finite(record.MaturesAt) or not finite(now) then return "sapling" end
@@ -80,7 +119,7 @@ function Rules.NextCycle(record, now, roll)
 	if not size then return nil end
 	return {
 		PlantedAt = now,
-		MaturesAt = now + Rules.MATURITY_SECONDS,
+		MaturesAt = now + Rules.DurationForSize(size),
 		CurrentSizeScale = size,
 		HarvestCount = count + 1,
 	}
