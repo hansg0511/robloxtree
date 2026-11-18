@@ -12,6 +12,7 @@ local catalog = require(script.Parent.AxeShopCatalog)
 local WeaponRecipeRules = require(script.Parent.WeaponRecipeRules)
 local MaterialDefinitions = require(script.Parent.MaterialDefinitions)
 local LogService = require(ServerScriptService.Inventory.LogService)
+local LogStorageRules = require(ServerScriptService.Inventory.LogStorageRules)
 local WorldProgressService = require(ServerScriptService.WorldProgressService)
 local BaseStationAccess = require(ServerScriptService.WorldLayout.BaseStationAccess)
 
@@ -398,16 +399,23 @@ local function craftExperimental(player, recipe, selectedLogUids)
 	if not removedLogs or #removedLogs ~= #selectedLogUids then return end
 
 	local sourceMaterials = {}
+	local rollLogs = {}
 	for _, logRecord in ipairs(removedLogs) do
 		if type(logRecord) ~= "table" or logRecord.ItemType ~= "Log"
 			or not MaterialDefinitions.Get(logRecord.SpeciesId) then
 			restoreCraftLogs(player, recipe, removedLogs, sourceByUid)
 			return
 		end
+		local normalizedSize = LogStorageRules.SizeScale(logRecord)
+		table.insert(rollLogs, {
+			SpeciesId = logRecord.SpeciesId,
+			SizeScale = normalizedSize,
+			Mutations = logRecord.Mutations,
+		})
 		table.insert(sourceMaterials, {
 			SourceUID = logRecord.UID,
 			SpeciesId = logRecord.SpeciesId,
-			SizeScale = logRecord.SizeScale,
+			SizeScale = normalizedSize,
 			Source = sourceByUid[logRecord.UID],
 			SourceType = logRecord.SourceType,
 			SourceGroveTreeUID = logRecord.SourceGroveTreeUID,
@@ -419,7 +427,7 @@ local function craftExperimental(player, recipe, selectedLogUids)
 	local metal = if recipe.Tier == 1 then "Copper" else "Iron"
 	local rollOk, result = pcall(function()
 		return ExperimentalForgeRules.Roll(recipe.HeadBasePower,
-			removedLogs, Random.new())
+			rollLogs, Random.new())
 	end)
 	if not rollOk or type(result) ~= "table" or not recipe.Outputs[result.Class] then
 		restoreCraftLogs(player, recipe, removedLogs, sourceByUid)
