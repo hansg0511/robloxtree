@@ -1569,7 +1569,7 @@ local function renderForge(data)
 		local card = Instance.new("Frame")
 		card.Name = "Recipe_" .. recipe.Id
 		card.LayoutOrder = renderedCount
-		card.Size = UDim2.new(1, -8, 0, 478)
+		card.Size = UDim2.new(1, -8, 0, if recipe.Experimental == true then 565 else 478)
 		card.BackgroundColor3 = renderedCount % 2 == 0 and COLORS.BagPreview or COLORS.BagSlot
 		card.Parent = forgeList
 		round(card, 12)
@@ -1654,21 +1654,44 @@ local function renderForge(data)
 			14, COLORS.Gold, Enum.Font.GothamBold)
 		oddsLine.TextTruncate = Enum.TextTruncate.AtEnd
 
+		-- Explicit stat RANGES, not a misleading precise pre-roll number.
+		-- Same deterministic shared math as the server-side forge calculation.
+		if recipe.Experimental == true then
+			local statRangeText = "SELECT LOGS TO SEE ALL POSSIBLE STAT RANGES"
+			if experimentPreview then
+				local lines = { "POSSIBLE STAT RANGES  (INDEPENDENT 90–110% ROLLS)" }
+				for _, class in ipairs(ExperimentalForgeRules.CLASSES) do
+					local ranges = experimentPreview.Ranges[class]
+					table.insert(lines, string.format(
+						"%s  •  DMG %.1f–%.1f  •  HITS/S %.2f–%.2f  •  REACH %.2f–%.2f",
+						class, ranges.Damage.Min, ranges.Damage.Max,
+						ranges.AttacksPerSecond.Min, ranges.AttacksPerSecond.Max,
+						ranges.Reach.Min, ranges.Reach.Max))
+				end
+				statRangeText = table.concat(lines, "\n")
+			end
+			local rangeLabel = label(card, "PossibleStatRanges", statRangeText,
+				UDim2.new(1, -32, 0, 88), UDim2.new(0, 16, 0, 174),
+				12, COLORS.BagText, Enum.Font.GothamBold)
+			rangeLabel.TextYAlignment = Enum.TextYAlignment.Top
+			rangeLabel.TextWrapped = true
+		end
+
 		local statusText, statusColor = forgeSelectionStatus(recipe, selectedCount, required)
-		local status = label(card, "Availability", statusText, UDim2.new(1, -32, 0, 22), UDim2.new(0, 16, 0, 176), 15, statusColor, Enum.Font.GothamBlack)
+		local status = label(card, "Availability", statusText, UDim2.new(1, -32, 0, 22), UDim2.new(0, 16, 0, if recipe.Experimental == true then 266 else 176), 15, statusColor, Enum.Font.GothamBlack)
 		status.TextTruncate = Enum.TextTruncate.AtEnd
 		status.TextWrapped = false
 		status.TextStrokeColor3 = COLORS.BagLine
 		status.TextStrokeTransparency = 0
 
-		local candidateHint = label(card, "EligibleLogsHint", "MIXED SPECIES OK  •  SELECT OR DESELECT LOGS", UDim2.new(1, -32, 0, 20), UDim2.new(0, 16, 0, 198), 14, COLORS.BagMuted, Enum.Font.GothamBold)
+		local candidateHint = label(card, "EligibleLogsHint", "MIXED SPECIES OK  •  SELECT OR DESELECT LOGS", UDim2.new(1, -32, 0, 20), UDim2.new(0, 16, 0, if recipe.Experimental == true then 288 else 198), 14, COLORS.BagMuted, Enum.Font.GothamBold)
 		candidateHint.TextTruncate = Enum.TextTruncate.AtEnd
 		candidateHint.TextWrapped = false
 
 		local candidateList = Instance.new("ScrollingFrame")
 		candidateList.Name = "EligibleLogs"
-		candidateList.Position = UDim2.new(0, 14, 0, 222)
-		candidateList.Size = UDim2.new(1, -28, 1, -236)
+		candidateList.Position = UDim2.new(0, 14, 0, if recipe.Experimental == true then 312 else 222)
+		candidateList.Size = UDim2.new(1, -28, 1, if recipe.Experimental == true then -326 else -236)
 		candidateList.BackgroundColor3 = COLORS.BagBack
 		candidateList.BorderSizePixel = 0
 		candidateList.ScrollBarThickness = 7
