@@ -247,6 +247,15 @@ local function EquipItem(player, item)
 
 	tool:SetAttribute("EquippedAxe", true)
 	tool:SetAttribute("AxeItemUID", item.ItemUID)
+	-- Only server-forged experimental weapons carry individually rolled rates.
+	-- Native Tools are temporary class models; attack rate is enforced by the
+	-- server ChopHandler, not trusted from this replicated attribute.
+	local weaponData = type(item.WeaponData) == "table" and item.WeaponData or nil
+	local attackRate = weaponData and weaponData.AttacksPerSecond
+	if type(attackRate) == "number" and attackRate == attackRate
+		and attackRate >= 0.1 and attackRate <= 10 then
+		tool:SetAttribute("CraftAttackRate", attackRate)
+	end
 	tool.Parent = backpack
 	playerHumanoid:EquipTool(tool)
 	for _, container in ipairs({backpack, character}) do
