@@ -1,42 +1,47 @@
-# Grove growth allocation — two-second fast playtest
+# Grove growth allocation — fixed 30-second testing cycles
 
-Branch: `feature/grove-ironwood-bamboo-growth-fix` (existing draft PR #7).
+Active branch: `dev/gameplay-prototype` — consolidated draft PR #8.
 
-## Current rules
+## Current prototype timing (temporary)
 
-- **Global visual cadence:** `GroveGrowthRules.SECONDS_PER_VISUAL_STEP = 2` for rapid Studio iteration. This is NOT intended to be the final economy pace.
-- **Step count derived from actual rolled size:** `StepsForSize(size) = clamp(round(BASELINE_STEPS_AT_SIZE_ONE × size), MIN_VISUAL_STEPS, MAX_VISUAL_STEPS)`, with provisional baseline 6, minimum 3 and maximum 18.
-- **Growth duration derived from steps:** `DurationForSize(size) = StepsForSize(size) × SECONDS_PER_VISUAL_STEP`. No independent maturity-time table or fixed 40-step denominator.
-- Examples: 0.7× = 4 steps / 8 seconds; 1.0× = 6 steps / 12 seconds; 1.5× = 9 steps / 18 seconds; 2.0× = 12 steps / 24 seconds.
-- **New planting:** starts in its initial stump visual state and reaches maturity after the size-derived duration.
-- **After harvest:** the 2.6-second falling-tree cinematic is protected by a separate `STUMP_SECONDS = 4` hold. The new tree then starts the size-derived sequence. An ordinary 1.0× regrowth therefore takes about 16 seconds from harvest to maturity (4 + 12).
-- The server checks maturity/harvest every second, while the visual geometry only changes at two-second milestones. All nearby players see the server-replicated growth.
-- **Existing planted trees** retain their saved `PlantedAt` and `MaturesAt`. They are not restarted or retimed. Legacy deadlines that do not divide evenly into two seconds still mature at their originally recorded timestamp.
-- `MaturesAt` remains the only server-authoritative maturity and harvesting gate.
+- **Every Grove tree matures in 30 seconds total**, regardless of its actual rolled size, genetic potential, or species. This applies to **new plantings and new regrowth cycles**.
+- **2 seconds per time interval** (globally), so every cycle comprises **15 two-second intervals**.
+- **First planting:** 15 growth intervals, from planting to maturity at +30 seconds.
+- **Following harvest:** the **first 4 seconds / 2 intervals** are reserved for stump and the existing ~2.6-second harvest-fall cinematic. The remaining **26 seconds / 13 intervals** are for visible growth. The tree still matures **at +30 seconds from harvest**, not +34.
+- The growing model initially shows a stump at visual step zero; trunks, branches and foliage are gradually revealed according to the normalized allocation timeline. No fixed internal 40-step denominator exists.
+- The server checks maturation and harvest conditions each second, but replicates geometry changes at the two-second visual milestones, so **other players see the growth**.
+- **Already-planted trees** keep the maturity timestamp stored in their existing records. Their current cycles are not retimed automatically by this code change; their next regrowth cycle will use the new 30-second duration.
+- The authoritative server-owned `MaturesAt` deadline, not appearance, determines when the E-harvest prompt is enabled.
 
-## Growth allocation
+### Tuning location
 
-- `Trees/GroveGrowthAllocation.luau` builds a normalized growth plan **once** from the mature model: trunk 0–50%; branches 50–80%; leaves 68–100%.
-- A trunk with two unequal Pieces is allocated by real height. Huge Parts grow from the bottom; no requirement to manually create a Part per visual step.
-- Branches grow sequentially from their base along local axes. Leaves expand in staggered clusters.
-- The already-approved five-cane Bamboo clump remains synchronized as one visual bundle.
-- Trunk and branch visual proxies do not move the real welded/harvest Parts. Proxies are destroyed when full native Parts are shown.
-- For later irregular plants, authors can specify `GroveGrowthRole` (`trunk`,`branches`,`leaves`), `GroveGrowthOrder` (number), `GroveGrowthAxis` (`X`,`Y`,`Z`), `GroveGrowthDirection` (+1/-1), and optional `GroveGrowthStart`/`GroveGrowthFinish`. No procedural mesh cutting is implemented.
+`src/ServerScriptService/Grove/GroveGrowthRules.luau`:
 
-## Studio verification (before merge)
+```luau
+Rules.SECONDS_PER_VISUAL_STEP = 2
+Rules.MATURITY_SECONDS = 30
+Rules.TOTAL_CYCLE_STEPS =
+    Rules.MATURITY_SECONDS / Rules.SECONDS_PER_VISUAL_STEP
+Rules.STUMP_SECONDS = Rules.SECONDS_PER_VISUAL_STEP * 2
+```
 
-1. Pull the same branch and run `rojo serve default.project.json`.
-2. Plant an ordinary-size Oak. It should finish in roughly 12 seconds with **six visible transitions**, around two seconds apart.
-3. Plant smaller/larger Grove trees and inspect `GroveGrowthVisualTotalSteps` on the model. Their step counts should follow their **actual rolled size**, not always remain six.
-4. Watch Ironwood bottom-to-top trunk growth and the Oak's slanted branches and leaf blocks. No whole huge log should suddenly appear; mature geometry should match the source forest tree.
-5. Watch all five Bamboo stalks rise together from five thin stumps.
-6. Harvest and regrow twice. Check the brief **four-second stump** remains during the falling cinematic, then growth resumes and produces exactly one protected unique log per harvest.
-7. In a two-player Studio test, the observer should see the same visual growth; only the owner can harvest.
-8. Run each regression in the **SERVER Command Bar**: `tests/GroveGrowthRules.smoke.luau`, `tests/GroveGrowthAllocation.smoke.luau`, `tests/GroveStageVisuals.smoke.luau`, `tests/GroveIronwoodBambooGrowth.smoke.luau`, `tests/GroveOakFoliageGrowth.smoke.luau`, and `tests/GroveLargeTrunkGrowth.smoke.luau`.
+`Rules.StepsForSize` and `Rules.DurationForSize` retain their existing API for the plant and regrowth code, but **deliberately return the same values for every valid size** during testing. Size still controls the mature model and harvested log, not growth time.
 
-## Limitations
+## How the generic allocator works
 
-- Six discrete updates cannot display ten intermediate stages. They sample the same normalized growth plan with fewer transitions; tiny decorative parts may still pop in.
-- The species-specific aesthetic and growth allocation windows remain prototype art decisions, not a final botanical model.
-- To adjust testing speed, change `SECONDS_PER_VISUAL_STEP`. To change the number of visual transitions, tune `BASELINE_STEPS_AT_SIZE_ONE` and the min/max limits. No manual Part timing redistribution should be needed.
-- This work has been checked through GitHub source review only. **Studio execution and multiplayer playtest are still required before merging PR #7.**
+- `Trees/GroveGrowthAllocation.luau` maps a mature plant to normalized windows: trunk 0–50%, branches 50–80%, leaves 68–100%.
+- Trunk sections extend according to **real relative height**, rather than being allocated one step per Part. Branches extend from their authored base along local X/Y/Z axes.
+- Leaves grow as staggered expanding blocks. Bamboo's five culms remain synchronized as one visual group.
+- Temporary collisionless wood copies are destroyed once their original complete Parts appear; the source welded/harvest model is not resized.
+- For unusual future plants, authors can optionally use `GroveGrowthRole`, `GroveGrowthOrder`, `GroveGrowthAxis`, `GroveGrowthDirection`, `GroveGrowthStart`, and `GroveGrowthFinish`.
+
+## Studio validation
+
+1. Pull `dev/gameplay-prototype` and run `rojo serve default.project.json`.
+2. Plant a small Oak and a huge Oak. **Both should mature in ~30 seconds**, showing growth every ~2 seconds. Their sizes and harvested-log characteristics should still differ.
+3. Harvest a mature tree. Verify the fall + stump occupy the beginning of the new cycle, and that the next tree is mature **30 seconds after the harvest**, not 34.
+4. Check Ironwood's trunk lower→middle→top, Oak's branches/bark/leaves and five synchronized Bamboo canes. Mature models should match forest versions.
+5. Test an observer client nearby: growth is visible to both, and only the Grove owner can harvest.
+6. Run `tests/GroveGrowthRules.smoke.luau`, `tests/GroveGrowthAllocation.smoke.luau`, `tests/GroveStageVisuals.smoke.luau`, `tests/GroveIronwoodBambooGrowth.smoke.luau`, `tests/GroveOakFoliageGrowth.smoke.luau`, and `tests/GroveLargeTrunkGrowth.smoke.luau` from the Studio **SERVER Command Bar**.
+
+**Not yet Studio-executed through GitHub.** Leave PR #8 in draft until the in-game playtest and smoke tests pass. Size-based growth duration can be reintroduced at balance time without redesigning the generic allocation module.
