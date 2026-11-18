@@ -1,4 +1,4 @@
--- Roblox Studio SERVER Command Bar; pure rules, no player data mutation.
+-- Roblox Studio SERVER Command Bar; pure rules with no player data mutation.
 local rules = require(game.ServerScriptService.Grove.GroveGrowthRules)
 local function check(name, condition) assert(condition, name .. " failed") end
 
@@ -12,58 +12,76 @@ check("higher roll bigger size", rules.RollSize(1.5, 0.8) > rules.RollSize(1.5, 
 check("reject invalid gene", rules.RollSize(5, 0.5) == nil)
 check("reject invalid roll", rules.RollSize(1, 1.5) == nil)
 
-check("shared five-second visual cadence", rules.SECONDS_PER_VISUAL_STEP == 5)
-check("baseline size has six milestones", rules.DurationForSize(1) == 30)
-check("smaller tree grows faster", rules.DurationForSize(0.7) < rules.DurationForSize(1))
-check("larger tree grows slower", rules.DurationForSize(1.7) > rules.DurationForSize(1))
-check("maturity durations are exact five-second multiples",
-	rules.DurationForSize(1.7) % 5 == 0)
-check("bounded tiny/giant durations", rules.DurationForSize(0.05) >= 15
-	and rules.DurationForSize(9) <= 90)
-check("reject invalid duration scale", rules.DurationForSize(-1) == nil)
+check("shared two-second test cadence", rules.SECONDS_PER_VISUAL_STEP == 2)
+check("steps for size 1 are derived from the baseline", rules.StepsForSize(1) == 6)
+check("six two-second milestones finish in 12 seconds",
+	rules.DurationForSize(1) == 12)
+check("small trees get fewer steps", rules.StepsForSize(0.7) == 4)
+check("large trees get more steps", rules.StepsForSize(1.5) == 9)
+check("small tree 8-second grow", rules.DurationForSize(0.7) == 8)
+check("big tree 18-second grow", rules.DurationForSize(1.5) == 18)
+check("duration is derived from steps and cadence", rules.DurationForSize(1.7)
+	== rules.StepsForSize(1.7) * rules.SECONDS_PER_VISUAL_STEP)
+check("bounded step counts", rules.StepsForSize(0.05) == 3
+	and rules.StepsForSize(9) == 18)
+check("reject invalid size", rules.StepsForSize(-1) == nil
+	and rules.DurationForSize(-1) == nil)
+check("stump hold safely exceeds harvest-fall presentation",
+	rules.STUMP_SECONDS == 4)
 
-local initial = { PlantedAt = 1000, MaturesAt = 1030, HarvestCount = 0 }
-check("first planting sapling", rules.Stage(initial, 1000) == "sapling")
-check("first planting no stump stage", rules.Stage(initial, 1002) == "sapling")
-check("first planting young", rules.Stage(initial, 1015) == "young")
-check("first planting mature", rules.Stage(initial, 1030) == "mature")
+local initial = { PlantedAt = 1000, MaturesAt = 1012, HarvestCount = 0 }
+check("first planting starts as sapling", rules.Stage(initial, 1000) == "sapling")
+check("first planting young", rules.Stage(initial, 1005) == "young")
+check("first planting mature at 12 seconds", rules.Stage(initial, 1012) == "mature")
 
-local harvested = { PlantedAt = 1000, MaturesAt = 1030, HarvestCount = 1 }
-check("harvest stump stage", rules.Stage(harvested, 1002) == "stump")
-check("regrowth progresses after stump", rules.Stage(harvested, 1006) == "sapling")
-check("regrowth young", rules.Stage(harvested, 1015) == "young")
-check("regrowth mature", rules.Stage(harvested, 1030) == "mature")
-for _, record in ipairs({ initial, harvested }) do
+local harvested = { PlantedAt = 1000, MaturesAt = 1016, HarvestCount = 1 }
+check("regrowth stump at 2 seconds", rules.Stage(harvested, 1002) == "stump")
+check("regrowth stump at 3 seconds", rules.Stage(harvested, 1003) == "stump")
+check("stump hold ends at four seconds", rules.Stage(harvested, 1004) == "sapling")
+check("regrowth young", rules.Stage(harvested, 1009) == "young")
+check("regrowth mature after hold + six updates",
+	rules.Stage(harvested, 1016) == "mature")
+
+for _, entry in ipairs({
+	{ Record = initial, Start = 1000 },
+	{ Record = harvested, Start = 1004 },
+}) do
 	for step = 0, 6 do
-		local fraction, actualStep, total = rules.VisualProgress(record, 1000 + step * 5)
-		check("six exact five-second milestones", actualStep == step and total == 6)
-		check("milestone fraction", math.abs(fraction - step / 6) < 0.0001)
+		local fraction, actualStep, total = rules.VisualProgress(
+			entry.Record, entry.Start + step * 2)
+		check("six exact two-second milestones", actualStep == step and total == 6)
+		check("fraction matches current milestone", math.abs(fraction - step / 6) < 0.0001)
 	end
-	check("no premature visual jump", select(2, rules.VisualProgress(record, 1004)) == 0)
-	check("last milestone remains mature", select(2, rules.VisualProgress(record, 1035)) == 6)
+	check("no jump between milestones",
+		select(2, rules.VisualProgress(entry.Record, entry.Start + 1)) == 0)
+	check("fully grown remains at final milestone",
+		select(2, rules.VisualProgress(entry.Record, entry.Record.MaturesAt + 10)) == 6)
 end
+check("regrowth visual still stump during cinematic",
+	select(2, rules.VisualProgress(harvested, 1003)) == 0)
 
--- Existing saves retain their own MaturesAt even when it differs from
--- the new 30-second baseline. Shorter and longer cycles use matching
--- derived step counts, with no migration of their planted timestamps.
+-- Earlier persisted maturity deadlines remain authoritative even if they do
+-- not land on a new two-second interval; no profile data is rewritten.
 local legacy = { PlantedAt = 1000, MaturesAt = 1045, HarvestCount = 1 }
-check("existing 45-second cycle has 9 milestones",
-	select(3, rules.VisualProgress(legacy, 1000)) == 9)
-check("legacy cycle matures at saved deadline",
-	select(2, rules.VisualProgress(legacy, 1045)) == 9)
+check("legacy 45-second cycle uses remaining time after stump",
+	select(3, rules.VisualProgress(legacy, 1000)) == 21)
+check("legacy saves mature at their original deadline",
+	select(2, rules.VisualProgress(legacy, 1045)) == 21)
 local long = { PlantedAt = 1000, MaturesAt = 1120, HarvestCount = 0 }
-check("120-second cycle has 24 milestones",
-	select(3, rules.VisualProgress(long, 1000)) == 24)
-check("120-second cycle at half progress", select(2, rules.VisualProgress(long, 1060)) == 12)
+check("120-second saved cycle has 60 two-second intervals",
+	select(3, rules.VisualProgress(long, 1000)) == 60)
+check("long cycle half way", select(2, rules.VisualProgress(long, 1060)) == 30)
 
-local nextCycle = rules.NextCycle({ SizePotential = 1.6, HarvestCount = 7 }, 2000, 0.6)
-check("new cycle allocated", type(nextCycle) == "table")
-check("source identity not part of cycle", nextCycle.SourceSaplingUID == nil)
-check("new cycle size within genetics", nextCycle.CurrentSizeScale > 0 and nextCycle.CurrentSizeScale <= 1.6)
-check("new cycle duration tied to actual size",
-	nextCycle.MaturesAt == 2000 + rules.DurationForSize(nextCycle.CurrentSizeScale))
-check("harvest count increases once", nextCycle.HarvestCount == 8)
+local cycle = rules.NextCycle({ SizePotential = 1.6, HarvestCount = 7 }, 2000, 0.6)
+check("new cycle allocated", type(cycle) == "table")
+check("source identity not part of cycle", cycle.SourceSaplingUID == nil)
+check("cycle size within genetic cap",
+	cycle.CurrentSizeScale > 0 and cycle.CurrentSizeScale <= 1.6)
+check("regrowth duration derived plus cinematic stump hold",
+	cycle.MaturesAt == 2000 + rules.STUMP_SECONDS
+		+ rules.DurationForSize(cycle.CurrentSizeScale))
+check("harvest count increments once", cycle.HarvestCount == 8)
 check("reject invalid cycle", rules.NextCycle({ SizePotential = 0 }, 2000, 0.5) == nil)
 
-print("Grove size-derived five-second growth rules passed")
+print("Grove two-second size-derived growth rules passed")
 return true
