@@ -23,13 +23,14 @@ This is the canonical list for *polish*, separate from new mechanics. Update it 
 - [x] Fix Ironwood's out-of-order three trunk pieces and hide loose-looking Grove bark studs during growth (wild forest unchanged).
 - [x] Fix Bamboo's oversized single stump and sequential cane pops; now uses five thin culms extending upward together using five anchored growth proxies.
 - [x] Correct Oak decorative bark accent timing so skinny texture strips never lead their supporting log sections.
-- [x] Make each existing leaf block expand through several growth ticks rather than pop in at its full final size.
-- [ ] Refine Ironwood bark accents and smooth Bamboo's segmented growth after the core loop works.
+- [x] Keep leaves expanding from small to mature size, staggered through their assigned growth window.
+- [ ] Refine Ironwood bark accents and further tune Bamboo's five synchronized expanding stalks after the core loop works.
 - [x] Add bottom-anchored trunk and branch extension using one lightweight temporary visual copy per major wood Part (no per-stud segmentation). Bamboo's five canes now grow from one proxy each.
 - [x] Keep Grove growth world-replicated so nearby players see the same sequence, with the server retaining timers, rewards and harvest validation.
-- [ ] Smooth the ~1-second growth visual steps for all observers using client-side interpolation if playtesting shows noticeable popping; avoid replicating every render frame.
+- [x] Replace 40 hardcoded visual steps with five-second milestones and normalized geometry allocation; new trees grow longer as their actual rolled size increases.
+- [ ] Consider optional local interpolation only if the approved **five-second discrete** updates look too abrupt in multiplayer.
 - [ ] Tune leaf growth staggering/easing and server-to-client visual smoothness after gameplay pacing is proven.
-- [ ] Timing indicators / clear maturation and ready-to-harvest indicators; tune 45-second prototype maturity.
+- [ ] Timing indicators / clear maturation and ready-to-harvest indicators; tune size-derived 15–90 second prototype maturity (30 seconds at size 1.0).
 - [ ] Planting ghost/preview consistency with real species and stage models.
 - [ ] Visual performance and streaming with many Grove trees and observers.
 
