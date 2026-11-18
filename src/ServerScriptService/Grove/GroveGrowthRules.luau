@@ -76,22 +76,15 @@ function Rules.Progress(record, now)
 end
 
 -- Discrete presentation-only progress: the server still checks maturity
--- against MaturesAt. Regrowth's 5-second stump hold is excluded from the
--- visible-growth steps. The server can poll each second while geometry only
--- updates at five-second boundaries (also safe after player rejoin).
+-- against MaturesAt. Step zero holds the stump for the first five seconds,
+-- including after harvest; step one begins the new trunk. The server polls
+-- every second, but geometry only changes at five-second boundaries.
 function Rules.VisualProgress(record, now)
 	if type(record) ~= "table" or not finite(record.PlantedAt)
 		or not finite(record.MaturesAt) or not finite(now)
 		or record.MaturesAt <= record.PlantedAt then return 0, 0, 0 end
 	local start = record.PlantedAt
-	if Rules.NormalizeHarvestCount(record.HarvestCount) > 0 then
-		start += Rules.STUMP_SECONDS
-	end
 	local duration = record.MaturesAt - start
-	if duration <= 0 then
-		return if now >= record.MaturesAt then 1 else 0,
-			if now >= record.MaturesAt then 1 else 0, 1
-	end
 	local total = math.max(1, math.ceil(duration / Rules.SECONDS_PER_VISUAL_STEP))
 	local step = math.clamp(math.floor((now - start) / Rules.SECONDS_PER_VISUAL_STEP), 0, total)
 	if now >= record.MaturesAt then step = total end
