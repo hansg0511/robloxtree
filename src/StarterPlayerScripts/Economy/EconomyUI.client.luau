@@ -2,6 +2,7 @@
 -- Every button sends intent only; the server owns inventory, prices, and sales.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ExperimentalForgeRules = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ExperimentalForgeRules"))
 local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
@@ -1414,7 +1415,8 @@ local function updateForgeEligibleSnapshot(data)
 		end
 	end
 	for recipeId, recipe in pairs(recipesById) do
-		local required = requiredForgeLogCount(recipe)
+		local required = if recipe.Experimental == true then recipe.MaxLogCount
+			else requiredForgeLogCount(recipe)
 		local oldSelection = forgeSelectedLogUidsByRecipe[recipeId] or {}
 		local selection = {}
 		local seen = {}
@@ -1456,7 +1458,12 @@ local function canSubmitForgeRecipe(recipe)
 	end
 	local required = requiredForgeLogCount(recipe)
 	local selectedLogUids = getForgeSelectedLogUids(recipe.Id)
-	return required ~= nil and selectedLogUids ~= nil and #selectedLogUids == required
+	if not required or not selectedLogUids then return false end
+	if recipe.Experimental == true then
+		return #selectedLogUids >= required
+			and #selectedLogUids <= (recipe.MaxLogCount or 0)
+	end
+	return #selectedLogUids == required
 end
 
 local function findForgeRecipe(recipeId)
@@ -1496,7 +1503,14 @@ local function forgeSelectionStatus(recipe, selectedCount, required)
 	if recipe.AtForge ~= true then return "RETURN TO THE FORGE", COLORS.Orange end
 	if recipe.ProgressionValid ~= true then return "PROGRESSION REQUIREMENT NOT MET", COLORS.Orange end
 	if not hasForgeHead(recipe) then return "NEED THE REQUIRED AXE HEAD", COLORS.Orange end
-	if selectedCount ~= required then
+	if recipe.Experimental == true then
+		if selectedCount < 1 then
+			return "ADD AT LEAST ONE LOG TO FORGE", COLORS.BagMuted
+		end
+		if selectedCount > (recipe.MaxLogCount or 0) then
+			return "TOO MANY LOGS FOR THIS TEST", COLORS.Orange
+		end
+	elseif selectedCount ~= required then
 		local missingCount = math.max(0, required - selectedCount)
 		return "SELECT " .. tostring(missingCount) .. " MORE ELIGIBLE LOG" .. (if missingCount == 1 then "" else "S"), COLORS.BagMuted
 	end
@@ -1515,6 +1529,20 @@ local function forgePowerEstimate(recipe, selectedLogUids)
 	local estimate = recipe.HeadBasePower + totalBonus / #selectedLogUids
 	local roundedEstimate = if estimate >= 0 then math.floor(estimate * 10 + 0.5) / 10 else math.ceil(estimate * 10 - 0.5) / 10
 	return roundedEstimate
+end
+
+-- Display the exact deterministic probabilities and material potential.
+-- The server independently resolves and validates the real log records.
+local function forgeExperimentPreview(recipe, selectedLogUids)
+	if recipe.Experimental ~= true or not forgeSnapshotFresh
+		or #selectedLogUids == 0 then return nil end
+	local logs = {}
+	for _, uid in ipairs(selectedLogUids) do
+		local record = forgeEligibleLogsByUid[uid]
+		if not record then return nil end
+		table.insert(logs, record)
+	end
+	return ExperimentalForgeRules.Preview(recipe.HeadBasePower, logs)
 end
 
 local function renderForge(data)
@@ -1541,7 +1569,7 @@ local function renderForge(data)
 		local card = Instance.new("Frame")
 		card.Name = "Recipe_" .. recipe.Id
 		card.LayoutOrder = renderedCount
-		card.Size = UDim2.new(1, -8, 0, 430)
+		card.Size = UDim2.new(1, -8, 0, 478)
 		card.BackgroundColor3 = renderedCount % 2 == 0 and COLORS.BagPreview or COLORS.BagSlot
 		card.Parent = forgeList
 		round(card, 12)
@@ -1580,7 +1608,9 @@ local function renderForge(data)
 		local required = requiredForgeLogCount(recipe)
 		local selectedLogUids = getForgeSelectedLogUids(recipe.Id) or {}
 		local selectedCount = #selectedLogUids
-		local requiredText = if required then tostring(required) else "?"
+		local requiredText = if recipe.Experimental == true
+			then "1–" .. tostring(recipe.MaxLogCount or "?")
+			else if required then tostring(required) else "?"
 		local selectedLine = label(card, "SelectedLogCount", "SELECTED LOGS  " .. tostring(selectedCount) .. " / " .. requiredText .. "  •  ELIGIBLE " .. tostring(#forgeEligibleLogs), UDim2.new(0.69, -20, 0, 24), UDim2.new(0, 16, 0, 100), 16, COLORS.BagText, Enum.Font.GothamBold)
 		selectedLine.TextTruncate = Enum.TextTruncate.AtEnd
 		selectedLine.TextWrapped = false
@@ -1594,9 +1624,17 @@ local function renderForge(data)
 		clearSelection.TextStrokeColor3 = COLORS.BagLine
 		clearSelection.TextStrokeTransparency = 0
 
-		local estimate = forgePowerEstimate(recipe, selectedLogUids)
-		local estimateText = if estimate ~= nil
-			then string.format("POWER ESTIMATE  %.1f  •  PREVIEW ONLY", estimate)
+		local experimentPreview = forgeExperimentPreview(recipe, selectedLogUids)
+		local estimate = if recipe.Experimental == true then nil
+			else forgePowerEstimate(recipe, selectedLogUids)
+		local estimateText = if recipe.Experimental == true
+			then (if experimentPreview then string.format(
+				"LOG QUALITY %.1f%%   •   GOLDEN %.1f%%",
+				experimentPreview.MaterialQuality * 100,
+				experimentPreview.GoldenQuality * 100)
+				else "ADD LOGS TO PREVIEW QUALITY AND CHANCES")
+			else if estimate ~= nil
+				then string.format("POWER ESTIMATE  %.1f  •  PREVIEW ONLY", estimate)
 			else if forgeSnapshotFresh then "POWER ESTIMATE  —  •  PREVIEW ONLY" else "POWER ESTIMATE UPDATING  •  PREVIEW ONLY"
 		local estimateLine = label(card, "PowerEstimate", estimateText, UDim2.new(1, -32, 0, 22), UDim2.new(0, 16, 0, 128), 15, COLORS.BagAction, Enum.Font.GothamBlack)
 		estimateLine.TextTruncate = Enum.TextTruncate.AtEnd
@@ -1604,21 +1642,33 @@ local function renderForge(data)
 		estimateLine.TextStrokeColor3 = COLORS.BagLine
 		estimateLine.TextStrokeTransparency = 0
 
+		local oddsText = if experimentPreview then string.format(
+			"CLASS CHANCES   DAGGER %.0f%%   AXE %.0f%%   HAMMER %.0f%%",
+			experimentPreview.Odds.Dagger * 100,
+			experimentPreview.Odds.Axe * 100,
+			experimentPreview.Odds.Battlehammer * 100)
+			else if recipe.Experimental == true then "CLASS CHANCES   SELECT LOGS"
+				else "FIXED STANDARD AXE RECIPE"
+		local oddsLine = label(card, "ClassOdds", oddsText,
+			UDim2.new(1, -32, 0, 22), UDim2.new(0, 16, 0, 151),
+			14, COLORS.Gold, Enum.Font.GothamBold)
+		oddsLine.TextTruncate = Enum.TextTruncate.AtEnd
+
 		local statusText, statusColor = forgeSelectionStatus(recipe, selectedCount, required)
-		local status = label(card, "Availability", statusText, UDim2.new(1, -32, 0, 22), UDim2.new(0, 16, 0, 151), 15, statusColor, Enum.Font.GothamBlack)
+		local status = label(card, "Availability", statusText, UDim2.new(1, -32, 0, 22), UDim2.new(0, 16, 0, 176), 15, statusColor, Enum.Font.GothamBlack)
 		status.TextTruncate = Enum.TextTruncate.AtEnd
 		status.TextWrapped = false
 		status.TextStrokeColor3 = COLORS.BagLine
 		status.TextStrokeTransparency = 0
 
-		local candidateHint = label(card, "EligibleLogsHint", "MIXED SPECIES OK  •  SELECT OR DESELECT LOGS", UDim2.new(1, -32, 0, 20), UDim2.new(0, 16, 0, 174), 14, COLORS.BagMuted, Enum.Font.GothamBold)
+		local candidateHint = label(card, "EligibleLogsHint", "MIXED SPECIES OK  •  SELECT OR DESELECT LOGS", UDim2.new(1, -32, 0, 20), UDim2.new(0, 16, 0, 198), 14, COLORS.BagMuted, Enum.Font.GothamBold)
 		candidateHint.TextTruncate = Enum.TextTruncate.AtEnd
 		candidateHint.TextWrapped = false
 
 		local candidateList = Instance.new("ScrollingFrame")
 		candidateList.Name = "EligibleLogs"
-		candidateList.Position = UDim2.new(0, 14, 0, 196)
-		candidateList.Size = UDim2.new(1, -28, 1, -210)
+		candidateList.Position = UDim2.new(0, 14, 0, 222)
+		candidateList.Size = UDim2.new(1, -28, 1, -236)
 		candidateList.BackgroundColor3 = COLORS.BagBack
 		candidateList.BorderSizePixel = 0
 		candidateList.ScrollBarThickness = 7
@@ -1649,7 +1699,8 @@ local function renderForge(data)
 			for index, record in ipairs(visibleLogs) do
 				local uid = record.UID
 				local isSelected = table.find(selectedLogUids, uid) ~= nil
-				local canAdd = isSelected or (required ~= nil and selectedCount < required)
+				local selectionLimit = if recipe.Experimental == true then recipe.MaxLogCount else required
+				local canAdd = isSelected or (selectionLimit ~= nil and selectedCount < selectionLimit)
 				local species = if typeof(record.SpeciesId) == "string" and #record.SpeciesId > 0 then record.SpeciesId else "Unknown Species"
 				local uidSuffix = if #uid > 6 then "..." .. string.sub(uid, -6) else uid
 				local ordinal = string.format("%03d", index)
@@ -1675,7 +1726,7 @@ local function renderForge(data)
 				logButton.Activated:Connect(function()
 					if not forgeSnapshotFresh or not canAdd then return end
 					forgeLogCanvasPositions[recipe.Id] = candidateList.CanvasPosition
-					toggleForgeLog(recipe.Id, uid, required)
+					toggleForgeLog(recipe.Id, uid, selectionLimit)
 					renderForge(latestShopData)
 				end)
 			end
@@ -1690,7 +1741,8 @@ local function renderForge(data)
 		end)
 
 		local canCraft = canSubmitForgeRecipe(recipe) and forgeCraftPendingByRecipe[recipe.Id] ~= true
-		action.Text = if forgeCraftPendingByRecipe[recipe.Id] then "CRAFTING..." else "CRAFT AXE"
+		action.Text = if forgeCraftPendingByRecipe[recipe.Id] then "CRAFTING..."
+			else if recipe.Experimental == true then "FORGE RNG" else "CRAFT AXE"
 		action.BackgroundColor3 = if canCraft then COLORS.BagAction else COLORS.Disabled
 		action.Active = canCraft
 		action.AutoButtonColor = canCraft
