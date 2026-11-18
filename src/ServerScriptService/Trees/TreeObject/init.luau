@@ -1484,8 +1484,15 @@ function Tree:GetInteractionDistance(worldPosition)
 	return (worldPosition - closestWorldPoint).Magnitude
 end
 
-function Tree.GetBestChopTarget(player, eligibilityFilter)
+function Tree.GetBestChopTarget(player, eligibilityFilter, reachMultiplier)
 	assert(type(eligibilityFilter) == "function", "Tree eligibility filter required")
+	-- Only server callers choose this bounded multiplier. Old axe calls retain
+	-- their original 1.0-range behavior, and each swing still picks ONE tree.
+	if type(reachMultiplier) ~= "number" or reachMultiplier ~= reachMultiplier
+		or reachMultiplier == math.huge or reachMultiplier == -math.huge then
+		reachMultiplier = 1
+	end
+	reachMultiplier = math.clamp(reachMultiplier, 0.5, 2)
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	local root = character and character:FindFirstChild("HumanoidRootPart")
@@ -1496,7 +1503,7 @@ function Tree.GetBestChopTarget(player, eligibilityFilter)
 	for tree in pairs(Tree.ActiveTrees) do
 		if eligibilityFilter(tree) then
 			local distance = tree:GetInteractionDistance(root.Position)
-			if distance <= tree.ChopRadius then
+			if distance <= tree.ChopRadius * reachMultiplier then
 				if distance < bestDistance - 0.001
 					or (math.abs(distance - bestDistance) <= 0.001 and bestTree and tree.CreationId < bestTree.CreationId)
 					or not bestTree then
