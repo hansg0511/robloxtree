@@ -1,6 +1,7 @@
 -- Studio SERVER Command Bar; read-only previews only.
 -- Verify the generic six-milestone allocation on Ironwood and Bamboo.
 local Tree = require(game.ServerScriptService.Trees.TreeObject)
+local Rules = require(game.ServerScriptService.Grove.GroveGrowthRules)
 local function check(name, ok)
 	assert(ok, name .. " failed")
 end
@@ -8,11 +9,12 @@ end
 local function preview(species, progress)
 	local model = Tree.BuildPreviewModel(species, {
 		GroveStage = if progress >= 1 then "mature" else "young",
-		SizePotential = 1, GrowthDurationSeconds = 12,
+		SizePotential = 1, GrowthDurationSeconds = Rules.DurationForSize(1),
 		GrowthProgress = progress,
 	})
 	check(species .. " preview", model ~= nil)
-	check("six steps for twelve seconds", model:GetAttribute("GroveGrowthVisualTotalSteps") == 6)
+	check("six steps for size one independent of cadence",
+		model:GetAttribute("GroveGrowthVisualTotalSteps") == Rules.StepsForSize(1))
 	return model
 end
 
