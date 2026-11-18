@@ -72,7 +72,8 @@ local function allocateTrunk(records, model)
 	local span = math.max(0.001, high - low)
 	local window = Allocation.DefaultWindows.trunk
 	for _, record in ipairs(records) do
-		if record.Part:GetAttribute("GroveGrowthBundle") == "BambooCulms" then
+		if record.Bundle == "BambooCulms"
+			or record.Part:GetAttribute("GroveGrowthBundle") == "BambooCulms" then
 			-- Existing five-cane Bamboo visual is intentionally one bundle,
 			-- not five separate trunks popping up in sequence.
 			setWindow(record, window.Start + 0.06, window.Finish)
