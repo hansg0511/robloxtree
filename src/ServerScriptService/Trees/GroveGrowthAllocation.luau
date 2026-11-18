@@ -3,7 +3,7 @@
 -- override individual parts using GroveGrowthRole, GroveGrowthOrder,
 -- GroveGrowthStart and GroveGrowthFinish attributes. No fixed 40-step grid.
 --
--- The renderer samples this normalized plan at the number of five-second
+-- The renderer samples this normalized plan at the number of configured
 -- milestones derived from each tree's actual, persisted maturity deadline.
 local Allocation = {}
 
@@ -142,7 +142,7 @@ local function allocateLeaves(records, model)
 	local span = window.Finish - window.Start
 	-- Stagger foliage starts from lower to higher clusters, allowing each
 	-- leaf to expand for more than one tiny slice of a short growth cycle.
-	-- Leaves overlap rather than consuming N separate five-second updates.
+	-- Leaves overlap rather than consuming N separate milestone updates.
 	for index, record in ipairs(records) do
 		local rank = if #records == 1 then 0 else (index - 1) / (#records - 1)
 		setWindow(record,
