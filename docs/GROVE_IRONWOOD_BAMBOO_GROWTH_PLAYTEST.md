@@ -1,5 +1,7 @@
 # Grove Growth — Ironwood & Bamboo Fixes (Oak unchanged)
 
+> **Historical playtest guide.** Timing, animation phases, and the smoke-test expectations described below have been superseded by [`GROVE_GROWTH_ALLOCATION_PLAYTEST.md`](GROVE_GROWTH_ALLOCATION_PLAYTEST.md). Use the new guide for current behavior: five-second milestones, size-dependent durations, sequential allocation and Bamboo's five-cane bundle.
+
 Base: `feature/grove-progressive-growth-forest-oak`
 Branch: `feature/grove-ironwood-bamboo-growth-fix`
 
