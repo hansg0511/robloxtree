@@ -71,6 +71,15 @@ Allocation.Assign(records, model)
 check("per-part explicit timing override honored",
 	near(highLeaf.At, 0.75) and near(highLeaf.NativeAt, 1))
 
+-- Manually authored growth ordering can override spatial height sorting
+-- for twisted pieces with non-obvious botanical order.
+lower.Part:SetAttribute("GroveGrowthOrder", 2)
+upper.Part:SetAttribute("GroveGrowthOrder", 1)
+Allocation.Assign(records, model)
+check("manual trunk order can invert automatic height sorting",
+	near(upper.At, 0) and near(upper.NativeAt, 0.5 * 20 / 30)
+		and near(lower.At, upper.NativeAt) and near(lower.NativeAt, 0.5))
+
 model:Destroy()
 check("30 seconds makes six five-second steps",
 	Rules.DurationForSize(1) / Rules.SECONDS_PER_VISUAL_STEP == 6)
