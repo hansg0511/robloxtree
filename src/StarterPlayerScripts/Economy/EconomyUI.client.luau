@@ -1003,10 +1003,20 @@ local function renderAxeDetail(axe)
 	detailStatus.TextColor3 = if hasAxe and axe.Equipped then COLORS.BagAction else COLORS.BagMuted
 	detailValue.Text = ""
 	detailSize.Text = ""
-	-- Keep the details panel deliberately spacious for real future axe stats;
-	-- do not display invented or placeholder progression information.
-	detailExtraLabel.Visible = false
-	detailExtraValue.Visible = false
+	-- Show persisted *actual* rolls for experimental weapons, never
+	-- projected or invented stats. Normal axes keep their existing layout.
+	local hasRolls = hasAxe and axe.Experimental == true
+		and type(axe.MaterialQuality) == "number"
+		and type(axe.AttacksPerSecond) == "number"
+		and type(axe.Reach) == "number"
+	detailExtraLabel.Text = "FORGED MATERIAL & STATS"
+	detailExtraValue.Text = if hasRolls then string.format(
+		"LOG Q %.1f%%  •  %.2f HITS/S  •  %.2fx REACH",
+		axe.MaterialQuality * 100, axe.AttacksPerSecond, axe.Reach)
+		else ""
+	detailExtraValue.TextWrapped = true
+	detailExtraLabel.Visible = hasRolls
+	detailExtraValue.Visible = hasRolls
 	favoriteButton.Visible = false
 end
 
