@@ -1,5 +1,7 @@
 # Crafting balance sandbox — first mathematical experiment
 
+> **New Studio integration:** The formulas in this offline sandbox now have an **opt-in Roblox Studio-only experimental forge implementation** in `src/ReplicatedStorage/Shared/ExperimentalForgeRules.luau`, `ShopHandler.server.luau`, and the existing forge UI. See **[EXPERIMENTAL_FORGE_PLAYTEST.md](EXPERIMENTAL_FORGE_PLAYTEST.md)** for exactly what is playable and what remains placeholder. The current fixed Copper/Iron forge is still available; this Python simulation remains useful for bulk balance experiments.
+
 **Status:** OFFLINE DESIGN PROTOTYPE. No live Roblox forge, equipment, damage, UI, inventories, or save files have been changed. All numerical balance values are placeholders, not agreed final economy values.
 
 Run from the repository root (standard Python 3.10+, no third-party packages):
