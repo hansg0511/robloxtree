@@ -1,11 +1,7 @@
--- Roblox Studio SERVER Command Bar; checks size-derived growth without
--- hardcoding the active prototype's visual cadence into every assertion.
+-- Roblox Studio SERVER Command Bar. Fixed 30-second Grove pacing tests.
+-- Existing records with different persisted deadlines must remain unchanged.
 local rules = require(game.ServerScriptService.Grove.GroveGrowthRules)
 local function check(name, ok) assert(ok, name .. " failed") end
-local cadence = rules.SECONDS_PER_VISUAL_STEP
-local baselineSteps = rules.StepsForSize(1)
-local baseDuration = rules.DurationForSize(1)
-local stumpHold = rules.STUMP_SECONDS
 
 check("old size migrates to genetic potential", rules.NormalizeCurrentSize(nil, 1.7) == 1.7)
 check("old harvest count migrates to zero", rules.NormalizeHarvestCount(nil) == 0)
@@ -17,87 +13,73 @@ check("higher roll bigger size", rules.RollSize(1.5, 0.8) > rules.RollSize(1.5, 
 check("reject invalid gene", rules.RollSize(5, 0.5) == nil)
 check("reject invalid roll", rules.RollSize(1, 1.5) == nil)
 
-check("valid shared step interval", type(cadence) == "number"
-	and cadence >= 1 and cadence % 1 == 0)
-check("baseline six steps for size 1", baselineSteps == 6)
-check("baseline duration derives from cadence",
-	baseDuration == baselineSteps * cadence)
-check("small trees get fewer steps", rules.StepsForSize(0.7) == 4)
-check("large trees get more steps", rules.StepsForSize(1.5) == 9)
-check("duration derives from size and shared step interval",
-	rules.DurationForSize(0.7) == 4 * cadence
-		and rules.DurationForSize(1.5) == 9 * cadence)
-check("bounded steps", rules.StepsForSize(0.05) == 3
-	and rules.StepsForSize(9) == 18)
-check("reject invalid size", rules.StepsForSize(-1) == nil
+check("two seconds per interval", rules.SECONDS_PER_VISUAL_STEP == 2)
+check("fixed total maturation of 30 seconds", rules.MATURITY_SECONDS == 30)
+check("fifteen intervals per growth cycle", rules.TOTAL_CYCLE_STEPS == 15)
+for _, size in ipairs({ 0.1, 0.5, 0.7, 1, 1.5, 2, 5 }) do
+	check("steps independent of size " .. size, rules.StepsForSize(size) == 15)
+	check("duration independent of size " .. size, rules.DurationForSize(size) == 30)
+end
+check("invalid size rejected", rules.StepsForSize(-1) == nil
 	and rules.DurationForSize(-1) == nil)
-check("stump hold exceeds cinematic delay", stumpHold > 2.6)
-check("stump hold aligns to global cadence", stumpHold % cadence == 0)
+check("4-second post-harvest stump included in 30-second cycle",
+	rules.STUMP_SECONDS == 4 and rules.STUMP_SECONDS < rules.MATURITY_SECONDS)
 
 local planted = 1000
-local initial = {
-	PlantedAt = planted, MaturesAt = planted + baseDuration, HarvestCount = 0,
-}
-local regrow = {
-	PlantedAt = planted,
-	MaturesAt = planted + stumpHold + baseDuration, HarvestCount = 1,
-}
-check("first planting starts as sapling", rules.Stage(initial, planted) == "sapling")
-check("first planting progresses to young",
-	rules.Stage(initial, planted + math.floor(baseDuration * 0.5)) == "young")
-check("first planting matures at derived deadline",
-	rules.Stage(initial, initial.MaturesAt) == "mature")
-check("regrowth stays stump through hold",
-	rules.Stage(regrow, planted + stumpHold - 1) == "stump")
-check("regrowth has real sapling phase after hold",
-	rules.Stage(regrow, planted + stumpHold) == "sapling")
-check("regrowth progresses to young",
-	rules.Stage(regrow, planted + stumpHold + math.floor(baseDuration * 0.5)) == "young")
-check("regrowth matures at derived deadline",
-	rules.Stage(regrow, regrow.MaturesAt) == "mature")
+local plantedCycle = { PlantedAt = planted, MaturesAt = 1030, HarvestCount = 0 }
+local regrownCycle = { PlantedAt = planted, MaturesAt = 1030, HarvestCount = 1 }
 
-for _, cycle in ipairs({
-	{ Record = initial, Start = planted },
-	{ Record = regrow, Start = planted + stumpHold },
-}) do
-	for step = 0, baselineSteps do
+check("initial sapling", rules.Stage(plantedCycle, planted) == "sapling")
+check("initial young", rules.Stage(plantedCycle, 1015) == "young")
+check("initial mature at 30 seconds", rules.Stage(plantedCycle, 1030) == "mature")
+check("regrowth stump through 4-second hold", rules.Stage(regrownCycle, 1003) == "stump")
+check("regrowth sapling after stump", rules.Stage(regrownCycle, 1004) == "sapling")
+check("regrowth young", rules.Stage(regrownCycle, 1017) == "young")
+check("regrowth mature at SAME 30-second deadline",
+	rules.Stage(regrownCycle, 1030) == "mature")
+
+local function checkSteps(record, firstTime, expectedTotal)
+	for step = 0, expectedTotal do
 		local fraction, actual, total = rules.VisualProgress(
-			cycle.Record, cycle.Start + step * cadence)
-		check("step derived from elapsed time", actual == step and total == baselineSteps)
-		check("visual fraction matches derived step",
-			math.abs(fraction - step / baselineSteps) < 0.0001)
+			record, firstTime + step * 2)
+		check("correct step " .. step, actual == step and total == expectedTotal)
+		check("fraction at step " .. step,
+			math.abs(fraction - step / expectedTotal) < 0.0001)
 	end
-	check("no jump before interval finishes",
-		select(2, rules.VisualProgress(cycle.Record, cycle.Start + cadence - 1)) == 0)
-	check("mature visuals remain at final step",
-		select(2, rules.VisualProgress(cycle.Record, cycle.Record.MaturesAt + 10))
-			== baselineSteps)
+	check("no advance before first 2-second boundary",
+		select(2, rules.VisualProgress(record, firstTime + 1)) == 0)
+	check("mature visual remains complete",
+		select(2, rules.VisualProgress(record, 1040)) == expectedTotal)
 end
-check("cinematic stump visual stays at step zero",
-	select(2, rules.VisualProgress(regrow, planted + stumpHold - 1)) == 0)
 
--- Existing records keep their previous MaturesAt even with new prototype
--- settings; legacy deadlines that don't align to the cadence still finish.
+checkSteps(plantedCycle, 1000, 15)
+-- Regrowth uses two initial 2-second intervals for the fall/stump, then
+-- 13 growth intervals. Both total exactly 15 intervals / 30 seconds.
+checkSteps(regrownCycle, 1004, 13)
+check("regrowth stays at visual step 0 during falling cinematic",
+	select(2, rules.VisualProgress(regrownCycle, 1003)) == 0)
+
+local cycleSmall = rules.NextCycle({ SizePotential = 0.7, HarvestCount = 2 }, 2000, 0.4)
+local cycleLarge = rules.NextCycle({ SizePotential = 1.9, HarvestCount = 2 }, 2000, 0.4)
+check("both new regrowth cycles valid", cycleSmall and cycleLarge)
+check("both sizes mature at EXACTLY the same 30-second deadline",
+	cycleSmall.MaturesAt == 2030 and cycleLarge.MaturesAt == 2030)
+check("rolled sizes still differ", cycleSmall.CurrentSizeScale < cycleLarge.CurrentSizeScale)
+check("lineage isn't modified", cycleSmall.SourceSaplingUID == nil)
+check("harvest count increments once", cycleSmall.HarvestCount == 3)
+check("invalid cycle rejected", rules.NextCycle({ SizePotential = 0 }, 2000, 0.5) == nil)
+
+-- Legacy persisted cycle deadlines remain authoritative; we do not
+-- rewrite or restart a tree that is already partway through growth.
 local legacy = { PlantedAt = planted, MaturesAt = 1045, HarvestCount = 1 }
-local legacyTotal = math.ceil((legacy.MaturesAt - planted - stumpHold) / cadence)
-check("legacy total steps use persisted timing",
-	select(3, rules.VisualProgress(legacy, planted)) == legacyTotal)
-check("legacy remains harvestable at its original deadline",
-	select(2, rules.VisualProgress(legacy, 1045)) == legacyTotal)
-local long = { PlantedAt = planted, MaturesAt = 1120, HarvestCount = 0 }
-check("long saved timeline steps derived from its timestamps",
-	select(3, rules.VisualProgress(long, planted)) == math.ceil(120 / cadence))
+check("legacy deadline still determines growth steps",
+	select(3, rules.VisualProgress(legacy, planted)) == math.ceil((45 - 4) / 2))
+check("legacy matures only at saved deadline",
+	rules.Stage(legacy, 1044) ~= "mature"
+		and rules.Stage(legacy, 1045) == "mature")
+check("legacy visuals finish at saved deadline",
+	select(2, rules.VisualProgress(legacy, 1045))
+		== select(3, rules.VisualProgress(legacy, planted)))
 
-local cycle = rules.NextCycle({ SizePotential = 1.6, HarvestCount = 7 }, 2000, 0.6)
-check("new cycle created", type(cycle) == "table")
-check("source identity not part of cycle", cycle.SourceSaplingUID == nil)
-check("new cycle within genetic cap",
-	cycle.CurrentSizeScale > 0 and cycle.CurrentSizeScale <= 1.6)
-check("regrowth maturity includes stump hold and size-derived duration",
-	cycle.MaturesAt == 2000 + stumpHold
-		+ rules.DurationForSize(cycle.CurrentSizeScale))
-check("harvest count increments once", cycle.HarvestCount == 8)
-check("reject invalid cycle", rules.NextCycle({ SizePotential = 0 }, 2000, 0.5) == nil)
-
-print("Grove size-derived step timing passed; active cadence:", cadence, "seconds")
+print("Grove fixed 30-second/2-second-step growth checks passed")
 return true
