@@ -695,7 +695,7 @@ local function updateRuntimeStages()
 			local stageChanged = stage ~= treeObject.GroveStage
 			local progress = GroveGrowthRules.VisualProgress(record, now)
 			-- Server polls every second for harvest stage changes, but visible
-			-- geometry changes only at the 5-second milestone boundaries.
+			-- geometry changes only at the configured visual milestone boundaries.
 			if treeObject:SetGroveStage(stage, progress) and stageChanged then
 				local player = Players:GetPlayerByUserId(treeObject.OwnerUserId)
 				if player then ownersChanged[player] = true end
