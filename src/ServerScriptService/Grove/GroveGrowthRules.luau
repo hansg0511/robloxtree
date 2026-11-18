@@ -2,18 +2,15 @@
 -- stays fixed while each mature growth cycle rolls a bounded actual size.
 local Rules = {}
 
--- Provisional fast-playtest pacing. A tree's total step count is calculated
--- from its actual rolled size; its growth duration is then derived from that
--- step count and this single, globally configurable cadence.
+-- Temporary test pacing: all newly planted / regrowing Grove trees take
+-- exactly 30 seconds, regardless of actual or genetic size. There are
+-- fifteen two-second clock intervals in the entire cycle.
 Rules.SECONDS_PER_VISUAL_STEP = 2
-Rules.BASELINE_STEPS_AT_SIZE_ONE = 6
-Rules.MIN_VISUAL_STEPS = 3
-Rules.MAX_VISUAL_STEPS = 18
-Rules.MATURITY_SECONDS = Rules.BASELINE_STEPS_AT_SIZE_ONE * Rules.SECONDS_PER_VISUAL_STEP
-Rules.MIN_MATURITY_SECONDS = Rules.MIN_VISUAL_STEPS * Rules.SECONDS_PER_VISUAL_STEP
-Rules.MAX_MATURITY_SECONDS = Rules.MAX_VISUAL_STEPS * Rules.SECONDS_PER_VISUAL_STEP
--- Two-step regrowth stump hold: the harvest cinematic occupies ~2.6 sec,
--- so a new stump must not vanish before its next model spawns.
+Rules.MATURITY_SECONDS = 30
+Rules.TOTAL_CYCLE_STEPS = Rules.MATURITY_SECONDS / Rules.SECONDS_PER_VISUAL_STEP
+-- Following a harvest, the first two intervals are stump/cinematic hold
+-- (the falling tree presentation lasts ~2.6 seconds). They are INCLUDED in
+-- the 30-second deadline, not added on top.
 Rules.STUMP_SECONDS = Rules.SECONDS_PER_VISUAL_STEP * 2
 Rules.SAPLING_FRACTION = 0.25
 Rules.MIN_POTENTIAL = 0.1
@@ -25,22 +22,18 @@ local function finite(x)
 	return type(x) == "number" and x == x and x > -math.huge and x < math.huge
 end
 
--- Compute steps from ACTUAL rolled size, independent of wall-clock cadence.
--- Durations are derived values, not a separate table of fixed sizes/times.
--- Existing planted trees retain their persisted MaturesAt; only new growth
--- cycles use the current cadence and baseline step-count configuration.
+-- Keep the existing API while freezing size-dependent growth for testing.
+-- We validate the input but intentionally ignore its magnitude. Once we're
+-- ready to balance large-vs-small trees, only these rules need to change.
+-- Existing saved trees retain their MaturesAt rather than being retimed.
 function Rules.StepsForSize(currentSize)
 	if not finite(currentSize) or currentSize <= 0 then return nil end
-	return math.clamp(
-		math.floor(Rules.BASELINE_STEPS_AT_SIZE_ONE * currentSize + 0.5),
-		Rules.MIN_VISUAL_STEPS,
-		Rules.MAX_VISUAL_STEPS
-	)
+	return Rules.TOTAL_CYCLE_STEPS
 end
 
 function Rules.DurationForSize(currentSize)
-	local steps = Rules.StepsForSize(currentSize)
-	return if steps then steps * Rules.SECONDS_PER_VISUAL_STEP else nil
+	if not Rules.StepsForSize(currentSize) then return nil end
+	return Rules.MATURITY_SECONDS
 end
 
 function Rules.ValidPotential(x)
@@ -135,7 +128,7 @@ function Rules.NextCycle(record, now, roll)
 	if not size then return nil end
 	return {
 		PlantedAt = now,
-		MaturesAt = now + Rules.STUMP_SECONDS + Rules.DurationForSize(size),
+		MaturesAt = now + Rules.DurationForSize(size),
 		CurrentSizeScale = size,
 		HarvestCount = count + 1,
 	}
