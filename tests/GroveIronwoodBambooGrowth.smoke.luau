@@ -8,11 +8,11 @@ end
 local function preview(species, progress)
 	local model = Tree.BuildPreviewModel(species, {
 		GroveStage = if progress >= 1 then "mature" else "young",
-		SizePotential = 1, GrowthDurationSeconds = 30,
+		SizePotential = 1, GrowthDurationSeconds = 12,
 		GrowthProgress = progress,
 	})
 	check(species .. " preview", model ~= nil)
-	check("six steps for 30 seconds", model:GetAttribute("GroveGrowthVisualTotalSteps") == 6)
+	check("six steps for twelve seconds", model:GetAttribute("GroveGrowthVisualTotalSteps") == 6)
 	return model
 end
 
