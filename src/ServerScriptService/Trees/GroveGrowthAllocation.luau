@@ -71,12 +71,30 @@ local function allocateTrunk(records, model)
 	table.sort(records, compareParts)
 	local span = math.max(0.001, high - low)
 	local window = Allocation.DefaultWindows.trunk
+	local authoredOrder = false
+	local totalLength = 0
+	for _, record in ipairs(records) do
+		if finite(record.Part:GetAttribute("GroveGrowthOrder")) then
+			authoredOrder = true
+		end
+		totalLength += record.Part.Size.Y
+	end
+	local orderedLength = 0
 	for _, record in ipairs(records) do
 		if record.Bundle == "BambooCulms"
 			or record.Part:GetAttribute("GroveGrowthBundle") == "BambooCulms" then
 			-- Existing five-cane Bamboo visual is intentionally one bundle,
 			-- not five separate trunks popping up in sequence.
 			setWindow(record, window.Start + 0.06, window.Finish)
+		elseif authoredOrder then
+			-- For a strange curved/tapered structure, authors may supply a
+			-- deliberate sequence. Each source consumes its proportional
+			-- LENGTH of the trunk's total window; no geometry slicing.
+			setWindow(record,
+				window.Start + orderedLength / totalLength
+					* (window.Finish - window.Start),
+				window.Start + (orderedLength + record.Part.Size.Y) / totalLength
+					* (window.Finish - window.Start))
 		else
 			local bottom = math.min(originalFootHeight(record.Part, model),
 				originalTopHeight(record.Part, model))
@@ -86,6 +104,7 @@ local function allocateTrunk(records, model)
 				window.Start + (bottom - low) / span * (window.Finish - window.Start),
 				window.Start + (top - low) / span * (window.Finish - window.Start))
 		end
+		orderedLength += record.Part.Size.Y
 	end
 	return { Low = low, High = high }
 end
