@@ -369,9 +369,114 @@ local function restoreCraftLogs(player, recipe, removedLogs, sourceByUid)
 	end
 end
 
+-- Separate Studio-only transaction path. The original deterministic axe
+-- crafting handler below remains untouched for regression and fallback.
+local function craftExperimental(player, recipe, selectedLogUids)
+	if not RunService:IsStudio() or not canUseForge(player) then return end
+	if type(selectedLogUids) ~= "table"
+		or not ExperimentalForgeRules.ValidateCount(#selectedLogUids)
+		or not WeaponRecipeRules.IsExactUidSelection(selectedLogUids, #selectedLogUids)
+		or not validExperimentalOutputs(recipe) then return end
+
+	local profile, data = getProfileData(player)
+	if not profile or type(data.AxeHeads) ~= "table" then return end
+	local progress = data.RunProgress
+	if type(progress) ~= "table"
+		or not isNonnegativeInteger(progress.StandardAxeTier) then return end
+	local previousTier = progress.StandardAxeTier
+	if recipe.Tier > previousTier + 1 then return end
+	if not WorldProgressService.CanAccessForest(player, recipe.RequiredForestId) then return end
+	local head = catalog.FindAxeHead(recipe.HeadId)
+	if not head then return end
+	local headCount = data.AxeHeads[head.Id]
+	if not isNonnegativeInteger(headCount) or headCount < 1 then return end
+
+	-- TakeCraftLogUIDs confirms ALL exact UIDs and their ownership server-side,
+	-- across carry bag and protected storage. Never trust the client preview.
+	local removedLogs, sourceByUid = LogService.TakeCraftLogUIDs(
+		player, selectedLogUids, #selectedLogUids)
+	if not removedLogs or #removedLogs ~= #selectedLogUids then return end
+
+	local sourceMaterials = {}
+	for _, logRecord in ipairs(removedLogs) do
+		if type(logRecord) ~= "table" or logRecord.ItemType ~= "Log"
+			or not MaterialDefinitions.Get(logRecord.SpeciesId) then
+			restoreCraftLogs(player, recipe, removedLogs, sourceByUid)
+			return
+		end
+		table.insert(sourceMaterials, {
+			SourceUID = logRecord.UID,
+			SpeciesId = logRecord.SpeciesId,
+			SizeScale = logRecord.SizeScale,
+			Source = sourceByUid[logRecord.UID],
+			SourceType = logRecord.SourceType,
+			SourceGroveTreeUID = logRecord.SourceGroveTreeUID,
+			SourceSaplingUID = logRecord.SourceSaplingUID,
+			Mutations = cloneMutations(logRecord.Mutations),
+		})
+	end
+
+	local metal = if recipe.Tier == 1 then "Copper" else "Iron"
+	local rollOk, result = pcall(function()
+		return ExperimentalForgeRules.Roll(recipe.HeadBasePower,
+			removedLogs, Random.new())
+	end)
+	if not rollOk or type(result) ~= "table" or not recipe.Outputs[result.Class] then
+		restoreCraftLogs(player, recipe, removedLogs, sourceByUid)
+		return
+	end
+	local power = math.floor(result.Damage * 10 + 0.5) / 10
+	local weapon = {
+		ItemID = recipe.Outputs[result.Class],
+		UID = HttpService:GenerateGUID(false),
+		Stats = { Attack = math.max(0, power - catalog.BaseAttack) },
+		Substat = {},
+		Rarity = "Common",
+		WeaponData = {
+			RecipeId = recipe.Id,
+			WeaponKind = result.Class,
+			ExperimentalClass = result.Class,
+			Metal = metal,
+			AxeTier = recipe.Tier,
+			HeadId = recipe.HeadId,
+			CraftedPower = power,
+			MaterialQuality = result.MaterialQuality,
+			GoldenQuality = result.GoldenQuality,
+			AverageWoodStrength = result.AverageWoodStrength,
+			AttacksPerSecond = result.AttacksPerSecond,
+			Reach = result.Reach,
+			GoldenBonus = result.GoldenBonus, -- metadata; no secondary damage yet
+			Materials = sourceMaterials,
+		},
+	}
+
+	data.AxeHeads[head.Id] = headCount - 1
+	progress.StandardAxeTier = math.max(previousTier, recipe.Tier)
+	local ok, added = pcall(function()
+		return addShopItem:Invoke(player, weapon)
+	end)
+	if not ok or added ~= true then
+		data.AxeHeads[head.Id] = headCount
+		progress.StandardAxeTier = previousTier
+		restoreCraftLogs(player, recipe, removedLogs, sourceByUid)
+		return
+	end
+
+	LogService.NotifyState(player)
+	economyUpdated:FireClient(player, "Progression")
+end
+
 craftRecipe.OnServerEvent:Connect(function(player, recipeId, selectedLogUids, ...)
 	if select("#", ...) ~= 0 or not takeBudget(player, "CraftRecipe") then return end
 	if typeof(recipeId) ~= "string" or #recipeId < 1 or #recipeId > 64 then return end
+	-- Explicit Studio-only route. Other IDs always use the stable, fixed
+	-- standard crafting path below.
+	local experimentalRecipe = if RunService:IsStudio()
+		then catalog.FindExperimentalForgeRecipe(recipeId) else nil
+	if experimentalRecipe then
+		craftExperimental(player, experimentalRecipe, selectedLogUids)
+		return
+	end
 	local recipe = catalog.FindStandardAxeRecipe(recipeId)
 	local fixedOutput = WeaponRecipeRules.ResolveFixedOutput(recipe)
 	if not fixedOutput or not WeaponRecipeRules.IsExactUidSelection(selectedLogUids, recipe.RequiredLogCount) then return end
