@@ -1100,7 +1100,15 @@ function Tree.BuildPreviewModel(kind, context)
 	if kind ~= "WildOak" then
 		local progress = context.GrowthProgress
 		if not isFiniteNumber(progress) then progress = GROVE_PREVIEW_PROGRESS[stage] end
-		local growth = GroveGrowthVisuals.Prepare(model, speciesId)
+		-- Studio previews default to the growth step count implied by
+		-- their visual scale. Tests may override it explicitly.
+		local previewDuration = context.GrowthDurationSeconds
+		if not isFiniteNumber(previewDuration) or previewDuration <= 0 then
+			previewDuration = GroveGrowthRules.DurationForSize(currentScale)
+		end
+		local previewSteps = math.max(1, math.ceil(previewDuration
+			/ GroveGrowthRules.SECONDS_PER_VISUAL_STEP))
+		local growth = GroveGrowthVisuals.Prepare(model, speciesId, previewSteps)
 		if growth then
 			-- Prepare builds the stump before parenting. Apply accepts models
 			-- that are unparented ONLY for the Studio preview path.
@@ -1329,27 +1337,28 @@ function Tree:Spawn()
 	self.InteractionPart = interactionPart
 	self:BuildLeafPool()
 	if self.IsPersistentGrove then
-		self.GroveGrowthVisual = GroveGrowthVisuals.Prepare(model, self.SpeciesId)
 		local record = {
 			PlantedAt = self.GrovePlantedAt,
 			MaturesAt = self.GroveMaturesAt,
 			HarvestCount = self.GroveHarvestCount,
 		}
-		GroveGrowthVisuals.Apply(self.GroveGrowthVisual, GroveGrowthRules.Progress(record, os.time()))
+		local currentProgress, _, totalSteps = GroveGrowthRules.VisualProgress(record, os.time())
+		self.GroveGrowthVisual = GroveGrowthVisuals.Prepare(model, self.SpeciesId, totalSteps)
+		GroveGrowthVisuals.Apply(self.GroveGrowthVisual, currentProgress)
 		self:RefreshGroveHarvestPrompt()
 	end
 	return model
 end
 
--- Called by the server Grove clock once a second. Only visual parts become
--- visible; the model stays the same from first stump to final mature tree.
+-- Called by the server Grove clock (polled each second for stage changes).
+-- Geometry is updated only when the five-second visual milestone changes.
 function Tree:SetGroveStage(stage, progress)
 	if not self.IsPersistentGrove or not GROVE_STAGES[stage]
 		or not self.model or not self.model.Parent then return false end
 	local oldStage = self.GroveStage
 	self.GroveStage = stage
 	local fraction = if isFiniteNumber(progress) then progress
-		else GroveGrowthRules.Progress({
+		else GroveGrowthRules.VisualProgress({
 			PlantedAt = self.GrovePlantedAt,
 			MaturesAt = self.GroveMaturesAt,
 			HarvestCount = self.GroveHarvestCount,
