@@ -45,21 +45,19 @@ check("lower foliage starts before upper foliage",
 	lowLeaf.At < highLeaf.At)
 check("all foliage completes at maturity", near(highLeaf.NativeAt, 1))
 
--- At six steps, two unequal source Parts still have three meaningful
--- trunk growth milestones. At 24 steps, the same allocation gives more
--- intermediate heights; no model changes or magic 40-step denominator.
+-- At 15 steps, two unequal source Parts grow by height, not count.
+-- A 24-step animation would simply sample the same allocation more often.
 local function totalVisibleHeight(normalizedProgress)
 	local overallTip = math.clamp(normalizedProgress / 0.5, 0, 1) * 30
 	local lowHeight = math.clamp(overallTip, 0, 10)
 	local highHeight = math.clamp(overallTip - 10, 0, 20)
 	return lowHeight, highHeight
 end
-local firstLow, firstHigh = totalVisibleHeight(1/6)
-check("six-step sample 1 shows 10-stud lower Part", near(firstLow, 10))
-check("six-step sample 1 upper Part not yet grown", near(firstHigh, 0))
-local secondLow, secondHigh = totalVisibleHeight(2/6)
-check("six-step sample 2 upper Part partially grown",
-	near(secondLow, 10) and near(secondHigh, 10))
+local firstLow, firstHigh = totalVisibleHeight(1/15)
+check("first 15-step update begins extending lower trunk", near(firstLow, 4))
+check("first 15-step update upper Part still hidden", near(firstHigh, 0))
+local secondLow, secondHigh = totalVisibleHeight(5/15)
+check("later update extends upper Part", near(secondLow, 10) and near(secondHigh, 10))
 local longLow, longHigh = totalVisibleHeight(1/24)
 check("longer cycle has smaller first increment",
 	longLow < firstLow and near(longHigh, 0))
@@ -81,8 +79,10 @@ check("manual trunk order can invert automatic height sorting",
 		and near(lower.At, upper.NativeAt) and near(lower.NativeAt, 0.5))
 
 model:Destroy()
-check("growth steps and total duration derive from shared cadence",
-	Rules.StepsForSize(1) == 6
-		and Rules.DurationForSize(1) / Rules.SECONDS_PER_VISUAL_STEP == 6)
+check("all plant sizes use 15 steps, each two seconds",
+	Rules.StepsForSize(0.7) == 15
+		and Rules.StepsForSize(1.7) == 15
+		and Rules.DurationForSize(1) == 30
+		and Rules.DurationForSize(1) / Rules.SECONDS_PER_VISUAL_STEP == 15)
 print("Generic sequential Grove growth allocation checks passed")
 return true
