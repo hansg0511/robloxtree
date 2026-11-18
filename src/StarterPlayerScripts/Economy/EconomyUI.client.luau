@@ -1921,7 +1921,15 @@ end)
 
 local legacyEconomyUpdated = economy:FindFirstChild("EconomyUpdated")
 if legacyEconomyUpdated then
-	legacyEconomyUpdated.OnClientEvent:Connect(function(currency)
+	legacyEconomyUpdated.OnClientEvent:Connect(function(currency, payload)
+		if currency == "ForgeResult" and type(payload) == "table"
+			and type(payload.Class) == "string"
+			and type(payload.Metal) == "string"
+			and finiteForgeNumber(payload.Power) then
+			showFeedback(string.format("FORGED %s %s!  %.1f POWER  •  %.0f%% QUALITY",
+				payload.Metal:upper(), payload.Class:upper(), payload.Power,
+				(tonumber(payload.Quality) or 0) * 100), COLORS.Gold)
+		end
 		if currency == "Coins" or currency == "Progression" then
 			refreshLogs()
 			if shopOverlay.Visible or forgeOverlay.Visible or (bagOverlay.Visible and activeBagTab == "Axes") then refreshShop() end
