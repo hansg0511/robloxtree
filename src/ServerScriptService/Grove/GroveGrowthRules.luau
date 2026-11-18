@@ -2,13 +2,19 @@
 -- stays fixed while each mature growth cycle rolls a bounded actual size.
 local Rules = {}
 
--- Prototype tuning: each visible milestone advances once per five seconds.
--- Tree duration is computed from the rolled actual size, not genetic maximum.
-Rules.SECONDS_PER_VISUAL_STEP = 5
-Rules.MATURITY_SECONDS = 30 -- base duration for a 1.0-sized tree
-Rules.MIN_MATURITY_SECONDS = 15
-Rules.MAX_MATURITY_SECONDS = 90
-Rules.STUMP_SECONDS = 5
+-- Provisional fast-playtest pacing. A tree's total step count is calculated
+-- from its actual rolled size; its growth duration is then derived from that
+-- step count and this single, globally configurable cadence.
+Rules.SECONDS_PER_VISUAL_STEP = 2
+Rules.BASELINE_STEPS_AT_SIZE_ONE = 6
+Rules.MIN_VISUAL_STEPS = 3
+Rules.MAX_VISUAL_STEPS = 18
+Rules.MATURITY_SECONDS = Rules.BASELINE_STEPS_AT_SIZE_ONE * Rules.SECONDS_PER_VISUAL_STEP
+Rules.MIN_MATURITY_SECONDS = Rules.MIN_VISUAL_STEPS * Rules.SECONDS_PER_VISUAL_STEP
+Rules.MAX_MATURITY_SECONDS = Rules.MAX_VISUAL_STEPS * Rules.SECONDS_PER_VISUAL_STEP
+-- Two-step regrowth stump hold: the harvest cinematic occupies ~2.6 sec,
+-- so a new stump must not vanish before its next model spawns.
+Rules.STUMP_SECONDS = Rules.SECONDS_PER_VISUAL_STEP * 2
 Rules.SAPLING_FRACTION = 0.25
 Rules.MIN_POTENTIAL = 0.1
 Rules.MAX_POTENTIAL = 2
@@ -19,15 +25,22 @@ local function finite(x)
 	return type(x) == "number" and x == x and x > -math.huge and x < math.huge
 end
 
--- Round growth time to an exact whole number of five-second milestones.
--- Existing planted trees keep their persisted MaturesAt; only NEW cycles
--- use this function so mid-growth saves are not unexpectedly retimed.
-function Rules.DurationForSize(currentSize)
+-- Compute steps from ACTUAL rolled size, independent of wall-clock cadence.
+-- Durations are derived values, not a separate table of fixed sizes/times.
+-- Existing planted trees retain their persisted MaturesAt; only new growth
+-- cycles use the current cadence and baseline step-count configuration.
+function Rules.StepsForSize(currentSize)
 	if not finite(currentSize) or currentSize <= 0 then return nil end
-	local steps = math.floor(Rules.MATURITY_SECONDS * currentSize
-		/ Rules.SECONDS_PER_VISUAL_STEP + 0.5)
-	return math.clamp(steps * Rules.SECONDS_PER_VISUAL_STEP,
-		Rules.MIN_MATURITY_SECONDS, Rules.MAX_MATURITY_SECONDS)
+	return math.clamp(
+		math.floor(Rules.BASELINE_STEPS_AT_SIZE_ONE * currentSize + 0.5),
+		Rules.MIN_VISUAL_STEPS,
+		Rules.MAX_VISUAL_STEPS
+	)
+end
+
+function Rules.DurationForSize(currentSize)
+	local steps = Rules.StepsForSize(currentSize)
+	return if steps then steps * Rules.SECONDS_PER_VISUAL_STEP else nil
 end
 
 function Rules.ValidPotential(x)
@@ -75,16 +88,23 @@ function Rules.Progress(record, now)
 	return math.clamp((now - start) / duration, 0, 1)
 end
 
--- Discrete presentation-only progress: the server still checks maturity
--- against MaturesAt. Step zero holds the stump for the first five seconds,
--- including after harvest; step one begins the new trunk. The server polls
--- every second, but geometry only changes at five-second boundaries.
+-- Discrete presentation-only progress. At initial planting, step zero is
+-- the starting stump view; on regrowth, the harvested stump remains through
+-- the separate cinematic/stump hold. Afterwards geometry advances at the
+-- configured cadence. MaturesAt remains the only authoritative harvest gate.
 function Rules.VisualProgress(record, now)
 	if type(record) ~= "table" or not finite(record.PlantedAt)
 		or not finite(record.MaturesAt) or not finite(now)
 		or record.MaturesAt <= record.PlantedAt then return 0, 0, 0 end
 	local start = record.PlantedAt
+	if Rules.NormalizeHarvestCount(record.HarvestCount) > 0 then
+		start += Rules.STUMP_SECONDS
+	end
 	local duration = record.MaturesAt - start
+	if duration <= 0 then
+		local done = now >= record.MaturesAt
+		return if done then 1 else 0, if done then 1 else 0, 1
+	end
 	local total = math.max(1, math.ceil(duration / Rules.SECONDS_PER_VISUAL_STEP))
 	local step = math.clamp(math.floor((now - start) / Rules.SECONDS_PER_VISUAL_STEP), 0, total)
 	if now >= record.MaturesAt then step = total end
@@ -112,7 +132,7 @@ function Rules.NextCycle(record, now, roll)
 	if not size then return nil end
 	return {
 		PlantedAt = now,
-		MaturesAt = now + Rules.DurationForSize(size),
+		MaturesAt = now + Rules.STUMP_SECONDS + Rules.DurationForSize(size),
 		CurrentSizeScale = size,
 		HarvestCount = count + 1,
 	}
