@@ -32,7 +32,7 @@ local function describe(model)
 end
 
 -- These represent preview sample fractions; the renderer snaps each one to
--- the available five-second milestones for that specific size.
+-- the available two-second milestones for that specific size.
 local phases = { 0, 1 / 6, 0.50, 5 / 6, 1 }
 for _, kind in ipairs({ "GroveOak", "Bamboo", "Ironwood" }) do
 	local series = {}
@@ -48,7 +48,7 @@ for _, kind in ipairs({ "GroveOak", "Bamboo", "Ironwood" }) do
 		local steps = model:GetAttribute("GroveGrowthVisualTotalSteps")
 		check(kind .. " total steps assigned", type(steps) == "number" and steps >= 1)
 		local expectedStep = math.floor(progress * steps + 1e-6)
-		check(kind .. " five-second milestone",
+		check(kind .. " two-second milestone",
 			model:GetAttribute("GroveGrowthVisualStep") == expectedStep)
 		check(kind .. " progress metadata",
 			math.abs((model:GetAttribute("GroveGrowthProgress") or -1)
@@ -112,7 +112,7 @@ end
 
 check("growth progress begins at zero",
 	GrowthRules.Progress({ PlantedAt = 1000, MaturesAt = 1045, HarvestCount = 0 }, 1000) == 0)
-check("regrowth holds stump 5 sec",
+check("legacy regrowth initial progress holds during stump",
 	GrowthRules.Progress({ PlantedAt = 1000, MaturesAt = 1045, HarvestCount = 1 }, 1004) == 0)
 check("regrowth finishes at 45 sec",
 	GrowthRules.Progress({ PlantedAt = 1000, MaturesAt = 1045, HarvestCount = 1 }, 1045) == 1)
