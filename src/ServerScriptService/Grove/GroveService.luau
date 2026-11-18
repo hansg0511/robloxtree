@@ -18,7 +18,8 @@ GroveService.Constants = {
 	Capacity = 25,
 	PlacementMargin = 2,
 	MinimumSpacing = 4.5,
-	MaturitySeconds = GroveGrowthRules.MATURITY_SECONDS,
+	MaturitySeconds = GroveGrowthRules.MATURITY_SECONDS, -- 1.0-size prototype baseline only
+	SecondsPerVisualStep = GroveGrowthRules.SECONDS_PER_VISUAL_STEP,
 	SaplingStageFraction = GroveGrowthRules.SAPLING_FRACTION,
 	StumpSeconds = GroveGrowthRules.STUMP_SECONDS,
 	PlantRequestCooldownSeconds = 0.75,
@@ -631,19 +632,23 @@ local function plantSapling(player, saplingUID, localX, localZ)
 	if not uid then return false end
 	local now = os.time()
 	local yaw = Random.new():NextNumber(0, math.pi * 2)
+	local rolledSize = GroveGrowthRules.RollSize(sapling.SizePotential, Random.new():NextNumber())
+	if not rolledSize then return false end
+	local duration = GroveGrowthRules.DurationForSize(rolledSize)
+	if not duration then return false end
 	local groveRecord = {
 		UID = uid,
 		SourceSaplingUID = sapling.UID,
 		SpeciesId = sapling.SpeciesId,
 		Mutations = copyMutations(sapling.Mutations),
 		SizePotential = sapling.SizePotential,
-		CurrentSizeScale = GroveGrowthRules.RollSize(sapling.SizePotential, Random.new():NextNumber()),
+		CurrentSizeScale = rolledSize,
 		HarvestCount = 0,
 		LocalX = localX,
 		LocalZ = localZ,
 		Yaw = yaw,
 		PlantedAt = now,
-		MaturesAt = now + GroveService.Constants.MaturitySeconds,
+		MaturesAt = now + duration,
 	}
 
 	-- Spawn before consuming. A missing visual or failed TreeObject leaves the
@@ -688,9 +693,9 @@ local function updateRuntimeStages()
 			}
 			local stage = deriveStage(record, now)
 			local stageChanged = stage ~= treeObject.GroveStage
-			local progress = GroveGrowthRules.Progress(record, now)
-			-- Reveal the finished model's parts every tick, not just when the
-			-- legacy sapling/young/mature status label changes.
+			local progress = GroveGrowthRules.VisualProgress(record, now)
+			-- Server polls every second for harvest stage changes, but visible
+			-- geometry changes only at the 5-second milestone boundaries.
 			if treeObject:SetGroveStage(stage, progress) and stageChanged then
 				local player = Players:GetPlayerByUserId(treeObject.OwnerUserId)
 				if player then ownersChanged[player] = true end
