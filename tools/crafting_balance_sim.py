@@ -198,7 +198,7 @@ def main() -> None:
         ("20x ordinary Oak", 20, "Oak", 1.0),
     ):
         r = simulate_case(n, size, species, args.samples, args.seed)
-        o = r["class_odds"]
+        o = r['class_odds']
         print(f"{title:<28} | {r['quality']:>5.0%} | {o['Dagger']:>5.0%}  | {o['Axe']:>5.0%} | {o['Battlehammer']:>6.0%} | {r['dps']:>8.1f} | {r['dps_per_log']:>7.1f}")
 
     print("\nMUTATION DILUTION (Golden potency is its own quality-weighted stat)")
