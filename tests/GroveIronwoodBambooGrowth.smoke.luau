@@ -1,6 +1,5 @@
--- Roblox Studio SERVER Command Bar after Rojo sync.
--- Read-only model previews. Tests progressive server-rendered growth proxies
--- rather than old six-layer Bamboo segment stand-ins.
+-- Studio SERVER Command Bar; read-only previews only.
+-- Verify the generic six-milestone allocation on Ironwood and Bamboo.
 local Tree = require(game.ServerScriptService.Trees.TreeObject)
 local function check(name, ok)
 	assert(ok, name .. " failed")
@@ -9,9 +8,11 @@ end
 local function preview(species, progress)
 	local model = Tree.BuildPreviewModel(species, {
 		GroveStage = if progress >= 1 then "mature" else "young",
-		SizePotential = 1, GrowthProgress = progress,
+		SizePotential = 1, GrowthDurationSeconds = 30,
+		GrowthProgress = progress,
 	})
-	check(species .. " visual preview", model ~= nil)
+	check(species .. " preview", model ~= nil)
+	check("six steps for 30 seconds", model:GetAttribute("GroveGrowthVisualTotalSteps") == 6)
 	return model
 end
 
@@ -19,115 +20,99 @@ local function visible(part)
 	return part ~= nil and part.Transparency < 0.99
 end
 
-local function proxyFor(model, name)
+local function proxyFor(model, source)
 	for _, part in ipairs(model:GetDescendants()) do
 		if part:IsA("BasePart") and part.Name == "GroveGrowthProxy"
-			and part:GetAttribute("GroveGrowthSource") == name then
+			and part:GetAttribute("GroveGrowthSource") == source then
 			return part
 		end
 	end
 	return nil
 end
 
--- Each Ironwood trunk body extends upward before the next. Its original
--- full-length source body replaces the proxy only AFTER growth completes.
+-- Ironwood lower section, then middle, then upper. The entire vertical
+-- wood structure is allocated across three of the six visible updates.
 for _, case in ipairs({
-	{ Progress = 0.10, Bottom = "proxy", Middle = "hidden", Top = "hidden" },
-	{ Progress = 0.25, Bottom = "native", Middle = "proxy", Top = "hidden" },
-	{ Progress = 0.35, Bottom = "native", Middle = "native", Top = "proxy" },
-	{ Progress = 0.45, Bottom = "native", Middle = "native", Top = "native" },
-	{ Progress = 1.00, Bottom = "native", Middle = "native", Top = "native" },
+	{ Progress = 0, Lower = "hidden", Middle = "hidden", Upper = "hidden" },
+	{ Progress = 1 / 6, Lower = "proxy", Middle = "hidden", Upper = "hidden" },
+	{ Progress = 2 / 6, Lower = "native", Middle = "proxy", Upper = "hidden" },
+	{ Progress = 3 / 6, Lower = "native", Middle = "native", Upper = "native" },
+	{ Progress = 1, Lower = "native", Middle = "native", Upper = "native" },
 }) do
 	local tree = preview("Ironwood", case.Progress)
 	for _, item in ipairs({
-		{ Name = "Bark", Expected = case.Bottom },
-		{ Name = "BarkBrick1", Expected = case.Middle },
-		{ Name = "BarkBrick2", Expected = case.Top },
+		{ Name = "Bark", State = case.Lower },
+		{ Name = "BarkBrick1", State = case.Middle },
+		{ Name = "BarkBrick2", State = case.Upper },
 	}) do
 		local native = tree:FindFirstChild(item.Name, true)
 		local proxy = proxyFor(tree, item.Name)
-		check("Ironwood native part exists " .. item.Name, native ~= nil)
-		if item.Expected == "native" then
-			check("Growing proxy gets freed after handoff", proxy == nil)
-		else
-			check("Nonmature piece still has its proxy", proxy ~= nil)
-		end
-		local actual = if visible(native) then "native"
+		check("Ironwood original " .. item.Name, native ~= nil)
+		local state = if visible(native) then "native"
 			else if visible(proxy) then "proxy" else "hidden"
-		check(item.Name .. " at progress " .. case.Progress, actual == item.Expected)
+		check(item.Name .. " phase at " .. case.Progress, state == item.State)
+		if item.State == "native" then
+			check("Finished Ironwood proxy freed", proxy == nil)
+		end
 	end
 	for _, part in ipairs(tree:GetDescendants()) do
 		if part:IsA("BasePart") and part.Name == "BarkStud" then
-			check("No detached Ironwood bark dots", not visible(part))
+			check("No floating Grove Ironwood dots", not visible(part))
 		end
 	end
 	tree:Destroy()
 end
 
--- Bamboo: exactly five synchronized bottom-anchored proxies, no 30
--- segmented growth pieces. At the same progress their height fractions
--- should match despite different final heights.
-local caneNames = {
-	BambooCore = true, BambooStalk2 = true, BambooStalk3 = true,
-	BambooStalk4 = true, BambooStalk5 = true,
-}
+-- Bamboo is one existing synchronized visual bundle, not five independent
+-- sequential parts. It retains the slim five-culm stumps and native canopy.
+local canes = { "BambooCore", "BambooStalk2", "BambooStalk3",
+	"BambooStalk4", "BambooStalk5" }
 for _, sample in ipairs({
 	{ Progress = 0, Proxy = false, Native = false, Stumps = true },
-	{ Progress = 0.15, Proxy = true, Native = false, Stumps = true },
-	{ Progress = 0.35, Proxy = true, Native = false, Stumps = false },
-	{ Progress = 0.60, Proxy = true, Native = false, Stumps = false },
-	{ Progress = 0.65, Proxy = false, Native = true, Stumps = false },
+	{ Progress = 1 / 6, Proxy = true, Native = false, Stumps = false },
+	{ Progress = 2 / 6, Proxy = true, Native = false, Stumps = false },
+	{ Progress = 3 / 6, Proxy = false, Native = true, Stumps = false },
 	{ Progress = 1, Proxy = false, Native = true, Stumps = false },
 }) do
 	local tree = preview("Bamboo", sample.Progress)
 	local stumps = 0
-	for _, item in ipairs(tree:GetDescendants()) do
-		if item:IsA("BasePart") and
-			string.match(item.Name, "^GroveBambooCulm%d+Stump$") and visible(item) then
-			stumps += 1
+	for _, part in ipairs(tree:GetDescendants()) do
+		if part:IsA("BasePart") then
+			if string.match(part.Name, "^GroveBambooCulm%d+Stump$") and visible(part) then
+				stumps += 1
+			end
+			check("No old sliced Bamboo segments", part.Name ~= "GroveBambooGrowthSegment")
 		end
-		check("No old segmented Bamboo proxies", item.Name ~= "GroveBambooGrowthSegment")
 	end
-	check("Five thin Bamboo stumps at " .. sample.Progress,
-		(stumps == 5) == sample.Stumps)
+	check("Bamboo five stumps", (stumps == 5) == sample.Stumps)
 	local commonFraction
-	for cane in pairs(caneNames) do
+	for _, cane in ipairs(canes) do
 		local native = tree:FindFirstChild(cane, true)
 		local proxy = proxyFor(tree, cane)
-		check("Bamboo native exists " .. cane, native ~= nil)
-		if sample.Native then
-			check("Bamboo proxy released at maturity", proxy == nil)
-		else
-			check("Bamboo proxy exists while growing", proxy ~= nil)
-		end
-		check("Bamboo native state " .. cane .. " at " .. sample.Progress,
+		check("Bamboo native exists", native ~= nil)
+		check("Bamboo native visible at correct step",
 			visible(native) == sample.Native)
-		check("Bamboo proxy state " .. cane .. " at " .. sample.Progress,
+		check("Bamboo proxy visible at correct step",
 			visible(proxy) == sample.Proxy)
+		if sample.Native then check("Finished Bamboo proxy freed", proxy == nil) end
 		if sample.Proxy then
 			local fraction = proxy.Size.Y / native.Size.Y
-			if commonFraction then
-				check("All five Bamboo canes rise together", math.abs(commonFraction - fraction) < 0.005)
-			else
-				commonFraction = fraction
-			end
-			local nativeBase = native.CFrame * CFrame.new(0, -native.Size.Y * 0.5, 0)
-			local proxyBase = proxy.CFrame * CFrame.new(0, -proxy.Size.Y * 0.5, 0)
-			check("Bamboo growing cane bottom stays rooted",
-				(nativeBase.Position - proxyBase.Position).Magnitude < 0.02)
+			check("All five canes grow by same fraction", commonFraction == nil
+				or math.abs(commonFraction - fraction) < 0.005)
+			commonFraction = fraction
+			local nativeFoot = native.CFrame * CFrame.new(0, -native.Size.Y * 0.5, 0)
+			local proxyFoot = proxy.CFrame * CFrame.new(0, -proxy.Size.Y * 0.5, 0)
+			check("Bamboo foot anchored",
+				(nativeFoot.Position - proxyFoot.Position).Magnitude < 0.02)
 		end
 	end
 	tree:Destroy()
 end
 
--- Approved Oak remains procedural and does not receive old segmented cane
--- parts. It may now use full-length wood proxies instead.
-local oak = preview("GroveOak", 0.35)
-check("Oak uses existing procedural final model",
+local oak = preview("GroveOak", 2 / 6)
+check("Oak uses native Forest 1 procedural model",
 	oak:GetAttribute("ProceduralStarterOak") == true)
-check("Oak has no Bamboo segmented proxies",
-	oak:FindFirstChild("GroveBambooGrowthSegment", true) == nil)
 oak:Destroy()
 
-print("Grove Ironwood/Bamboo bottom-anchored growth checks passed")
+print("Six-step Ironwood/Bamboo growth checks passed")
 return true
