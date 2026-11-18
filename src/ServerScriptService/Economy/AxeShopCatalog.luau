@@ -44,6 +44,39 @@ AxeShopCatalog.StandardAxeRecipes = {
 	},
 }
 
+-- STUDIO-ONLY RNG forging. Reuse the owned component IDs as temporary
+-- metal blanks: no account migration or new shop currency is required.
+-- Existing fixed Copper/Iron Axe recipes remain unchanged for regression.
+-- OutputItemID values refer to existing Tool models, not final dagger/hammer art.
+AxeShopCatalog.ExperimentalForgeRecipes = {
+	{
+		Id = "experiment_copper",
+		Name = "COPPER BLANK • EXPERIMENTAL FORGE",
+		HeadId = "copper_head",
+		Tier = 1,
+		HeadBasePower = 25,
+		RequiredForestId = "Forest1",
+		Outputs = { Dagger = 101, Axe = 102, Battlehammer = 105 },
+	},
+	{
+		Id = "experiment_iron",
+		Name = "IRON BLANK • EXPERIMENTAL FORGE",
+		HeadId = "iron_head",
+		Tier = 2,
+		HeadBasePower = 55,
+		RequiredForestId = "Forest2",
+		Outputs = { Dagger = 101, Axe = 103, Battlehammer = 105 },
+	},
+}
+
+function AxeShopCatalog.FindExperimentalForgeRecipe(recipeId)
+	if type(recipeId) ~= "string" then return nil end
+	for _, entry in ipairs(AxeShopCatalog.ExperimentalForgeRecipes) do
+		if entry.Id == recipeId then return entry end
+	end
+	return nil
+end
+
 AxeShopCatalog.DEFAULT_CAPACITY_KG = 10
 AxeShopCatalog.MAX_CAPACITY_KG = 40
 AxeShopCatalog.CAPACITY_TIERS_KG = { 10, 15, 20, 30, 40 }
