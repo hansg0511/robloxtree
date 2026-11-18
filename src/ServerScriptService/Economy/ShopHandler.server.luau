@@ -471,6 +471,12 @@ local function craftExperimental(player, recipe, selectedLogUids)
 	end
 
 	LogService.NotifyState(player)
+	economyUpdated:FireClient(player, "ForgeResult", {
+		Class = result.Class,
+		Metal = metal,
+		Power = power,
+		Quality = result.MaterialQuality,
+	})
 	economyUpdated:FireClient(player, "Progression")
 end
 
