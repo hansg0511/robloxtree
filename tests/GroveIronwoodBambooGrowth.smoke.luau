@@ -1,5 +1,5 @@
 -- Studio SERVER Command Bar; read-only previews only.
--- Verify the generic six-milestone allocation on Ironwood and Bamboo.
+-- Verify the common 15-interval / 30-second allocation on Ironwood and Bamboo.
 local Tree = require(game.ServerScriptService.Trees.TreeObject)
 local Rules = require(game.ServerScriptService.Grove.GroveGrowthRules)
 local function check(name, ok)
@@ -13,8 +13,8 @@ local function preview(species, progress)
 		GrowthProgress = progress,
 	})
 	check(species .. " preview", model ~= nil)
-	check("six steps for size one independent of cadence",
-		model:GetAttribute("GroveGrowthVisualTotalSteps") == Rules.StepsForSize(1))
+	check("15 steps for any tree size",
+		model:GetAttribute("GroveGrowthVisualTotalSteps") == Rules.TOTAL_CYCLE_STEPS)
 	return model
 end
 
@@ -33,12 +33,12 @@ local function proxyFor(model, source)
 end
 
 -- Ironwood lower section, then middle, then upper. The entire vertical
--- wood structure is allocated across three of the six visible updates.
+-- wood structure is allocated across the first half of the 15 updates.
 for _, case in ipairs({
 	{ Progress = 0, Lower = "hidden", Middle = "hidden", Upper = "hidden" },
-	{ Progress = 1 / 6, Lower = "proxy", Middle = "hidden", Upper = "hidden" },
-	{ Progress = 2 / 6, Lower = "native", Middle = "proxy", Upper = "hidden" },
-	{ Progress = 3 / 6, Lower = "native", Middle = "native", Upper = "native" },
+	{ Progress = 2 / 15, Lower = "proxy", Middle = "hidden", Upper = "hidden" },
+	{ Progress = 5 / 15, Lower = "native", Middle = "proxy", Upper = "hidden" },
+	{ Progress = 8 / 15, Lower = "native", Middle = "native", Upper = "native" },
 	{ Progress = 1, Lower = "native", Middle = "native", Upper = "native" },
 }) do
 	local tree = preview("Ironwood", case.Progress)
@@ -71,9 +71,9 @@ local canes = { "BambooCore", "BambooStalk2", "BambooStalk3",
 	"BambooStalk4", "BambooStalk5" }
 for _, sample in ipairs({
 	{ Progress = 0, Proxy = false, Native = false, Stumps = true },
-	{ Progress = 1 / 6, Proxy = true, Native = false, Stumps = false },
-	{ Progress = 2 / 6, Proxy = true, Native = false, Stumps = false },
-	{ Progress = 3 / 6, Proxy = false, Native = true, Stumps = false },
+	{ Progress = 2 / 15, Proxy = true, Native = false, Stumps = false },
+	{ Progress = 5 / 15, Proxy = true, Native = false, Stumps = false },
+	{ Progress = 8 / 15, Proxy = false, Native = true, Stumps = false },
 	{ Progress = 1, Proxy = false, Native = true, Stumps = false },
 }) do
 	local tree = preview("Bamboo", sample.Progress)
@@ -111,10 +111,10 @@ for _, sample in ipairs({
 	tree:Destroy()
 end
 
-local oak = preview("GroveOak", 2 / 6)
+local oak = preview("GroveOak", 5 / 15)
 check("Oak uses native Forest 1 procedural model",
 	oak:GetAttribute("ProceduralStarterOak") == true)
 oak:Destroy()
 
-print("Six-step Ironwood/Bamboo growth checks passed")
+print("Fifteen-step Ironwood/Bamboo growth checks passed")
 return true
