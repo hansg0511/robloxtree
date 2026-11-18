@@ -27,10 +27,10 @@ This is the canonical list for *polish*, separate from new mechanics. Update it 
 - [ ] Refine Ironwood bark accents and further tune Bamboo's five synchronized expanding stalks after the core loop works.
 - [x] Add bottom-anchored trunk and branch extension using one lightweight temporary visual copy per major wood Part (no per-stud segmentation). Bamboo's five canes now grow from one proxy each.
 - [x] Keep Grove growth world-replicated so nearby players see the same sequence, with the server retaining timers, rewards and harvest validation.
-- [x] Replace 40 hardcoded visual steps with size-derived step counts and normalized geometry allocation; the current fast-playtest cadence is **2 seconds per step**.
+- [x] Replace 40 hardcoded visual steps with normalized geometry allocation and **2-second intervals**; currently use **15 intervals over 30 seconds for all Grove tree sizes**.
 - [ ] Consider optional local interpolation only if the **two-second discrete** prototype updates look too abrupt in multiplayer.
 - [ ] Tune leaf growth staggering/easing and server-to-client visual smoothness after gameplay pacing is proven.
-- [ ] Timing indicators / clear maturation and ready-to-harvest indicators; release pacing still needs tuning (fast-test growth is 12 seconds at size 1.0, plus a separate 4-second regrowth stump hold).
+- [ ] Timing indicators / clear maturation and ready-to-harvest indicators; release pacing and size-dependent timing remain deferred (current fast test: **30 seconds total for planting and regrowth**, including the 4-second harvest stump hold).
 - [ ] Planting ghost/preview consistency with real species and stage models.
 - [ ] Visual performance and streaming with many Grove trees and observers.
 
