@@ -41,10 +41,18 @@ ChopEvent.OnServerEvent:Connect(function(player)
 	-- This request deliberately has no target payload. The server resolves the
 	-- closest eligible registered tree from its own interaction geometry, so a
 	-- client cannot nominate a model, HP, damage value, or reward target.
+	local reach = if type(data) == "table" and data.ExperimentalClass ~= nil
+		then data.Reach else nil
+	if type(reach) ~= "number" or reach ~= reach
+		or reach <= 0 or reach == math.huge then
+		reach = 1
+	end
+	-- Relative to the already-authored per-tree interaction region; clamped
+	-- in TreeObject, and still resolves exactly one server-selected target.
 	local tree = TreeObject.GetBestChopTarget(player, function(candidate)
 		return candidate:CanChop(player)
 			and WorldProgressService.CanInteractWithTree(player, candidate)
-	end)
+	end, reach)
 	if not tree then return end
 
 	local stats = profile.Data.Runtime.FinalStats
