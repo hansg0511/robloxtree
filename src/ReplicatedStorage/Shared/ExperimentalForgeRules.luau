@@ -110,7 +110,7 @@ end
 -- The server supplies a Random object. Preview never consumes an RNG draw.
 function Rules.Roll(metalBase, logs, rng)
 	local preview = Rules.Preview(metalBase, logs)
-	if not preview or not rng or type(rng.NextNumber) ~= "function" then return nil end
+	if not preview or not rng then return nil end
 	local draw = rng:NextNumber()
 	local cumulative, class = 0, Rules.CLASSES[#Rules.CLASSES]
 	for _, name in ipairs(Rules.CLASSES) do
