@@ -17,13 +17,26 @@ local function hasEquippedAxe(player, profile)
 end
 
 ChopEvent.OnServerEvent:Connect(function(player)
-	local now = os.clock()
-	if now - (lastChop[player] or -math.huge) < MIN_CHOP_INTERVAL then return end
-	lastChop[player] = now
-
 	local profile = profileCache.GetProfile(player)
 	if not profile or not profile.Data.Runtime then return end
 	if not hasEquippedAxe(player, profile) then return end
+
+	-- Experimental classes have separately rolled attack speeds. Enforce the
+	-- real interval on the server; replicated Tool attributes are visual only.
+	-- Existing axes retain the original 0.3-second minimum.
+	local runtime = profile.Data.Runtime
+	local equipped = runtime.Weapon[runtime.EquippedWeaponUID]
+	local data = equipped and equipped.WeaponData
+	local rate = type(data) == "table" and data.AttacksPerSecond
+	local interval = MIN_CHOP_INTERVAL
+	if type(rate) == "number" and rate == rate
+		and rate > 0 and rate < math.huge
+		and data.ExperimentalClass ~= nil then
+		interval = math.max(MIN_CHOP_INTERVAL, 1 / math.clamp(rate, 0.1, 10))
+	end
+	local now = os.clock()
+	if now - (lastChop[player] or -math.huge) < interval then return end
+	lastChop[player] = now
 
 	-- This request deliberately has no target payload. The server resolves the
 	-- closest eligible registered tree from its own interaction geometry, so a
