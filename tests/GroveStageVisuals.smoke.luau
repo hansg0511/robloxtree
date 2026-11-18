@@ -31,7 +31,9 @@ local function describe(model)
 	return { Visible = visibleParts, Trunk = trunk, Branches = branches, Leaves = leaves }
 end
 
-local phases = { 0, 0.22, 0.50, 0.80, 1 }
+-- These represent preview sample fractions; the renderer snaps each one to
+-- the available five-second milestones for that specific size.
+local phases = { 0, 1 / 6, 0.50, 5 / 6, 1 }
 for _, kind in ipairs({ "GroveOak", "Bamboo", "Ironwood" }) do
 	local series = {}
 	local totalParts
@@ -43,14 +45,19 @@ for _, kind in ipairs({ "GroveOak", "Bamboo", "Ironwood" }) do
 			Mutations = { Golden = true },
 		})
 		check(kind .. " preview built", model ~= nil)
+		local steps = model:GetAttribute("GroveGrowthVisualTotalSteps")
+		check(kind .. " total steps assigned", type(steps) == "number" and steps >= 1)
+		local expectedStep = math.floor(progress * steps + 1e-6)
+		check(kind .. " five-second milestone",
+			model:GetAttribute("GroveGrowthVisualStep") == expectedStep)
 		check(kind .. " progress metadata",
-			math.abs((model:GetAttribute("GroveGrowthProgress") or -1) - progress) <= 0.025)
+			math.abs((model:GetAttribute("GroveGrowthProgress") or -1)
+				- expectedStep / steps) <= 0.0001)
 		local stumpName = if kind == "Bamboo" then "GroveBambooCulm1Stump"
 			else "GroveGrowthStump"
 		local stump = model:FindFirstChild(stumpName)
 		check(kind .. " predictive stump exists", stump ~= nil)
-		local stumpCutoff = if kind == "Bamboo" then 0.17 else 0.28
-		local shouldBeStump = progress < stumpCutoff
+		local shouldBeStump = expectedStep == 0
 		check(kind .. " stump visibility",
 			(stump.Transparency == 0) == shouldBeStump)
 		if kind == "GroveOak" and Configuration.PROCEDURAL_STARTER_OAKS_ENABLED == true then
