@@ -1,5 +1,8 @@
 # Brick World — crafting and progression design contract (v0.1)
 
+> **Design update (November 2026):** The fixed-output, fixed-log-count rules below describe our *previous direction* and the existing standard-axe implementation. They are **not the current proposed premium crafting design**. We are now experimenting with a generic metal blank, log-count-based probabilities for Dagger/Axe/Battlehammer, globally normalized log quality, species-strength averages, independent per-stat forge rolls, and separately quality-weighted mutation effects. See **[CRAFTING_BALANCE_PROTOTYPE.md](CRAFTING_BALANCE_PROTOTYPE.md)** and `tools/crafting_balance_sim.py` for the active **offline balance experiment**, whose numbers are not approved. The Roblox forge still runs the earlier deterministic Copper/Iron 3-log recipes; **no live gameplay change has been made**.
+
+
 Status: **agreed direction / implementation starting point**, NOT final economy balance. Updated 2026-11-17.
 
 This document records decisions from game-design discussions so future coding agents do not reinvent the crafting system. It distinguishes agreed gameplay rules from open balancing questions. Do not silently treat illustrative examples as final numbers.
