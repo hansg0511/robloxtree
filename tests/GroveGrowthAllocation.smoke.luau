@@ -81,7 +81,8 @@ check("manual trunk order can invert automatic height sorting",
 		and near(lower.At, upper.NativeAt) and near(lower.NativeAt, 0.5))
 
 model:Destroy()
-check("30 seconds makes six five-second steps",
-	Rules.DurationForSize(1) / Rules.SECONDS_PER_VISUAL_STEP == 6)
+check("six steps of two seconds yield twelve-second growth",
+	Rules.StepsForSize(1) == 6 and Rules.DurationForSize(1) == 12
+		and Rules.DurationForSize(1) / Rules.SECONDS_PER_VISUAL_STEP == 6)
 print("Generic sequential Grove growth allocation checks passed")
 return true
