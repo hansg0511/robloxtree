@@ -1825,7 +1825,22 @@ local function renderForge(data)
 			statPreview.TextWrapped = true
 		end
 
-		local visibleLogs = if forgeSnapshotFresh and forgeEligibleLogsAvailable and candidateList.Visible then forgeEligibleLogs else {}
+		local visibleLogs = if forgeSnapshotFresh and forgeEligibleLogsAvailable and candidateList.Visible
+			then table.clone(forgeEligibleLogs) else {}
+		-- Selected inputs FIRST, then biggest logs. A player using quick-select
+		-- can immediately see what went into the forge instead of scrolling
+		-- through 135 unsorted fixtures to find them.
+		local selectedMap = {}
+		for _, uid in ipairs(selectedLogUids) do selectedMap[uid] = true end
+		table.sort(visibleLogs, function(a, b)
+			local aSelected = selectedMap[a.UID] == true
+			local bSelected = selectedMap[b.UID] == true
+			if aSelected ~= bSelected then return aSelected end
+			local aSize = tonumber(a.SizeScale) or 0
+			local bSize = tonumber(b.SizeScale) or 0
+			if aSize ~= bSize then return aSize > bSize end
+			return tostring(a.UID) < tostring(b.UID)
+		end)
 		if #visibleLogs == 0 then
 			local emptyLogs = label(candidateList, "EmptyEligibleLogs", if forgeSnapshotFresh then (if forgeEligibleLogsAvailable then "NO ELIGIBLE LOGS" else "ELIGIBLE LOG DATA UNAVAILABLE") else "REFRESHING ELIGIBLE LOGS...", UDim2.new(1, -8, 0, 58), UDim2.new(), 15, COLORS.BagMuted, Enum.Font.GothamBold)
 			emptyLogs.LayoutOrder = 1
@@ -1914,21 +1929,25 @@ forgeModeRng.Activated:Connect(function()
 	if not RunService:IsStudio() then return end
 	forgeModeSelection = "RNG"
 	forgeShowStatRanges = false
+	forgeList.CanvasPosition = Vector2.zero
 	if latestShopData then renderForge(latestShopData) end
 end)
 forgeModeStandard.Activated:Connect(function()
 	forgeModeSelection = "STANDARD"
 	forgeShowStatRanges = false
+	forgeList.CanvasPosition = Vector2.zero
 	if latestShopData then renderForge(latestShopData) end
 end)
 forgeTierCopper.Activated:Connect(function()
 	forgeMetalSelection = "copper"
 	forgeShowStatRanges = false
+	forgeList.CanvasPosition = Vector2.zero
 	if latestShopData then renderForge(latestShopData) end
 end)
 forgeTierIron.Activated:Connect(function()
 	forgeMetalSelection = "iron"
 	forgeShowStatRanges = false
+	forgeList.CanvasPosition = Vector2.zero
 	if latestShopData then renderForge(latestShopData) end
 end)
 if not RunService:IsStudio() then
