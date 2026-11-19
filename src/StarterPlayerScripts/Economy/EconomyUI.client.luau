@@ -1837,8 +1837,7 @@ local function renderForge(data)
 				local selectionLimit = if recipe.Experimental == true then recipe.MaxLogCount else required
 				local canAdd = isSelected or (selectionLimit ~= nil and selectedCount < selectionLimit)
 				local species = if typeof(record.SpeciesId) == "string" and #record.SpeciesId > 0 then record.SpeciesId else "Unknown Species"
-				local uidSuffix = if #uid > 6 then "..." .. string.sub(uid, -6) else uid
-				local ordinal = string.format("%03d", index)
+								local ordinal = string.format("%03d", index)
 				local origin = if record.Source == "Storage" then "SAVED" else "BAG"
 				local sizeText = string.format("%.2fx", tonumber(record.SizeScale) or 1)
 				local mutationSummary = ""
@@ -1849,12 +1848,17 @@ local function renderForge(data)
 						end
 					end
 				end
-				local rowText = (if isSelected then "SELECTED  •  " else if canAdd then "ADD  •  " else "FULL  •  ")
-					.. species .. "  " .. sizeText .. "  •  " .. origin
-					.. "\nUID " .. uidSuffix .. mutationSummary
-				local logButton = button(candidateList, "EligibleLog_" .. ordinal, rowText, UDim2.new(1, -8, 0, 60), UDim2.new(), isSelected and COLORS.BagSelected or COLORS.BagSlot)
+				-- Compact, readable item summaries. UID stays authoritative in
+				-- the callback but isn't useful clutter in the ingredient list.
+				local qualityPct = math.floor(math.clamp((tonumber(record.SizeScale) or 1) / 5, 0, 1) * 100 + 0.5)
+				local rowText = (if isSelected then "SELECTED  •  " else if canAdd then "+  " else "FULL  •  ")
+					.. species .. "  " .. sizeText .. "  Q" .. tostring(qualityPct) .. "%"
+					.. mutationSummary .. "  •  " .. origin
+				local logButton = button(candidateList, "EligibleLog_" .. ordinal, rowText, UDim2.new(1, -8, 0, 42), UDim2.new(), isSelected and COLORS.BagSelected or COLORS.BagSlot)
 				logButton.LayoutOrder = index
 				logButton.TextSize = 14
+				logButton.TextWrapped = false
+				logButton.TextTruncate = Enum.TextTruncate.AtEnd
 				logButton.TextXAlignment = Enum.TextXAlignment.Center
 				logButton.Active = forgeSnapshotFresh and canAdd
 				logButton.AutoButtonColor = logButton.Active
@@ -1902,6 +1906,34 @@ local function renderForge(data)
 	end
 	forgeEmptyState.Text = if renderedCount > 0 then "" else "SELECTED RECIPE NOT AVAILABLE"
 	forgeEmptyState.Visible = renderedCount == 0
+end
+
+-- UI navigation only: each tab selects one existing server-provided recipe.
+-- Crafting still sends exactly the chosen recipe ID plus real owned log UIDs.
+forgeModeRng.Activated:Connect(function()
+	if not RunService:IsStudio() then return end
+	forgeModeSelection = "RNG"
+	forgeShowStatRanges = false
+	if latestShopData then renderForge(latestShopData) end
+end)
+forgeModeStandard.Activated:Connect(function()
+	forgeModeSelection = "STANDARD"
+	forgeShowStatRanges = false
+	if latestShopData then renderForge(latestShopData) end
+end)
+forgeTierCopper.Activated:Connect(function()
+	forgeMetalSelection = "copper"
+	forgeShowStatRanges = false
+	if latestShopData then renderForge(latestShopData) end
+end)
+forgeTierIron.Activated:Connect(function()
+	forgeMetalSelection = "iron"
+	forgeShowStatRanges = false
+	if latestShopData then renderForge(latestShopData) end
+end)
+if not RunService:IsStudio() then
+	forgeModeStandard.Position = UDim2.fromOffset(20, 86)
+	forgeModeStandard.Size = UDim2.new(1, -40, 0, 36)
 end
 
 local function refreshLogs()
