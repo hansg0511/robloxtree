@@ -1506,6 +1506,31 @@ local function toggleForgeLog(recipeId, uid, required)
 	if #selection < required then table.insert(selection, uid) end
 end
 
+-- Fast Studio forge test presets: select actual owned UID records, then send
+-- through the existing exact-UID server validation. No fake client resources.
+local function forgeQuickPick(recipeId, wantedCount, mode)
+	if not forgeSnapshotFresh or not forgeEligibleLogsAvailable then return end
+	local candidates = table.clone(forgeEligibleLogs)
+	table.sort(candidates, function(a, b)
+		local aSize = tonumber(a.SizeScale) or 1
+		local bSize = tonumber(b.SizeScale) or 1
+		if aSize ~= bSize then
+			return if mode == "Low" then aSize < bSize else aSize > bSize
+		end
+		return tostring(a.UID) < tostring(b.UID)
+	end)
+	local selection = {}
+	for _, record in ipairs(candidates) do
+		if mode ~= "Golden" or (type(record.Mutations) == "table"
+			and record.Mutations.Golden == true) then
+			table.insert(selection, record.UID)
+			if #selection >= wantedCount then break end
+		end
+	end
+	forgeSelectedLogUidsByRecipe[recipeId] = selection
+	forgeLogCanvasPositions[recipeId] = Vector2.new(0, 0)
+end
+
 local function forgeSelectionStatus(recipe, selectedCount, required)
 	if not forgeSnapshotFresh then return "REFRESHING SERVER DATA", COLORS.BagMuted end
 	if not forgeEligibleLogsAvailable then return "ELIGIBLE LOG DATA UNAVAILABLE", COLORS.Orange end
@@ -1579,7 +1604,7 @@ local function renderForge(data)
 		local card = Instance.new("Frame")
 		card.Name = "Recipe_" .. recipe.Id
 		card.LayoutOrder = renderedCount
-		card.Size = UDim2.new(1, -8, 0, if recipe.Experimental == true then 565 else 478)
+		card.Size = UDim2.new(1, -8, 0, if recipe.Experimental == true then 685 else 478)
 		card.BackgroundColor3 = renderedCount % 2 == 0 and COLORS.BagPreview or COLORS.BagSlot
 		card.Parent = forgeList
 		round(card, 12)
@@ -1694,14 +1719,45 @@ local function renderForge(data)
 		status.TextStrokeColor3 = COLORS.BagLine
 		status.TextStrokeTransparency = 0
 
-		local candidateHint = label(card, "EligibleLogsHint", "MIXED SPECIES OK  •  SELECT OR DESELECT LOGS", UDim2.new(1, -32, 0, 20), UDim2.new(0, 16, 0, if recipe.Experimental == true then 288 else 198), 14, COLORS.BagMuted, Enum.Font.GothamBold)
+		if recipe.Experimental == true then
+			local presets = {
+				{ "BEST 1", 1, "High" }, { "BEST 5", 5, "High" },
+				{ "BEST 10", 10, "High" }, { "BEST 20", 20, "High" },
+				{ "GOLD 10", 10, "Golden" }, { "LOW 10", 10, "Low" },
+				{ "BEST 96", 96, "High" },
+			}
+			for index, preset in ipairs(presets) do
+				local column = (index - 1) % 4
+				local line = math.floor((index - 1) / 4)
+				local actionLabel = preset[1]
+				local count = preset[2]
+				local mode = preset[3]
+				local quickPick = button(card, "QuickPick_" .. tostring(index),
+					actionLabel, UDim2.new(0.25, -8, 0, 34),
+					UDim2.new(0.25 * column, 4, 0, 296 + 42 * line),
+					COLORS.Blue)
+				quickPick.TextSize = 12
+				quickPick.TextStrokeColor3 = COLORS.BagLine
+				quickPick.TextStrokeTransparency = 0
+				quickPick.Active = forgeSnapshotFresh and forgeEligibleLogsAvailable
+					and not forgeCraftPendingByRecipe[recipe.Id]
+				quickPick.AutoButtonColor = quickPick.Active
+				quickPick.Activated:Connect(function()
+					if not quickPick.Active then return end
+					forgeQuickPick(recipe.Id, count, mode)
+					renderForge(latestShopData)
+				end)
+			end
+		end
+
+		local candidateHint = label(card, "EligibleLogsHint", "MIXED SPECIES OK  •  SELECT OR DESELECT LOGS", UDim2.new(1, -32, 0, 20), UDim2.new(0, 16, 0, if recipe.Experimental == true then 384 else 198), 14, COLORS.BagMuted, Enum.Font.GothamBold)
 		candidateHint.TextTruncate = Enum.TextTruncate.AtEnd
 		candidateHint.TextWrapped = false
 
 		local candidateList = Instance.new("ScrollingFrame")
 		candidateList.Name = "EligibleLogs"
-		candidateList.Position = UDim2.new(0, 14, 0, if recipe.Experimental == true then 312 else 222)
-		candidateList.Size = UDim2.new(1, -28, 1, if recipe.Experimental == true then -326 else -236)
+		candidateList.Position = UDim2.new(0, 14, 0, if recipe.Experimental == true then 410 else 222)
+		candidateList.Size = UDim2.new(1, -28, 1, if recipe.Experimental == true then -424 else -236)
 		candidateList.BackgroundColor3 = COLORS.BagBack
 		candidateList.BorderSizePixel = 0
 		candidateList.ScrollBarThickness = 7
