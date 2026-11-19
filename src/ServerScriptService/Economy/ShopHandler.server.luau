@@ -100,6 +100,39 @@ local function validExperimentalOutputs(recipe)
 	return true
 end
 
+-- Only send display-safe weapon metadata. Future mutation abilities can
+-- extend this list without changing the inventory screen's layout.
+local KNOWN_MUTATIONS = { "Golden", "Crystal", "Giant" }
+
+local function materialMutationSummary(materials)
+	if type(materials) ~= "table" then return {}, nil end
+	local total = #materials
+	if total == 0 then return {}, 0 end
+	local summary = {}
+	for _, name in ipairs(KNOWN_MUTATIONS) do
+		local count, weightedQuality = 0, 0
+		for _, material in ipairs(materials) do
+			if type(material) == "table" and type(material.Mutations) == "table"
+				and material.Mutations[name] == true then
+				count += 1
+				local size = material.SizeScale
+				if isFiniteNumber(size) and size > 0 then
+					weightedQuality += math.clamp(
+						size / ExperimentalForgeRules.MAX_LOG_SIZE, 0, 1)
+				end
+			end
+		end
+		if count > 0 then
+			table.insert(summary, {
+				Name = name,
+				LogCount = count,
+				MaterialQuality = weightedQuality / total,
+			})
+		end
+	end
+	return summary, total
+end
+
 local function buildOwnedAxes(profile)
 	local axes = {}
 	local data = profile.Data
@@ -117,6 +150,8 @@ local function buildOwnedAxes(profile)
 		local attack = type(item.Stats) == "table" and item.Stats.Attack or 0
 		if not isFiniteNumber(attack) then attack = 0 end
 		local weaponData = type(item.WeaponData) == "table" and item.WeaponData or nil
+		local mutationMaterials, materialCount = materialMutationSummary(
+			weaponData and weaponData.Materials)
 		local experimentalClass = weaponData and weaponData.ExperimentalClass
 		local experimentalName = if (experimentalClass == "Dagger"
 			or experimentalClass == "Axe" or experimentalClass == "Battlehammer")
@@ -127,9 +162,14 @@ local function buildOwnedAxes(profile)
 			Name = experimentalName or info.Name,
 			Power = catalog.BaseAttack + attack,
 			Experimental = experimentalName ~= nil,
+			WeaponKind = weaponData and weaponData.WeaponKind,
 			MaterialQuality = weaponData and weaponData.MaterialQuality,
 			AttacksPerSecond = weaponData and weaponData.AttacksPerSecond,
 			Reach = weaponData and weaponData.Reach,
+			GoldenQuality = weaponData and weaponData.GoldenQuality,
+			GoldenBonus = weaponData and weaponData.GoldenBonus,
+			MaterialCount = materialCount,
+			MutationMaterials = mutationMaterials,
 			ItemID = item.ItemID,
 			UID = item.UID,
 			Owned = true,
