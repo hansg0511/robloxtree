@@ -1602,6 +1602,16 @@ end
 
 local function renderForge(data)
 	clearForgeRows()
+	forgeModeRng.BackgroundColor3 = if forgeModeSelection == "RNG" then COLORS.BagAction else COLORS.BagSlot
+	forgeModeStandard.BackgroundColor3 = if forgeModeSelection == "STANDARD" then COLORS.BagAction else COLORS.BagSlot
+	forgeTierCopper.BackgroundColor3 = if forgeMetalSelection == "copper" then COLORS.Gold else COLORS.BagSlot
+	forgeTierIron.BackgroundColor3 = if forgeMetalSelection == "iron" then COLORS.Gold else COLORS.BagSlot
+	forgePanel.Header.Subtitle.Text = if forgeModeSelection == "RNG"
+		then "PICK A METAL + LOGS • SEE ODDS • FORGE"
+		else "CLASSIC FIXED-RECIPE AXES"
+	-- Render ONLY the currently selected recipe, not four full-size cards.
+	local activeRecipeId = if forgeModeSelection == "RNG"
+		then "experiment_" .. forgeMetalSelection else forgeMetalSelection .. "_axe"
 	if type(data) ~= "table" then
 		forgeEmptyState.Text = "FORGE DATA UNAVAILABLE"
 		forgeEmptyState.Visible = true
@@ -1617,20 +1627,20 @@ local function renderForge(data)
 	local recipes = data.Recipes
 	local renderedCount = 0
 	for _, recipe in ipairs(recipes) do
-		if type(recipe) ~= "table" or typeof(recipe.Id) ~= "string" or #recipe.Id == 0 then
+		if type(recipe) ~= "table" or recipe.Id ~= activeRecipeId then
 			continue
 		end
 		renderedCount += 1
 		local card = Instance.new("Frame")
 		card.Name = "Recipe_" .. recipe.Id
 		card.LayoutOrder = renderedCount
-		card.Size = UDim2.new(1, -8, 0, if recipe.Experimental == true then 685 else 478)
-		card.BackgroundColor3 = renderedCount % 2 == 0 and COLORS.BagPreview or COLORS.BagSlot
+		card.Size = UDim2.new(1, -8, 0, if recipe.Experimental == true then 530 else 420)
+		card.BackgroundColor3 = COLORS.BagSlot
 		card.Parent = forgeList
 		round(card, 12)
 		outline(card, COLORS.BagLine, 3)
 
-		local axeName = label(card, "AxeName", tostring(recipe.Name or "Standard Axe"), UDim2.new(0.68, -20, 0, 34), UDim2.new(0, 16, 0, 10), 23, COLORS.BagText, Enum.Font.GothamBlack)
+		local axeName = label(card, "AxeName", if recipe.Experimental == true then string.upper(forgeMetalSelection) .. " RNG FORGE" else tostring(recipe.Name or "Standard Axe"), UDim2.new(0.68, -20, 0, 34), UDim2.new(0, 16, 0, 10), 23, COLORS.BagText, Enum.Font.GothamBlack)
 		axeName.TextTruncate = Enum.TextTruncate.AtEnd
 		axeName.TextStrokeColor3 = COLORS.BagLine
 		axeName.TextStrokeTransparency = 0
@@ -1664,9 +1674,9 @@ local function renderForge(data)
 		local selectedLogUids = getForgeSelectedLogUids(recipe.Id) or {}
 		local selectedCount = #selectedLogUids
 		local requiredText = if recipe.Experimental == true
-			then "1–" .. tostring(recipe.MaxLogCount or "?")
+			then tostring(recipe.MaxLogCount or "?") .. " MAX"
 			else if required then tostring(required) else "?"
-		local selectedLine = label(card, "SelectedLogCount", "SELECTED LOGS  " .. tostring(selectedCount) .. " / " .. requiredText .. "  •  ELIGIBLE " .. tostring(#forgeEligibleLogs), UDim2.new(0.69, -20, 0, 24), UDim2.new(0, 16, 0, 100), 16, COLORS.BagText, Enum.Font.GothamBold)
+		local selectedLine = label(card, "SelectedLogCount", "LOGS  " .. tostring(selectedCount) .. " / " .. requiredText .. "  •  STOCK " .. tostring(#forgeEligibleLogs), UDim2.new(0.69, -20, 0, 24), UDim2.new(0, 16, 0, 100), 16, COLORS.BagText, Enum.Font.GothamBold)
 		selectedLine.TextTruncate = Enum.TextTruncate.AtEnd
 		selectedLine.TextWrapped = false
 		selectedLine.TextStrokeColor3 = COLORS.BagLine
@@ -1709,42 +1719,22 @@ local function renderForge(data)
 			14, COLORS.Gold, Enum.Font.GothamBold)
 		oddsLine.TextTruncate = Enum.TextTruncate.AtEnd
 
-		-- Explicit stat RANGES, not a misleading precise pre-roll number.
-		-- Same deterministic shared math as the server-side forge calculation.
-		if recipe.Experimental == true then
-			local statRangeText = "SELECT LOGS TO SEE ALL POSSIBLE STAT RANGES"
-			if experimentPreview then
-				local lines = { "POSSIBLE STAT RANGES  (INDEPENDENT 90–110% ROLLS)" }
-				for _, class in ipairs(ExperimentalForgeRules.CLASSES) do
-					local ranges = experimentPreview.Ranges[class]
-					table.insert(lines, string.format(
-						"%s  •  DMG %.1f–%.1f  •  HITS/S %.2f–%.2f  •  REACH %.2f–%.2f",
-						class, ranges.Damage.Min, ranges.Damage.Max,
-						ranges.AttacksPerSecond.Min, ranges.AttacksPerSecond.Max,
-						ranges.Reach.Min, ranges.Reach.Max))
-				end
-				statRangeText = table.concat(lines, "\n")
-			end
-			local rangeLabel = label(card, "PossibleStatRanges", statRangeText,
-				UDim2.new(1, -32, 0, 88), UDim2.new(0, 16, 0, 174),
-				12, COLORS.BagText, Enum.Font.GothamBold)
-			rangeLabel.TextYAlignment = Enum.TextYAlignment.Top
-			rangeLabel.TextWrapped = true
-		end
 
 		local statusText, statusColor = forgeSelectionStatus(recipe, selectedCount, required)
-		local status = label(card, "Availability", statusText, UDim2.new(1, -32, 0, 22), UDim2.new(0, 16, 0, if recipe.Experimental == true then 266 else 176), 15, statusColor, Enum.Font.GothamBlack)
+		local status = label(card, "Availability", statusText, UDim2.new(1, -32, 0, 22), UDim2.new(0, 16, 0, 176), 15, statusColor, Enum.Font.GothamBlack)
 		status.TextTruncate = Enum.TextTruncate.AtEnd
 		status.TextWrapped = false
 		status.TextStrokeColor3 = COLORS.BagLine
 		status.TextStrokeTransparency = 0
 
 		if recipe.Experimental == true then
+			-- Most common counts are up front; detailed stats occupy a separate
+			-- view so they do not compete with log selection and probabilities.
 			local presets = {
-				{ "BEST 1", 1, "High" }, { "BEST 5", 5, "High" },
-				{ "BEST 10", 10, "High" }, { "BEST 20", 20, "High" },
-				{ "GOLD 10", 10, "Golden" }, { "LOW 10", 10, "Low" },
-				{ "BEST 96", 96, "High" },
+				{ "1 LOG", 1, "High" }, { "5 LOGS", 5, "High" },
+				{ "10 LOGS", 10, "High" }, { "20 LOGS", 20, "High" },
+				{ "GOLD ×10", 10, "Golden" }, { "LOW ×10", 10, "Low" },
+				{ "STRESS ×96", 96, "High" },
 			}
 			for index, preset in ipairs(presets) do
 				local column = (index - 1) % 4
@@ -1754,7 +1744,7 @@ local function renderForge(data)
 				local mode = preset[3]
 				local quickPick = button(card, "QuickPick_" .. tostring(index),
 					actionLabel, UDim2.new(0.25, -8, 0, 34),
-					UDim2.new(0.25 * column, 4, 0, 296 + 42 * line),
+					UDim2.new(0.25 * column, 4, 0, 201 + 40 * line),
 					COLORS.Blue)
 				quickPick.TextSize = 12
 				quickPick.TextStrokeColor3 = COLORS.BagLine
@@ -1768,16 +1758,30 @@ local function renderForge(data)
 					renderForge(latestShopData)
 				end)
 			end
+			local rangesToggle = button(card, "RangeToggle",
+				if forgeShowStatRanges then "BACK TO LOGS" else "STAT DETAILS",
+				UDim2.new(0.25, -8, 0, 34),
+				UDim2.new(0.75, 4, 0, 241), COLORS.Gold)
+			rangesToggle.TextSize = 12
+			rangesToggle.Active = forgeSnapshotFresh
+			rangesToggle.AutoButtonColor = rangesToggle.Active
+			rangesToggle.Activated:Connect(function()
+				if not forgeSnapshotFresh then return end
+				forgeShowStatRanges = not forgeShowStatRanges
+				renderForge(latestShopData)
+			end)
 		end
 
-		local candidateHint = label(card, "EligibleLogsHint", "MIXED SPECIES OK  •  SELECT OR DESELECT LOGS", UDim2.new(1, -32, 0, 20), UDim2.new(0, 16, 0, if recipe.Experimental == true then 384 else 198), 14, COLORS.BagMuted, Enum.Font.GothamBold)
+		local candidateHint = label(card, "EligibleLogsHint", if recipe.Experimental == true then (if forgeShowStatRanges then "POSSIBLE ROLLS • 90–110% PER STAT" else "PICK LOGS OR USE A PRESET ABOVE")
+			else "CHOOSE 3 LOGS", UDim2.new(1, -32, 0, 20), UDim2.new(0, 16, 0, if recipe.Experimental == true then 284 else 198), 14, COLORS.BagMuted, Enum.Font.GothamBold)
 		candidateHint.TextTruncate = Enum.TextTruncate.AtEnd
 		candidateHint.TextWrapped = false
 
 		local candidateList = Instance.new("ScrollingFrame")
 		candidateList.Name = "EligibleLogs"
-		candidateList.Position = UDim2.new(0, 14, 0, if recipe.Experimental == true then 410 else 222)
-		candidateList.Size = UDim2.new(1, -28, 1, if recipe.Experimental == true then -424 else -236)
+		candidateList.Position = UDim2.new(0, 14, 0, if recipe.Experimental == true then 307 else 222)
+		candidateList.Size = UDim2.new(1, -28, 1, if recipe.Experimental == true then -321 else -236)
+		candidateList.Visible = recipe.Experimental ~= true or not forgeShowStatRanges
 		candidateList.BackgroundColor3 = COLORS.BagBack
 		candidateList.BorderSizePixel = 0
 		candidateList.ScrollBarThickness = 7
@@ -1799,7 +1803,29 @@ local function renderForge(data)
 		candidateLayout.SortOrder = Enum.SortOrder.LayoutOrder
 		candidateLayout.Parent = candidateList
 
-		local visibleLogs = if forgeSnapshotFresh and forgeEligibleLogsAvailable then forgeEligibleLogs else {}
+		if recipe.Experimental == true and forgeShowStatRanges then
+			local previewText = "SELECT LOGS TO SHOW POSSIBLE STATS"
+			if experimentPreview then
+				local sections = { "DAMAGE, ATTACK SPEED AND REACH ROLL INDEPENDENTLY" }
+				for _, class in ipairs(ExperimentalForgeRules.CLASSES) do
+					local ranges = experimentPreview.Ranges[class]
+					table.insert(sections, string.format(
+						"%s\n  Damage: %.1f – %.1f   |   Swings/s: %.2f – %.2f\n  Reach: %.2fx – %.2fx",
+						class, ranges.Damage.Min, ranges.Damage.Max,
+						ranges.AttacksPerSecond.Min, ranges.AttacksPerSecond.Max,
+						ranges.Reach.Min, ranges.Reach.Max))
+				end
+				previewText = table.concat(sections, "\n\n")
+			end
+			local statPreview = label(card, "ExpandedStatRanges", previewText,
+				UDim2.new(1, -48, 0, 207), UDim2.new(0, 24, 0, 313),
+				14, COLORS.BagText, Enum.Font.GothamBold)
+			statPreview.TextXAlignment = Enum.TextXAlignment.Left
+			statPreview.TextYAlignment = Enum.TextYAlignment.Top
+			statPreview.TextWrapped = true
+		end
+
+		local visibleLogs = if forgeSnapshotFresh and forgeEligibleLogsAvailable and candidateList.Visible then forgeEligibleLogs else {}
 		if #visibleLogs == 0 then
 			local emptyLogs = label(candidateList, "EmptyEligibleLogs", if forgeSnapshotFresh then (if forgeEligibleLogsAvailable then "NO ELIGIBLE LOGS" else "ELIGIBLE LOG DATA UNAVAILABLE") else "REFRESHING ELIGIBLE LOGS...", UDim2.new(1, -8, 0, 58), UDim2.new(), 15, COLORS.BagMuted, Enum.Font.GothamBold)
 			emptyLogs.LayoutOrder = 1
@@ -1874,7 +1900,7 @@ local function renderForge(data)
 			end)
 		end)
 	end
-	forgeEmptyState.Text = if renderedCount > 0 then "" else "NO STANDARD RECIPES AVAILABLE"
+	forgeEmptyState.Text = if renderedCount > 0 then "" else "SELECTED RECIPE NOT AVAILABLE"
 	forgeEmptyState.Visible = renderedCount == 0
 end
 
