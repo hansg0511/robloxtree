@@ -4,6 +4,22 @@
 
 **Mode:** Studio-only; live/public servers cannot access experimental recipes. This is an early integration of the independent Python balance sandbox, NOT finalized economy or art. The original fixed `copper_axe` / `iron_axe` recipes remain selectable and functional.
 
+## Gameplay milestone: Battlehammer Cleave (Studio prototype)
+
+**New:** A newly forged experimental **Battlehammer** independently rolls **Cleave radius** and **Cleave damage percentage** in addition to primary damage, attack rate and reach. These stats scale with the same averaged-log quality floor and independent 90–110% rolls as other weapon stats. The equipment detail panel now has separate **Class Ability** and **Mutations** sections.
+
+- On a **successful normal hit**, the Battlehammer damages the primary tree as usual, then applies a separate Cleave impact to **at most two nearby eligible wild trees**.
+- Secondary targets are chosen **server-side** from registered trees, ordered by distance from the primary trunk. The server still enforces forest/tier access, tree ownership, and the usual Grove protection. There is **no client-provided target, damage, reach or ability payload**.
+- Secondary damage is `floor(primary_hit_damage × rolled_Cleave_fraction)`, without rolling another crit. Secondary strikes cannot chain into more Cleaves.
+- Example/reference tuning (NOT balanced): 100%-quality materials before rolls → Cleave fraction ~40% and radius ~16 studs. Low material quality reduces both; hard caps on the server prevent huge radii or bonus damage.
+- Existing Battlehammers crafted **before** these rolls were added will show a prompt to forge a new one. Daggers, standard axes and experimental axes **do not have Cleave yet**.
+- You will see the existing hit effect on additional struck trees, but **no unique shockwave animation/VFX** has been added. Cleave's special effects and final animation can wait.
+- This is **Studio-only** (`RunService:IsStudio()`). The metadata can be saved on experimental weapons, but the secondary effect is disabled in published servers until we validate it.
+
+**Two-minute test:** Craft a new `20 LOGS` Copper Battlehammer, equip it, find a cluster of wild trees and chop. Inspect the weapon under **Bag → Weapons → Class Ability** to see its rolled Cleave values. Nearby wild trees should lose HP even though they were not the primary selected tree. Repeat with a `1 LOG` Dagger: only the directly targeted tree should take damage. Try near the Grove: planted Grove trees must still be immune to axe effects.
+
+To test pure targeting and stat-roll invariants, run `tests/ExperimentalCleaveRules.smoke.luau` in Studio's **SERVER Command Bar**. This smoke test uses only synthetic tables; it does not damage real trees or modify your inventory. Actual visual and multiplayer tests remain to be run inside Studio.
+
 ## First playtest: just three short experiments
 
 **UI update:** Studio Forge now shows **one recipe at a time**. Choose `RNG FORGE` (or `STANDARD` for old recipes), then `COPPER` or `IRON`. The full stat ranges are tucked under `STAT DETAILS`; ingredient rows are compact and selected logs sort to the top.
@@ -43,9 +59,9 @@ The Studio-only smoke test `tests/StudioForgeSandbox.smoke.luau` uses synthetic 
 - Each selected log displays its actual `SizeScale`, species and mutations. The preview shows **average absolute log quality** (size / global 5x maximum) and the weapon-class **probabilities**. There is no hidden extra reroll of overall material quality.
 - Clicking `FORGE RNG` consumes **one owned metal head** plus exactly the offered UIDs, rolls a **Dagger, Axe, or Battlehammer** class and independently rolls damage, attacks/second and reach in their visible 90–110% ranges.
 - The resulting unique weapon stores chosen log provenance, material quality, Golden quality and its per-stat rolls. The equipment list and inventory distinguish `Copper Dagger`, `Copper Axe`, etc.
-- New weapon damage, attack interval and reach apply to ordinary **single-tree chopping**; other nearby trees are still unaffected. The server selects the tree, validates ownership/progression, and enforces hit cooldown and reach.
+- New weapon damage, attack interval and reach apply to ordinary **single-tree chopping**; a newly crafted Battlehammer can additionally trigger the server-authorized **Cleave** secondary effect, which affects at most two nearby eligible wild trees. Ordinary Axe and Dagger strikes remain single-target.
 - Crafted **Dagger and Battlehammer currently borrow existing Tool models** (Starter Hatchet and Heavy Cleaver, respectively). These are placeholders, NOT their intended art or proportions. Equipping them does not resize the Tool model.
-- **Golden mutation bonus** is calculated and recorded as metadata for later passive/ability implementation; it does NOT increase chopping damage yet. No Cleave, Chain Lightning, AoE, premium effects, skills or active abilities have been implemented.
+- **Golden mutation bonus** is calculated and recorded as metadata for later passive/ability implementation; it does NOT increase chopping damage yet. Cleave is the only currently implemented secondary effect (Battlehammer, Studio-only). No Chain Lightning, Golden passive, general-purpose abilities or premium VFX yet.
 
 ## First playtest: look for these things
 
