@@ -1119,7 +1119,8 @@ local function renderAxeDetail(axe)
 	local hasAxe = type(axe) == "table"
 	detailIcon.Visible = true
 	detailLogVisual.Visible = false
-	detailIcon.Text = "🪓"
+	detailIcon.Text = if hasAxe and axe.WeaponKind == "Dagger" then "🗡️"
+		else if hasAxe and axe.WeaponKind == "Battlehammer" then "🔨" else "🪓"
 	detailSpecies.Text = if hasAxe then tostring(axe.Name or "Weapon") else "OWNED WEAPONS"
 	detailMetricLabel.Text = "POWER"
 	detailMetricLabel.Visible = true
@@ -1175,7 +1176,22 @@ local function renderAxeDetail(axe)
 		axeStatRow("Logs used", "Not recorded")
 	end
 
-	axeStatSection("MUTATIONS & ABILITIES")
+	axeStatSection("CLASS ABILITY")
+	local cleavePercent = safeAxeNumber(axe.CleaveDamageFraction)
+	local cleaveRadius = safeAxeNumber(axe.CleaveRadius)
+	if cleavePercent and cleavePercent > 0
+		and cleaveRadius and cleaveRadius > 0 then
+		axeStatRow("Cleave damage", string.format("%.1f%% of hit", cleavePercent * 100))
+		axeStatRow("Cleave radius", string.format("%.1f studs", cleaveRadius))
+		axeStatRow("Extra targets", "Up to 2")
+		axeStatNote("On a successful primary hit. Studio-only test effect.")
+	elseif axe.WeaponKind == "Battlehammer" then
+		axeStatNote("Older hammer: forge another to receive the test Cleave roll.")
+	else
+		axeStatNote("No class ability recorded yet.")
+	end
+
+	axeStatSection("MUTATIONS")
 	local mutations = type(axe.MutationMaterials) == "table"
 		and axe.MutationMaterials or {}
 	local displayed = 0
@@ -1200,7 +1216,7 @@ local function renderAxeDetail(axe)
 		axeStatRow("Golden test roll",
 			string.format("+%.1f%% (inactive)", goldenBonus * 100))
 	end
-	axeStatNote("Mutation abilities aren't active yet. Their effects will appear here when implemented.")
+	axeStatNote("Mutation passives are not active yet. Their effects will appear here later.")
 
 	-- A server snapshot refresh shouldn't jump the scroll back to the top.
 	axeStatsScroll.CanvasPosition = if uid == previousDetailAxeUID
