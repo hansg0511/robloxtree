@@ -12,6 +12,7 @@ local catalog = require(script.Parent.AxeShopCatalog)
 local WeaponRecipeRules = require(script.Parent.WeaponRecipeRules)
 local MaterialDefinitions = require(script.Parent.MaterialDefinitions)
 local LogService = require(ServerScriptService.Inventory.LogService)
+local StudioForgeSandbox = require(script.Parent.StudioForgeSandbox)
 local LogStorageRules = require(ServerScriptService.Inventory.LogStorageRules)
 local WorldProgressService = require(ServerScriptService.WorldProgressService)
 local BaseStationAccess = require(ServerScriptService.WorldLayout.BaseStationAccess)
@@ -310,6 +311,9 @@ getShopData.OnServerInvoke = function(player, ...)
 	if select("#", ...) ~= 0 then return nil end
 	local profile = profileCache.GetProfile(player)
 	if not profile or not profile.Data or not profile.Data.Runtime then return nil end
+	-- Keep refill transparent to the normal forge snapshot: it must show
+	-- real owned, uniquely identified records before any client selection.
+	StudioForgeSandbox.Refill(player, profile.Data)
 	return buildShopSnapshot(player, profile)
 end
 
