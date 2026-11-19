@@ -4,9 +4,15 @@
 
 **Mode:** Studio-only; live/public servers cannot access experimental recipes. This is an early integration of the independent Python balance sandbox, NOT finalized economy or art. The original fixed `copper_axe` / `iron_axe` recipes remain selectable and functional.
 
+## Generalized weapon effects — implemented
+
+**Cleave is no longer hardcoded to Battlehammers in the hit logic.** The Forge still grants it to Battlehammers *for this test*, but the server persists an `Effects` array with entries such as `Id = "Cleave"`, `Trigger = "OnHit"`, `Source = "WeaponClass"` and independently rolled `Params`. `WeaponEffects.Dispatcher` invokes registered handlers; `WeaponEffects.Cleave` has no dependency on weapon class or source. A future mutation or skill can grant the same behavior without rewriting chopping.
+
+The dispatcher retains compatibility for existing hammers with old scalar Cleave fields. The inventory now shows registered effects as generic source/trigger/parameter rows. Test the core abstraction with `tests/WeaponEffectsDispatcher.smoke.luau` in the Studio **SERVER Command Bar** (it includes a synthetic mutation-sourced Cleave on a Dagger, **not** a currently playable mutation). Details in [WEAPON_EFFECTS_ARCHITECTURE.md](WEAPON_EFFECTS_ARCHITECTURE.md).
+
 ## Gameplay milestone: Battlehammer Cleave (Studio prototype)
 
-**New:** A newly forged experimental **Battlehammer** independently rolls **Cleave radius** and **Cleave damage percentage** in addition to primary damage, attack rate and reach. These stats scale with the same averaged-log quality floor and independent 90–110% rolls as other weapon stats. The equipment detail panel now has separate **Class Ability** and **Mutations** sections.
+**New:** A newly forged experimental **Battlehammer** independently rolls **Cleave radius** and **Cleave damage percentage** in addition to primary damage, attack rate and reach. These stats scale with the same averaged-log quality floor and independent 90–110% rolls as other weapon stats. The equipment detail panel now has separate **Weapon Effects** and **Mutations** sections.
 
 - On a **successful normal hit**, the Battlehammer damages the primary tree as usual, then applies a separate Cleave impact to **at most two nearby eligible wild trees**.
 - Secondary targets are chosen **server-side** from registered trees, ordered by distance from the primary trunk. The server still enforces forest/tier access, tree ownership, and the usual Grove protection. There is **no client-provided target, damage, reach or ability payload**.
@@ -16,7 +22,7 @@
 - You will see the existing hit effect on additional struck trees, but **no unique shockwave animation/VFX** has been added. Cleave's special effects and final animation can wait.
 - This is **Studio-only** (`RunService:IsStudio()`). The metadata can be saved on experimental weapons, but the secondary effect is disabled in published servers until we validate it.
 
-**Two-minute test:** Craft a new `20 LOGS` Copper Battlehammer, equip it, find a cluster of wild trees and chop. Inspect the weapon under **Bag → Weapons → Class Ability** to see its rolled Cleave values. Nearby wild trees should lose HP even though they were not the primary selected tree. Repeat with a `1 LOG` Dagger: only the directly targeted tree should take damage. Try near the Grove: planted Grove trees must still be immune to axe effects.
+**Two-minute test:** Craft a new `20 LOGS` Copper Battlehammer, equip it, find a cluster of wild trees and chop. Inspect the weapon under **Bag → Weapons → Weapon Effects** to see its rolled Cleave values. Nearby wild trees should lose HP even though they were not the primary selected tree. Repeat with a `1 LOG` Dagger: only the directly targeted tree should take damage. Try near the Grove: planted Grove trees must still be immune to axe effects.
 
 To test pure targeting and stat-roll invariants, run `tests/ExperimentalCleaveRules.smoke.luau` in Studio's **SERVER Command Bar**. This smoke test uses only synthetic tables; it does not damage real trees or modify your inventory. Actual visual and multiplayer tests remain to be run inside Studio.
 
@@ -104,5 +110,5 @@ Class odds: `1 -> Dagger 100%`; `5 -> Dagger 35% / Axe 65%`; `10 -> Dagger 2% / 
 
 1. Fix any forage UI, transaction, equip, network or hit-rate bugs.
 2. Tune class damage/speed/reach with measured tree-clear times.
-3. Build distinct Dagger / Axe / Battlehammer models and size scaling, then connect Golden quality to a real passive and implement a first secondary effect (Cleave or Chain Lightning).
+3. Try the new generalized effects dispatcher in Studio, then prototype a first actual **mutation-granted effect** (e.g. Golden or Lightning) before balancing it. Distinct class models, size scaling and unique VFX can follow.
 4. Only then replace the old Axe Head terminology with generic metal blanks across permanent inventory/economy flows, with a deliberate migration strategy.
