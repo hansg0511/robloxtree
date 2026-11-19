@@ -5,7 +5,7 @@ local profileCache = require(game.ServerScriptService.PlayerProfile.ProfileServi
 local TreeObject = require(game.ServerScriptService.Trees.TreeObject)
 local WorldProgressService = require(game.ServerScriptService.WorldProgressService)
 local DamageService = require(game.ServerStorage.DamageService)
-local CleaveRules = require(script.Parent.CleaveRules)
+local WeaponEffects = require(game.ServerScriptService.WeaponEffects.Dispatcher)
 
 local MIN_CHOP_INTERVAL = 0.3
 local lastChop = {}
@@ -66,27 +66,26 @@ ChopEvent.OnServerEvent:Connect(function(player)
 	local context = DamageService:createDamageContext(player, tree, weaponUID, stats, nil, lumberjackStrength)
 	local _, calculated = DamageService.Calculate(context)
 
-	-- This temporary ability is Studio-only until class balance, target
-	-- geometry and economy are reviewed. The server owns all effect stats.
-	local cleave = if RunService:IsStudio() then CleaveRules.Resolve(data) else nil
-	local secondary = {}
-	if cleave then
-		secondary = CleaveRules.FindSecondaryTargets(tree, TreeObject.ActiveTrees,
-			cleave, function(candidate)
-				return candidate:CanChop(player)
-					and WorldProgressService.CanInteractWithTree(player, candidate)
-			end)
-	end
+	-- Class/mutation/skill origin is encoded in server-owned WeaponData.Effects.
+	-- ChopHandler knows only the OnHit trigger, not individual effect types.
+	-- Prepare before the primary strike because killing it may unregister it.
+	local effectContext = {
+		Player = player,
+		PrimaryTree = tree,
+		ActiveTrees = TreeObject.ActiveTrees,
+		PrimaryDamage = calculated.Damage,
+		EligibleSecondary = function(candidate)
+			return candidate:CanChop(player)
+				and WorldProgressService.CanInteractWithTree(player, candidate)
+		end,
+	}
+	local preparedEffects = if RunService:IsStudio()
+		then WeaponEffects.Prepare("OnHit", data, effectContext) else {}
 
-	-- The primary hit remains single-target. Only a successful normal hit
-	-- permits an explicitly authored secondary effect; secondary hits cannot
-	-- invoke the chopping handler again or cascade into further Cleaves.
+	-- Normal attack remains single-target; only confirmed hits emit effects.
 	if not tree:TakeDamage(calculated, player) then return end
-	if not cleave then return end
-	local secondaryDamage = CleaveRules.SecondaryDamage(calculated.Damage, cleave)
-	if secondaryDamage < 1 then return end
-	for _, candidate in ipairs(secondary) do
-		candidate:TakeDamage({ Damage = secondaryDamage, IsCrit = false }, player)
+	if RunService:IsStudio() then
+		WeaponEffects.ApplyPrepared(preparedEffects, effectContext)
 	end
 end)
 
