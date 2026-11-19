@@ -1176,19 +1176,49 @@ local function renderAxeDetail(axe)
 		axeStatRow("Logs used", "Not recorded")
 	end
 
-	axeStatSection("CLASS ABILITY")
-	local cleavePercent = safeAxeNumber(axe.CleaveDamageFraction)
-	local cleaveRadius = safeAxeNumber(axe.CleaveRadius)
-	if cleavePercent and cleavePercent > 0
-		and cleaveRadius and cleaveRadius > 0 then
-		axeStatRow("Cleave damage", string.format("%.1f%% of hit", cleavePercent * 100))
-		axeStatRow("Cleave radius", string.format("%.1f studs", cleaveRadius))
-		axeStatRow("Extra targets", "Up to 2")
-		axeStatNote("On a successful primary hit. Studio-only test effect.")
-	elseif axe.WeaponKind == "Battlehammer" then
-		axeStatNote("Older hammer: forge another to receive the test Cleave roll.")
+	-- This panel reads an allowlisted server-projected effect list, not
+	-- class-specific fields. More effect IDs require no new layout code.
+	axeStatSection("WEAPON EFFECTS")
+	local effects = type(axe.Effects) == "table" and axe.Effects or {}
+	if #effects == 0 then
+		if axe.WeaponKind == "Battlehammer" then
+			axeStatNote("No active effect recorded. Forge a new hammer for test Cleave.")
+		else
+			axeStatNote("No active weapon effects.")
+		end
 	else
-		axeStatNote("No class ability recorded yet.")
+		for _, effect in ipairs(effects) do
+			if type(effect) == "table" and type(effect.Id) == "string" then
+				axeStatSection(string.upper(effect.Id))
+				axeStatRow("Trigger", tostring(effect.Trigger or "—"))
+				axeStatRow("Granted by", tostring(effect.Source or "Unknown"))
+				if type(effect.Params) == "table" then
+					local keys = {}
+					for key, value in pairs(effect.Params) do
+						if type(key) == "string" and safeAxeNumber(value) then
+							table.insert(keys, key)
+						end
+					end
+					table.sort(keys)
+					for _, key in ipairs(keys) do
+						local value = effect.Params[key]
+						local displayName = string.gsub(key, "(%l)(%u)", "%1 %2")
+						local displayValue
+						if string.find(key, "Fraction", 1, true) then
+							displayValue = string.format("%.1f%%", value * 100)
+						elseif string.find(key, "Radius", 1, true) then
+							displayValue = string.format("%.1f studs", value)
+						elseif value % 1 == 0 then
+							displayValue = tostring(value)
+						else
+							displayValue = string.format("%.2f", value)
+						end
+						axeStatRow(displayName, displayValue)
+					end
+				end
+			end
+		end
+		axeStatNote("Experimental effects are active in Studio only.")
 	end
 
 	axeStatSection("MUTATIONS")
