@@ -8,6 +8,11 @@ Rules.QUALITY_FLOOR = 0.5
 Rules.ROLL_MIN = 0.9
 Rules.ROLL_MAX = 1.1
 Rules.GOLDEN_MAX_BONUS = 0.30 -- prototype metadata only; no combat effect yet
+-- First passive prototype: only freshly forged Battlehammers have Cleave.
+-- Hits up to two additional server-eligible trees per successful primary hit.
+Rules.CLEAVE_DAMAGE_FRACTION = 0.40
+Rules.CLEAVE_RADIUS_STUDS = 16
+Rules.CLEAVE_MAX_TARGETS = 2
 Rules.WOOD_STRENGTH = { Bamboo = 6, Oak = 10, Ironwood = 16 }
 Rules.CLASS_PROFILES = {
 	Dagger = { Damage = 0.55, AttacksPerSecond = 2.2, Reach = 0.75 },
@@ -92,6 +97,10 @@ function Rules.Preview(metalBase, logs)
 			AttacksPerSecond = statRange(profile.AttacksPerSecond),
 			Reach = statRange(profile.Reach),
 		}
+		if class == "Battlehammer" then
+			classRanges[class].CleaveDamageFraction = statRange(Rules.CLEAVE_DAMAGE_FRACTION)
+			classRanges[class].CleaveRadius = statRange(Rules.CLEAVE_RADIUS_STUDS)
+		end
 	end
 	return {
 		LogCount = #logs,
@@ -132,6 +141,10 @@ function Rules.Roll(metalBase, logs, rng)
 		Damage = stat(ranges.Damage),
 		AttacksPerSecond = stat(ranges.AttacksPerSecond),
 		Reach = stat(ranges.Reach),
+		CleaveDamageFraction = if ranges.CleaveDamageFraction
+			then stat(ranges.CleaveDamageFraction) else nil,
+		CleaveRadius = if ranges.CleaveRadius
+			then stat(ranges.CleaveRadius) else nil,
 		GoldenBonus = if preview.GoldenQuality > 0
 			then stat(preview.GoldenBonusRange) else 0,
 	}
