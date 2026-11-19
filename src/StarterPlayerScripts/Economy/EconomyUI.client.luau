@@ -804,6 +804,7 @@ local function setBagLayout()
 	axesTab.Position = UDim2.new(0, 10, 0, if railWidth < 110 then 76 else 86)
 	axesTab.Size = UDim2.new(1, -20, 0, if railWidth < 110 then 54 else 64)
 	axesTab.TextSize = logsTab.TextSize
+	axesTab.Text = if railWidth < 110 then "GEAR" else "WEAPONS"
 	local sortTop = if railWidth < 110 then 142 else 164
 	sortButton.Position = UDim2.new(1, -202, 0.5, 0)
 	sortButton.AnchorPoint = Vector2.new(0, 0.5)
@@ -1119,13 +1120,13 @@ local function renderAxeDetail(axe)
 	detailIcon.Visible = true
 	detailLogVisual.Visible = false
 	detailIcon.Text = "🪓"
-	detailSpecies.Text = if hasAxe then tostring(axe.Name or "Axe") else "OWNED AXES"
+	detailSpecies.Text = if hasAxe then tostring(axe.Name or "Weapon") else "OWNED WEAPONS"
 	detailMetricLabel.Text = "POWER"
 	detailMetricLabel.Visible = true
 	detailMetricValue.Text = if hasAxe then tostring(axe.Power or 0) else "—"
 	detailMetricValue.Visible = true
 	detailMetricValue.TextColor3 = if hasAxe then COLORS.BagAction else COLORS.BagMuted
-	detailStatus.Text = if not hasAxe then "NO OWNED AXES" elseif axe.Equipped then "EQUIPPED" else "TAP TO EQUIP"
+	detailStatus.Text = if not hasAxe then "NO OWNED WEAPONS" elseif axe.Equipped then "EQUIPPED" else "TAP TO EQUIP"
 	detailStatus.TextColor3 = if hasAxe and axe.Equipped then COLORS.BagAction else COLORS.BagMuted
 	detailValue.Text = ""
 	detailSize.Text = ""
@@ -1308,7 +1309,7 @@ local function renderAxes(data)
 		return
 	end
 	if #axes == 0 then
-		showEmptyState("NO OWNED AXES YET")
+		showEmptyState("NO OWNED WEAPONS YET")
 		renderAxeDetail(nil)
 		return
 	end
@@ -2216,12 +2217,14 @@ logsTab.Activated:Connect(function()
 	activeBagTab = "Logs"
 	showingBagInfo = false
 	infoOverlay.Visible = false
+	setBagLayout()
 	if latestLogsData then renderLogs(latestLogsData) else refreshLogs() end
 end)
 axesTab.Activated:Connect(function()
 	activeBagTab = "Axes"
 	showingBagInfo = false
 	infoOverlay.Visible = false
+	setBagLayout()
 	if latestShopData then renderAxes(latestShopData) else renderAxes(nil) end
 	if not latestShopData then refreshShop() end
 end)
