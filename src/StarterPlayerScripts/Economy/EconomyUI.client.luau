@@ -2,6 +2,7 @@
 -- Every button sends intent only; the server owns inventory, prices, and sales.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local ExperimentalForgeRules = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ExperimentalForgeRules"))
 local UserInputService = game:GetService("UserInputService")
 
@@ -603,16 +604,32 @@ shopLayout.SortOrder = Enum.SortOrder.LayoutOrder
 shopLayout.Parent = shopList
 
 local forgeOverlay, forgePanel = makeModal(screen, "AxeForge", "AXE FORGE", "Combine an owned axe head with eligible logs.")
-styleStationModal(forgePanel, "AXE FORGE", "STANDARD AXES USE AN AXE HEAD AND UNLOCKED LOGS")
-forgePanel.Size = UDim2.new(0.86, 0, 0.82, 0)
+styleStationModal(forgePanel, "THE FORGE", "1. CHOOSE MODE     2. PICK LOGS     3. FORGE")
+forgePanel.Size = UDim2.new(0.92, 0, 0.92, 0)
 local forgeSizeConstraint = forgePanel:FindFirstChildOfClass("UISizeConstraint")
 if forgeSizeConstraint then
-	forgeSizeConstraint.MaxSize = Vector2.new(980, 700)
+	forgeSizeConstraint.MaxSize = Vector2.new(1060, 820)
 end
+-- Only ONE recipe is presented at a time; switching mode/tier preserves
+-- each recipe's chosen log UIDs without multiplying enormous cards.
+local forgeModeRng = button(forgePanel, "ModeRng", "RNG FORGE",
+	UDim2.new(0.5, -24, 0, 36), UDim2.fromOffset(20, 86), COLORS.BagAction)
+forgeModeRng.TextSize = 16
+forgeModeRng.Visible = RunService:IsStudio()
+local forgeModeStandard = button(forgePanel, "ModeStandard", "STANDARD",
+	UDim2.new(0.5, -24, 0, 36), UDim2.new(0.5, 4, 0, 86), COLORS.BagSlot)
+forgeModeStandard.TextSize = 16
+local forgeTierCopper = button(forgePanel, "TierCopper", "COPPER",
+	UDim2.new(0.5, -24, 0, 34), UDim2.fromOffset(20, 129), COLORS.BagAction)
+forgeTierCopper.TextSize = 15
+local forgeTierIron = button(forgePanel, "TierIron", "IRON",
+	UDim2.new(0.5, -24, 0, 34), UDim2.new(0.5, 4, 0, 129), COLORS.BagSlot)
+forgeTierIron.TextSize = 15
+
 local forgeList = Instance.new("ScrollingFrame")
 forgeList.Name = "RecipeList"
-forgeList.Position = UDim2.new(0, 20, 0, 124)
-forgeList.Size = UDim2.new(1, -40, 1, -144)
+forgeList.Position = UDim2.new(0, 20, 0, 177)
+forgeList.Size = UDim2.new(1, -40, 1, -195)
 forgeList.BackgroundColor3 = COLORS.BagBack
 forgeList.BackgroundTransparency = 0
 forgeList.BorderSizePixel = 0
@@ -633,7 +650,7 @@ local forgeLayout = Instance.new("UIListLayout")
 forgeLayout.Padding = UDim.new(0, 12)
 forgeLayout.SortOrder = Enum.SortOrder.LayoutOrder
 forgeLayout.Parent = forgeList
-local forgeEmptyState = label(forgePanel, "ForgeEmptyState", "LOADING RECIPES...", UDim2.new(1, -60, 0, 80), UDim2.new(0, 30, 0, 124), 20, COLORS.BagMuted, Enum.Font.GothamBlack)
+local forgeEmptyState = label(forgePanel, "ForgeEmptyState", "LOADING RECIPES...", UDim2.new(1, -60, 0, 80), UDim2.new(0, 30, 0, 180), 20, COLORS.BagMuted, Enum.Font.GothamBlack)
 forgeEmptyState.TextXAlignment = Enum.TextXAlignment.Center
 forgeEmptyState.ZIndex = 3
 forgeEmptyState.Visible = true
@@ -692,6 +709,9 @@ local forgeEligibleLogsByUid = {}
 local forgeEligibleLogs = {}
 local forgeEligibleLogsAvailable = false
 local forgeSnapshotFresh = false
+local forgeModeSelection = if RunService:IsStudio() then "RNG" else "STANDARD"
+local forgeMetalSelection = "copper"
+local forgeShowStatRanges = false
 local activeBagTab = "Logs"
 local showingBagInfo = false
 local bagWideLayout = false
