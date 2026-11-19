@@ -168,6 +168,8 @@ local function buildOwnedAxes(profile)
 			Reach = weaponData and weaponData.Reach,
 			GoldenQuality = weaponData and weaponData.GoldenQuality,
 			GoldenBonus = weaponData and weaponData.GoldenBonus,
+			CleaveDamageFraction = weaponData and weaponData.CleaveDamageFraction,
+			CleaveRadius = weaponData and weaponData.CleaveRadius,
 			MaterialCount = materialCount,
 			MutationMaterials = mutationMaterials,
 			ItemID = item.ItemID,
@@ -497,7 +499,9 @@ local function craftExperimental(player, recipe, selectedLogUids)
 			AverageWoodStrength = result.AverageWoodStrength,
 			AttacksPerSecond = result.AttacksPerSecond,
 			Reach = result.Reach,
-			GoldenBonus = result.GoldenBonus, -- metadata; no secondary damage yet
+			CleaveDamageFraction = result.CleaveDamageFraction,
+			CleaveRadius = result.CleaveRadius,
+			GoldenBonus = result.GoldenBonus, -- metadata; no Golden effect yet
 			Materials = sourceMaterials,
 		},
 	}
