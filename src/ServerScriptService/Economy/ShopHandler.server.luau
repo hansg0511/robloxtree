@@ -4,6 +4,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ExperimentalForgeRules = require(ReplicatedStorage.Shared.ExperimentalForgeRules)
+local WeaponEffects = require(game.ServerScriptService.WeaponEffects.Dispatcher)
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local profileCache = require(ServerScriptService.PlayerProfile.ProfileService.ProfileDataCache)
@@ -168,8 +169,7 @@ local function buildOwnedAxes(profile)
 			Reach = weaponData and weaponData.Reach,
 			GoldenQuality = weaponData and weaponData.GoldenQuality,
 			GoldenBonus = weaponData and weaponData.GoldenBonus,
-			CleaveDamageFraction = weaponData and weaponData.CleaveDamageFraction,
-			CleaveRadius = weaponData and weaponData.CleaveRadius,
+			Effects = WeaponEffects.List(weaponData),
 			MaterialCount = materialCount,
 			MutationMaterials = mutationMaterials,
 			ItemID = item.ItemID,
@@ -480,6 +480,21 @@ local function craftExperimental(player, recipe, selectedLogUids)
 		return
 	end
 	local power = math.floor(result.Damage * 10 + 0.5) / 10
+	-- Assignment policy lives here, not inside the Cleave behavior module.
+	-- Later another source (mutation, skill, upgrade) can grant the same
+	-- validated effect without requiring the Battlehammer class.
+	local grantedEffects = {}
+	if result.CleaveDamageFraction and result.CleaveRadius then
+		grantedEffects[1] = {
+			Id = "Cleave",
+			Trigger = "OnHit",
+			Source = "WeaponClass",
+			Params = {
+				DamageFraction = result.CleaveDamageFraction,
+				Radius = result.CleaveRadius,
+			},
+		}
+	end
 	local weapon = {
 		ItemID = recipe.Outputs[result.Class],
 		UID = HttpService:GenerateGUID(false),
@@ -499,8 +514,7 @@ local function craftExperimental(player, recipe, selectedLogUids)
 			AverageWoodStrength = result.AverageWoodStrength,
 			AttacksPerSecond = result.AttacksPerSecond,
 			Reach = result.Reach,
-			CleaveDamageFraction = result.CleaveDamageFraction,
-			CleaveRadius = result.CleaveRadius,
+			Effects = grantedEffects,
 			GoldenBonus = result.GoldenBonus, -- metadata; no Golden effect yet
 			Materials = sourceMaterials,
 		},
