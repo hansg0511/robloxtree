@@ -499,6 +499,33 @@ local detailExtraLabel = label(detailPanel, "ExtraStatsLabel", "OTHER STATS", UD
 local detailExtraValue = label(detailPanel, "ExtraStatsValue", "Not configured yet", UDim2.new(1, -36, 0, 28), UDim2.new(0, 18, 0, 0), 16, COLORS.BagMuted, Enum.Font.GothamBold)
 detailExtraLabel.Visible = false
 detailExtraValue.Visible = false
+
+-- Stats and future mutation abilities have their own scrollable region.
+-- This is visible only for AXES; the LOG details layout is unchanged.
+local axeStatsScroll = Instance.new("ScrollingFrame")
+axeStatsScroll.Name = "WeaponStats"
+axeStatsScroll.BackgroundColor3 = COLORS.BagPreview
+axeStatsScroll.BorderSizePixel = 0
+axeStatsScroll.ScrollBarThickness = 5
+axeStatsScroll.ScrollBarImageColor3 = COLORS.BagMuted
+axeStatsScroll.ScrollingDirection = Enum.ScrollingDirection.Y
+axeStatsScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+axeStatsScroll.CanvasSize = UDim2.new()
+axeStatsScroll.Visible = false
+axeStatsScroll.ZIndex = 11
+axeStatsScroll.Parent = detailPanel
+round(axeStatsScroll, 9)
+local axeStatsPadding = Instance.new("UIPadding")
+axeStatsPadding.PaddingTop = UDim.new(0, 8)
+axeStatsPadding.PaddingBottom = UDim.new(0, 10)
+axeStatsPadding.PaddingLeft = UDim.new(0, 10)
+axeStatsPadding.PaddingRight = UDim.new(0, 12)
+axeStatsPadding.Parent = axeStatsScroll
+local axeStatsLayout = Instance.new("UIListLayout")
+axeStatsLayout.Padding = UDim.new(0, 4)
+axeStatsLayout.SortOrder = Enum.SortOrder.LayoutOrder
+axeStatsLayout.Parent = axeStatsScroll
+
 local favoriteButton = button(detailPanel, "FavoriteButton", "LOCK", UDim2.new(0, 82, 0, 32), UDim2.new(1, -88, 0.5, -16), COLORS.BagHeader)
 favoriteButton.TextSize = 18
 favoriteButton.TextColor3 = COLORS.BagText
@@ -811,8 +838,9 @@ local function setBagLayout()
 		detailPanel.Size = UDim2.new(0, detailWidth, 1, 0)
 		infoCloseButton.Visible = false
 		detailPreview.Visible = true
-		local previewSide = math.clamp(math.floor(math.min(detailWidth - 48, height * 0.29)), 112, 164)
-		local previewTop = 94
+		local previewSide = if activeBagTab == "Axes" then 100
+			else math.clamp(math.floor(math.min(detailWidth - 48, height * 0.29)), 112, 164)
+		local previewTop = if activeBagTab == "Axes" then 88 else 94
 		detailPreview.Position = UDim2.new(0.5, -previewSide / 2, 0, previewTop)
 		detailPreview.Size = UDim2.fromOffset(previewSide, previewSide)
 		detailSpecies.Position = UDim2.new(0, 18, 0, 12)
@@ -842,6 +870,9 @@ local function setBagLayout()
 		detailExtraValue.Size = UDim2.new(1, -36, 0, 44)
 		detailExtraValue.TextXAlignment = Enum.TextXAlignment.Center
 		detailExtraValue.TextSize = 16
+		local axeStatsTop = previewTop + previewSide + 78
+		axeStatsScroll.Position = UDim2.new(0, 16, 0, axeStatsTop)
+		axeStatsScroll.Size = UDim2.new(1, -32, 1, -(axeStatsTop + 14))
 		favoriteButton.Position = UDim2.new(0, 18, 1, -64)
 		favoriteButton.Size = UDim2.new(1, -36, 0, 52)
 		favoriteButton.TextSize = 18
@@ -860,8 +891,9 @@ local function setBagLayout()
 		emptyState.Size = UDim2.fromScale(1, 1)
 		local detailWidth = math.max(220, math.floor(width * 0.86))
 		local detailHeight = math.max(220, math.floor(height * 0.86))
-		local previewSide = math.clamp(math.floor(math.min(detailWidth - 48, (detailHeight - 220) * 0.48)), 64, 142)
-		local previewTop = 82
+		local previewSide = if activeBagTab == "Axes" then 72
+			else math.clamp(math.floor(math.min(detailWidth - 48, (detailHeight - 220) * 0.48)), 64, 142)
+		local previewTop = if activeBagTab == "Axes" then 76 else 82
 		detailSpecies.Position = UDim2.new(0, 18, 0, 10)
 		detailSpecies.Size = UDim2.new(1, -36, 0, 32)
 		detailSpecies.TextSize = if detailWidth < 310 then 20 else 24
@@ -891,6 +923,9 @@ local function setBagLayout()
 		detailExtraValue.Size = UDim2.new(1, -36, 0, 24)
 		detailExtraValue.TextSize = 14
 		detailExtraValue.TextXAlignment = Enum.TextXAlignment.Center
+		local axeStatsTop = previewTop + previewSide + 66
+		axeStatsScroll.Position = UDim2.new(0, 16, 0, axeStatsTop)
+		axeStatsScroll.Size = UDim2.new(1, -32, 1, -(axeStatsTop + 64))
 		favoriteButton.Position = UDim2.new(0, 18, 1, -116)
 		favoriteButton.Size = UDim2.new(1, -36, 0, 48)
 		favoriteButton.TextSize = 16
