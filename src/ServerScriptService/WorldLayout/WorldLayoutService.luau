@@ -1,5 +1,6 @@
 -- Builds the source-controlled corridor and registers its public TreeObject records.
 local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
 local TreeObject = require(game.ServerScriptService.Trees.TreeObject)
 local TreeDefinitions = require(game.ServerScriptService.Trees.TreeDefinitions)
 local Configuration = require(script.Parent.WorldLayoutConfiguration)
@@ -689,6 +690,50 @@ local function spawnTreeRecord(forestFolder, forestId, record)
 	return tree
 end
 
+-- Dedicated Studio-only *real* wild-tree encounter for testing the Cleave
+-- dispatcher. These trees use the normal ChopEvent, TreeObject, eligibility,
+-- damage, log rewards and respawn; no dummy visual models or client hitboxes.
+local function buildStudioCleavePatch(forestRoot, pathFolder, spawnedTrees)
+	if not RunService:IsStudio() then return end
+
+	local patch = createFolder("CleaveTestPatch", forestRoot)
+	patch:SetAttribute("StudioOnly", true)
+	patch:SetAttribute("ForestId", "Forest1")
+	createGround(
+		patch, "CleaveTestGround",
+		Vector3.new(-216, -0.75, 201), Vector3.new(64, 0.5, 48),
+		Color3.fromRGB(101, 173, 83), nil, "ForestGround"
+	)
+	createPath(pathFolder, {
+		Name = "CleaveTestAccess",
+		Start = Vector3.new(-166, 0, 201),
+		End = Vector3.new(-187, 0, 201),
+		Width = 10,
+	})
+	createSign(patch, {
+		Text = "CLEAVE TEST - STUDIO ONLY",
+		Position = Vector3.new(-216, 0, 178),
+	}, "South")
+
+	-- Nearest centers are 9-10 studs apart; even moderate-quality
+	-- Battlehammers can reach two eligible secondaries from any tree.
+	for _, position in ipairs({
+		Vector3.new(-224, -0.5, 197),
+		Vector3.new(-215, -0.5, 197),
+		Vector3.new(-224, -0.5, 207),
+		Vector3.new(-215, -0.5, 207),
+	}) do
+		local tree = spawnTreeRecord(patch, "Forest1", {
+			DefinitionId = "StarterForestTree",
+			Position = position,
+		})
+		if tree then
+			if tree.model then tree.model:SetAttribute("CleaveTestTree", true) end
+			table.insert(spawnedTrees, tree)
+		end
+	end
+end
+
 local function destroyTreesForExistingRoot(existing)
 	local treesToDestroy = {}
 	local seenTrees = {}
@@ -781,7 +826,11 @@ local function buildWorld()
 		and existing:GetAttribute("WorldLayoutVersion") == Configuration.VERSION
 		and (existing:GetAttribute("ProceduralStarterOaksEnabled") == true) == proceduralStarterOaksEnabled
 		and existing:FindFirstChild("HomeEconomyStation")
-		and existing.HomeEconomyStation:FindFirstChild("ProcessorIntake") then
+		and existing.HomeEconomyStation:FindFirstChild("ProcessorIntake")
+		and (not RunService:IsStudio() or (
+			existing:FindFirstChild("Forests") ~= nil
+			and existing.Forests:FindFirstChild("CleaveTestPatch") ~= nil
+		)) then
 		return existing
 	end
 	if existing then
@@ -871,6 +920,7 @@ local function buildWorld()
 	local starterForest = forestRoot:FindFirstChild("StarterForest")
 	local barrier = spawnTreeRecord(starterForest, Configuration.BARRIER.ForestId, Configuration.BARRIER)
 	if barrier then table.insert(spawnedTrees, barrier) end
+	buildStudioCleavePatch(forestRoot, pathFolder, spawnedTrees)
 	local kitOk, kitFolder, kitReport = false, nil, nil
 	local kitFailureReason = environmentKitLoadFailure
 	if world1EnvironmentKit then

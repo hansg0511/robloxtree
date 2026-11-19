@@ -683,6 +683,27 @@ forgeEmptyState.ZIndex = 3
 forgeEmptyState.Visible = true
 
 local sellOverlay, sellPanel = makeModal(screen, "SellLogs", "SELL LOGS", "Drop your carried logs into the processor to earn Coins.")
+
+-- Lightweight client-only coordination for debug overlays. Listen to Visible
+-- so header X buttons, ESC, station-distance closures and tab changes all work.
+local economyOverlays = { bagOverlay, shopOverlay, forgeOverlay, sellOverlay }
+local function publishEconomyModalOpen()
+	local anyOpen = false
+	for _, overlay in ipairs(economyOverlays) do
+		if overlay.Visible then
+			anyOpen = true
+			break
+		end
+	end
+	playerGui:SetAttribute("EconomyModalOpen", anyOpen)
+end
+for _, overlay in ipairs(economyOverlays) do
+	overlay:GetPropertyChangedSignal("Visible"):Connect(publishEconomyModalOpen)
+end
+publishEconomyModalOpen()
+screen.Destroying:Connect(function()
+	playerGui:SetAttribute("EconomyModalOpen", false)
+end)
 styleStationModal(sellPanel, "LUMBER DEPOT", "TURN READY LOGS INTO COINS")
 local sellCard = Instance.new("Frame")
 sellCard.Name = "SaleSummary"

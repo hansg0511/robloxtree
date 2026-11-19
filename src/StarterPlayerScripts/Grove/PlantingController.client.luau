@@ -87,6 +87,14 @@ panel.BackgroundTransparency = 0.08
 panel.BorderSizePixel = 0
 panel.Parent = screenGui
 
+-- The Grove prototype HUD must not sit on top of Bag/Shop/Forge details.
+-- It returns automatically when the last economy panel closes.
+local function syncGrovePanelWithEconomy()
+	panel.Visible = playerGui:GetAttribute("EconomyModalOpen") ~= true
+end
+keepConnection(playerGui:GetAttributeChangedSignal("EconomyModalOpen"):Connect(syncGrovePanelWithEconomy))
+syncGrovePanelWithEconomy()
+
 local panelCorner = Instance.new("UICorner")
 panelCorner.CornerRadius = UDim.new(0, 8)
 panelCorner.Parent = panel
