@@ -8,28 +8,26 @@ local function near(a, b)
 end
 
 assert(Rules.Resolve(nil) == nil, "Absent metadata cannot grant Cleave")
-assert(Rules.Resolve({ ExperimentalClass = "Dagger",
-	CleaveRadius = 16, CleaveDamageFraction = 0.4 }) == nil,
-	"Daggers must not inherit Battlehammer ability")
-assert(Rules.Resolve({ ExperimentalClass = "Battlehammer" }) == nil,
-	"Old hammers missing independent rolls must not activate")
-assert(Rules.Resolve({ ExperimentalClass = "Battlehammer",
-	CleaveRadius = 0 / 0, CleaveDamageFraction = 0.4 }) == nil,
-	"Nonfinite reach must fail closed")
+assert(Rules.Resolve({ Radius = 16,
+	DamageFraction = 0.4 }) ~= nil,
+	"Cleave behavior must not depend on a weapon class")
+assert(Rules.Resolve({}) == nil,
+	"Missing effect parameters cannot activate")
+assert(Rules.Resolve({ Radius = 0 / 0,
+	DamageFraction = 0.4 }) == nil,
+	"Nonfinite radius must fail closed")
 local profile = Rules.Resolve({
-	ExperimentalClass = "Battlehammer",
-	CleaveRadius = 10,
-	CleaveDamageFraction = 0.4,
+	Radius = 10,
+	DamageFraction = 0.4,
 })
 assert(profile and profile.MaxTargets == 2 and near(profile.Radius, 10),
-	"Server-owned class profile resolves")
+	"Server-owned effect parameters resolve")
 assert(Rules.SecondaryDamage(100, profile) == 40, "40% of damage")
 assert(Rules.SecondaryDamage(1, profile) == 0, "Small hits don't create free damage")
 assert(Rules.SecondaryDamage(0, profile) == 0, "No free damage on zero-hit")
 local maxed = Rules.Resolve({
-	ExperimentalClass = "Battlehammer",
-	CleaveRadius = 100000,
-	CleaveDamageFraction = 100,
+	Radius = 100000,
+	DamageFraction = 100,
 })
 assert(maxed.Radius == Rules.MAX_RADIUS_STUDS
 	and near(maxed.DamageFraction, Rules.MAX_DAMAGE_FRACTION),
