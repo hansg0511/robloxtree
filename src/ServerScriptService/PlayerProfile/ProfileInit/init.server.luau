@@ -1,6 +1,7 @@
 local profileCache = require(script.Parent.ProfileService.ProfileDataCache)
 local DevelopmentLoadouts = require(script.Parent.DevelopmentLoadouts)
 local AxeShopCatalog = require(game.ServerScriptService.Economy.AxeShopCatalog)
+local StudioForgeSandbox = require(game.ServerScriptService.Economy.StudioForgeSandbox)
 local bindableLoaded = script.ProfileLoadedEvent
 local remoteLoaded = game.ReplicatedStorage.Profile.ProfileLoadEvent
 
@@ -116,6 +117,9 @@ local function PlayerAdded(player)
 		end
 		DevelopmentLoadouts.ApplyStudioPreset(player, profile.Data)
 		DevelopmentLoadouts.ApplyGroveSaplings(player, profile.Data)
+		-- Authoritative Studio-only fixtures: auto-supply funding, metal
+		-- components and quality-varied unique logs for instant forge tests.
+		StudioForgeSandbox.Refill(player, profile.Data)
 		profileCache.NormalizeGroveData(profile.Data)
 		profile:ListenToRelease(function()
 			profileCache.Remove(player)
