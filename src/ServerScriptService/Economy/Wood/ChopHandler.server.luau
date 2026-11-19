@@ -85,7 +85,27 @@ ChopEvent.OnServerEvent:Connect(function(player)
 	-- Normal attack remains single-target; only confirmed hits emit effects.
 	if not tree:TakeDamage(calculated, player) then return end
 	if RunService:IsStudio() then
-		WeaponEffects.ApplyPrepared(preparedEffects, effectContext)
+		local secondaryHits = WeaponEffects.ApplyPrepared(preparedEffects, effectContext)
+		-- Avoid noisy output in normal forests; this is a dedicated Studio
+		-- test-zone trace for differentiating "no Cleave" vs "no neighbors".
+		if tree.Parent and tree.Parent.Name == "CleaveTestPatch" then
+			local cleaveState
+			for _, effect in ipairs(preparedEffects) do
+				if effect.Id == "Cleave" then
+					cleaveState = effect.State
+					break
+				end
+			end
+			if cleaveState then
+				print(string.format(
+					"[CleaveTest] radius=%.2f studs, preparedTargets=%d, secondaryHits=%d, primaryDamage=%.0f",
+					cleaveState.Profile.Radius, #(cleaveState.Targets or {}),
+					secondaryHits, calculated.Damage
+				))
+			else
+				print("[CleaveTest] Equipped weapon has no validated Cleave effect. Forge/equip a new experimental Battlehammer.")
+			end
+		end
 	end
 end)
 

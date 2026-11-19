@@ -105,7 +105,12 @@ function Cleave.Apply(prepared, context)
 		if hits < Cleave.MAX_TARGETS and context.ActiveTrees[tree] == true
 			and context.EligibleSecondary(tree)
 			and type(tree.TakeDamage) == "function" then
-			if tree:TakeDamage({ Damage = damage, IsCrit = false }, context.Player) then
+			if tree:TakeDamage({
+				Damage = damage,
+				IsCrit = false,
+				-- Mark secondary damage for the Studio-only diagnostic popup.
+				EffectId = "Cleave",
+			}, context.Player) then
 				hits += 1
 			end
 		end

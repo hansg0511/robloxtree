@@ -699,29 +699,33 @@ local function buildStudioCleavePatch(forestRoot, pathFolder, spawnedTrees)
 	local patch = createFolder("CleaveTestPatch", forestRoot)
 	patch:SetAttribute("StudioOnly", true)
 	patch:SetAttribute("ForestId", "Forest1")
+	-- Place the whole patch INSIDE Forest 1's playable footprint. The old
+	-- X=-216 location was beyond the solid WestCliff at X=-200.
+	-- Raised a few hundredths above the existing forest floor to avoid z-fighting.
 	createGround(
 		patch, "CleaveTestGround",
-		Vector3.new(-216, -0.75, 201), Vector3.new(64, 0.5, 48),
+		Vector3.new(-93, -0.71, 185), Vector3.new(30, 0.5, 28),
 		Color3.fromRGB(101, 173, 83), nil, "ForestGround"
 	)
 	createPath(pathFolder, {
 		Name = "CleaveTestAccess",
-		Start = Vector3.new(-166, 0, 201),
-		End = Vector3.new(-187, 0, 201),
-		Width = 10,
+		Start = Vector3.new(-112, 0, 185),
+		End = Vector3.new(-106, 0, 185),
+		Width = 8,
 	})
 	createSign(patch, {
 		Text = "CLEAVE TEST - STUDIO ONLY",
-		Position = Vector3.new(-216, 0, 178),
+		Position = Vector3.new(-93, 0, 174),
 	}, "South")
 
-	-- Nearest centers are 9-10 studs apart; even moderate-quality
-	-- Battlehammers can reach two eligible secondaries from any tree.
+	-- 7.5-stud separation is within even the weakest current rolled Cleave
+	-- radius (16 * (0.5 + 0.5 * 0.1) * 0.9 = 7.92 studs).
+	-- The short trunks stay separate, but their foliage can overlap.
 	for _, position in ipairs({
-		Vector3.new(-224, -0.5, 197),
-		Vector3.new(-215, -0.5, 197),
-		Vector3.new(-224, -0.5, 207),
-		Vector3.new(-215, -0.5, 207),
+		Vector3.new(-97, -0.5, 181),
+		Vector3.new(-89.5, -0.5, 181),
+		Vector3.new(-97, -0.5, 188.5),
+		Vector3.new(-89.5, -0.5, 188.5),
 	}) do
 		local tree = spawnTreeRecord(patch, "Forest1", {
 			DefinitionId = "StarterForestTree",

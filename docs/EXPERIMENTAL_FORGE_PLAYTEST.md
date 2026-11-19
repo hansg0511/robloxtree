@@ -12,11 +12,11 @@ The dispatcher retains compatibility for existing hammers with old scalar Cleave
 
 ## Studio-only Cleave test patch and HUD accessibility
 
-A real four-Oak Cleave test patch now builds **west of Forest 1**, linked by a short path near Z=201 and marked **CLEAVE TEST - STUDIO ONLY**. The four trees are 9-10 studs apart and use ordinary Forest1 server targeting, damage, respawn and rewards. This is not a change to production forest spacing. It is absent outside Studio.
+A real four-Oak Cleave test patch now builds **west of Forest 1**, linked by a short path near Z=185 and marked **CLEAVE TEST - STUDIO ONLY**, east of the Forest 1 corridor (inside the world boundary). The four trees are 7.5 studs apart and use ordinary Forest1 server targeting, damage, respawn and rewards. This is not a change to production forest spacing. It is absent outside Studio.
 
 Open **M -> AXES**, select a newly forged **20 LOGS** experimental Battlehammer, then use **INFO** if the details card is hidden at your viewport size. Under **WEAPON EFFECTS**, look for Cleave radius, damage percentage, trigger and grant source. The Grove HUD and Lighting Preview now hide while the Bag, Forge, Shop or sell panels are open; Lighting Preview also lives at the **top-right** during normal gameplay. Closing the economy panel restores those controls (including the previous expanded Lighting state).
 
-At the marked patch, hit one Oak with that Battlehammer and watch up to **two other Oaks** take ordinary hit damage. There is still **no custom Cleave shockwave VFX**. The patch uses true wild trees: normal logs and sapling-discovery rolls can occur, so use Studio sandbox accounts for testing. Check the new hammer's actual rolled radius in Bag; exceptionally weak rolls may not reach 9 studs.
+At the marked patch, hit one Oak with that Battlehammer and watch up to **two other Oaks** take ordinary hit damage. Studio secondary damage now has an explicit gold CLEAVE popup and a test-patch-only server Output trace; there is still **no final custom Cleave shockwave VFX**. The patch uses true wild trees: normal logs and sapling-discovery rolls can occur, so use Studio sandbox accounts for testing. Check the new hammer's actual rolled radius in Bag; exceptionally weak rolls may not reach 9 studs.
 
 ## Gameplay milestone: Battlehammer Cleave (Studio prototype)
 

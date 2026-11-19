@@ -2024,6 +2024,9 @@ function Tree:TakeDamage(ctx, player)
 		IsCrit = ctx.IsCrit,
 		HP = self.HP,
 		MaxHP = self.MaxHP,
+		-- Never expose Studio diagnostics in published play.
+		EffectId = if RunService:IsStudio() and ctx.EffectId == "Cleave"
+			then "Cleave" else nil,
 	})
 
 	if not isLethalHit and not (self.IsPersistentGrove and self.isDead) then
