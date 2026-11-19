@@ -10,6 +10,7 @@ local EconomyManager = require(game.ServerScriptService.Economy.EconomyManager)
 local AxeShopCatalog = require(game.ServerScriptService.Economy.AxeShopCatalog)
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
 local LogStorageRules = require(script.Parent.LogStorageRules)
+local StudioForgeSandbox = require(game.ServerScriptService.Economy.StudioForgeSandbox)
 local SpeciesVisuals = require(game.ServerStorage:WaitForChild("SpeciesVisuals"))
 local BaseStationAccess = require(game.ServerScriptService.WorldLayout.BaseStationAccess)
 local LogCarryVisualService = require(game.ServerScriptService.Inventory.LogCarryVisualService)
@@ -868,6 +869,9 @@ end
 function LogService.NotifyState(player)
 	local data = getPlayerData(player)
 	if data then
+		-- A successful craft consumes real unique log UIDs. In Studio, restore
+		-- the missing test fixtures with NEW UIDs before publishing snapshots.
+		StudioForgeSandbox.Refill(player, data)
 		refreshPiledLogPickupEligibility(player, data)
 	end
 	local snapshot = makeClientSnapshot(player)
