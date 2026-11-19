@@ -1032,6 +1032,7 @@ local function renderLogDetail(record)
 	detailExtraValue.Text = weightText or ""
 	detailExtraLabel.Visible = weightText ~= nil
 	detailExtraValue.Visible = weightText ~= nil
+	axeStatsScroll.Visible = false
 	detailStatus.Text = if not hasRecord then "CHOOSE A LOG" elseif record.Locked == true then "LOCKED • SAFE FROM SELL ALL" else "SELECTED"
 	detailStatus.TextColor3 = if hasRecord and record.Locked == true then COLORS.Gold else COLORS.BagMuted
 	favoriteButton.Visible = hasRecord
@@ -1041,6 +1042,76 @@ local function renderLogDetail(record)
 	favoriteButton.TextColor3 = COLORS.Ink
 	favoriteButton.TextStrokeColor3 = COLORS.BagLine
 	favoriteButton.TextStrokeTransparency = 0
+end
+
+-- Reusable rows: future rolled stats / active mutation effects can be
+-- added here without introducing another cramped horizontal string.
+local axeStatOrder = 0
+local previousDetailAxeUID = nil
+local function clearAxeStats()
+	for _, child in ipairs(axeStatsScroll:GetChildren()) do
+		if child ~= axeStatsLayout and child ~= axeStatsPadding
+			and not child:IsA("UICorner") then
+			child:Destroy()
+		end
+	end
+	axeStatOrder = 0
+end
+
+local function axeStatSection(titleText)
+	axeStatOrder += 1
+	local heading = label(axeStatsScroll, "Section_" .. tostring(axeStatOrder), titleText,
+		UDim2.new(1, -8, 0, 25), UDim2.new(), 14,
+		COLORS.Gold, Enum.Font.GothamBlack)
+	heading.LayoutOrder = axeStatOrder
+	heading.TextXAlignment = Enum.TextXAlignment.Left
+	heading.TextTruncate = Enum.TextTruncate.AtEnd
+	heading.ZIndex = 12
+end
+
+local function axeStatRow(titleText, valueText)
+	axeStatOrder += 1
+	local line = Instance.new("Frame")
+	line.Name = "Stat_" .. tostring(axeStatOrder)
+	line.LayoutOrder = axeStatOrder
+	line.Size = UDim2.new(1, -8, 0, 32)
+	line.BackgroundColor3 = COLORS.BagSlot
+	line.BorderSizePixel = 0
+	line.ZIndex = 12
+	line.Parent = axeStatsScroll
+	round(line, 6)
+	local title = label(line, "StatName", titleText,
+		UDim2.new(0.52, -10, 1, 0), UDim2.new(0, 8, 0, 0), 13,
+		COLORS.BagMuted, Enum.Font.GothamBold)
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.TextTruncate = Enum.TextTruncate.AtEnd
+	title.ZIndex = 13
+	local value = label(line, "StatValue", valueText,
+		UDim2.new(0.48, -8, 1, 0), UDim2.new(0.52, 0, 0, 0), 13,
+		COLORS.BagText, Enum.Font.GothamBlack)
+	value.TextXAlignment = Enum.TextXAlignment.Right
+	value.TextTruncate = Enum.TextTruncate.AtEnd
+	value.ZIndex = 13
+end
+
+local function axeStatNote(noteText)
+	axeStatOrder += 1
+	local note = label(axeStatsScroll, "Note_" .. tostring(axeStatOrder), noteText,
+		UDim2.new(1, -8, 0, 42), UDim2.new(), 12,
+		COLORS.BagMuted, Enum.Font.GothamBold)
+	note.LayoutOrder = axeStatOrder
+	note.TextXAlignment = Enum.TextXAlignment.Left
+	note.TextYAlignment = Enum.TextYAlignment.Center
+	note.TextWrapped = true
+	note.ZIndex = 12
+end
+
+local function safeAxeNumber(value)
+	if type(value) == "number" and value == value
+		and value > -math.huge and value < math.huge then
+		return value
+	end
+	return nil
 end
 
 local function renderAxeDetail(axe)
@@ -1058,21 +1129,82 @@ local function renderAxeDetail(axe)
 	detailStatus.TextColor3 = if hasAxe and axe.Equipped then COLORS.BagAction else COLORS.BagMuted
 	detailValue.Text = ""
 	detailSize.Text = ""
-	-- Show persisted *actual* rolls for experimental weapons, never
-	-- projected or invented stats. Normal axes keep their existing layout.
-	local hasRolls = hasAxe and axe.Experimental == true
-		and type(axe.MaterialQuality) == "number"
-		and type(axe.AttacksPerSecond) == "number"
-		and type(axe.Reach) == "number"
-	detailExtraLabel.Text = "FORGED MATERIAL & STATS"
-	detailExtraValue.Text = if hasRolls then string.format(
-		"LOG Q %.1f%%  •  %.2f HITS/S  •  %.2fx REACH",
-		axe.MaterialQuality * 100, axe.AttacksPerSecond, axe.Reach)
-		else ""
-	detailExtraValue.TextWrapped = true
-	detailExtraLabel.Visible = hasRolls
-	detailExtraValue.Visible = hasRolls
+	detailExtraLabel.Visible = false
+	detailExtraValue.Visible = false
 	favoriteButton.Visible = false
+	axeStatsScroll.Visible = hasAxe
+
+	local uid = if hasAxe then axe.UID else nil
+	local oldScroll = axeStatsScroll.CanvasPosition
+	clearAxeStats()
+	if not hasAxe then
+		previousDetailAxeUID = nil
+		return
+	end
+
+	axeStatSection("WEAPON STATS")
+	local speed = safeAxeNumber(axe.AttacksPerSecond)
+	local reach = safeAxeNumber(axe.Reach)
+	if speed and speed > 0 then
+		axeStatRow("Attack speed", string.format("%.2f hits/s", speed))
+	else
+		axeStatRow("Attack speed", "Not individually rolled")
+	end
+	if reach and reach > 0 then
+		axeStatRow("Reach", string.format("%.2fx", reach))
+	else
+		axeStatRow("Reach", "Standard")
+	end
+	if safeAxeNumber(axe.Tier) then
+		axeStatRow("Metal tier", tostring(math.floor(axe.Tier)))
+	end
+
+	axeStatSection("MATERIALS")
+	local quality = safeAxeNumber(axe.MaterialQuality)
+	if quality then
+		axeStatRow("Average log quality",
+			string.format("%.1f%%", math.clamp(quality, 0, 1) * 100))
+	else
+		axeStatRow("Average log quality", "Not recorded")
+	end
+	local materialCount = safeAxeNumber(axe.MaterialCount)
+	if materialCount and materialCount > 0 then
+		axeStatRow("Logs used", tostring(math.floor(materialCount)))
+	else
+		axeStatRow("Logs used", "Not recorded")
+	end
+
+	axeStatSection("MUTATIONS & ABILITIES")
+	local mutations = type(axe.MutationMaterials) == "table"
+		and axe.MutationMaterials or {}
+	local displayed = 0
+	for _, mutation in ipairs(mutations) do
+		if type(mutation) == "table"
+			and type(mutation.Name) == "string"
+			and safeAxeNumber(mutation.LogCount)
+			and mutation.LogCount > 0 then
+			displayed += 1
+			local mutationQuality = safeAxeNumber(mutation.MaterialQuality)
+			axeStatRow(mutation.Name .. " (" .. tostring(math.floor(mutation.LogCount)) .. " logs)",
+				if mutationQuality then
+					string.format("Q %.1f%%", math.clamp(mutationQuality, 0, 1) * 100)
+				else "Quality unavailable")
+		end
+	end
+	if displayed == 0 then
+		axeStatNote("No mutated materials recorded for this weapon.")
+	end
+	local goldenBonus = safeAxeNumber(axe.GoldenBonus)
+	if goldenBonus and goldenBonus > 0 and displayed > 0 then
+		axeStatRow("Golden test roll",
+			string.format("+%.1f%% (inactive)", goldenBonus * 100))
+	end
+	axeStatNote("Mutation abilities aren't active yet. Their effects will appear here when implemented.")
+
+	-- A server snapshot refresh shouldn't jump the scroll back to the top.
+	axeStatsScroll.CanvasPosition = if uid == previousDetailAxeUID
+		then oldScroll else Vector2.zero
+	previousDetailAxeUID = uid
 end
 
 local function makeItemSlot(name, order, icon, title, metadata, isEquipped, isSelected, isLocked, onActivated)
