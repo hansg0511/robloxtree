@@ -100,5 +100,28 @@ assert(Rules.DerivedAttackBonus({ ItemRarity = "Ultra",
 assert(Rules.DerivedAttackBonus(nil, 5) == 0)
 assert(Rules.NormalizeWeaponItem(nil) == false)
 
+-- Exercise the real profile-load filtering and runtime adapter paths.
+local ProfileCache = require(game.ServerScriptService.PlayerProfile.ProfileService.ProfileDataCache)
+local ItemDataBase = require(game.ServerStorage.Items.ItemDataBase)
+local unnormalizedWeapon = { ItemID = 102, UID = "saved-copper", Rarity = "Common",
+	Stats = { Attack = 25 }, Substat = {}, WeaponData = { Effects = effects } }
+local savedSeed = { ItemID = 201, UID = "saved-seed", Rarity = "Rare" }
+local oldDebug = { ItemID = 9001, UID = "old-debug", Rarity = "Debug",
+	Stats = { Attack = 9995 } }
+local simulatedProfile = { Inventory = { unnormalizedWeapon, savedSeed, oldDebug } }
+assert(ProfileCache.NormalizeWeaponData(simulatedProfile))
+assert(unnormalizedWeapon.WeaponData.Progression.Level == 1
+	and unnormalizedWeapon.WeaponData.Effects == effects)
+assert(savedSeed.WeaponData == nil and oldDebug.WeaponData == nil
+	and oldDebug.Rarity == "Debug",
+	"Profile migration must exclude seeds and session-only debug weapons")
+local parsed = ItemDataBase.ParseItem(unnormalizedWeapon)
+assert(parsed.ItemRarity == "Common"
+	and parsed.WeaponData.Progression.Level == 1
+	and parsed.ItemStats.Attack == 25,
+	"Real item parser must carry persisted progression into runtime data")
+assert(parsed.WeaponData.Effects ~= effects and parsed.WeaponData.Effects[1].Id == "Cleave",
+	"Runtime adapter must preserve copied effects without sharing original tables")
+
 print("WeaponProgressionRules: migration, caps, rarity, growth, reset and safety passed")
 return true
