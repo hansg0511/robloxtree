@@ -1,5 +1,5 @@
 # Weapon + Grove Progression — Implementation Roadmap
-_Last updated: 2026-11-21. Design handoff for the Roblox axe/forest game._
+_Last reviewed: 2026-11-22. Design handoff and implementation checkpoint for the Roblox axe/forest game._
 
 > **Status:** Design decisions recorded here are **not** a claim that the functionality is implemented. Keep this file updated as decisions or implementation status change.
 >
@@ -21,7 +21,9 @@ Ship a fun playable **chop → collect logs → forge weapons → level weapons 
 - Experimental Forge rules exist in `src/ReplicatedStorage/Shared/ExperimentalForgeRules.luau`; class odds currently depend on log **quantity**; existing counts/ranges are temporary prototypes.
 - Classes: **Dagger**, **Axe**, **Battlehammer**. Battlehammer has a **Cleave** effect prototype in the generic effects dispatcher (`src/ServerScriptService/WeaponEffects/Dispatcher.luau`).
 - Grove mutation definitions currently include **Golden**, **Giant**, **Crystal**; this **does not reflect the approved future roster**.
-- New mutation powers, weapon rarity/XP/ascension, awakening, infusion, and multi-tier forge rules described below are **design-only**, not yet coded.
+- New mutation powers, manually activated skills, weapon rarity/XP/ascension, awakening, infusion, Ultra mastery, and multi-tier forge rules described below are **design-only**, not yet coded.
+- **Implementation status:** Basic chopping, log collection, experimental class-roll forging, basic weapon inventory, and one Cleave effect work as prototypes. **Not implemented:** rarity rolls; weapon XP/leveling; rarity ascension/pity; real forge tiers; mutation ability pools and potency; awakening/infusion; active skills; full Grove economy. No claim is made that the player-facing loop below currently exists.
+- **Keep scope explicit:** We have thoroughly designed mutation **abilities** and progression, but **manual activation skills** (if any) have *not* been specified individually. Do not invent and implement an active-skill system merely because it appears in the effect taxonomy.
 - Do not remove functioning experimental forging or Cleave before equivalent functionality is integrated and tested.
 
 ## Locked / agreed design
@@ -38,6 +40,18 @@ Ship a fun playable **chop → collect logs → forge weapons → level weapons 
 6. Mutation potency comes from **sum of individual qualifying mutated logs' size/quality-weighted contributions**, each with a per-log cap, constrained by the **forge tier's potency ceiling**. One huge log cannot immediately give maximum potency; normal logs do not arbitrarily dilute mutation potency.
 7. First release: one ability-granting mutation type per craft. Mixed mutation types / multiple mutation origins can be a later unlock. Always show chance/range previews and warn before consuming logs wasted against a forge cap.
 8. A forge craft should produce a weapon (no failed craft). RNG governs class, ability within available pool, rarity, and rolls within bounded stat/potency ranges.
+
+### B0. Weapon bonus architecture: behaviors versus sources
+
+**This distinction is agreed and should be preserved in the eventual data model.**
+
+Four possible **behaviors**: (1) base stat adjustments, (2) always-on passives, (3) triggered effects such as Cleave on hit, (4) player-activated skills. An ability's behavior is separate from **where it came from**.
+
+Five **sources**: (1) weapon class, (2) ordinary forging materials, (3) wood mutations, (4) Grove/tree passives, (5) player upgrades/progression. Grove passives and manual skills are conceptual expansion points, **not a finalized list of new mechanics to implement now**.
+
+Weapon classes have a **hybrid identity**: base characteristics for all (Dagger fast/short reach; Axe balanced; Battlehammer slow/heavy); optional special innate effect on some classes (Battlehammer Cleave), rather than forcing a unique effect or activated skill on every class. Class innate effects do **not** consume mutation slots.
+
+We have **not** chosen the exact player-activated skills, how they are equipped/cast, or which weapon classes may use them. Preserve extension points in the dispatcher, but **defer skill content design/implementation** until the core weapon loops work. Don't conflate the Golden/Frenzied/Shocked mutation abilities with an entirely new manual-skill subsystem.
 
 ### B. Mutation families and abilities
 - **Golden**, focused **only on gold**: **Golden Touch** (reliable bonus gold on tree kill), **Golden Rush** (gold multiplier from quick kill streak), **Golden Jackpot** (rare big gold payout).
@@ -69,6 +83,8 @@ Unlock one ability in each relevant mutation pool at low forge tiers; higher tie
 - Ultra should also be obtainable by ongoing grinding; eventual reward paths like weekly leaderboard **upgrade materials/assistance** are possible, but leaderboard exclusivity is discouraged.
 - High-rarity forge results and successful high-rarity ascensions may trigger celebratory effects / local or global announcements; later add spam guards. Preserve naturally forged versus ascended provenance if useful, without intrinsic combat inequality.
 - Rarity unlocks real improvements and cosmetics, not merely a label; exact mastery effects and rarity stat curves remain for later balancing.
+- An early-game naturally forged Ultra can still be **weaker than** a much higher-forge-tier Epic, even after leveling; rarity is an within-tier growth/progression axis, not global power ranking.
+- Rarity rolls and mutation-ability rolls are separate. An Ultra forged with ordinary logs has the rarity-based **capacity** but starts with **empty mutation slots**; ability acquisition requires Awakening/Infusion using new logs. Natural high-rarity does not conjure free mutation abilities.
 
 ### D. XP and training
 - Weapon XP from a **hybrid** of (i) actual damage dealt, capped at remaining tree HP, and (ii) tree-kill bonus weighted by difficulty/value.
@@ -108,14 +124,22 @@ Unlock one ability in each relevant mutation pool at low forge tiers; higher tie
 
 ## Execution roadmap: build small, test, then expand
 
-### Phase 0 — 1 short Grove design pass + architecture checkpoint
-- [ ] Settle only required Grove contracts: ownership/persistence of sapling → stump → regrowth → harvested log; inherited mutation; size attributes; acquisition tiers and capacity limit.
+### Phase 0 — Grove minimum structure DONE; weapon architecture checkpoint NEXT
+
+**Grove design checkpoint complete (2026-11-22).** Mutation inheritance, sapling sources, permanent planted-sapling removal baseline, mature-only harvesting, no growth %, size rolled at cycle start, and provisional one log per mature harvest are recorded in section F. **Do not schedule another design discussion before coding**, unless the actual code exposes a blocking ambiguity.
+
+**Next work is engineering inspection, NOT implementing everything at once:**
+- [x] Settle minimum Grove behavior and economy **structure** (section F); numeric tuning and the exact save contract remain for implementation.
 - [ ] Inspect server-authoritative weapon inventory, chopping, forge preview/roll, save/persistence and effect dispatcher; record backward-compatibility and data migration needs.
 - [ ] Agree on versioned weapon fields: class, forge tier, source materials/provenance, base stats, original ability+potency, rarity, level/XP, ascension pity, ability slots, awakened/infused abilities. Avoid duplicating combat source-of-truth.
 
 **Exit:** Contracts and migration plan are clear. No detailed balance math required.
 
-### Phase 1 — Weapon leveling and rarity vertical slice (implement first)
+### Phase 1 — Weapon leveling and rarity vertical slice (first playable feature)
+
+**Build sequence:** (1A) persistent/versioned weapon data + derived stat calculation; (1B) chopping XP and leveling; (1C) natural rarity roll and rarity-based stat growth; (1D) ascension, Level-1 reset and hard pity. **Studio-test after each substage.** No mutation ability implementation or active skill system required for this vertical slice.
+
+The data model should have stable fields for forge tier, original log provenance, forged base quality/size/stats, rarity, level/XP, ascension pity, primary mutation ability/potency and a future secondary ability/potency. Prototype weapons from older saves must remain usable.
 - [ ] Add server-owned weapon XP and levels; damage attribution and tree-kill XP; cap XP to actual damage.
 - [ ] Add rarity grade, rarity-dependent cap/growth, server validation, persistence, and minimal useful inventory display.
 - [ ] Add natural rarity roll at forging, including possibility of direct Ultra; no new weapon-silencing bugs in existing crafting.
@@ -125,7 +149,9 @@ Unlock one ability in each relevant mutation pool at low forge tiers; higher tie
 
 **Exit:** A player can **forge → chop/earn XP → reach cap → attempt ascension → grow stronger again**, with reliable persistence.
 
-### Phase 2 — Forge tiers and the mutation engine
+### Phase 2 — Forge tiers, potency, and mutation ability engine
+
+**Build sequence:** (2A) tier-dependent quantity-to-class odds and potency roll with previews; (2B) registered mutation-family ability selection; (2C) implement and test each combat/economy ability in small batches. Do not implement every ability simultaneously. Treat mutation powers as triggered/passive effects; manually activated skills remain deferred.
 - [ ] Generalize multi-tier forge config: per-tier class odds by log quantity, base stat/potency caps, eligible ability pools, and visible preview.
 - [ ] Implement per-log independent potency contributions and cap warnings; size/material mechanics.
 - [ ] Migrate prototype Crystal references safely; establish approved Golden/Frenzied/Shocked/Giant definitions while preserving old saves.
@@ -152,6 +178,8 @@ Unlock one ability in each relevant mutation pool at low forge tiers; higher tie
 **Exit:** Renewable Grove inputs connect to persistent weapon progression and the player has reasons to actively chop.
 
 ### Phase 5 — Balance, presentation, progression pacing
+
+**Later design checkpoint:** decide whether manually activated **skills** should exist at launch, how they are learned/assigned, and their cooldown/input design. Do not confuse this unresolved decision with the already agreed mutation ability pool or Battlehammer's passive triggered Cleave.
 - [ ] Measure time to level cap, material production per active/AFK hour, rarity success distribution and pity cost, different weapon classes' XP rates, Golden gold generation, and stacking combo DPS.
 - [ ] Tune rarity probabilities, forge-class curves, potency/size limits, level caps, ability effects, upgrade resources, rare-sapling sources and Grove capacity.
 - [ ] Implement weapon rarity reveals and **rate-limited** announcements for noteworthy naturally forged/ascended/Secret results; avoid low-tier announcement spam.
@@ -164,9 +192,15 @@ Unlock one ability in each relevant mutation pool at low forge tiers; higher tie
 - Final UI visual polish, cross-server broadcasts, leaderboard payouts, complicated AFK/offline systems.
 - Refactoring functioning weapon code unrelated to the next phase.
 
-## Immediate next action
+## Immediate next action (as of 2026-11-22)
 
-**One concise Grove structural decision pass (Phase 0), then implement Phase 1 — weapon XP, rarity and ascension — on `dev/gameplay-prototype`.** Stop at each milestone for a Studio test and address correctness issues before adding new mechanics.
+1. **Stop new design discussions for now:** Grove's minimum structure is settled, and our main weapon decisions are documented.
+2. **Inspect the existing weapon code on `dev/gameplay-prototype`**: weapon save/load and schema, forge roll, class/stat resolution, chop/damage attribution, inventory/bag UI, generic effect dispatcher. Identify precise files and needed compatibility changes; do **not** start with a broad rewrite.
+3. Produce an **implementation checklist with concrete files and tests** for Phase 1A–1D. Begin with additive, versioned weapon fields and a single derived-stats path so rarity/levels do not conflict with later mutation buffs.
+4. **Implement Phase 1A then 1B**, and verify in Roblox Studio before expanding to rarity rolls/ascension. Keep Cleave and current forging functional.
+5. Only after XP/rarity/ascension are tested, proceed to forge tiers, mutation powers, awakening/infusion, Grove and balancing as staged above.
+
+**Next assistant task:** read the relevant current source files, provide a specific architecture assessment and file-level implementation plan, then implement the smallest testable weapon-foundation change on the **existing** `dev/gameplay-prototype` branch. No new branch; no final economy numbers; no speculative manual skills.
 
 ## Things that are examples, NOT locked numbers
 Illustrations previously discussed (such as Common 10 / Rare 20 level caps, 5% upgrades, 15–25% AFK efficiency, five perfect logs producing full potency, 1–3 Golden logs, or a fixed number of forge tiers) **must not be treated as finalized economy values**. Only the **pity formula** and conceptual rules above are agreed.
