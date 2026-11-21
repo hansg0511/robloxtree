@@ -7,6 +7,7 @@ local profileBindableEvent = game.ServerScriptService.PlayerProfile.ProfileInit.
 local itemFolder = game.ServerStorage.Items
 local itemDataBase = require(itemFolder.ItemDataBase)
 local StatsAggregator = require(itemFolder.StatsAggregator)
+local WeaponProgressionRules = require(game.ServerScriptService.WeaponProgressionRules)
 local StatsDatabase = require(itemFolder.StatsDatabase)
 local EquipAxeRE = game.ReplicatedStorage.Economy:WaitForChild("EquipAxeRE")
 local LogService = require(game.ServerScriptService.Inventory.LogService)
@@ -359,6 +360,12 @@ addShopAxeItem.OnInvoke = function(player, itemRecord)
 	if itemRecord.WeaponData ~= nil then
 		if type(itemRecord.WeaponData) ~= "table" then return false end
 		persistedRecord.WeaponData = deepCopy(itemRecord.WeaponData)
+	end
+	-- The forged item's existing Rarity is authoritative; progression defaults
+	-- are derived once on the server before creating runtime/IMS copies.
+	if itemRecord.ItemID == 9001 or itemRecord.Rarity == "Debug"
+		or not WeaponProgressionRules.NormalizeWeaponItem(persistedRecord) then
+		return false
 	end
 	local runtimeItem = itemDataBase.ParseItem(persistedRecord)
 	if not runtimeItem then return false end
