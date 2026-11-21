@@ -2,6 +2,15 @@ local DefaultPlayerData = {}
 
 -- Persistent profile shape only. Runtime data is initialized separately and is
 -- intentionally excluded because the current foundation does not persist it.
+-- WeaponData.Progression is an optional, versioned persistent payload.
+-- Legacy weapons may still lack it until ProfileDataCache normalization.
+export type WeaponProgression = {
+	SchemaVersion: number,
+	Level: number,
+	XP: number,
+	AscensionFailures: number,
+}
+
 export type InventoryItem = {
 	ItemID: number,
 	UID: string,
