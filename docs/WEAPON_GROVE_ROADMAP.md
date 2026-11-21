@@ -22,7 +22,7 @@ Ship a fun playable **chop → collect logs → forge weapons → level weapons 
 - Classes: **Dagger**, **Axe**, **Battlehammer**. Battlehammer has a **Cleave** effect prototype in the generic effects dispatcher (`src/ServerScriptService/WeaponEffects/Dispatcher.luau`).
 - Grove mutation definitions currently include **Golden**, **Giant**, **Crystal**; this **does not reflect the approved future roster**.
 - New mutation powers, manually activated skills, weapon rarity/XP/ascension, awakening, infusion, Ultra mastery, and multi-tier forge rules described below are **design-only**, not yet coded.
-- **Implementation status:** Basic chopping, log collection, experimental class-roll forging, basic weapon inventory, and one Cleave effect work as prototypes. **Not implemented:** rarity rolls; weapon XP/leveling; rarity ascension/pity; real forge tiers; mutation ability pools and potency; awakening/infusion; active skills; full Grove economy. No claim is made that the player-facing loop below currently exists.
+- **Implementation status:** Basic chopping, log collection, experimental class-roll forging, basic weapon inventory, and one Cleave effect work as prototypes. **Not implemented:** rarity rolls; weapon XP/leveling; rarity ascension/pity; real forge tiers; mutation ability pools and potency; awakening/infusion; active skills; complete Grove sourcing/upgrades/economy. **Correction from code inspection (2026-11-22):** substantial Grove mechanics ALREADY exist—persistent planted saplings, size rolled at planting/regrowth, mature-only E-prompt harvest, one protected log per harvest, and fixed provisional 30-second growth. Do not reimplement the Grove from scratch. The new rarity/weapon progression loop does not yet exist.
 - **Keep scope explicit:** We have thoroughly designed mutation **abilities** and progression, but **manual activation skills** (if any) have *not* been specified individually. Do not invent and implement an active-skill system merely because it appears in the effect taxonomy.
 - Do not remove functioning experimental forging or Cleave before equivalent functionality is integrated and tested.
 
@@ -130,7 +130,7 @@ Unlock one ability in each relevant mutation pool at low forge tiers; higher tie
 
 **Next work is engineering inspection, NOT implementing everything at once:**
 - [x] Settle minimum Grove behavior and economy **structure** (section F); numeric tuning and the exact save contract remain for implementation.
-- [ ] Inspect server-authoritative weapon inventory, chopping, forge preview/roll, save/persistence and effect dispatcher; record backward-compatibility and data migration needs.
+- [ ] **Partially inspected 2026-11-22:** forge, persisted inventory shape, item parser, chopping, actual-damage application and dispatcher were reviewed. **Still inspect:** implementation of the `AddShopAxeItem` inventory Bindable, runtime weapon reconciliation/equip flow, and stat aggregation/recalculation before modifying live weapon records. Record backward-compatibility and data migration needs.
 - [ ] Agree on versioned weapon fields: class, forge tier, source materials/provenance, base stats, original ability+potency, rarity, level/XP, ascension pity, ability slots, awakened/infused abilities. Avoid duplicating combat source-of-truth.
 
 **Exit:** Contracts and migration plan are clear. No detailed balance math required.
@@ -169,9 +169,10 @@ The data model should have stable fields for forge tier, original log provenance
 
 **Exit:** Ordinary lucky Ultras remain investable, but players still benefit from starting with valuable mutated wood.
 
-### Phase 4 — Grove gameplay loop and economy plumbing
-- [ ] Plant/own saplings, grow/chop/regrow, produce inherited mutated logs, manage slots, save state.
-- [ ] Connect sapling shop / discovery sources; make rare logs scarce but reliable per mutated harvest.
+### Phase 4 — Grove gameplay integration and economy plumbing
+- [x] Prototype implemented: planted/owned saplings, mature-only harvest by proximity prompt, timestamp-based growth/regrowth and size reroll, inherited mutations, persistent Grove records, one protected log per mature harvest and current capacity limit. **These are current-code observations, not final release status.**
+- [ ] Audit existing Grove implementation against the latest design (e.g., premium removal, hiding growth percentages, genetic Giant changes), then adjust *only gaps* and test save/load.
+- [ ] Connect rotating rare sapling shop / quests/events and revised wild mutation sourcing; rare-log scarcity and reliable mutated harvest rates should be tuned after integration.
 - [ ] Connect logs from Grove to forging / awakening / infusion; build gold and material sinks.
 - [ ] Add simple training rack (reduced AFK XP; optional capped offline XP later).
 
@@ -192,15 +193,33 @@ The data model should have stable fields for forge tier, original log provenance
 - Final UI visual polish, cross-server broadcasts, leaderboard payouts, complicated AFK/offline systems.
 - Refactoring functioning weapon code unrelated to the next phase.
 
+## Architecture inspection (2026-11-22) — observations and implementation seams
+
+**Confirmed source-of-truth and code touchpoints:**
+
+- `src/ServerScriptService/PlayerProfile/ProfileService/DefaultPlayerData.luau`: persisted `InventoryItem` already has top-level `Rarity: string`, `Stats`, `UID` and optional `WeaponData`. **Reuse `item.Rarity`** rather than adding an independent rarity field; it is currently hardcoded to `"Common"` at both forge creation paths. Add a versioned leveling/progression payload to `WeaponData` (or another single clearly normalized persistent location) without duplicating base power or mutation effects.
+- `src/ServerStorage/Items/ItemDataBase.luau`: `ParseItem` clones `WeaponData` and exposes `ItemRarity` / `ItemStats`; use this existing inventory pipeline. It currently creates display names from class/metal metadata.
+- `src/ServerScriptService/Economy/ShopHandler.server.luau`: server-exclusive `craftExperimental` rolls material/class stats, builds `WeaponData`, sets `Rarity = "Common"`, and invokes `Inventory.AddShopAxeItem` Bindable; fixed-craft branch also sets Common. Both must eventually initialize rarity and progression through **one shared server function**. The current shop snapshot `buildOwnedAxes` omits rarity and XP/level; add display-safe projections for the Bag/Forge UI in a later substage.
+- `src/ServerScriptService/Economy/AxeShopCatalog.luau`: currently stores metal/head tier and progression; **do not conflate `AxeTier` (metal/forest access) with forge upgrade tier or rarity**.
+- `src/ServerScriptService/Economy/Wood/ChopHandler.server.luau`: checks the real equipped runtime weapon, applies hit rate, chooses target, calculates damage from `Runtime.FinalStats`, and calls `tree:TakeDamage`. This should drive server-only weapon XP attribution, not a client-provided damage/XP claim.
+- `src/ServerScriptService/Trees/TreeObject/init.luau`: `Tree:TakeDamage` clamps applied damage to remaining HP, tracks **per-player**, not per-weapon damage, and returns only a success boolean. For precise XP, expose validated **applied damage and kill outcome** or emit a server-only applied-hit event with the **equipped weapon UID**. Keep first boolean return compatible with existing callers and count actual secondary-effect damage. Avoid double awarding on lethal hits or overkill.
+- `src/ServerScriptService/WeaponEffects/Dispatcher.luau`: existing validated effects pipeline with Cleave; preserve class effects and no-recursive-proc rules. Later mutation abilities should reuse it.
+- `src/ServerScriptService/PlayerProfile/ProfileService/ProfileDataCache.luau`: `Runtime.Weapon` and `Runtime.FinalStats` are rebuilt as ephemeral on login; **persistent weapon progress must live in `Inventory`**, then be projected/rebuilt into runtime equipment. Need trace actual equip/stat recalculation handlers before coding.
+- Grove current implementation: `src/ServerScriptService/Grove/GroveGrowthRules.luau`, `GroveService.luau` and `SaplingDiscoveryService.luau` already implement timed mature-only Grove harvest, target size roll at cycle start, inherited mutation, one-log output and wild sapling acquisition (all provisional numbers/old mutation catalog). Beware that Grove harvesting uses a **prompt, not normal axe damage**, so it is not inherently weapon XP-bearing.
+
+**Risks to avoid:** (1) double-counting `item.Stats.Attack` (currently bonus above the shared base attack) when adding level growth; calculate a **derived** damage value, never mutate original forged stats during leveling; (2) stale equipped runtime or UI after XP/ascension; (3) rewriting saved legacy weapons or old Cleave descriptors incorrectly; (4) granting XP by raw calculated hit rather than HP-clamped actual damage; (5) breaking studio-only gating of experimental forging and effects.
+
+**Outstanding code audit before production edits:** locate/review the code bound to `Inventory.AddShopAxeItem`, equip/unequip and `FinalStats` aggregator; verify how `Profile.Data.Inventory` normalizes saved weapon records and how the client receives the weapon snapshot.
+
 ## Immediate next action (as of 2026-11-22)
 
-1. **Stop new design discussions for now:** Grove's minimum structure is settled, and our main weapon decisions are documented.
-2. **Inspect the existing weapon code on `dev/gameplay-prototype`**: weapon save/load and schema, forge roll, class/stat resolution, chop/damage attribution, inventory/bag UI, generic effect dispatcher. Identify precise files and needed compatibility changes; do **not** start with a broad rewrite.
-3. Produce an **implementation checklist with concrete files and tests** for Phase 1A–1D. Begin with additive, versioned weapon fields and a single derived-stats path so rarity/levels do not conflict with later mutation buffs.
-4. **Implement Phase 1A then 1B**, and verify in Roblox Studio before expanding to rarity rolls/ascension. Keep Cleave and current forging functional.
-5. Only after XP/rarity/ascension are tested, proceed to forge tiers, mutation powers, awakening/infusion, Grove and balancing as staged above.
+1. **Finish the narrow inventory/equipment audit above** and write explicit source locations for weapon insertion, equip and final-stat recomputation. No more general Grove/crafting design sessions.
+2. **Implement Phase 1A: additive weapon-progress schema and a pure progression/stat calculation module** on the existing `dev/gameplay-prototype` branch. Reuse `InventoryItem.Rarity`; default legacy weapons to Common, Level 1, XP 0; preserve existing `Stats.Attack`, `WeaponData.Effects`, materials, class and metal tier.
+3. Add unit/smoke tests for old save migration, idempotent normalization, level/rarity stat calculation, and no effects/forge regressions. Hook progress only after server state and runtime recalculation are verified.
+4. **Phase 1B: award XP for real applied damage and tree kills**, including verified Cleave contributions, refresh equipped stats, and show level/XP in Bag with minimal UI changes.
+5. Only then implement **Phase 1C/1D** natural rarity rolls, max-level ascension, pity and level reset; run Studio Play tests before proceeding to forge tiers/mutations/infusion.
 
-**Next assistant task:** read the relevant current source files, provide a specific architecture assessment and file-level implementation plan, then implement the smallest testable weapon-foundation change on the **existing** `dev/gameplay-prototype` branch. No new branch; no final economy numbers; no speculative manual skills.
+**Next assistant task:** complete the last inventory/equip-stat trace, then implement the smallest testable Phase 1A change; do not create a new branch or finalize economy numbers.
 
 ## Things that are examples, NOT locked numbers
 Illustrations previously discussed (such as Common 10 / Rare 20 level caps, 5% upgrades, 15–25% AFK efficiency, five perfect logs producing full potency, 1–3 Golden logs, or a fixed number of forge tiers) **must not be treated as finalized economy values**. Only the **pity formula** and conceptual rules above are agreed.
