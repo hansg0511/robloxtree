@@ -63,11 +63,26 @@ local malformed = {
 }
 assert(Rules.NormalizeWeaponItem(malformed))
 assert(malformed.Rarity == "Common" and malformed.WeaponData.Effects == effects)
-assert(malformed.WeaponData.Progression.Level == 1
+assert(malformed.WeaponData.Progression.Level == Rules.GetLevelCap("Common")
 	and malformed.WeaponData.Progression.XP == 0
 	and malformed.WeaponData.Progression.AscensionFailures == 0
 	and malformed.WeaponData.Progression.SchemaVersion == Rules.SCHEMA_VERSION,
-	"Invalid stored values should be replaced safely")
+	"Valid integer levels above the cap clamp instead of losing earned progress")
+
+local cleanFallback = Rules.NormalizeProgression({
+	Level = 2.5, XP = 4 / 0, AscensionFailures = 0 / 0
+}, "Rare")
+assert(cleanFallback.Level == 1 and cleanFallback.XP == 0
+	and cleanFallback.AscensionFailures == 0,
+	"Fractional and nonfinite saved values must never become combat progress")
+local capped = Rules.NormalizeProgression({
+	Level = 30, XP = Rules.MAX_SAVED_XP + 1,
+	AscensionFailures = Rules.MAX_ASCENSION_FAILURES + 1,
+}, "Rare")
+assert(capped.Level == Rules.GetLevelCap("Rare")
+	and capped.XP == Rules.MAX_SAVED_XP
+	and capped.AscensionFailures == Rules.MAX_ASCENSION_FAILURES,
+	"Legitimate integer saves should clamp after future balance reductions")
 
 -- Progression is computed without modifying the original forged stats.
 local runtime = {
