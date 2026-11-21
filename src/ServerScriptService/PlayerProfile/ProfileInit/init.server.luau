@@ -1,6 +1,7 @@
 local profileCache = require(script.Parent.ProfileService.ProfileDataCache)
 local DevelopmentLoadouts = require(script.Parent.DevelopmentLoadouts)
 local AxeShopCatalog = require(game.ServerScriptService.Economy.AxeShopCatalog)
+local StudioForgeSandbox = require(game.ServerScriptService.Economy.StudioForgeSandbox)
 local bindableLoaded = script.ProfileLoadedEvent
 local remoteLoaded = game.ReplicatedStorage.Profile.ProfileLoadEvent
 
@@ -20,6 +21,9 @@ local ProfileTemplate = {
 	},
 	-- One unique physical log per record; material kg cost is resolved server-side.
 	Logs = {},
+	-- Protected, individually identified crafting materials; outside carry kg.
+	StoredLogs = {},
+	AutoKeep = { Mutations = true, Oversized = true, SizeThreshold = 1.5 },
 	-- Personal Grove ownership is stored as primitive profile records. Runtime
 	-- TreeObjects and world transforms are rebuilt after the player's plot loads.
 	Saplings = {},
@@ -113,6 +117,9 @@ local function PlayerAdded(player)
 		end
 		DevelopmentLoadouts.ApplyStudioPreset(player, profile.Data)
 		DevelopmentLoadouts.ApplyGroveSaplings(player, profile.Data)
+		-- Authoritative Studio-only fixtures: auto-supply funding, metal
+		-- components and quality-varied unique logs for instant forge tests.
+		StudioForgeSandbox.Refill(player, profile.Data)
 		profileCache.NormalizeGroveData(profile.Data)
 		profile:ListenToRelease(function()
 			profileCache.Remove(player)

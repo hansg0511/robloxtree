@@ -1,14 +1,20 @@
 -- Server-authoritative axe-head purchases, standard-axe crafting, and bag upgrades.
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ExperimentalForgeRules = require(ReplicatedStorage.Shared.ExperimentalForgeRules)
+local WeaponEffects = require(game.ServerScriptService.WeaponEffects.Dispatcher)
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local profileCache = require(ServerScriptService.PlayerProfile.ProfileService.ProfileDataCache)
 local itemDataBase = require(game.ServerStorage.Items.ItemDataBase)
 local catalog = require(script.Parent.AxeShopCatalog)
+local WeaponRecipeRules = require(script.Parent.WeaponRecipeRules)
 local MaterialDefinitions = require(script.Parent.MaterialDefinitions)
 local LogService = require(ServerScriptService.Inventory.LogService)
+local StudioForgeSandbox = require(script.Parent.StudioForgeSandbox)
+local LogStorageRules = require(ServerScriptService.Inventory.LogStorageRules)
 local WorldProgressService = require(ServerScriptService.WorldProgressService)
 local BaseStationAccess = require(ServerScriptService.WorldLayout.BaseStationAccess)
 
@@ -71,12 +77,61 @@ local function canUseForge(player)
 end
 
 local function validOutputDefinition(recipe)
-	local info = itemDataBase.Info[recipe.OutputItemID]
-	local template = itemDataBase.Instances[recipe.OutputItemID]
+	local fixedOutput = WeaponRecipeRules.ResolveFixedOutput(recipe)
+	if not fixedOutput then return false end
+	local info = itemDataBase.Info[fixedOutput.ItemID]
+	local template = itemDataBase.Instances[fixedOutput.ItemID]
 	return info ~= nil
 		and info.Type == "Weapon"
 		and template ~= nil
 		and template:IsA("Tool")
+end
+
+-- Prototype recipes use existing Tool templates until distinct weapon models exist.
+local function validExperimentalOutputs(recipe)
+	if type(recipe) ~= "table" or type(recipe.Outputs) ~= "table" then return false end
+	for _, class in ipairs(ExperimentalForgeRules.CLASSES) do
+		local itemId = recipe.Outputs[class]
+		local info = itemDataBase.Info[itemId]
+		local tool = itemDataBase.Instances[itemId]
+		if not info or info.Type ~= "Weapon" or not tool or not tool:IsA("Tool") then
+			return false
+		end
+	end
+	return true
+end
+
+-- Only send display-safe weapon metadata. Future mutation abilities can
+-- extend this list without changing the inventory screen's layout.
+local KNOWN_MUTATIONS = { "Golden", "Crystal", "Giant" }
+
+local function materialMutationSummary(materials)
+	if type(materials) ~= "table" then return {}, nil end
+	local total = #materials
+	if total == 0 then return {}, 0 end
+	local summary = {}
+	for _, name in ipairs(KNOWN_MUTATIONS) do
+		local count, weightedQuality = 0, 0
+		for _, material in ipairs(materials) do
+			if type(material) == "table" and type(material.Mutations) == "table"
+				and material.Mutations[name] == true then
+				count += 1
+				local size = material.SizeScale
+				if isFiniteNumber(size) and size > 0 then
+					weightedQuality += math.clamp(
+						size / ExperimentalForgeRules.MAX_LOG_SIZE, 0, 1)
+				end
+			end
+		end
+		if count > 0 then
+			table.insert(summary, {
+				Name = name,
+				LogCount = count,
+				MaterialQuality = weightedQuality / total,
+			})
+		end
+	end
+	return summary, total
 end
 
 local function buildOwnedAxes(profile)
@@ -95,10 +150,28 @@ local function buildOwnedAxes(profile)
 		local recipe = catalog.FindRecipeForOutput(item.ItemID)
 		local attack = type(item.Stats) == "table" and item.Stats.Attack or 0
 		if not isFiniteNumber(attack) then attack = 0 end
+		local weaponData = type(item.WeaponData) == "table" and item.WeaponData or nil
+		local mutationMaterials, materialCount = materialMutationSummary(
+			weaponData and weaponData.Materials)
+		local experimentalClass = weaponData and weaponData.ExperimentalClass
+		local experimentalName = if (experimentalClass == "Dagger"
+			or experimentalClass == "Axe" or experimentalClass == "Battlehammer")
+			and (weaponData.Metal == "Copper" or weaponData.Metal == "Iron")
+			then weaponData.Metal .. " " .. experimentalClass else nil
 		table.insert(axes, {
 			Id = recipe and recipe.Id or ("item_" .. tostring(item.ItemID)),
-			Name = info.Name,
+			Name = experimentalName or info.Name,
 			Power = catalog.BaseAttack + attack,
+			Experimental = experimentalName ~= nil,
+			WeaponKind = weaponData and weaponData.WeaponKind,
+			MaterialQuality = weaponData and weaponData.MaterialQuality,
+			AttacksPerSecond = weaponData and weaponData.AttacksPerSecond,
+			Reach = weaponData and weaponData.Reach,
+			GoldenQuality = weaponData and weaponData.GoldenQuality,
+			GoldenBonus = weaponData and weaponData.GoldenBonus,
+			Effects = WeaponEffects.List(weaponData),
+			MaterialCount = materialCount,
+			MutationMaterials = mutationMaterials,
 			ItemID = item.ItemID,
 			UID = item.UID,
 			Owned = true,
@@ -193,6 +266,7 @@ local function buildShopSnapshot(player, profile)
 		recipes[#recipes + 1] = {
 			Id = recipe.Id,
 			Name = recipe.Name,
+			WeaponKind = recipe.WeaponKind,
 			Tier = recipe.Tier,
 			HeadId = recipe.HeadId,
 			HeadName = head and head.Name or recipe.HeadId,
@@ -209,6 +283,34 @@ local function buildShopSnapshot(player, profile)
 				and outputDefined
 				and ownedHeadCount >= 1,
 		}
+	end
+
+	-- New RNG mode is visible in Studio only. The old fixed recipe buttons
+	-- remain available, so comparative playtests do not replace progression.
+	if RunService:IsStudio() then
+		for _, recipe in ipairs(catalog.ExperimentalForgeRecipes) do
+			local head = catalog.FindAxeHead(recipe.HeadId)
+			local count = head and headCounts[head.Id] or 0
+			if not isNonnegativeInteger(count) then count = 0 end
+			local unlocked = WorldProgressService.CanAccessForest(player, recipe.RequiredForestId)
+			local progressionValid = recipe.Tier <= standardTier
+				or recipe.Tier == standardTier + 1
+			recipes[#recipes + 1] = {
+				Id = recipe.Id, Name = recipe.Name, Experimental = true,
+				Tier = recipe.Tier,
+				HeadId = recipe.HeadId,
+				HeadName = head and head.Name or recipe.HeadId,
+				HeadOwned = count,
+				HeadBasePower = recipe.HeadBasePower,
+				RequiredLogCount = 1, -- minimum, not exact quantity
+				MaxLogCount = ExperimentalForgeRules.MAX_OFFERED_LOGS,
+				RequiredForestId = recipe.RequiredForestId,
+				Unlocked = unlocked, ProgressionValid = progressionValid,
+				AtForge = atForge,
+				CanCraft = atForge and unlocked and progressionValid
+					and validExperimentalOutputs(recipe) and count >= 1,
+			}
+		end
 	end
 
 	local upgrades = {}
@@ -251,6 +353,9 @@ getShopData.OnServerInvoke = function(player, ...)
 	if select("#", ...) ~= 0 then return nil end
 	local profile = profileCache.GetProfile(player)
 	if not profile or not profile.Data or not profile.Data.Runtime then return nil end
+	-- Keep refill transparent to the normal forge snapshot: it must show
+	-- real owned, uniquely identified records before any client selection.
+	StudioForgeSandbox.Refill(player, profile.Data)
 	return buildShopSnapshot(player, profile)
 end
 
@@ -278,28 +383,6 @@ purchaseAxeHead.OnServerEvent:Connect(function(player, headId, ...)
 	economyUpdated:FireClient(player, "Progression")
 end)
 
-local function isExactUidSelection(value, expectedCount)
-	if type(value) ~= "table" or type(expectedCount) ~= "number" or expectedCount < 1
-		or expectedCount % 1 ~= 0 then
-		return false
-	end
-	local count = 0
-	local maxIndex = 0
-	for key in pairs(value) do
-		if type(key) ~= "number" or key < 1 or key % 1 ~= 0 then return false end
-		count += 1
-		maxIndex = math.max(maxIndex, key)
-	end
-	if count ~= expectedCount or maxIndex ~= expectedCount then return false end
-	local seen = {}
-	for index = 1, expectedCount do
-		local uid = value[index]
-		if typeof(uid) ~= "string" or #uid < 1 or #uid > 80 or seen[uid] then return false end
-		seen[uid] = true
-	end
-	return true
-end
-
 local function cloneMutationValue(value, seen)
 	local valueType = type(value)
 	if valueType == "string" or valueType == "number" or valueType == "boolean" then
@@ -324,20 +407,155 @@ local function cloneMutations(mutations)
 	return cloneMutationValue(mutations, {}) or {}
 end
 
-local function restoreCraftLogs(player, recipe, removedLogs)
+local function restoreCraftLogs(player, recipe, removedLogs, sourceByUid)
 	local restoreOk, restored = pcall(function()
-		return LogService.RestoreCraftLogRecords(player, removedLogs)
+		return LogService.RestoreCraftLogRecords(player, removedLogs, sourceByUid)
 	end)
 	if not restoreOk or restored ~= true then
 		warn(string.format("Could not roll back source logs after failed %s craft for %s", recipe.Id, player.Name))
 	end
 end
 
+-- Separate Studio-only transaction path. The original deterministic axe
+-- crafting handler below remains untouched for regression and fallback.
+local function craftExperimental(player, recipe, selectedLogUids)
+	if not RunService:IsStudio() or not canUseForge(player) then return end
+	if type(selectedLogUids) ~= "table"
+		or not ExperimentalForgeRules.ValidateCount(#selectedLogUids)
+		or not WeaponRecipeRules.IsExactUidSelection(selectedLogUids, #selectedLogUids)
+		or not validExperimentalOutputs(recipe) then return end
+
+	local profile, data = getProfileData(player)
+	if not profile or type(data.AxeHeads) ~= "table" then return end
+	local progress = data.RunProgress
+	if type(progress) ~= "table"
+		or not isNonnegativeInteger(progress.StandardAxeTier) then return end
+	local previousTier = progress.StandardAxeTier
+	if recipe.Tier > previousTier + 1 then return end
+	if not WorldProgressService.CanAccessForest(player, recipe.RequiredForestId) then return end
+	local head = catalog.FindAxeHead(recipe.HeadId)
+	if not head then return end
+	local headCount = data.AxeHeads[head.Id]
+	if not isNonnegativeInteger(headCount) or headCount < 1 then return end
+
+	-- TakeCraftLogUIDs confirms ALL exact UIDs and their ownership server-side,
+	-- across carry bag and protected storage. Never trust the client preview.
+	local removedLogs, sourceByUid = LogService.TakeCraftLogUIDs(
+		player, selectedLogUids, #selectedLogUids)
+	if not removedLogs or #removedLogs ~= #selectedLogUids then return end
+
+	local sourceMaterials = {}
+	local rollLogs = {}
+	for _, logRecord in ipairs(removedLogs) do
+		if type(logRecord) ~= "table" or logRecord.ItemType ~= "Log"
+			or not MaterialDefinitions.Get(logRecord.SpeciesId) then
+			restoreCraftLogs(player, recipe, removedLogs, sourceByUid)
+			return
+		end
+		local normalizedSize = LogStorageRules.SizeScale(logRecord)
+		table.insert(rollLogs, {
+			SpeciesId = logRecord.SpeciesId,
+			SizeScale = normalizedSize,
+			Mutations = logRecord.Mutations,
+		})
+		table.insert(sourceMaterials, {
+			SourceUID = logRecord.UID,
+			SpeciesId = logRecord.SpeciesId,
+			SizeScale = normalizedSize,
+			Source = sourceByUid[logRecord.UID],
+			SourceType = logRecord.SourceType,
+			SourceGroveTreeUID = logRecord.SourceGroveTreeUID,
+			SourceSaplingUID = logRecord.SourceSaplingUID,
+			Mutations = cloneMutations(logRecord.Mutations),
+		})
+	end
+
+	local metal = if recipe.Tier == 1 then "Copper" else "Iron"
+	local rollOk, result = pcall(function()
+		return ExperimentalForgeRules.Roll(recipe.HeadBasePower,
+			rollLogs, Random.new())
+	end)
+	if not rollOk or type(result) ~= "table" or not recipe.Outputs[result.Class] then
+		restoreCraftLogs(player, recipe, removedLogs, sourceByUid)
+		return
+	end
+	local power = math.floor(result.Damage * 10 + 0.5) / 10
+	-- Assignment policy lives here, not inside the Cleave behavior module.
+	-- Later another source (mutation, skill, upgrade) can grant the same
+	-- validated effect without requiring the Battlehammer class.
+	local grantedEffects = {}
+	if result.CleaveDamageFraction and result.CleaveRadius then
+		grantedEffects[1] = {
+			Id = "Cleave",
+			Trigger = "OnHit",
+			Source = "WeaponClass",
+			Params = {
+				DamageFraction = result.CleaveDamageFraction,
+				Radius = result.CleaveRadius,
+			},
+		}
+	end
+	local weapon = {
+		ItemID = recipe.Outputs[result.Class],
+		UID = HttpService:GenerateGUID(false),
+		Stats = { Attack = math.max(0, power - catalog.BaseAttack) },
+		Substat = {},
+		Rarity = "Common",
+		WeaponData = {
+			RecipeId = recipe.Id,
+			WeaponKind = result.Class,
+			ExperimentalClass = result.Class,
+			Metal = metal,
+			AxeTier = recipe.Tier,
+			HeadId = recipe.HeadId,
+			CraftedPower = power,
+			MaterialQuality = result.MaterialQuality,
+			GoldenQuality = result.GoldenQuality,
+			AverageWoodStrength = result.AverageWoodStrength,
+			AttacksPerSecond = result.AttacksPerSecond,
+			Reach = result.Reach,
+			Effects = grantedEffects,
+			GoldenBonus = result.GoldenBonus, -- metadata; no Golden effect yet
+			Materials = sourceMaterials,
+		},
+	}
+
+	data.AxeHeads[head.Id] = headCount - 1
+	progress.StandardAxeTier = math.max(previousTier, recipe.Tier)
+	local ok, added = pcall(function()
+		return addShopItem:Invoke(player, weapon)
+	end)
+	if not ok or added ~= true then
+		data.AxeHeads[head.Id] = headCount
+		progress.StandardAxeTier = previousTier
+		restoreCraftLogs(player, recipe, removedLogs, sourceByUid)
+		return
+	end
+
+	LogService.NotifyState(player)
+	economyUpdated:FireClient(player, "ForgeResult", {
+		Class = result.Class,
+		Metal = metal,
+		Power = power,
+		Quality = result.MaterialQuality,
+	})
+	economyUpdated:FireClient(player, "Progression")
+end
+
 craftRecipe.OnServerEvent:Connect(function(player, recipeId, selectedLogUids, ...)
 	if select("#", ...) ~= 0 or not takeBudget(player, "CraftRecipe") then return end
 	if typeof(recipeId) ~= "string" or #recipeId < 1 or #recipeId > 64 then return end
+	-- Explicit Studio-only route. Other IDs always use the stable, fixed
+	-- standard crafting path below.
+	local experimentalRecipe = if RunService:IsStudio()
+		then catalog.FindExperimentalForgeRecipe(recipeId) else nil
+	if experimentalRecipe then
+		craftExperimental(player, experimentalRecipe, selectedLogUids)
+		return
+	end
 	local recipe = catalog.FindStandardAxeRecipe(recipeId)
-	if not recipe or not isExactUidSelection(selectedLogUids, recipe.RequiredLogCount) then return end
+	local fixedOutput = WeaponRecipeRules.ResolveFixedOutput(recipe)
+	if not fixedOutput or not WeaponRecipeRules.IsExactUidSelection(selectedLogUids, recipe.RequiredLogCount) then return end
 	if not canUseForge(player) then return end
 	local profile, data = getProfileData(player)
 	if not profile then return end
@@ -367,7 +585,7 @@ craftRecipe.OnServerEvent:Connect(function(player, recipeId, selectedLogUids, ..
 
 	-- Exact selection is revalidated against authoritative logs in this atomic
 	-- take. Mutation data remains attached to the original records for metadata.
-	local removedLogs = LogService.TakeCraftLogUIDs(player, selectedLogUids, recipe.RequiredLogCount)
+	local removedLogs, sourceByUid = LogService.TakeCraftLogUIDs(player, selectedLogUids, recipe.RequiredLogCount)
 	if not removedLogs or #removedLogs ~= recipe.RequiredLogCount then return end
 
 	local bonusTotal = 0
@@ -377,13 +595,18 @@ craftRecipe.OnServerEvent:Connect(function(player, recipeId, selectedLogUids, ..
 		if logRecord.ItemType ~= "Log"
 			or not definition
 			or not isFiniteNumber(definition.CraftPowerBonus) then
-			restoreCraftLogs(player, recipe, removedLogs)
+			restoreCraftLogs(player, recipe, removedLogs, sourceByUid)
 			return
 		end
 		bonusTotal += definition.CraftPowerBonus
 		table.insert(sourceMaterials, {
 			SourceUID = logRecord.UID,
 			SpeciesId = logRecord.SpeciesId,
+			SizeScale = logRecord.SizeScale,
+			Source = sourceByUid and sourceByUid[logRecord.UID] or "Bag",
+			SourceType = logRecord.SourceType,
+			SourceGroveTreeUID = logRecord.SourceGroveTreeUID,
+			SourceSaplingUID = logRecord.SourceSaplingUID,
 			Mutations = cloneMutations(logRecord.Mutations),
 		})
 	end
@@ -391,12 +614,14 @@ craftRecipe.OnServerEvent:Connect(function(player, recipeId, selectedLogUids, ..
 	local finalPower = math.floor((recipe.HeadBasePower + bonusTotal / #removedLogs) * 10 + 0.5) / 10
 	local itemRecordOk, itemRecord = pcall(function()
 		return {
-			ItemID = recipe.OutputItemID,
+			ItemID = fixedOutput.ItemID,
 			UID = HttpService:GenerateGUID(false),
 			Stats = { Attack = finalPower - catalog.BaseAttack },
 			Substat = {},
 			Rarity = "Common",
 			WeaponData = {
+				RecipeId = fixedOutput.RecipeId,
+				WeaponKind = fixedOutput.WeaponKind,
 				AxeTier = recipe.Tier,
 				HeadId = recipe.HeadId,
 				CraftedPower = finalPower,
@@ -405,7 +630,7 @@ craftRecipe.OnServerEvent:Connect(function(player, recipeId, selectedLogUids, ..
 		}
 	end)
 	if not itemRecordOk or type(itemRecord) ~= "table" then
-		restoreCraftLogs(player, recipe, removedLogs)
+		restoreCraftLogs(player, recipe, removedLogs, sourceByUid)
 		return
 	end
 
@@ -419,7 +644,7 @@ craftRecipe.OnServerEvent:Connect(function(player, recipeId, selectedLogUids, ..
 	if not invokeOk or added ~= true then
 		data.AxeHeads[head.Id] = headCount
 		progress.StandardAxeTier = previousTier
-		restoreCraftLogs(player, recipe, removedLogs)
+		restoreCraftLogs(player, recipe, removedLogs, sourceByUid)
 		return
 	end
 

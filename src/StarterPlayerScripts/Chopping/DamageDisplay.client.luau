@@ -43,7 +43,7 @@ local DamageEvent = ReplicatedStorage:WaitForChild("DamageEvent")
 local Debris = game:GetService("Debris")
 
 
-local function displayDamage(amount, target, isCrit)
+local function displayDamage(amount, target, isCrit, effectId)
 	amount = math.max(0, math.floor(tonumber(amount) or 0))
 	local damagePart = damageTemplate:Clone().RootPart
 
@@ -54,7 +54,13 @@ local function displayDamage(amount, target, isCrit)
 			math.random(-15,15)/10
 		)
 
-	if isCrit then
+	if effectId == "Cleave" and RunService:IsStudio() then
+		-- A readable diagnostic, not a final shockwave/VFX treatment.
+		damagePart.SurfaceGui.TextLabel.TextColor3 = Color3.fromRGB(255, 214, 57)
+		damagePart.SurfaceGui.TextLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+		damagePart.SurfaceGui.TextLabel.TextScaled = true
+		damagePart.SurfaceGui.TextLabel.TextWrapped = false
+	elseif isCrit then
 		damagePart.SurfaceGui.TextLabel.TextColor3 = Color3.fromRGB(170, 0, 0)
 		damagePart.SurfaceGui.TextLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
 		damagePart.SurfaceGui.TextLabel.TextSize = 150
@@ -66,7 +72,8 @@ local function displayDamage(amount, target, isCrit)
 
 	damagePart.Parent = workspace
 
-	damagePart.SurfaceGui.TextLabel.Text = tostring(amount)
+	damagePart.SurfaceGui.TextLabel.Text = if effectId == "Cleave" and RunService:IsStudio()
+		then "CLEAVE " .. tostring(amount) else tostring(amount)
 
 	registerFaceCamera(damagePart) -- 🔥 preferred
 	-- faceCameraRenderStepped(damagePart) -- alt
@@ -172,7 +179,7 @@ DamageEvent.OnClientEvent:Connect(function(damageContext)
 	local amount = damageContext.Damage
 	local target = damageContext.Target
 	local isCrit = damageContext.IsCrit
-	displayDamage(amount, target, isCrit)
+	displayDamage(amount, target, isCrit, damageContext.EffectId)
 	local hp = damageContext.HP
 	local MaxHP = damageContext.MaxHP
 	UpdateHealthBar(target, hp, MaxHP)

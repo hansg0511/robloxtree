@@ -7,6 +7,7 @@ local profileBindableEvent = game.ServerScriptService.PlayerProfile.ProfileInit.
 local itemFolder = game.ServerStorage.Items
 local itemDataBase = require(itemFolder.ItemDataBase)
 local StatsAggregator = require(itemFolder.StatsAggregator)
+local WeaponProgressionRules = require(game.ServerScriptService.WeaponProgressionRules)
 local StatsDatabase = require(itemFolder.StatsDatabase)
 local EquipAxeRE = game.ReplicatedStorage.Economy:WaitForChild("EquipAxeRE")
 local LogService = require(game.ServerScriptService.Inventory.LogService)
@@ -247,6 +248,15 @@ local function EquipItem(player, item)
 
 	tool:SetAttribute("EquippedAxe", true)
 	tool:SetAttribute("AxeItemUID", item.ItemUID)
+	-- Only server-forged experimental weapons carry individually rolled rates.
+	-- Native Tools are temporary class models; attack rate is enforced by the
+	-- server ChopHandler, not trusted from this replicated attribute.
+	local weaponData = type(item.WeaponData) == "table" and item.WeaponData or nil
+	local attackRate = weaponData and weaponData.AttacksPerSecond
+	if type(attackRate) == "number" and attackRate == attackRate
+		and attackRate >= 0.1 and attackRate <= 10 then
+		tool:SetAttribute("CraftAttackRate", attackRate)
+	end
 	tool.Parent = backpack
 	playerHumanoid:EquipTool(tool)
 	for _, container in ipairs({backpack, character}) do
@@ -350,6 +360,12 @@ addShopAxeItem.OnInvoke = function(player, itemRecord)
 	if itemRecord.WeaponData ~= nil then
 		if type(itemRecord.WeaponData) ~= "table" then return false end
 		persistedRecord.WeaponData = deepCopy(itemRecord.WeaponData)
+	end
+	-- The forged item's existing Rarity is authoritative; progression defaults
+	-- are derived once on the server before creating runtime/IMS copies.
+	if itemRecord.ItemID == 9001 or itemRecord.Rarity == "Debug"
+		or not WeaponProgressionRules.NormalizeWeaponItem(persistedRecord) then
+		return false
 	end
 	local runtimeItem = itemDataBase.ParseItem(persistedRecord)
 	if not runtimeItem then return false end

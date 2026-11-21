@@ -9,6 +9,8 @@ local ProfileCache = require(game.ServerScriptService.PlayerProfile.ProfileServi
 local EconomyManager = require(game.ServerScriptService.Economy.EconomyManager)
 local AxeShopCatalog = require(game.ServerScriptService.Economy.AxeShopCatalog)
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
+local LogStorageRules = require(script.Parent.LogStorageRules)
+local StudioForgeSandbox = require(game.ServerScriptService.Economy.StudioForgeSandbox)
 local SpeciesVisuals = require(game.ServerStorage:WaitForChild("SpeciesVisuals"))
 local BaseStationAccess = require(game.ServerScriptService.WorldLayout.BaseStationAccess)
 local LogCarryVisualService = require(game.ServerScriptService.Inventory.LogCarryVisualService)
@@ -23,6 +25,7 @@ local MAX_CAPACITY_KG = AxeShopCatalog.MAX_CAPACITY_KG
 -- This physical-record ceiling is independent of weight. 40 kg supports up to
 -- 80 Bamboo records at 0.5 kg each; spare room keeps the limit forward-safe.
 local MAX_OWNED_LOGS = 96
+local MAX_STORED_LOGS = LogStorageRules.MAX_STORED_LOGS
 local MAX_HARVEST_LOGS = 6
 local MAX_STANDARD_TREE_LOGS = 3
 -- Uncollected rewards are bounded by model count, not the player's kg bag.
@@ -85,6 +88,8 @@ local REMOTE_INTERVALS = {
 	Sell = 1,
 	Lock = 0.15,
 	Pickup = 0.08,
+	Transfer = 0.18,
+	AutoKeep = 0.3,
 }
 
 local economyRemotes = ReplicatedStorage:WaitForChild("Economy")
@@ -94,6 +99,9 @@ local SellUnlockedLogsRE = economyRemotes:WaitForChild("SellUnlockedLogsRE")
 local SetLogLockedRE = economyRemotes:WaitForChild("SetLogLockedRE")
 local PickupGroundLogRE = economyRemotes:WaitForChild("PickupGroundLogRE")
 local PickupLogFXRE = economyRemotes:WaitForChild("PickupLogFXRE")
+local TransferLogRE = economyRemotes:WaitForChild("TransferLogRE")
+local UpdateAutoKeepRE = economyRemotes:WaitForChild("UpdateAutoKeepRE")
+local LogProcessingFXRE = economyRemotes:WaitForChild("LogProcessingFXRE")
 local EconomyStateUpdated = economyRemotes:WaitForChild("EconomyStateUpdated")
 
 local profileLoaded = game.ServerScriptService.PlayerProfile.ProfileInit.ProfileLoadedEvent
@@ -337,6 +345,9 @@ local function normalizeLogRecord(logRecord, seenUids)
 	local speciesId = logRecord.SpeciesId
 	local uid = logRecord.UID
 	if not isValidUid(uid) or seenUids[uid] then
+		-- Preserve the legacy record-repair behavior instead of silently
+		-- discarding an owned item due to an invalid or duplicated UID.
+		warn("[LogService] Repairing an invalid/duplicate log UID in profile")
 		uid = HttpService:GenerateGUID(false)
 	end
 	seenUids[uid] = true
@@ -346,6 +357,13 @@ local function normalizeLogRecord(logRecord, seenUids)
 		createdAt = 0
 	end
 	local locked = logRecord.Locked == true
+	local sizeScale = LogStorageRules.SizeScale(logRecord)
+	local groveSource = logRecord.SourceType == "Grove"
+		and isValidUid(logRecord.SourceGroveTreeUID)
+		and isValidUid(logRecord.SourceSaplingUID)
+		and logRecord.SourceGroveTreeUID ~= logRecord.SourceSaplingUID
+	local groveTreeUID = if groveSource then logRecord.SourceGroveTreeUID else nil
+	local saplingUID = if groveSource then logRecord.SourceSaplingUID else nil
 
 	-- Rewrite in place so legacy WeightKg/SizeScale and stale fields disappear
 	-- from the profile without replacing the owned record itself.
@@ -357,20 +375,49 @@ local function normalizeLogRecord(logRecord, seenUids)
 	logRecord.Mutations = mutations
 	logRecord.Locked = locked
 	logRecord.CreatedAt = createdAt
+	logRecord.SizeScale = sizeScale
+	if groveSource then
+		logRecord.SourceType = "Grove"
+		logRecord.SourceGroveTreeUID = groveTreeUID
+		logRecord.SourceSaplingUID = saplingUID
+	end
 	return logRecord
 end
 
 local function normalizeLogs(data)
-	local sourceLogs = type(data.Logs) == "table" and data.Logs or {}
-	local normalizedLogs = {}
+	local rawBag = type(data.Logs) == "table" and data.Logs or {}
+	local rawStored = type(data.StoredLogs) == "table" and data.StoredLogs or {}
+	LogStorageRules.NormalizeSettings(data)
+	local carry = {}
+	local stored = {}
 	local seenUids = {}
-	for _, logRecord in ipairs(sourceLogs) do
-		local normalizedRecord = normalizeLogRecord(logRecord, seenUids)
-		if normalizedRecord then
-			table.insert(normalizedLogs, normalizedRecord)
+	-- Protected ownership comes first. An old locked log in the bag moves to
+	-- storage if there is room, and remains locked in the bag otherwise.
+	for _, record in ipairs(rawStored) do
+		local normalized = normalizeLogRecord(record, seenUids)
+		if normalized then
+			if #stored < MAX_STORED_LOGS then
+				normalized.Locked = false
+				table.insert(stored, normalized)
+			else
+				normalized.Locked = true
+				table.insert(carry, normalized)
+			end
 		end
 	end
-	data.Logs = normalizedLogs
+	for _, record in ipairs(rawBag) do
+		local normalized = normalizeLogRecord(record, seenUids)
+		if normalized then
+			if normalized.Locked and #stored < MAX_STORED_LOGS then
+				normalized.Locked = false
+				table.insert(stored, normalized)
+			else
+				table.insert(carry, normalized)
+			end
+		end
+	end
+	data.Logs = carry
+	data.StoredLogs = stored
 end
 
 local function getPlayerData(player)
@@ -392,7 +439,8 @@ end
 -- exact-UID transaction checks it.
 local function getRawCraftData(player)
 	local profile = ProfileCache.GetProfile(player)
-	if not profile or type(profile.Data) ~= "table" or type(profile.Data.Logs) ~= "table" then
+	if not profile or type(profile.Data) ~= "table" or type(profile.Data.Logs) ~= "table"
+		or type(profile.Data.StoredLogs) ~= "table" then
 		return nil
 	end
 	return profile.Data
@@ -412,7 +460,9 @@ end
 local function getLogValue(logRecord)
 	if type(logRecord) ~= "table" or logRecord.ItemType ~= "Log" then return nil end
 	local definition = getMaterialDefinition(logRecord.SpeciesId)
-	return definition and definition.SellValue or nil
+	if not definition then return nil end
+	local size = LogStorageRules.SizeScale(logRecord)
+	return math.max(1, math.floor(definition.SellValue * size * size + 0.5))
 end
 
 local function getRecordCapacityKg(logRecord)
@@ -473,10 +523,12 @@ local function refreshPiledLogPickupEligibility(player, data)
 				and entry.Model.Parent == entry.Bundle
 			local enabled = active
 				and metrics ~= nil
-				and not metrics.HasUnknownMaterial
-				and #data.Logs < MAX_OWNED_LOGS
-				and capacityKg ~= nil
-				and metrics.RemainingKg + CAPACITY_TOLERANCE_KG >= capacityKg
+				and ((LogStorageRules.ShouldStore(entry.LogRecord, data.AutoKeep)
+					and #data.StoredLogs < MAX_STORED_LOGS)
+					or (not metrics.HasUnknownMaterial
+						and #data.Logs < MAX_OWNED_LOGS
+						and capacityKg ~= nil
+						and metrics.RemainingKg + CAPACITY_TOLERANCE_KG >= capacityKg))
 			if entry.PickupEnabled ~= enabled then
 				entry.PickupEnabled = enabled
 				if active then
@@ -487,39 +539,50 @@ local function refreshPiledLogPickupEligibility(player, data)
 	end
 end
 
+local function snapshotLog(record)
+	if not isValidUid(record.UID) then return nil end
+	local value = getLogValue(record) or 0
+	return {
+		UID = record.UID,
+		ItemType = "Log",
+		SpeciesId = record.SpeciesId,
+		Mutations = copyMutations(record.Mutations),
+		Locked = record.Locked == true,
+		CreatedAt = type(record.CreatedAt) == "number" and record.CreatedAt or 0,
+		SizeScale = LogStorageRules.SizeScale(record),
+		SourceType = record.SourceType,
+		SourceGroveTreeUID = record.SourceGroveTreeUID,
+		SourceSaplingUID = record.SourceSaplingUID,
+		LogValue = value,
+		EstimatedSellValue = value,
+		CapacityKg = getRecordCapacityKg(record),
+	}
+end
+
 local function makeClientSnapshot(player)
 	local data = getPlayerData(player)
 	if not data then return nil end
-
-	local logs = {}
-	for _, logRecord in ipairs(data.Logs) do
-		if isValidUid(logRecord.UID) then
-			local value = getLogValue(logRecord) or 0
-			local materialCapacityKg = getRecordCapacityKg(logRecord)
-			table.insert(logs, {
-				UID = logRecord.UID,
-				ItemType = "Log",
-				SpeciesId = logRecord.SpeciesId,
-				Mutations = copyMutations(logRecord.Mutations),
-				Locked = logRecord.Locked == true,
-				CreatedAt = type(logRecord.CreatedAt) == "number" and logRecord.CreatedAt or 0,
-				LogValue = value,
-				EstimatedSellValue = value,
-				-- Derived from server-owned species config for display only; never read
-				-- back as an authoritative per-record weight.
-				CapacityKg = materialCapacityKg,
-			})
-		end
+	local logs, stored = {}, {}
+	for _, record in ipairs(data.Logs) do
+		local item = snapshotLog(record)
+		if item then table.insert(logs, item) end
 	end
-
-	local capacityMetrics = calculateCapacityMetrics(data)
+	for _, record in ipairs(data.StoredLogs) do
+		local item = snapshotLog(record)
+		if item then table.insert(stored, item) end
+	end
+	local metrics = calculateCapacityMetrics(data)
 	return {
 		Logs = logs,
-		ItemCount = capacityMetrics.ItemCount,
-		UsedKg = capacityMetrics.UsedKg,
-		CarryCapacityKg = capacityMetrics.CarryCapacityKg,
-		RemainingKg = capacityMetrics.RemainingKg,
-		HasUnknownMaterial = capacityMetrics.HasUnknownMaterial,
+		StoredLogs = stored,
+		StorageCount = #stored,
+		StorageCapacity = MAX_STORED_LOGS,
+		AutoKeep = table.clone(data.AutoKeep),
+		ItemCount = metrics.ItemCount,
+		UsedKg = metrics.UsedKg,
+		CarryCapacityKg = metrics.CarryCapacityKg,
+		RemainingKg = metrics.RemainingKg,
+		HasUnknownMaterial = metrics.HasUnknownMaterial,
 		Coins = data.Coins,
 	}
 end
@@ -535,6 +598,8 @@ function LogService.GetCapacitySnapshot(player)
 		RemainingKg = metrics.RemainingKg,
 		HasUnknownMaterial = metrics.HasUnknownMaterial,
 		Coins = data.Coins,
+		StorageCount = #data.StoredLogs,
+		StorageCapacity = MAX_STORED_LOGS,
 	}
 end
 
@@ -558,141 +623,127 @@ local function getDenseArrayLength(value)
 	return count
 end
 
-local function isCraftEligibleLog(logRecord)
-	if type(logRecord) ~= "table"
-		or logRecord.ItemType ~= "Log"
-		or not isValidUid(logRecord.UID)
-		or (logRecord.Locked ~= nil and logRecord.Locked ~= false) then
+local function isCraftEligibleLog(record, fromStorage)
+	if type(record) ~= "table" or record.ItemType ~= "Log"
+		or not isValidUid(record.UID)
+		or (not fromStorage and record.Locked ~= false) then
 		return false
 	end
-	local definition = MaterialDefinitions.Get(logRecord.SpeciesId)
+	local definition = MaterialDefinitions.Get(record.SpeciesId)
 	return definition ~= nil
 		and type(definition.CraftPowerBonus) == "number"
 		and definition.CraftPowerBonus == definition.CraftPowerBonus
 		and math.abs(definition.CraftPowerBonus) < math.huge
 end
 
--- A sanitized authoritative list for recipe previews. Mutations are retained
--- as copied data; forge power is computed from the material definition only.
-function LogService.GetEligibleCraftLogs(player)
-	local data = getRawCraftData(player)
-	if not data or not getDenseArrayLength(data.Logs) then return {} end
-
-	local uidCounts = {}
-	for _, logRecord in ipairs(data.Logs) do
-		if type(logRecord) == "table" and isValidUid(logRecord.UID) then
-			uidCounts[logRecord.UID] = (uidCounts[logRecord.UID] or 0) + 1
+local function validateCraftUIDs(data)
+	if not getDenseArrayLength(data.Logs) or not getDenseArrayLength(data.StoredLogs) then return nil end
+	local seen = {}
+	for _, container in ipairs({ data.Logs, data.StoredLogs }) do
+		for _, record in ipairs(container) do
+			if type(record) ~= "table" or not isValidUid(record.UID) or seen[record.UID] then
+				return nil
+			end
+			seen[record.UID] = true
 		end
 	end
+	return seen
+end
 
-	local pendingUids = pendingCarryArrivalUids[player]
+-- Explicit source identity is returned for previews; client inputs remain UID
+-- only and never choose the authoritative location for a forge transaction.
+function LogService.GetEligibleCraftLogs(player)
+	local data = getRawCraftData(player)
+	if not data or not validateCraftUIDs(data) then return {} end
+	local pending = pendingCarryArrivalUids[player]
 	local eligible = {}
-	for _, logRecord in ipairs(data.Logs) do
-		local uid = type(logRecord) == "table" and logRecord.UID or nil
-		local definition = type(logRecord) == "table"
-			and MaterialDefinitions.Get(logRecord.SpeciesId)
-			or nil
-		if isCraftEligibleLog(logRecord)
-			and uidCounts[uid] == 1
-			and not (pendingUids and pendingUids[uid])
-			and definition then
-			table.insert(eligible, {
-				UID = uid,
-				SpeciesId = logRecord.SpeciesId,
-				CraftPowerBonus = definition.CraftPowerBonus,
-				Mutations = copyCraftMutations(logRecord.Mutations),
-			})
+	for _, source in ipairs({ "Bag", "Storage" }) do
+		local container = if source == "Bag" then data.Logs else data.StoredLogs
+		for _, record in ipairs(container) do
+			local definition = MaterialDefinitions.Get(record.SpeciesId)
+			if isCraftEligibleLog(record, source == "Storage")
+				and not (source == "Bag" and pending and pending[record.UID])
+				and definition then
+				table.insert(eligible, {
+					UID = record.UID,
+					SpeciesId = record.SpeciesId,
+					CraftPowerBonus = definition.CraftPowerBonus,
+					SizeScale = LogStorageRules.SizeScale(record),
+					Mutations = copyCraftMutations(record.Mutations),
+					Source = source,
+				})
+			end
 		end
 	end
 	return eligible
 end
 
--- Atomically validates and removes exactly the requested count of unique UIDs.
--- The selected records may carry mutations; those records are preserved intact
--- so a caller can use their authoritative species and restore them on failure.
+-- Returns the exact taken records AND their original source-by-UID map, so
+-- a failed forge can return items to the same inventory without loss.
 function LogService.TakeCraftLogUIDs(player, logUids, expectedCount)
 	if type(expectedCount) ~= "number" or expectedCount < 1 or expectedCount % 1 ~= 0
-		or getDenseArrayLength(logUids) ~= expectedCount then
-		return nil
-	end
+		or getDenseArrayLength(logUids) ~= expectedCount then return nil end
 	local data = getRawCraftData(player)
-	if not data or not getDenseArrayLength(data.Logs) then return nil end
-	-- Refuse the transaction if any authoritative record has a malformed UID or
-	-- if the UID namespace is ambiguous, even when the requested UIDs are unique.
-	local authoritativeUids = {}
-	for _, logRecord in ipairs(data.Logs) do
-		if type(logRecord) ~= "table" or not isValidUid(logRecord.UID) then return nil end
-		local uid = logRecord.UID
-		if authoritativeUids[uid] then return nil end
-		authoritativeUids[uid] = true
-	end
-
+	if not data or not validateCraftUIDs(data) then return nil end
 	local requested = {}
 	for _, uid in ipairs(logUids) do
 		if not isValidUid(uid) or requested[uid] then return nil end
 		requested[uid] = true
 	end
 
-	local pendingUids = pendingCarryArrivalUids[player]
-	local foundByUid = {}
-	local foundCounts = {}
-	for _, logRecord in ipairs(data.Logs) do
-		local uid = type(logRecord) == "table" and logRecord.UID or nil
-		if requested[uid] then
-			foundCounts[uid] = (foundCounts[uid] or 0) + 1
-			if foundCounts[uid] ~= 1
-				or not isCraftEligibleLog(logRecord)
-				or (pendingUids and pendingUids[uid]) then
-				return nil
+	local found, sources = {}, {}
+	local pending = pendingCarryArrivalUids[player]
+	for _, source in ipairs({ "Bag", "Storage" }) do
+		local container = if source == "Bag" then data.Logs else data.StoredLogs
+		for _, record in ipairs(container) do
+			if requested[record.UID] then
+				if not isCraftEligibleLog(record, source == "Storage")
+					or (source == "Bag" and pending and pending[record.UID]) then
+					return nil
+				end
+				found[record.UID] = record
+				sources[record.UID] = source
 			end
-			foundByUid[uid] = logRecord
 		end
 	end
 
-	local removedRecords = {}
+	local removed = {}
 	for _, uid in ipairs(logUids) do
-		if foundCounts[uid] ~= 1 or not foundByUid[uid] then return nil end
-		table.insert(removedRecords, foundByUid[uid])
+		if not found[uid] then return nil end
+		table.insert(removed, found[uid])
 	end
-
-	for index = #data.Logs, 1, -1 do
-		local logRecord = data.Logs[index]
-		if type(logRecord) == "table" and requested[logRecord.UID] then
-			table.remove(data.Logs, index)
+	for _, container in ipairs({ data.Logs, data.StoredLogs }) do
+		for index = #container, 1, -1 do
+			if requested[container[index].UID] then table.remove(container, index) end
 		end
 	end
-	return removedRecords
+	return removed, sources
 end
 
--- Restores the exact original record tables after output insertion fails. This
--- stays silent so the caller can publish one coherent final state on success.
-function LogService.RestoreCraftLogRecords(player, records)
-	local restoreCount = getDenseArrayLength(records)
-	if not restoreCount or restoreCount == 0 then return false end
+function LogService.RestoreCraftLogRecords(player, records, sources)
+	local count = getDenseArrayLength(records)
+	if not count or count == 0 then return false end
 	local data = getRawCraftData(player)
-	if not data or not getDenseArrayLength(data.Logs) then return false end
-
-	-- Only collisions with the records being restored make rollback unsafe;
-	-- unrelated malformed or duplicate records must not block exact restoration.
-	local existingUids = {}
-	for _, logRecord in ipairs(data.Logs) do
-		if type(logRecord) == "table" and isValidUid(logRecord.UID) then
-			existingUids[logRecord.UID] = true
-		end
-	end
-	local restoredUids = {}
-	for _, logRecord in ipairs(records) do
-		if type(logRecord) ~= "table"
-			or logRecord.ItemType ~= "Log"
-			or not isValidUid(logRecord.UID)
-			or existingUids[logRecord.UID]
-			or restoredUids[logRecord.UID] then
+	if not data or not validateCraftUIDs(data) then return false end
+	local existing = validateCraftUIDs(data)
+	local restoring = {}
+	for _, record in ipairs(records) do
+		if type(record) ~= "table" or record.ItemType ~= "Log"
+			or not isValidUid(record.UID) or existing[record.UID] or restoring[record.UID] then
 			return false
 		end
-		restoredUids[logRecord.UID] = true
+		restoring[record.UID] = true
 	end
-	for _, logRecord in ipairs(records) do
-		table.insert(data.Logs, logRecord)
+	for _, record in ipairs(records) do
+		local location = type(sources) == "table" and sources[record.UID] or nil
+		if location == "Storage" then
+			record.Locked = false
+			-- A concurrent pickup may fill storage during the forge call;
+			-- restoration takes precedence over the configured capacity.
+			table.insert(data.StoredLogs, record)
+		else
+			table.insert(data.Logs, record)
+		end
 	end
 	return true
 end
@@ -750,9 +801,10 @@ local function makeSellSummary(player)
 
 	local eligibleCount = 0
 	local totalValue = 0
+	local pending = pendingCarryArrivalUids[player]
 	for _, logRecord in ipairs(data.Logs) do
 		local value = getLogValue(logRecord)
-		if value and logRecord.Locked ~= true then
+		if value and logRecord.Locked ~= true and not (pending and pending[logRecord.UID]) then
 			eligibleCount += 1
 			totalValue += value
 		end
@@ -771,9 +823,55 @@ local function makeSellSummary(player)
 	}
 end
 
+-- Only the server-side Grove harvest callback calls this method. Return
+-- nil without modifying the Grove when protected storage is full. This makes
+-- the unique log reward an atomic prerequisite for regrowth.
+function LogService.GrantGroveHarvestLog(player, harvest)
+	if type(harvest) ~= "table"
+		or type(harvest.SpeciesId) ~= "string"
+		or not getMaterialDefinition(harvest.SpeciesId)
+		or not isValidUid(harvest.SourceGroveTreeUID)
+		or not isValidUid(harvest.SourceSaplingUID)
+		or harvest.SourceGroveTreeUID == harvest.SourceSaplingUID
+		or type(harvest.SizeScale) ~= "number"
+		or harvest.SizeScale ~= harvest.SizeScale
+		or harvest.SizeScale < LogStorageRules.MIN_SIZE_SCALE
+		or harvest.SizeScale > LogStorageRules.MAX_SIZE_SCALE then
+		return nil
+	end
+	local data = getPlayerData(player)
+	if not data or #data.StoredLogs >= MAX_STORED_LOGS then return nil end
+	local uid
+	for _ = 1, 8 do
+		local candidate = HttpService:GenerateGUID(false)
+		local found = false
+		for _, list in ipairs({ data.Logs, data.StoredLogs, data.Saplings, data.GroveTrees, data.GroveMaterials }) do
+			for _, record in ipairs(type(list) == "table" and list or {}) do
+				if record.UID == candidate then found = true break end
+			end
+			if found then break end
+		end
+		if not found then uid = candidate break end
+	end
+	if not uid then return nil end
+	table.insert(data.StoredLogs, {
+		UID = uid, ItemType = "Log", SpeciesId = harvest.SpeciesId,
+		Mutations = copyMutations(harvest.Mutations),
+		SizeScale = harvest.SizeScale,
+		SourceType = "Grove",
+		SourceGroveTreeUID = harvest.SourceGroveTreeUID,
+		SourceSaplingUID = harvest.SourceSaplingUID,
+		Locked = false, CreatedAt = os.time(),
+	})
+	return uid
+end
+
 function LogService.NotifyState(player)
 	local data = getPlayerData(player)
 	if data then
+		-- A successful craft consumes real unique log UIDs. In Studio, restore
+		-- the missing test fixtures with NEW UIDs before publishing snapshots.
+		StudioForgeSandbox.Refill(player, data)
 		refreshPiledLogPickupEligibility(player, data)
 	end
 	local snapshot = makeClientSnapshot(player)
@@ -814,6 +912,15 @@ LogService.LogsChanged:Connect(function(player, records)
 	end
 	rebuildCarryVisuals(player, records)
 end)
+
+local function findStoredLog(data, uid)
+	for index, record in ipairs(data.StoredLogs) do
+		if type(record) == "table" and record.UID == uid and record.ItemType == "Log" then
+			return record, index
+		end
+	end
+	return nil
+end
 
 local function findLog(data, uid)
 	for index, logRecord in ipairs(data.Logs) do
@@ -2585,11 +2692,53 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 	if not primaryCapacityKg then
 		return rejectPickup(player, uid, "unknown material capacity")
 	end
-	if findLog(data, uid) then
+	if findLog(data, uid) or findStoredLog(data, uid) then
 		return rejectPickup(player, uid, "duplicate UID already owned")
 	end
 	if not consumeRemoteBudget(player, "Pickup") then
 		return rejectPickup(player, uid, "rate limited")
+	end
+	-- A protected log is collected directly into persistent storage and never
+	-- joins the bag/cargo renderer. A full storage never auto-sells the log.
+	local keep = LogStorageRules.ShouldStore(entry.LogRecord, data.AutoKeep)
+	if keep and #data.StoredLogs < MAX_STORED_LOGS then
+		if pickupHomingsByUid[uid] then return rejectPickup(player, uid, "already homing") end
+		if entry.State == "Piled" then
+			local ownerPiles = pilesByPlayer[player.UserId]
+			local actualPile = ownerPiles and ownerPiles[entry.PileId]
+			if not actualPile or actualPile.SpeciesId ~= entry.LogRecord.SpeciesId
+				or actualPile.ItemsByUid[uid] ~= entry or actualPile.Slots[entry.PileSlot] ~= entry then
+				return rejectPickup(player, uid, "invalid protected pile membership")
+			end
+			unregisterPileMembership(player.UserId, uid, entry)
+		elseif entry.PileId ~= nil or entry.PileSlot ~= nil then
+			return rejectPickup(player, uid, "fresh protected log with pile metadata")
+		end
+		cancelGroundDropReveal(entry)
+		local sourceCFrame = model:GetPivot()
+		drop.LogRecordsByUid[uid] = nil
+		drop.Count -= 1
+		entry.PickupEnabled = false
+		entry.State = "Stored"
+		entry.LogRecord.Locked = false
+		table.insert(data.StoredLogs, entry.LogRecord)
+		if drop.Count <= 0 then clearGroundDropBundle(bundle, drop) end
+		LogService.NotifyState(player)
+		LogProcessingFXRE:FireAllClients({
+			Mode = "StoragePickup", OwnerUserId = player.UserId,
+			SourceCFrame = sourceCFrame, SpeciesId = entry.LogRecord.SpeciesId,
+		})
+		model:Destroy()
+		return true
+	end
+	-- Fail-safe when protected storage is full: any carried fallback stays
+	-- locked, never included in bulk processor sales.
+	if keep then
+		entry.LogRecord.Locked = true
+		LogProcessingFXRE:FireClient(player, {
+			Mode = "StorageNotice",
+			Message = "PROTECTED STORAGE FULL — CLEAR SPACE. THIS LOG WILL NOT AUTO-SELL.",
+		})
 	end
 	if logCount(data) >= MAX_OWNED_LOGS and entry.State == "Piled" then
 		refreshPiledLogPickupEligibility(player, data)
@@ -2654,7 +2803,9 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 			and candidateCapacityKg
 			and os.clock() <= candidateEntry.ReservedUntil
 			and getDistanceToModelBounds(root.Position, candidateModel) <= MAX_PICKUP_DISTANCE
-			and not findLog(data, candidateUid) then
+			and not findLog(data, candidateUid)
+			and not findStoredLog(data, candidateUid)
+			and not LogStorageRules.ShouldStore(candidateLogRecord, data.AutoKeep) then
 			local candidateDistance = getDistanceToModelBounds(root.Position, candidateModel)
 			table.insert(nearby, {
 				UID = candidateUid,
@@ -2951,7 +3102,8 @@ local function createLogRecord(tree)
 		UID = HttpService:GenerateGUID(false),
 		ItemType = "Log",
 		SpeciesId = tree.SpeciesId,
-		Mutations = {},
+		Mutations = copyMutations(tree.Mutations),
+		SizeScale = LogStorageRules.SizeScale(tree),
 		Locked = false,
 		CreatedAt = os.time(),
 	}
@@ -2997,6 +3149,7 @@ function LogService.CaptureTreeLogAward(tree, contributions, fallRotation)
 		SpeciesId = tree.SpeciesId,
 		LogYield = tree.LogYield,
 		SizeScale = tree.SizeScale,
+		Mutations = copyMutations(tree.Mutations),
 		Contributions = contributionSnapshot,
 		FallPlacement = getFallPlacement(tree, fallRotation),
 	}
@@ -3065,7 +3218,7 @@ function LogService.AwardTreeLog(awardSnapshot, options)
 	end
 	local logRecords = {}
 	for index = 1, rewardCount do
-		table.insert(logRecords, createLogRecord({ SpeciesId = awardSnapshot.SpeciesId }))
+		table.insert(logRecords, createLogRecord({ SpeciesId = awardSnapshot.SpeciesId, SizeScale = awardSnapshot.SizeScale, Mutations = awardSnapshot.Mutations }))
 	end
 
 	local fallPlacement = awardSnapshot.FallPlacement
@@ -3103,6 +3256,7 @@ end
 LogService.DEFAULT_CAPACITY_KG = DEFAULT_CAPACITY_KG
 LogService.MAX_CAPACITY_KG = MAX_CAPACITY_KG
 LogService.MAX_OWNED_LOGS = MAX_OWNED_LOGS
+LogService.MAX_STORED_LOGS = MAX_STORED_LOGS
 LogService.MAX_PICKUP_BATCH = MAX_PICKUP_BATCH
 LogService.MAX_GROUND_LOG_DROPS_PER_PLAYER = MAX_GROUND_LOG_DROPS_PER_PLAYER
 LogService.CAPACITY_TIERS_KG = AxeShopCatalog.CAPACITY_TIERS_KG
@@ -3123,22 +3277,95 @@ SellUnlockedLogsRE.OnServerEvent:Connect(function(player, ...)
 	local data = getPlayerData(player)
 	if not data then return end
 
-	local remaining = {}
-	local saleTotal = 0
-	local soldCount = 0
-	for _, logRecord in ipairs(data.Logs) do
-		local value = getLogValue(logRecord)
-		if value and logRecord.Locked ~= true then
-			saleTotal += value
-			soldCount += 1
+	local remaining, sold = {}, {}
+	local total = 0
+	local pending = pendingCarryArrivalUids[player]
+	for _, record in ipairs(data.Logs) do
+		local value = getLogValue(record)
+		if value and record.Locked ~= true and not (pending and pending[record.UID]) then
+			total += value
+			table.insert(sold, { SpeciesId = record.SpeciesId, SizeScale = LogStorageRules.SizeScale(record) })
 		else
-			table.insert(remaining, logRecord)
+			table.insert(remaining, record)
 		end
 	end
-	if soldCount == 0 or saleTotal <= 0 then return end
+	if #sold == 0 or total <= 0 then return end
 
+	-- Commit ownership and coins before any client-only cosmetic animation.
 	data.Logs = remaining
-	EconomyManager.Add(player, "Coins", saleTotal)
+	EconomyManager.Add(player, "Coins", total)
+	LogService.NotifyState(player)
+	local displaySold = {}
+	for index = 1, math.min(#sold, 20) do
+		displaySold[index] = sold[index]
+	end
+	-- The public visual is limited to 20 cosmetic logs. Coin payout and
+	-- inventory ownership remain private, authoritative server mutations.
+	LogProcessingFXRE:FireAllClients({
+		Mode = "ProcessSale", OwnerUserId = player.UserId,
+		Sold = displaySold, SoldCount = #sold,
+	})
+end)
+
+-- The result is a server-owned UI notice, never a client-authored
+-- achievement or resource event.
+local function storageNotice(player, message)
+	LogProcessingFXRE:FireClient(player, { Mode = "StorageNotice", Message = message })
+end
+
+-- Explicit, per-UID manual transfer. No client-supplied item records or
+-- weights are trusted. Bag capacity is validated before removing from storage.
+TransferLogRE.OnServerEvent:Connect(function(player, uid, destination, ...)
+	if select("#", ...) ~= 0 or not consumeRemoteBudget(player, "Transfer") then return end
+	if not isValidUid(uid) or (destination ~= "Bag" and destination ~= "Storage") then return end
+	local data = getPlayerData(player)
+	if not data then return end
+	if destination == "Storage" then
+		if #data.StoredLogs >= MAX_STORED_LOGS then
+			storageNotice(player, "SAVED STORAGE FULL — MOVE OR USE SOME LOGS FIRST.")
+			return
+		end
+		local record, index = findLog(data, uid)
+		if not record or (pendingCarryArrivalUids[player] and pendingCarryArrivalUids[player][uid])
+			or findStoredLog(data, uid) then return end
+		table.remove(data.Logs, index)
+		record.Locked = false
+		table.insert(data.StoredLogs, record)
+	else
+		if #data.Logs >= MAX_OWNED_LOGS then
+			storageNotice(player, "BAG ITEM LIMIT REACHED.")
+			return
+		end
+		local record, index = findStoredLog(data, uid)
+		if not record or findLog(data, uid) then return end
+		local cost = getRecordCapacityKg(record)
+		local metrics = calculateCapacityMetrics(data)
+		if not cost or metrics.HasUnknownMaterial
+			or cost > metrics.RemainingKg + CAPACITY_TOLERANCE_KG then
+			storageNotice(player, "NOT ENOUGH SPACE IN CARRY BAG.")
+			return
+		end
+		table.remove(data.StoredLogs, index)
+		record.Locked = false
+		table.insert(data.Logs, record)
+	end
+	LogService.NotifyState(player)
+end)
+
+UpdateAutoKeepRE.OnServerEvent:Connect(function(player, mutations, oversized, threshold, ...)
+	if select("#", ...) ~= 0 or not consumeRemoteBudget(player, "AutoKeep") then return end
+	if type(mutations) ~= "boolean" or type(oversized) ~= "boolean"
+		or type(threshold) ~= "number" or threshold ~= threshold
+		or math.abs(threshold) == math.huge
+		or threshold < LogStorageRules.MIN_THRESHOLD
+		or threshold > LogStorageRules.MAX_THRESHOLD then return end
+	local data = getPlayerData(player)
+	if not data then return end
+	data.AutoKeep = {
+		Mutations = mutations,
+		Oversized = oversized,
+		SizeThreshold = math.floor(threshold * 10 + 0.5) / 10,
+	}
 	LogService.NotifyState(player)
 end)
 

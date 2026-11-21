@@ -98,10 +98,16 @@ function itemDataBase.ParseItem(item: IMS.ITEM_TYPE)
 	local itemInstance = itemDataBase.Instances[item.ItemID]
 	if not itemInfo then return nil end
 	local weaponData = type(item.WeaponData) == "table" and deepCopy(item.WeaponData) or nil
+	local experimentalClass = weaponData and weaponData.ExperimentalClass
+	local metal = weaponData and weaponData.Metal
+	local experimentalName = if (experimentalClass == "Dagger" or experimentalClass == "Axe"
+		or experimentalClass == "Battlehammer")
+		and (metal == "Copper" or metal == "Iron")
+		then metal .. " " .. experimentalClass else nil
 
 	return {
 		ItemID = item.ItemID,
-		ItemName = itemInfo.Name,
+		ItemName = experimentalName or itemInfo.Name,
 		ItemIcon = itemInfo.Icon,
 		ItemType = itemInfo.Type,
 		ItemRarity = item.Rarity,

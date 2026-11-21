@@ -1,6 +1,9 @@
 local statDatabase = require(script.Parent.StatsDatabase)
 local StatAggregator = {}
 local playerProfileCache = require(game.ServerScriptService.PlayerProfile.ProfileService.ProfileDataCache)
+local WeaponProgressionRules = require(game.ServerScriptService.WeaponProgressionRules)
+
+local BASE_ATTACK = 5
 
 function StatAggregator.CollectSources(player)
 	local sources = {
@@ -9,7 +12,7 @@ function StatAggregator.CollectSources(player)
 			SourceId = "Base",
 			Stats = {
 				CritChance = 5,
-				Attack = 5,
+				Attack = BASE_ATTACK,
 				CritDamage = 200 
 			}
 		}
@@ -30,6 +33,16 @@ function StatAggregator.CollectSources(player)
 			SourceId = weaponUID .. "SubStats",
 			Stats = weapon.ItemSubstat or {}
 		})
+		-- Add level/rarity growth as a separate derived stat source.
+		-- The original forged ItemStats.Attack must never be rewritten here.
+		local bonusAttack = WeaponProgressionRules.DerivedAttackBonus(weapon, BASE_ATTACK)
+		if bonusAttack > 0 then
+			table.insert(sources, {
+				SourceType = "WeaponProgression",
+				SourceId = weaponUID .. "Progression",
+				Stats = { Attack = bonusAttack },
+			})
+		end
 	end
 
 	-- Active pets

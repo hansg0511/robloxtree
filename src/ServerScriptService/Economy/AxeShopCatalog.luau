@@ -23,6 +23,7 @@ AxeShopCatalog.StandardAxeRecipes = {
 	{
 		Id = "copper_axe",
 		Name = "Copper Axe",
+		WeaponKind = "Axe",
 		HeadId = "copper_head",
 		OutputItemID = 102,
 		Tier = 1,
@@ -33,6 +34,7 @@ AxeShopCatalog.StandardAxeRecipes = {
 	{
 		Id = "iron_axe",
 		Name = "Iron Axe",
+		WeaponKind = "Axe",
 		HeadId = "iron_head",
 		OutputItemID = 103,
 		Tier = 2,
@@ -41,6 +43,39 @@ AxeShopCatalog.StandardAxeRecipes = {
 		RequiredForestId = "Forest2",
 	},
 }
+
+-- STUDIO-ONLY RNG forging. Reuse the owned component IDs as temporary
+-- metal blanks: no account migration or new shop currency is required.
+-- Existing fixed Copper/Iron Axe recipes remain unchanged for regression.
+-- OutputItemID values refer to existing Tool models, not final dagger/hammer art.
+AxeShopCatalog.ExperimentalForgeRecipes = {
+	{
+		Id = "experiment_copper",
+		Name = "COPPER BLANK • EXPERIMENTAL FORGE",
+		HeadId = "copper_head",
+		Tier = 1,
+		HeadBasePower = 25,
+		RequiredForestId = "Forest1",
+		Outputs = { Dagger = 101, Axe = 102, Battlehammer = 105 },
+	},
+	{
+		Id = "experiment_iron",
+		Name = "IRON BLANK • EXPERIMENTAL FORGE",
+		HeadId = "iron_head",
+		Tier = 2,
+		HeadBasePower = 55,
+		RequiredForestId = "Forest2",
+		Outputs = { Dagger = 101, Axe = 103, Battlehammer = 105 },
+	},
+}
+
+function AxeShopCatalog.FindExperimentalForgeRecipe(recipeId)
+	if type(recipeId) ~= "string" then return nil end
+	for _, entry in ipairs(AxeShopCatalog.ExperimentalForgeRecipes) do
+		if entry.Id == recipeId then return entry end
+	end
+	return nil
+end
 
 AxeShopCatalog.DEFAULT_CAPACITY_KG = 10
 AxeShopCatalog.MAX_CAPACITY_KG = 40

@@ -2,6 +2,8 @@
 -- Every button sends intent only; the server owns inventory, prices, and sales.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local ExperimentalForgeRules = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ExperimentalForgeRules"))
 local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
@@ -497,6 +499,33 @@ local detailExtraLabel = label(detailPanel, "ExtraStatsLabel", "OTHER STATS", UD
 local detailExtraValue = label(detailPanel, "ExtraStatsValue", "Not configured yet", UDim2.new(1, -36, 0, 28), UDim2.new(0, 18, 0, 0), 16, COLORS.BagMuted, Enum.Font.GothamBold)
 detailExtraLabel.Visible = false
 detailExtraValue.Visible = false
+
+-- Stats and future mutation abilities have their own scrollable region.
+-- This is visible only for AXES; the LOG details layout is unchanged.
+local axeStatsScroll = Instance.new("ScrollingFrame")
+axeStatsScroll.Name = "WeaponStats"
+axeStatsScroll.BackgroundColor3 = COLORS.BagPreview
+axeStatsScroll.BorderSizePixel = 0
+axeStatsScroll.ScrollBarThickness = 5
+axeStatsScroll.ScrollBarImageColor3 = COLORS.BagMuted
+axeStatsScroll.ScrollingDirection = Enum.ScrollingDirection.Y
+axeStatsScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+axeStatsScroll.CanvasSize = UDim2.new()
+axeStatsScroll.Visible = false
+axeStatsScroll.ZIndex = 11
+axeStatsScroll.Parent = detailPanel
+round(axeStatsScroll, 9)
+local axeStatsPadding = Instance.new("UIPadding")
+axeStatsPadding.PaddingTop = UDim.new(0, 8)
+axeStatsPadding.PaddingBottom = UDim.new(0, 10)
+axeStatsPadding.PaddingLeft = UDim.new(0, 10)
+axeStatsPadding.PaddingRight = UDim.new(0, 12)
+axeStatsPadding.Parent = axeStatsScroll
+local axeStatsLayout = Instance.new("UIListLayout")
+axeStatsLayout.Padding = UDim.new(0, 4)
+axeStatsLayout.SortOrder = Enum.SortOrder.LayoutOrder
+axeStatsLayout.Parent = axeStatsScroll
+
 local favoriteButton = button(detailPanel, "FavoriteButton", "LOCK", UDim2.new(0, 82, 0, 32), UDim2.new(1, -88, 0.5, -16), COLORS.BagHeader)
 favoriteButton.TextSize = 18
 favoriteButton.TextColor3 = COLORS.BagText
@@ -602,16 +631,32 @@ shopLayout.SortOrder = Enum.SortOrder.LayoutOrder
 shopLayout.Parent = shopList
 
 local forgeOverlay, forgePanel = makeModal(screen, "AxeForge", "AXE FORGE", "Combine an owned axe head with eligible logs.")
-styleStationModal(forgePanel, "AXE FORGE", "STANDARD AXES USE AN AXE HEAD AND UNLOCKED LOGS")
-forgePanel.Size = UDim2.new(0.86, 0, 0.82, 0)
+styleStationModal(forgePanel, "THE FORGE", "1. CHOOSE MODE     2. PICK LOGS     3. FORGE")
+forgePanel.Size = UDim2.new(0.92, 0, 0.92, 0)
 local forgeSizeConstraint = forgePanel:FindFirstChildOfClass("UISizeConstraint")
 if forgeSizeConstraint then
-	forgeSizeConstraint.MaxSize = Vector2.new(980, 700)
+	forgeSizeConstraint.MaxSize = Vector2.new(1060, 820)
 end
+-- Only ONE recipe is presented at a time; switching mode/tier preserves
+-- each recipe's chosen log UIDs without multiplying enormous cards.
+local forgeModeRng = button(forgePanel, "ModeRng", "RNG FORGE",
+	UDim2.new(0.5, -24, 0, 36), UDim2.fromOffset(20, 86), COLORS.BagAction)
+forgeModeRng.TextSize = 16
+forgeModeRng.Visible = RunService:IsStudio()
+local forgeModeStandard = button(forgePanel, "ModeStandard", "STANDARD",
+	UDim2.new(0.5, -24, 0, 36), UDim2.new(0.5, 4, 0, 86), COLORS.BagSlot)
+forgeModeStandard.TextSize = 16
+local forgeTierCopper = button(forgePanel, "TierCopper", "COPPER",
+	UDim2.new(0.5, -24, 0, 34), UDim2.fromOffset(20, 129), COLORS.BagAction)
+forgeTierCopper.TextSize = 15
+local forgeTierIron = button(forgePanel, "TierIron", "IRON",
+	UDim2.new(0.5, -24, 0, 34), UDim2.new(0.5, 4, 0, 129), COLORS.BagSlot)
+forgeTierIron.TextSize = 15
+
 local forgeList = Instance.new("ScrollingFrame")
 forgeList.Name = "RecipeList"
-forgeList.Position = UDim2.new(0, 20, 0, 124)
-forgeList.Size = UDim2.new(1, -40, 1, -144)
+forgeList.Position = UDim2.new(0, 20, 0, 177)
+forgeList.Size = UDim2.new(1, -40, 1, -195)
 forgeList.BackgroundColor3 = COLORS.BagBack
 forgeList.BackgroundTransparency = 0
 forgeList.BorderSizePixel = 0
@@ -632,12 +677,33 @@ local forgeLayout = Instance.new("UIListLayout")
 forgeLayout.Padding = UDim.new(0, 12)
 forgeLayout.SortOrder = Enum.SortOrder.LayoutOrder
 forgeLayout.Parent = forgeList
-local forgeEmptyState = label(forgePanel, "ForgeEmptyState", "LOADING RECIPES...", UDim2.new(1, -60, 0, 80), UDim2.new(0, 30, 0, 124), 20, COLORS.BagMuted, Enum.Font.GothamBlack)
+local forgeEmptyState = label(forgePanel, "ForgeEmptyState", "LOADING RECIPES...", UDim2.new(1, -60, 0, 80), UDim2.new(0, 30, 0, 180), 20, COLORS.BagMuted, Enum.Font.GothamBlack)
 forgeEmptyState.TextXAlignment = Enum.TextXAlignment.Center
 forgeEmptyState.ZIndex = 3
 forgeEmptyState.Visible = true
 
-local sellOverlay, sellPanel = makeModal(screen, "SellLogs", "SELL LOGS", "Cash out your ready logs for Coins.")
+local sellOverlay, sellPanel = makeModal(screen, "SellLogs", "SELL LOGS", "Drop your carried logs into the processor to earn Coins.")
+
+-- Lightweight client-only coordination for debug overlays. Listen to Visible
+-- so header X buttons, ESC, station-distance closures and tab changes all work.
+local economyOverlays = { bagOverlay, shopOverlay, forgeOverlay, sellOverlay }
+local function publishEconomyModalOpen()
+	local anyOpen = false
+	for _, overlay in ipairs(economyOverlays) do
+		if overlay.Visible then
+			anyOpen = true
+			break
+		end
+	end
+	playerGui:SetAttribute("EconomyModalOpen", anyOpen)
+end
+for _, overlay in ipairs(economyOverlays) do
+	overlay:GetPropertyChangedSignal("Visible"):Connect(publishEconomyModalOpen)
+end
+publishEconomyModalOpen()
+screen.Destroying:Connect(function()
+	playerGui:SetAttribute("EconomyModalOpen", false)
+end)
 styleStationModal(sellPanel, "LUMBER DEPOT", "TURN READY LOGS INTO COINS")
 local sellCard = Instance.new("Frame")
 sellCard.Name = "SaleSummary"
@@ -664,7 +730,7 @@ local sellValue = label(sellCard, "TotalValue", "0 COINS", UDim2.new(1, -32, 0, 
 sellValue.TextXAlignment = Enum.TextXAlignment.Center
 sellValue.TextStrokeColor3 = COLORS.BagLine
 sellValue.TextStrokeTransparency = 0
-local sellHint = label(sellCard, "LockHint", "LOCKED LOGS STAY SAFE IN YOUR BAG.", UDim2.new(1, -32, 0, 26), UDim2.new(0, 16, 0, 154), 15, COLORS.BagMuted, Enum.Font.GothamBold)
+local sellHint = label(sellCard, "LockHint", "SAVED LOGS ARE KEPT OUT OF THE PROCESSOR.", UDim2.new(1, -32, 0, 26), UDim2.new(0, 16, 0, 154), 15, COLORS.BagMuted, Enum.Font.GothamBold)
 sellHint.TextXAlignment = Enum.TextXAlignment.Center
 local sellButton = button(sellCard, "SellUnlockedButton", "SELL ALL", UDim2.new(1, -36, 0, 70), UDim2.new(0, 18, 1, -86), COLORS.BagAction)
 sellButton.TextSize = 26
@@ -691,6 +757,9 @@ local forgeEligibleLogsByUid = {}
 local forgeEligibleLogs = {}
 local forgeEligibleLogsAvailable = false
 local forgeSnapshotFresh = false
+local forgeModeSelection = if RunService:IsStudio() then "RNG" else "STANDARD"
+local forgeMetalSelection = "copper"
+local forgeShowStatRanges = false
 local activeBagTab = "Logs"
 local showingBagInfo = false
 local bagWideLayout = false
@@ -756,6 +825,7 @@ local function setBagLayout()
 	axesTab.Position = UDim2.new(0, 10, 0, if railWidth < 110 then 76 else 86)
 	axesTab.Size = UDim2.new(1, -20, 0, if railWidth < 110 then 54 else 64)
 	axesTab.TextSize = logsTab.TextSize
+	axesTab.Text = if railWidth < 110 then "GEAR" else "WEAPONS"
 	local sortTop = if railWidth < 110 then 142 else 164
 	sortButton.Position = UDim2.new(1, -202, 0.5, 0)
 	sortButton.AnchorPoint = Vector2.new(0, 0.5)
@@ -790,8 +860,9 @@ local function setBagLayout()
 		detailPanel.Size = UDim2.new(0, detailWidth, 1, 0)
 		infoCloseButton.Visible = false
 		detailPreview.Visible = true
-		local previewSide = math.clamp(math.floor(math.min(detailWidth - 48, height * 0.29)), 112, 164)
-		local previewTop = 94
+		local previewSide = if activeBagTab == "Axes" then 100
+			else math.clamp(math.floor(math.min(detailWidth - 48, height * 0.29)), 112, 164)
+		local previewTop = if activeBagTab == "Axes" then 88 else 94
 		detailPreview.Position = UDim2.new(0.5, -previewSide / 2, 0, previewTop)
 		detailPreview.Size = UDim2.fromOffset(previewSide, previewSide)
 		detailSpecies.Position = UDim2.new(0, 18, 0, 12)
@@ -821,6 +892,9 @@ local function setBagLayout()
 		detailExtraValue.Size = UDim2.new(1, -36, 0, 44)
 		detailExtraValue.TextXAlignment = Enum.TextXAlignment.Center
 		detailExtraValue.TextSize = 16
+		local axeStatsTop = previewTop + previewSide + 78
+		axeStatsScroll.Position = UDim2.new(0, 16, 0, axeStatsTop)
+		axeStatsScroll.Size = UDim2.new(1, -32, 1, -(axeStatsTop + 14))
 		favoriteButton.Position = UDim2.new(0, 18, 1, -64)
 		favoriteButton.Size = UDim2.new(1, -36, 0, 52)
 		favoriteButton.TextSize = 18
@@ -839,8 +913,9 @@ local function setBagLayout()
 		emptyState.Size = UDim2.fromScale(1, 1)
 		local detailWidth = math.max(220, math.floor(width * 0.86))
 		local detailHeight = math.max(220, math.floor(height * 0.86))
-		local previewSide = math.clamp(math.floor(math.min(detailWidth - 48, (detailHeight - 220) * 0.48)), 64, 142)
-		local previewTop = 82
+		local previewSide = if activeBagTab == "Axes" then 72
+			else math.clamp(math.floor(math.min(detailWidth - 48, (detailHeight - 220) * 0.48)), 64, 142)
+		local previewTop = if activeBagTab == "Axes" then 76 else 82
 		detailSpecies.Position = UDim2.new(0, 18, 0, 10)
 		detailSpecies.Size = UDim2.new(1, -36, 0, 32)
 		detailSpecies.TextSize = if detailWidth < 310 then 20 else 24
@@ -870,6 +945,9 @@ local function setBagLayout()
 		detailExtraValue.Size = UDim2.new(1, -36, 0, 24)
 		detailExtraValue.TextSize = 14
 		detailExtraValue.TextXAlignment = Enum.TextXAlignment.Center
+		local axeStatsTop = previewTop + previewSide + 66
+		axeStatsScroll.Position = UDim2.new(0, 16, 0, axeStatsTop)
+		axeStatsScroll.Size = UDim2.new(1, -32, 1, -(axeStatsTop + 64))
 		favoriteButton.Position = UDim2.new(0, 18, 1, -116)
 		favoriteButton.Size = UDim2.new(1, -36, 0, 48)
 		favoriteButton.TextSize = 16
@@ -976,6 +1054,7 @@ local function renderLogDetail(record)
 	detailExtraValue.Text = weightText or ""
 	detailExtraLabel.Visible = weightText ~= nil
 	detailExtraValue.Visible = weightText ~= nil
+	axeStatsScroll.Visible = false
 	detailStatus.Text = if not hasRecord then "CHOOSE A LOG" elseif record.Locked == true then "LOCKED • SAFE FROM SELL ALL" else "SELECTED"
 	detailStatus.TextColor3 = if hasRecord and record.Locked == true then COLORS.Gold else COLORS.BagMuted
 	favoriteButton.Visible = hasRecord
@@ -987,26 +1066,213 @@ local function renderLogDetail(record)
 	favoriteButton.TextStrokeTransparency = 0
 end
 
+-- Reusable rows: future rolled stats / active mutation effects can be
+-- added here without introducing another cramped horizontal string.
+local axeStatOrder = 0
+local previousDetailAxeUID = nil
+local function clearAxeStats()
+	for _, child in ipairs(axeStatsScroll:GetChildren()) do
+		if child ~= axeStatsLayout and child ~= axeStatsPadding
+			and not child:IsA("UICorner") then
+			child:Destroy()
+		end
+	end
+	axeStatOrder = 0
+end
+
+local function axeStatSection(titleText)
+	axeStatOrder += 1
+	local heading = label(axeStatsScroll, "Section_" .. tostring(axeStatOrder), titleText,
+		UDim2.new(1, -8, 0, 25), UDim2.new(), 14,
+		COLORS.Gold, Enum.Font.GothamBlack)
+	heading.LayoutOrder = axeStatOrder
+	heading.TextXAlignment = Enum.TextXAlignment.Left
+	heading.TextTruncate = Enum.TextTruncate.AtEnd
+	heading.ZIndex = 12
+end
+
+local function axeStatRow(titleText, valueText)
+	axeStatOrder += 1
+	local line = Instance.new("Frame")
+	line.Name = "Stat_" .. tostring(axeStatOrder)
+	line.LayoutOrder = axeStatOrder
+	line.Size = UDim2.new(1, -8, 0, 32)
+	line.BackgroundColor3 = COLORS.BagSlot
+	line.BorderSizePixel = 0
+	line.ZIndex = 12
+	line.Parent = axeStatsScroll
+	round(line, 6)
+	local title = label(line, "StatName", titleText,
+		UDim2.new(0.52, -10, 1, 0), UDim2.new(0, 8, 0, 0), 13,
+		COLORS.BagMuted, Enum.Font.GothamBold)
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.TextTruncate = Enum.TextTruncate.AtEnd
+	title.ZIndex = 13
+	local value = label(line, "StatValue", valueText,
+		UDim2.new(0.48, -8, 1, 0), UDim2.new(0.52, 0, 0, 0), 13,
+		COLORS.BagText, Enum.Font.GothamBlack)
+	value.TextXAlignment = Enum.TextXAlignment.Right
+	value.TextTruncate = Enum.TextTruncate.AtEnd
+	value.ZIndex = 13
+end
+
+local function axeStatNote(noteText)
+	axeStatOrder += 1
+	local note = label(axeStatsScroll, "Note_" .. tostring(axeStatOrder), noteText,
+		UDim2.new(1, -8, 0, 42), UDim2.new(), 12,
+		COLORS.BagMuted, Enum.Font.GothamBold)
+	note.LayoutOrder = axeStatOrder
+	note.TextXAlignment = Enum.TextXAlignment.Left
+	note.TextYAlignment = Enum.TextYAlignment.Center
+	note.TextWrapped = true
+	note.ZIndex = 12
+end
+
+local function safeAxeNumber(value)
+	if type(value) == "number" and value == value
+		and value > -math.huge and value < math.huge then
+		return value
+	end
+	return nil
+end
+
 local function renderAxeDetail(axe)
 	local hasAxe = type(axe) == "table"
 	detailIcon.Visible = true
 	detailLogVisual.Visible = false
-	detailIcon.Text = "🪓"
-	detailSpecies.Text = if hasAxe then tostring(axe.Name or "Axe") else "OWNED AXES"
+	detailIcon.Text = if hasAxe and axe.WeaponKind == "Dagger" then "🗡️"
+		else if hasAxe and axe.WeaponKind == "Battlehammer" then "🔨" else "🪓"
+	detailSpecies.Text = if hasAxe then tostring(axe.Name or "Weapon") else "OWNED WEAPONS"
 	detailMetricLabel.Text = "POWER"
 	detailMetricLabel.Visible = true
 	detailMetricValue.Text = if hasAxe then tostring(axe.Power or 0) else "—"
 	detailMetricValue.Visible = true
 	detailMetricValue.TextColor3 = if hasAxe then COLORS.BagAction else COLORS.BagMuted
-	detailStatus.Text = if not hasAxe then "NO OWNED AXES" elseif axe.Equipped then "EQUIPPED" else "TAP TO EQUIP"
+	detailStatus.Text = if not hasAxe then "NO OWNED WEAPONS" elseif axe.Equipped then "EQUIPPED" else "TAP TO EQUIP"
 	detailStatus.TextColor3 = if hasAxe and axe.Equipped then COLORS.BagAction else COLORS.BagMuted
 	detailValue.Text = ""
 	detailSize.Text = ""
-	-- Keep the details panel deliberately spacious for real future axe stats;
-	-- do not display invented or placeholder progression information.
 	detailExtraLabel.Visible = false
 	detailExtraValue.Visible = false
 	favoriteButton.Visible = false
+	axeStatsScroll.Visible = hasAxe
+
+	local uid = if hasAxe then axe.UID else nil
+	local oldScroll = axeStatsScroll.CanvasPosition
+	clearAxeStats()
+	if not hasAxe then
+		previousDetailAxeUID = nil
+		return
+	end
+
+	axeStatSection("WEAPON STATS")
+	local speed = safeAxeNumber(axe.AttacksPerSecond)
+	local reach = safeAxeNumber(axe.Reach)
+	if speed and speed > 0 then
+		axeStatRow("Attack speed", string.format("%.2f hits/s", speed))
+	else
+		axeStatRow("Attack speed", "Not individually rolled")
+	end
+	if reach and reach > 0 then
+		axeStatRow("Reach", string.format("%.2fx", reach))
+	else
+		axeStatRow("Reach", "Standard")
+	end
+	if safeAxeNumber(axe.Tier) then
+		axeStatRow("Metal tier", tostring(math.floor(axe.Tier)))
+	end
+
+	axeStatSection("MATERIALS")
+	local quality = safeAxeNumber(axe.MaterialQuality)
+	if quality then
+		axeStatRow("Average log quality",
+			string.format("%.1f%%", math.clamp(quality, 0, 1) * 100))
+	else
+		axeStatRow("Average log quality", "Not recorded")
+	end
+	local materialCount = safeAxeNumber(axe.MaterialCount)
+	if materialCount and materialCount > 0 then
+		axeStatRow("Logs used", tostring(math.floor(materialCount)))
+	else
+		axeStatRow("Logs used", "Not recorded")
+	end
+
+	-- This panel reads an allowlisted server-projected effect list, not
+	-- class-specific fields. More effect IDs require no new layout code.
+	axeStatSection("WEAPON EFFECTS")
+	local effects = type(axe.Effects) == "table" and axe.Effects or {}
+	if #effects == 0 then
+		if axe.WeaponKind == "Battlehammer" then
+			axeStatNote("No active effect recorded. Forge a new hammer for test Cleave.")
+		else
+			axeStatNote("No active weapon effects.")
+		end
+	else
+		for _, effect in ipairs(effects) do
+			if type(effect) == "table" and type(effect.Id) == "string" then
+				axeStatSection(string.upper(effect.Id))
+				axeStatRow("Trigger", tostring(effect.Trigger or "—"))
+				axeStatRow("Granted by", tostring(effect.Source or "Unknown"))
+				if type(effect.Params) == "table" then
+					local keys = {}
+					for key, value in pairs(effect.Params) do
+						if type(key) == "string" and safeAxeNumber(value) then
+							table.insert(keys, key)
+						end
+					end
+					table.sort(keys)
+					for _, key in ipairs(keys) do
+						local value = effect.Params[key]
+						local displayName = string.gsub(key, "(%l)(%u)", "%1 %2")
+						local displayValue
+						if string.find(key, "Fraction", 1, true) then
+							displayValue = string.format("%.1f%%", value * 100)
+						elseif string.find(key, "Radius", 1, true) then
+							displayValue = string.format("%.1f studs", value)
+						elseif value % 1 == 0 then
+							displayValue = tostring(value)
+						else
+							displayValue = string.format("%.2f", value)
+						end
+						axeStatRow(displayName, displayValue)
+					end
+				end
+			end
+		end
+		axeStatNote("Experimental effects are active in Studio only.")
+	end
+
+	axeStatSection("MUTATIONS")
+	local mutations = type(axe.MutationMaterials) == "table"
+		and axe.MutationMaterials or {}
+	local displayed = 0
+	for _, mutation in ipairs(mutations) do
+		if type(mutation) == "table"
+			and type(mutation.Name) == "string"
+			and safeAxeNumber(mutation.LogCount)
+			and mutation.LogCount > 0 then
+			displayed += 1
+			local mutationQuality = safeAxeNumber(mutation.MaterialQuality)
+			axeStatRow(mutation.Name .. " (" .. tostring(math.floor(mutation.LogCount)) .. " logs)",
+				if mutationQuality then
+					string.format("Q %.1f%%", math.clamp(mutationQuality, 0, 1) * 100)
+				else "Quality unavailable")
+		end
+	end
+	if displayed == 0 then
+		axeStatNote("No mutated materials recorded for this weapon.")
+	end
+	local goldenBonus = safeAxeNumber(axe.GoldenBonus)
+	if goldenBonus and goldenBonus > 0 and displayed > 0 then
+		axeStatRow("Golden test roll",
+			string.format("+%.1f%% (inactive)", goldenBonus * 100))
+	end
+	axeStatNote("Mutation passives are not active yet. Their effects will appear here later.")
+
+	-- A server snapshot refresh shouldn't jump the scroll back to the top.
+	axeStatsScroll.CanvasPosition = if uid == previousDetailAxeUID
+		then oldScroll else Vector2.zero
+	previousDetailAxeUID = uid
 end
 
 local function makeItemSlot(name, order, icon, title, metadata, isEquipped, isSelected, isLocked, onActivated)
@@ -1110,7 +1376,7 @@ local function renderAxes(data)
 		return
 	end
 	if #axes == 0 then
-		showEmptyState("NO OWNED AXES YET")
+		showEmptyState("NO OWNED WEAPONS YET")
 		renderAxeDetail(nil)
 		return
 	end
@@ -1414,7 +1680,8 @@ local function updateForgeEligibleSnapshot(data)
 		end
 	end
 	for recipeId, recipe in pairs(recipesById) do
-		local required = requiredForgeLogCount(recipe)
+		local required = if recipe.Experimental == true then recipe.MaxLogCount
+			else requiredForgeLogCount(recipe)
 		local oldSelection = forgeSelectedLogUidsByRecipe[recipeId] or {}
 		local selection = {}
 		local seen = {}
@@ -1456,7 +1723,12 @@ local function canSubmitForgeRecipe(recipe)
 	end
 	local required = requiredForgeLogCount(recipe)
 	local selectedLogUids = getForgeSelectedLogUids(recipe.Id)
-	return required ~= nil and selectedLogUids ~= nil and #selectedLogUids == required
+	if not required or not selectedLogUids then return false end
+	if recipe.Experimental == true then
+		return #selectedLogUids >= required
+			and #selectedLogUids <= (recipe.MaxLogCount or 0)
+	end
+	return #selectedLogUids == required
 end
 
 local function findForgeRecipe(recipeId)
@@ -1489,6 +1761,31 @@ local function toggleForgeLog(recipeId, uid, required)
 	if #selection < required then table.insert(selection, uid) end
 end
 
+-- Fast Studio forge test presets: select actual owned UID records, then send
+-- through the existing exact-UID server validation. No fake client resources.
+local function forgeQuickPick(recipeId, wantedCount, mode)
+	if not forgeSnapshotFresh or not forgeEligibleLogsAvailable then return end
+	local candidates = table.clone(forgeEligibleLogs)
+	table.sort(candidates, function(a, b)
+		local aSize = tonumber(a.SizeScale) or 1
+		local bSize = tonumber(b.SizeScale) or 1
+		if aSize ~= bSize then
+			return if mode == "Low" then aSize < bSize else aSize > bSize
+		end
+		return tostring(a.UID) < tostring(b.UID)
+	end)
+	local selection = {}
+	for _, record in ipairs(candidates) do
+		if mode ~= "Golden" or (type(record.Mutations) == "table"
+			and record.Mutations.Golden == true) then
+			table.insert(selection, record.UID)
+			if #selection >= wantedCount then break end
+		end
+	end
+	forgeSelectedLogUidsByRecipe[recipeId] = selection
+	forgeLogCanvasPositions[recipeId] = Vector2.new(0, 0)
+end
+
 local function forgeSelectionStatus(recipe, selectedCount, required)
 	if not forgeSnapshotFresh then return "REFRESHING SERVER DATA", COLORS.BagMuted end
 	if not forgeEligibleLogsAvailable then return "ELIGIBLE LOG DATA UNAVAILABLE", COLORS.Orange end
@@ -1496,7 +1793,14 @@ local function forgeSelectionStatus(recipe, selectedCount, required)
 	if recipe.AtForge ~= true then return "RETURN TO THE FORGE", COLORS.Orange end
 	if recipe.ProgressionValid ~= true then return "PROGRESSION REQUIREMENT NOT MET", COLORS.Orange end
 	if not hasForgeHead(recipe) then return "NEED THE REQUIRED AXE HEAD", COLORS.Orange end
-	if selectedCount ~= required then
+	if recipe.Experimental == true then
+		if selectedCount < 1 then
+			return "ADD AT LEAST ONE LOG TO FORGE", COLORS.BagMuted
+		end
+		if selectedCount > (recipe.MaxLogCount or 0) then
+			return "TOO MANY LOGS FOR THIS TEST", COLORS.Orange
+		end
+	elseif selectedCount ~= required then
 		local missingCount = math.max(0, required - selectedCount)
 		return "SELECT " .. tostring(missingCount) .. " MORE ELIGIBLE LOG" .. (if missingCount == 1 then "" else "S"), COLORS.BagMuted
 	end
@@ -1517,8 +1821,32 @@ local function forgePowerEstimate(recipe, selectedLogUids)
 	return roundedEstimate
 end
 
+-- Display the exact deterministic probabilities and material potential.
+-- The server independently resolves and validates the real log records.
+local function forgeExperimentPreview(recipe, selectedLogUids)
+	if recipe.Experimental ~= true or not forgeSnapshotFresh
+		or #selectedLogUids == 0 then return nil end
+	local logs = {}
+	for _, uid in ipairs(selectedLogUids) do
+		local record = forgeEligibleLogsByUid[uid]
+		if not record then return nil end
+		table.insert(logs, record)
+	end
+	return ExperimentalForgeRules.Preview(recipe.HeadBasePower, logs)
+end
+
 local function renderForge(data)
 	clearForgeRows()
+	forgeModeRng.BackgroundColor3 = if forgeModeSelection == "RNG" then COLORS.BagAction else COLORS.BagSlot
+	forgeModeStandard.BackgroundColor3 = if forgeModeSelection == "STANDARD" then COLORS.BagAction else COLORS.BagSlot
+	forgeTierCopper.BackgroundColor3 = if forgeMetalSelection == "copper" then COLORS.Gold else COLORS.BagSlot
+	forgeTierIron.BackgroundColor3 = if forgeMetalSelection == "iron" then COLORS.Gold else COLORS.BagSlot
+	forgePanel.Header.Subtitle.Text = if forgeModeSelection == "RNG"
+		then "PICK A METAL + LOGS • SEE ODDS • FORGE"
+		else "CLASSIC FIXED-RECIPE AXES"
+	-- Render ONLY the currently selected recipe, not four full-size cards.
+	local activeRecipeId = if forgeModeSelection == "RNG"
+		then "experiment_" .. forgeMetalSelection else forgeMetalSelection .. "_axe"
 	if type(data) ~= "table" then
 		forgeEmptyState.Text = "FORGE DATA UNAVAILABLE"
 		forgeEmptyState.Visible = true
@@ -1534,20 +1862,20 @@ local function renderForge(data)
 	local recipes = data.Recipes
 	local renderedCount = 0
 	for _, recipe in ipairs(recipes) do
-		if type(recipe) ~= "table" or typeof(recipe.Id) ~= "string" or #recipe.Id == 0 then
+		if type(recipe) ~= "table" or recipe.Id ~= activeRecipeId then
 			continue
 		end
 		renderedCount += 1
 		local card = Instance.new("Frame")
 		card.Name = "Recipe_" .. recipe.Id
 		card.LayoutOrder = renderedCount
-		card.Size = UDim2.new(1, -8, 0, 430)
-		card.BackgroundColor3 = renderedCount % 2 == 0 and COLORS.BagPreview or COLORS.BagSlot
+		card.Size = UDim2.new(1, -8, 0, if recipe.Experimental == true then 530 else 420)
+		card.BackgroundColor3 = COLORS.BagSlot
 		card.Parent = forgeList
 		round(card, 12)
 		outline(card, COLORS.BagLine, 3)
 
-		local axeName = label(card, "AxeName", tostring(recipe.Name or "Standard Axe"), UDim2.new(0.68, -20, 0, 34), UDim2.new(0, 16, 0, 10), 23, COLORS.BagText, Enum.Font.GothamBlack)
+		local axeName = label(card, "AxeName", if recipe.Experimental == true then string.upper(forgeMetalSelection) .. " RNG FORGE" else tostring(recipe.Name or "Standard Axe"), UDim2.new(0.68, -20, 0, 34), UDim2.new(0, 16, 0, 10), 23, COLORS.BagText, Enum.Font.GothamBlack)
 		axeName.TextTruncate = Enum.TextTruncate.AtEnd
 		axeName.TextStrokeColor3 = COLORS.BagLine
 		axeName.TextStrokeTransparency = 0
@@ -1580,8 +1908,10 @@ local function renderForge(data)
 		local required = requiredForgeLogCount(recipe)
 		local selectedLogUids = getForgeSelectedLogUids(recipe.Id) or {}
 		local selectedCount = #selectedLogUids
-		local requiredText = if required then tostring(required) else "?"
-		local selectedLine = label(card, "SelectedLogCount", "SELECTED LOGS  " .. tostring(selectedCount) .. " / " .. requiredText .. "  •  ELIGIBLE " .. tostring(#forgeEligibleLogs), UDim2.new(0.69, -20, 0, 24), UDim2.new(0, 16, 0, 100), 16, COLORS.BagText, Enum.Font.GothamBold)
+		local requiredText = if recipe.Experimental == true
+			then tostring(recipe.MaxLogCount or "?") .. " MAX"
+			else if required then tostring(required) else "?"
+		local selectedLine = label(card, "SelectedLogCount", "LOGS  " .. tostring(selectedCount) .. " / " .. requiredText .. "  •  STOCK " .. tostring(#forgeEligibleLogs), UDim2.new(0.69, -20, 0, 24), UDim2.new(0, 16, 0, 100), 16, COLORS.BagText, Enum.Font.GothamBold)
 		selectedLine.TextTruncate = Enum.TextTruncate.AtEnd
 		selectedLine.TextWrapped = false
 		selectedLine.TextStrokeColor3 = COLORS.BagLine
@@ -1594,9 +1924,17 @@ local function renderForge(data)
 		clearSelection.TextStrokeColor3 = COLORS.BagLine
 		clearSelection.TextStrokeTransparency = 0
 
-		local estimate = forgePowerEstimate(recipe, selectedLogUids)
-		local estimateText = if estimate ~= nil
-			then string.format("POWER ESTIMATE  %.1f  •  PREVIEW ONLY", estimate)
+		local experimentPreview = forgeExperimentPreview(recipe, selectedLogUids)
+		local estimate = if recipe.Experimental == true then nil
+			else forgePowerEstimate(recipe, selectedLogUids)
+		local estimateText = if recipe.Experimental == true
+			then (if experimentPreview then string.format(
+				"LOG QUALITY %.1f%%   •   GOLDEN %.1f%%",
+				experimentPreview.MaterialQuality * 100,
+				experimentPreview.GoldenQuality * 100)
+				else "ADD LOGS TO PREVIEW QUALITY AND CHANCES")
+			else if estimate ~= nil
+				then string.format("POWER ESTIMATE  %.1f  •  PREVIEW ONLY", estimate)
 			else if forgeSnapshotFresh then "POWER ESTIMATE  —  •  PREVIEW ONLY" else "POWER ESTIMATE UPDATING  •  PREVIEW ONLY"
 		local estimateLine = label(card, "PowerEstimate", estimateText, UDim2.new(1, -32, 0, 22), UDim2.new(0, 16, 0, 128), 15, COLORS.BagAction, Enum.Font.GothamBlack)
 		estimateLine.TextTruncate = Enum.TextTruncate.AtEnd
@@ -1604,21 +1942,81 @@ local function renderForge(data)
 		estimateLine.TextStrokeColor3 = COLORS.BagLine
 		estimateLine.TextStrokeTransparency = 0
 
+		local oddsText = if experimentPreview then string.format(
+			"CLASS CHANCES   DAGGER %.0f%%   AXE %.0f%%   HAMMER %.0f%%",
+			experimentPreview.Odds.Dagger * 100,
+			experimentPreview.Odds.Axe * 100,
+			experimentPreview.Odds.Battlehammer * 100)
+			else if recipe.Experimental == true then "CLASS CHANCES   SELECT LOGS"
+				else "FIXED STANDARD AXE RECIPE"
+		local oddsLine = label(card, "ClassOdds", oddsText,
+			UDim2.new(1, -32, 0, 22), UDim2.new(0, 16, 0, 151),
+			14, COLORS.Gold, Enum.Font.GothamBold)
+		oddsLine.TextTruncate = Enum.TextTruncate.AtEnd
+
+
 		local statusText, statusColor = forgeSelectionStatus(recipe, selectedCount, required)
-		local status = label(card, "Availability", statusText, UDim2.new(1, -32, 0, 22), UDim2.new(0, 16, 0, 151), 15, statusColor, Enum.Font.GothamBlack)
+		local status = label(card, "Availability", statusText, UDim2.new(1, -32, 0, 22), UDim2.new(0, 16, 0, 176), 15, statusColor, Enum.Font.GothamBlack)
 		status.TextTruncate = Enum.TextTruncate.AtEnd
 		status.TextWrapped = false
 		status.TextStrokeColor3 = COLORS.BagLine
 		status.TextStrokeTransparency = 0
 
-		local candidateHint = label(card, "EligibleLogsHint", "MIXED SPECIES OK  •  SELECT OR DESELECT LOGS", UDim2.new(1, -32, 0, 20), UDim2.new(0, 16, 0, 174), 14, COLORS.BagMuted, Enum.Font.GothamBold)
+		if recipe.Experimental == true then
+			-- Most common counts are up front; detailed stats occupy a separate
+			-- view so they do not compete with log selection and probabilities.
+			local presets = {
+				{ "1 LOG", 1, "High" }, { "5 LOGS", 5, "High" },
+				{ "10 LOGS", 10, "High" }, { "20 LOGS", 20, "High" },
+				{ "GOLD ×10", 10, "Golden" }, { "LOW ×10", 10, "Low" },
+				{ "STRESS ×96", 96, "High" },
+			}
+			for index, preset in ipairs(presets) do
+				local column = (index - 1) % 4
+				local line = math.floor((index - 1) / 4)
+				local actionLabel = preset[1]
+				local count = preset[2]
+				local mode = preset[3]
+				local quickPick = button(card, "QuickPick_" .. tostring(index),
+					actionLabel, UDim2.new(0.25, -8, 0, 34),
+					UDim2.new(0.25 * column, 4, 0, 201 + 40 * line),
+					COLORS.Blue)
+				quickPick.TextSize = 12
+				quickPick.TextStrokeColor3 = COLORS.BagLine
+				quickPick.TextStrokeTransparency = 0
+				quickPick.Active = forgeSnapshotFresh and forgeEligibleLogsAvailable
+					and not forgeCraftPendingByRecipe[recipe.Id]
+				quickPick.AutoButtonColor = quickPick.Active
+				quickPick.Activated:Connect(function()
+					if not quickPick.Active then return end
+					forgeQuickPick(recipe.Id, count, mode)
+					renderForge(latestShopData)
+				end)
+			end
+			local rangesToggle = button(card, "RangeToggle",
+				if forgeShowStatRanges then "BACK TO LOGS" else "STAT DETAILS",
+				UDim2.new(0.25, -8, 0, 34),
+				UDim2.new(0.75, 4, 0, 241), COLORS.Gold)
+			rangesToggle.TextSize = 12
+			rangesToggle.Active = forgeSnapshotFresh
+			rangesToggle.AutoButtonColor = rangesToggle.Active
+			rangesToggle.Activated:Connect(function()
+				if not forgeSnapshotFresh then return end
+				forgeShowStatRanges = not forgeShowStatRanges
+				renderForge(latestShopData)
+			end)
+		end
+
+		local candidateHint = label(card, "EligibleLogsHint", if recipe.Experimental == true then (if forgeShowStatRanges then "POSSIBLE ROLLS • 90–110% PER STAT" else "PICK LOGS OR USE A PRESET ABOVE")
+			else "CHOOSE 3 LOGS", UDim2.new(1, -32, 0, 20), UDim2.new(0, 16, 0, if recipe.Experimental == true then 284 else 198), 14, COLORS.BagMuted, Enum.Font.GothamBold)
 		candidateHint.TextTruncate = Enum.TextTruncate.AtEnd
 		candidateHint.TextWrapped = false
 
 		local candidateList = Instance.new("ScrollingFrame")
 		candidateList.Name = "EligibleLogs"
-		candidateList.Position = UDim2.new(0, 14, 0, 196)
-		candidateList.Size = UDim2.new(1, -28, 1, -210)
+		candidateList.Position = UDim2.new(0, 14, 0, if recipe.Experimental == true then 307 else 222)
+		candidateList.Size = UDim2.new(1, -28, 1, if recipe.Experimental == true then -321 else -236)
+		candidateList.Visible = recipe.Experimental ~= true or not forgeShowStatRanges
 		candidateList.BackgroundColor3 = COLORS.BagBack
 		candidateList.BorderSizePixel = 0
 		candidateList.ScrollBarThickness = 7
@@ -1640,7 +2038,44 @@ local function renderForge(data)
 		candidateLayout.SortOrder = Enum.SortOrder.LayoutOrder
 		candidateLayout.Parent = candidateList
 
-		local visibleLogs = if forgeSnapshotFresh and forgeEligibleLogsAvailable then forgeEligibleLogs else {}
+		if recipe.Experimental == true and forgeShowStatRanges then
+			local previewText = "SELECT LOGS TO SHOW POSSIBLE STATS"
+			if experimentPreview then
+				local sections = { "DAMAGE, ATTACK SPEED AND REACH ROLL INDEPENDENTLY" }
+				for _, class in ipairs(ExperimentalForgeRules.CLASSES) do
+					local ranges = experimentPreview.Ranges[class]
+					table.insert(sections, string.format(
+						"%s\n  Damage: %.1f – %.1f   |   Swings/s: %.2f – %.2f\n  Reach: %.2fx – %.2fx",
+						class, ranges.Damage.Min, ranges.Damage.Max,
+						ranges.AttacksPerSecond.Min, ranges.AttacksPerSecond.Max,
+						ranges.Reach.Min, ranges.Reach.Max))
+				end
+				previewText = table.concat(sections, "\n\n")
+			end
+			local statPreview = label(card, "ExpandedStatRanges", previewText,
+				UDim2.new(1, -48, 0, 207), UDim2.new(0, 24, 0, 313),
+				14, COLORS.BagText, Enum.Font.GothamBold)
+			statPreview.TextXAlignment = Enum.TextXAlignment.Left
+			statPreview.TextYAlignment = Enum.TextYAlignment.Top
+			statPreview.TextWrapped = true
+		end
+
+		local visibleLogs = if forgeSnapshotFresh and forgeEligibleLogsAvailable and candidateList.Visible
+			then table.clone(forgeEligibleLogs) else {}
+		-- Selected inputs FIRST, then biggest logs. A player using quick-select
+		-- can immediately see what went into the forge instead of scrolling
+		-- through 135 unsorted fixtures to find them.
+		local selectedMap = {}
+		for _, uid in ipairs(selectedLogUids) do selectedMap[uid] = true end
+		table.sort(visibleLogs, function(a, b)
+			local aSelected = selectedMap[a.UID] == true
+			local bSelected = selectedMap[b.UID] == true
+			if aSelected ~= bSelected then return aSelected end
+			local aSize = tonumber(a.SizeScale) or 0
+			local bSize = tonumber(b.SizeScale) or 0
+			if aSize ~= bSize then return aSize > bSize end
+			return tostring(a.UID) < tostring(b.UID)
+		end)
 		if #visibleLogs == 0 then
 			local emptyLogs = label(candidateList, "EmptyEligibleLogs", if forgeSnapshotFresh then (if forgeEligibleLogsAvailable then "NO ELIGIBLE LOGS" else "ELIGIBLE LOG DATA UNAVAILABLE") else "REFRESHING ELIGIBLE LOGS...", UDim2.new(1, -8, 0, 58), UDim2.new(), 15, COLORS.BagMuted, Enum.Font.GothamBold)
 			emptyLogs.LayoutOrder = 1
@@ -1649,22 +2084,38 @@ local function renderForge(data)
 			for index, record in ipairs(visibleLogs) do
 				local uid = record.UID
 				local isSelected = table.find(selectedLogUids, uid) ~= nil
-				local canAdd = isSelected or (required ~= nil and selectedCount < required)
+				local selectionLimit = if recipe.Experimental == true then recipe.MaxLogCount else required
+				local canAdd = isSelected or (selectionLimit ~= nil and selectedCount < selectionLimit)
 				local species = if typeof(record.SpeciesId) == "string" and #record.SpeciesId > 0 then record.SpeciesId else "Unknown Species"
-				local uidSuffix = if #uid > 6 then "..." .. string.sub(uid, -6) else uid
-				local ordinal = string.format("%03d", index)
-				local rowText = (if isSelected then "SELECTED  •  " else if canAdd then "ADD  •  " else "FULL  •  ")
-					.. species .. "\nLOG " .. ordinal .. "  •  UID " .. uidSuffix
-				local logButton = button(candidateList, "EligibleLog_" .. ordinal, rowText, UDim2.new(1, -8, 0, 60), UDim2.new(), isSelected and COLORS.BagSelected or COLORS.BagSlot)
+								local ordinal = string.format("%03d", index)
+				local origin = if record.Source == "Storage" then "SAVED" else "BAG"
+				local sizeText = string.format("%.2fx", tonumber(record.SizeScale) or 1)
+				local mutationSummary = ""
+				if type(record.Mutations) == "table" then
+					for mutation, active in pairs(record.Mutations) do
+						if type(mutation) == "string" and active ~= false then
+							mutationSummary = mutationSummary .. " " .. mutation
+						end
+					end
+				end
+				-- Compact, readable item summaries. UID stays authoritative in
+				-- the callback but isn't useful clutter in the ingredient list.
+				local qualityPct = math.floor(math.clamp((tonumber(record.SizeScale) or 1) / 5, 0, 1) * 100 + 0.5)
+				local rowText = (if isSelected then "SELECTED  •  " else if canAdd then "+  " else "FULL  •  ")
+					.. species .. "  " .. sizeText .. "  Q" .. tostring(qualityPct) .. "%"
+					.. mutationSummary .. "  •  " .. origin
+				local logButton = button(candidateList, "EligibleLog_" .. ordinal, rowText, UDim2.new(1, -8, 0, 42), UDim2.new(), isSelected and COLORS.BagSelected or COLORS.BagSlot)
 				logButton.LayoutOrder = index
 				logButton.TextSize = 14
+				logButton.TextWrapped = false
+				logButton.TextTruncate = Enum.TextTruncate.AtEnd
 				logButton.TextXAlignment = Enum.TextXAlignment.Center
 				logButton.Active = forgeSnapshotFresh and canAdd
 				logButton.AutoButtonColor = logButton.Active
 				logButton.Activated:Connect(function()
 					if not forgeSnapshotFresh or not canAdd then return end
 					forgeLogCanvasPositions[recipe.Id] = candidateList.CanvasPosition
-					toggleForgeLog(recipe.Id, uid, required)
+					toggleForgeLog(recipe.Id, uid, selectionLimit)
 					renderForge(latestShopData)
 				end)
 			end
@@ -1679,7 +2130,8 @@ local function renderForge(data)
 		end)
 
 		local canCraft = canSubmitForgeRecipe(recipe) and forgeCraftPendingByRecipe[recipe.Id] ~= true
-		action.Text = if forgeCraftPendingByRecipe[recipe.Id] then "CRAFTING..." else "CRAFT AXE"
+		action.Text = if forgeCraftPendingByRecipe[recipe.Id] then "CRAFTING..."
+			else if recipe.Experimental == true then "FORGE RNG" else "CRAFT AXE"
 		action.BackgroundColor3 = if canCraft then COLORS.BagAction else COLORS.Disabled
 		action.Active = canCraft
 		action.AutoButtonColor = canCraft
@@ -1702,8 +2154,40 @@ local function renderForge(data)
 			end)
 		end)
 	end
-	forgeEmptyState.Text = if renderedCount > 0 then "" else "NO STANDARD RECIPES AVAILABLE"
+	forgeEmptyState.Text = if renderedCount > 0 then "" else "SELECTED RECIPE NOT AVAILABLE"
 	forgeEmptyState.Visible = renderedCount == 0
+end
+
+-- UI navigation only: each tab selects one existing server-provided recipe.
+-- Crafting still sends exactly the chosen recipe ID plus real owned log UIDs.
+forgeModeRng.Activated:Connect(function()
+	if not RunService:IsStudio() then return end
+	forgeModeSelection = "RNG"
+	forgeShowStatRanges = false
+	forgeList.CanvasPosition = Vector2.zero
+	if latestShopData then renderForge(latestShopData) end
+end)
+forgeModeStandard.Activated:Connect(function()
+	forgeModeSelection = "STANDARD"
+	forgeShowStatRanges = false
+	forgeList.CanvasPosition = Vector2.zero
+	if latestShopData then renderForge(latestShopData) end
+end)
+forgeTierCopper.Activated:Connect(function()
+	forgeMetalSelection = "copper"
+	forgeShowStatRanges = false
+	forgeList.CanvasPosition = Vector2.zero
+	if latestShopData then renderForge(latestShopData) end
+end)
+forgeTierIron.Activated:Connect(function()
+	forgeMetalSelection = "iron"
+	forgeShowStatRanges = false
+	forgeList.CanvasPosition = Vector2.zero
+	if latestShopData then renderForge(latestShopData) end
+end)
+if not RunService:IsStudio() then
+	forgeModeStandard.Position = UDim2.fromOffset(20, 86)
+	forgeModeStandard.Size = UDim2.new(1, -40, 0, 36)
 end
 
 local function refreshLogs()
@@ -1777,8 +2261,22 @@ local function openForge()
 end
 
 local function openLumberDepot()
-	showPanel(sellOverlay)
-	refreshSellSummary()
+	-- Physical processor interaction: a single E press sells only the carry
+	-- bag's unprotected logs. The server decides eligibility and pays Coins;
+	-- an independent cosmetic event flies logs into the machine.
+	if sellPending then return end
+	sellPending = true
+	task.spawn(function()
+		local ok, summary = pcall(function() return getSellSummary:InvokeServer() end)
+		if ok and type(summary) == "table" and (summary.EligibleCount or 0) > 0 then
+			saleCoinsBefore = summary.Coins
+			sellUnlockedLogs:FireServer()
+			showFeedback("PROCESSING YOUR LOGS...", COLORS.Gold)
+		else
+			showFeedback("NO CARRIED LOGS TO PROCESS", COLORS.Orange)
+		end
+		task.delay(0.45, function() sellPending = false end)
+	end)
 end
 
 bagButton.Activated:Connect(openBag)
@@ -1786,12 +2284,14 @@ logsTab.Activated:Connect(function()
 	activeBagTab = "Logs"
 	showingBagInfo = false
 	infoOverlay.Visible = false
+	setBagLayout()
 	if latestLogsData then renderLogs(latestLogsData) else refreshLogs() end
 end)
 axesTab.Activated:Connect(function()
 	activeBagTab = "Axes"
 	showingBagInfo = false
 	infoOverlay.Visible = false
+	setBagLayout()
 	if latestShopData then renderAxes(latestShopData) else renderAxes(nil) end
 	if not latestShopData then refreshShop() end
 end)
@@ -1844,7 +2344,15 @@ end)
 
 local legacyEconomyUpdated = economy:FindFirstChild("EconomyUpdated")
 if legacyEconomyUpdated then
-	legacyEconomyUpdated.OnClientEvent:Connect(function(currency)
+	legacyEconomyUpdated.OnClientEvent:Connect(function(currency, payload)
+		if currency == "ForgeResult" and type(payload) == "table"
+			and type(payload.Class) == "string"
+			and type(payload.Metal) == "string"
+			and finiteForgeNumber(payload.Power) then
+			showFeedback(string.format("FORGED %s %s!  %.1f POWER  •  %.0f%% QUALITY",
+				payload.Metal:upper(), payload.Class:upper(), payload.Power,
+				(tonumber(payload.Quality) or 0) * 100), COLORS.Gold)
+		end
 		if currency == "Coins" or currency == "Progression" then
 			refreshLogs()
 			if shopOverlay.Visible or forgeOverlay.Visible or (bagOverlay.Visible and activeBagTab == "Axes") then refreshShop() end
