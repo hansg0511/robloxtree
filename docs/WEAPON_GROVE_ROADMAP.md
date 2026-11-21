@@ -92,7 +92,8 @@ Unlock one ability in each relevant mutation pool at low forge tiers; higher tie
 - Grove has limited slots/capacity and can be upgraded with gold. Saplings can become valuable persistent assets; tree stump regrows after chopping.
 - Distinguish genetic maximum size potential (e.g. Giant mutation) from size actually reached per growth cycle. Bigger grown trees yield bigger logs / larger weapon potential, **not simply more logs**.
 - Don't make unusual rare wood effectively unlimited without a supply limiter: acquisition rarity, growth time, and limited Grove capacity are primary levers.
-- **Still unresolved:** exact rare sapling sourcing and whether every mutation enters saplings the same way; regrowth time/size mechanics; whether or how to replace saplings; log yield and inventory limits; sapling/Grove visuals; how much of the system should be online/offline. Decide structurally before fully implementing Grove.
+- **Rare sapling acquisition — AGREED:** all three routes: (1) rare wild mutated trees have a chance to drop matching permanent saplings; (2) rotating sapling shop occasionally stocks rare saplings for gold, while ordinary saplings are always available; (3) quests/events can reward rare saplings. Exact odds and prices remain open. A rare sapling's inherited mutation is guaranteed on every subsequent regrowth; growth time and limited Grove slots control renewable material supply.
+- **Still unresolved:** wild discovery frequency and quest/shop cadence; regrowth time/size mechanics; whether or how to replace/store saplings; log yield and inventory limits; sapling/Grove visuals; how much of the system should be online/offline. Decide structurally before fully implementing Grove.
 
 ### G. Gold economy
 - Gold sources include chopping tree rewards and Golden mutation abilities; rewards scale with tree value/kill, not exploitable hit or recursive AoE events.
