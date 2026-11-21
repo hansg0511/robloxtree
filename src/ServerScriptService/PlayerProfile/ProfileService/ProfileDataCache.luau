@@ -7,6 +7,8 @@ local AxeShopCatalog = require(game.ServerScriptService.Economy.AxeShopCatalog)
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
 local MutationDefinitions = require(game.ServerScriptService.Grove.MutationDefinitions)
 local GroveGrowthRules = require(game.ServerScriptService.Grove.GroveGrowthRules)
+local ItemDataBase = require(game.ServerStorage.Items.ItemDataBase)
+local WeaponProgressionRules = require(game.ServerScriptService.WeaponProgressionRules)
 
 local PlayerProfileCache = {}
 
@@ -203,6 +205,22 @@ function PlayerProfileCache.NormalizeGroveData(data)
 	return true
 end
 
+-- Normalize persisted, unique weapon records BEFORE ItemDataBase parses them
+-- into the transient runtime equipment cache. Skip non-weapons and the
+-- session-only debug axe (which must never become a progression candidate).
+function PlayerProfileCache.NormalizeWeaponData(data)
+	if type(data) ~= "table" or type(data.Inventory) ~= "table" then return false end
+	for _, item in ipairs(data.Inventory) do
+		if type(item) == "table" and item.ItemID ~= 9001 then
+			local definition = ItemDataBase.Info[item.ItemID]
+			if definition and definition.Type == "Weapon" then
+				WeaponProgressionRules.NormalizeWeaponItem(item)
+			end
+		end
+	end
+	return true
+end
+
 local function normalizeProgressionData(data)
 	if type(data.AxeHeads) ~= "table" then
 		data.AxeHeads = {}
@@ -248,6 +266,7 @@ export type PlayerProfileCache = {
 	Remove: (player: Player) -> (),
 	NormalizeCarryCapacity: (data: { [string]: any }) -> number,
 	NormalizeGroveData: (data: { [string]: any }) -> boolean,
+	NormalizeWeaponData: (data: { [string]: any }) -> boolean,
 	FireLoaded: (profile: profileType.PlayerData) -> ()
 }
 
@@ -284,6 +303,7 @@ function PlayerProfileCache.Set(player: Player, profile)
 	if profile and type(profile.Data) == "table" then
 		PlayerProfileCache.NormalizeCarryCapacity(profile.Data)
 		PlayerProfileCache.NormalizeGroveData(profile.Data)
+		PlayerProfileCache.NormalizeWeaponData(profile.Data)
 		normalizeProgressionData(profile.Data)
 	end
 	BuildRuntime(profile)
