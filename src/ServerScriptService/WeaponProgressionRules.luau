@@ -25,11 +25,10 @@ local function finite(value)
 end
 
 local function boundedInteger(value, minValue, maxValue, default)
-	if not finite(value) or value % 1 ~= 0
-		or value < minValue or value > maxValue then
-		return default
-	end
-	return value
+	if not finite(value) or value % 1 ~= 0 then return default end
+	-- A balance patch can lower a level cap. Clamp valid saved progress
+	-- instead of silently resetting a previously valid weapon to Level 1.
+	return math.clamp(value, minValue, maxValue)
 end
 
 function Rules.IsRarity(value)
@@ -98,9 +97,12 @@ function Rules.DerivedAttackBonus(weapon, playerBaseAttack)
 	if not finite(playerBaseAttack) or playerBaseAttack < 0 then return 0 end
 	local forgedPower = playerBaseAttack + baseStat
 	local bonusFactor = config.BasePowerBonus + (level - 1) * config.GrowthPerLevel
-	-- Bound to a stable number in saved/combat snapshots. Base forged stats
-	-- are NEVER modified by this function.
-	return math.floor(forgedPower * bonusFactor * 1000 + 0.5) / 1000
+	local bonus = forgedPower * bonusFactor
+	-- Guard malformed/extreme saved numbers rather than feeding Inf or unsafe
+	-- integers into StatsAggregator. This is a safety limit, not economy tuning.
+	if not finite(bonus) or bonus < 0 or bonus > 1e12 then return 0 end
+	-- The original forged ItemStats are NEVER modified by this function.
+	return math.floor(bonus * 1000 + 0.5) / 1000
 end
 
 return Rules
