@@ -130,7 +130,7 @@ Unlock one ability in each relevant mutation pool at low forge tiers; higher tie
 
 **Next work is engineering inspection, NOT implementing everything at once:**
 - [x] Settle minimum Grove behavior and economy **structure** (section F); numeric tuning and the exact save contract remain for implementation.
-- [ ] **Partially inspected 2026-11-22:** forge, persisted inventory shape, item parser, chopping, actual-damage application and dispatcher were reviewed. **Still inspect:** implementation of the `AddShopAxeItem` inventory Bindable, runtime weapon reconciliation/equip flow, and stat aggregation/recalculation before modifying live weapon records. Record backward-compatibility and data migration needs.
+- [x] Reviewed inventory insertion (`AddShopAxeItem`), runtime equip, `StatsAggregator`, persistence, forge, chopping and effects dispatcher. Remaining per-change UI/test checks occur during Phase 1A.
 - [ ] Agree on versioned weapon fields: class, forge tier, source materials/provenance, base stats, original ability+potency, rarity, level/XP, ascension pity, ability slots, awakened/infused abilities. Avoid duplicating combat source-of-truth.
 
 **Exit:** Contracts and migration plan are clear. No detailed balance math required.
@@ -209,17 +209,26 @@ The data model should have stable fields for forge tier, original log provenance
 
 **Risks to avoid:** (1) double-counting `item.Stats.Attack` (currently bonus above the shared base attack) when adding level growth; calculate a **derived** damage value, never mutate original forged stats during leveling; (2) stale equipped runtime or UI after XP/ascension; (3) rewriting saved legacy weapons or old Cleave descriptors incorrectly; (4) granting XP by raw calculated hit rather than HP-clamped actual damage; (5) breaking studio-only gating of experimental forging and effects.
 
-**Outstanding code audit before production edits:** locate/review the code bound to `Inventory.AddShopAxeItem`, equip/unequip and `FinalStats` aggregator; verify how `Profile.Data.Inventory` normalizes saved weapon records and how the client receives the weapon snapshot.
+**Inventory/equipment/stat audit — completed 2026-11-22:**
+
+- `src/ServerScriptService/Inventory/InventoryHandler.server.luau`: `AddShopAxeItem.OnInvoke` validates and inserts a persisted inventory weapon, parses the runtime record, updates IMS inventory, and notifies the client. Equipment changes call `StatsAggregator.Aggregate`.
+- `src/ServerStorage/Items/StatsAggregator.luau`: sums base Attack (5), equipped `ItemStats` and `ItemSubstat` into `Runtime.FinalStats`; add *derived* level bonuses as another source, NOT by rewriting original forged `Stats.Attack`. Trigger reaggregation when an equipped weapon levels.
+- `src/ServerScriptService/PlayerProfile/ProfileInit/init.server.luau`: reconciles saved profile and creates starter Common item. `ProfileDataCache.Set` rebuilds runtime caches, then InventoryHandler parses persisted items into runtime items via ItemDataBase.
+- `ItemDataBase.ParseItem` already reads the persisted top-level `InventoryItem.Rarity` as `ItemRarity`. Both craft routes set Common today. Avoid adding a conflicting rarity field; add a versioned progression payload for Level/XP/ascension failures while keeping old saves working. Exclude ephemeral Debug weapons from real progression.
+- `TreeObject:TakeDamage` clamps damage to remaining HP and tracks contributions per player, then returns only success boolean. Weapon XP must identify real equipped UID and applied per-hit damage, including Cleave secondary damage, without double-counting kills. A backward-compatible optional return or server-only hit event is a viable integration seam.
+- Grove planting, mature-only prompt harvesting, unique log grant and start-of-cycle size rolls already exist in `GroveService`/`GroveGrowthRules`; **do not rewrite** them when implementing weapon XP. Grove prompt harvest is not an ordinary axe hit.
+
+**Remaining before/while editing:** confirm current client snapshot refresh and existing smoke test conventions; preserve production-safe Studio gating for experimental forging/Cleave.
 
 ## Immediate next action (as of 2026-11-22)
 
-1. **Finish the narrow inventory/equipment audit above** and write explicit source locations for weapon insertion, equip and final-stat recomputation. No more general Grove/crafting design sessions.
+1. **Architecture audit complete (2026-11-22).** No further general Grove/crafting design sessions.
 2. **Implement Phase 1A: additive weapon-progress schema and a pure progression/stat calculation module** on the existing `dev/gameplay-prototype` branch. Reuse `InventoryItem.Rarity`; default legacy weapons to Common, Level 1, XP 0; preserve existing `Stats.Attack`, `WeaponData.Effects`, materials, class and metal tier.
 3. Add unit/smoke tests for old save migration, idempotent normalization, level/rarity stat calculation, and no effects/forge regressions. Hook progress only after server state and runtime recalculation are verified.
 4. **Phase 1B: award XP for real applied damage and tree kills**, including verified Cleave contributions, refresh equipped stats, and show level/XP in Bag with minimal UI changes.
 5. Only then implement **Phase 1C/1D** natural rarity rolls, max-level ascension, pity and level reset; run Studio Play tests before proceeding to forge tiers/mutations/infusion.
 
-**Next assistant task:** complete the last inventory/equip-stat trace, then implement the smallest testable Phase 1A change; do not create a new branch or finalize economy numbers.
+**Next assistant task:** implement the smallest testable Phase 1A schema/normalization + pure progression/derived stat module on the existing `dev/gameplay-prototype` branch, then hook it to `StatsAggregator` with safe runtime refresh and smoke tests. Do not create a new branch or finalize economy numbers.
 
 ## Things that are examples, NOT locked numbers
 Illustrations previously discussed (such as Common 10 / Rare 20 level caps, 5% upgrades, 15–25% AFK efficiency, five perfect logs producing full potency, 1–3 Golden logs, or a fixed number of forge tiers) **must not be treated as finalized economy values**. Only the **pity formula** and conceptual rules above are agreed.
