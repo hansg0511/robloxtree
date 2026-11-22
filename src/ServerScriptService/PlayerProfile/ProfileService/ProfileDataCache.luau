@@ -243,6 +243,12 @@ local function normalizeProgressionData(data)
 	if not isNonnegativeInteger(runProgress.StandardAxeTier) then
 		runProgress.StandardAxeTier = 0
 	end
+	-- Permanent Forge workstation upgrade, separate from existing axe
+	-- progression. Older profiles start at tier 1 with no data loss.
+	if not isNonnegativeInteger(runProgress.ForgeLevel)
+		or runProgress.ForgeLevel < 1 or runProgress.ForgeLevel > 2 then
+		runProgress.ForgeLevel = 1
+	end
 	if type(runProgress.UnlockedForests) ~= "table" then
 		runProgress.UnlockedForests = {}
 	end
