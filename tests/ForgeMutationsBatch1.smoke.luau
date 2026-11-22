@@ -172,5 +172,43 @@ end
 check("all N*3 primary strikes reported", #telemetry == shockParams.EveryHits * 3)
 Thunderstrike.Clear(player)
 
-print("ForgeMutations Batch 1: tier odds, potency, Golden Touch, Fervor and Thunderstrike 3-cycle repeated proc regression passed")
+-- Regression: old visual was parented to the struck model AFTER damage.
+-- A lethal Thunderstrike can remove that model before FX creation. The
+-- replacement bolt must appear independently in workspace on a lethal hit.
+local lethalModel = Instance.new("Model")
+lethalModel.Name = "TransientThunderTestTree"
+lethalModel.Parent = workspace
+local lethalPrimary = { CFrame=CFrame.new(400,0,0), CreationId=100 }
+local lethalTarget = {
+	CFrame=CFrame.new(406,0,0), CreationId=101,
+	MaxHP=5, HP=5, model=lethalModel,
+}
+function lethalTarget:TakeDamage(ctx, _player)
+	check("lethal strike delivers actual damage", ctx.Damage >= 5)
+	self.HP = 0
+	self.model:Destroy()
+	return true, 5, true
+end
+local lethalContext = {
+	Player=player, WeaponUID="lethal-visual-regression", PrimarySucceeded=true,
+	PrimaryTree=lethalPrimary, PrimaryDamage=100,
+	ActiveTrees={[lethalPrimary]=true, [lethalTarget]=true},
+	EligibleSecondary=function(_) return true end,
+	OnAppliedHit=function(_,applied,killed)
+		check("lethal XP callback is clamped", applied==5 and killed==true)
+	end,
+}
+for swing=1,shockParams.EveryHits do
+	local lethalPrepared = Thunderstrike.Prepare(shockParams,lethalContext)
+	local hits = Thunderstrike.Apply(lethalPrepared,lethalContext)
+	check("lethal simulation procs on Nth hit", hits ==
+		(if swing == shockParams.EveryHits then 1 else 0))
+end
+local bolt = workspace:FindFirstChild("ThunderstrikeFlash")
+check("lethal Thunderstrike still produces a visible world bolt",
+	bolt ~= nil and bolt:IsA("Part"))
+if bolt then bolt:Destroy() end
+Thunderstrike.Clear(player)
+
+print("ForgeMutations Batch 1: tier odds, potency, Golden Touch, Fervor, 3-cycle Thunderstrike and lethal FX regression passed")
 return true
