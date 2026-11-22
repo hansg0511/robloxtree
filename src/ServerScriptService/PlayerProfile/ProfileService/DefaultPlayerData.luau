@@ -82,6 +82,8 @@ export type PlayerData = {
 	Saplings: { Sapling },
 	GroveTrees: { GroveTree },
 	GroveMaterials: { Heartwood },
+	-- Future recipe catalysts/essences, counted by server-assigned material ID.
+	MaterialBalances: { [string]: number },
 	ActiveGroveTreeUIDs: { string },
 	AxeHeads: AxeHeadCounts,
 	RunProgress: RunProgress,
