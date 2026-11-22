@@ -222,6 +222,18 @@ function PlayerProfileCache.NormalizeWeaponData(data)
 end
 
 local function normalizeProgressionData(data)
+	-- Future stackable upgrade ingredients. Keep owned nonnegative counts
+	-- during migration, reject malformed IDs, NaN and negative balances.
+	if type(data.MaterialBalances) ~= "table" then
+		data.MaterialBalances = {}
+	end
+	for id, count in pairs(data.MaterialBalances) do
+		if type(id) ~= "string" or #id < 1 or #id > 80
+			or id:find("[%c]") or not isNonnegativeInteger(count) then
+			data.MaterialBalances[id] = nil
+		end
+	end
+
 	if type(data.AxeHeads) ~= "table" then
 		data.AxeHeads = {}
 	end
