@@ -56,7 +56,7 @@ We have **not** chosen the exact player-activated skills, how they are equipped/
 ### B. Mutation families and abilities
 - **Golden**, focused **only on gold**: **Golden Touch** (reliable bonus gold on tree kill), **Golden Rush** (gold multiplier from quick kill streak), **Golden Jackpot** (rare big gold payout).
 - **Frenzied**: **Fervor** (consecutive hits on the *same tree* boost attack speed), **Bloodrush** (tree kill boosts movement speed temporarily), **Rampage** (tree kills boost damage temporarily).
-- **Shocked**: **Thunderstrike** (lightning after X successful hits), **Chain Lightning** (arcs to more distant nearby trees, unlike Cleave).
+- **Shocked**: **Thunderstrike** (single-target lightning bonus on the CURRENT tree every X successful hits), **Chain Lightning** (later arcs to other nearby trees, unlike Cleave).
 - **Giant**: genetic size potential, **no mutation ability roll**.
 - **Crystal and Rainbow are not in the approved initial roster** (Crystal remains in prototype code and needs migration planning).
 
@@ -195,7 +195,7 @@ The data model should have stable fields for forge tier, original log provenance
 - [x] **2A initial workstation upgrade:** Forge level 1→2 persisted with profile normalization and guarded client/server purchase; two prototype tiers and larger Iron base stats.
 - [x] **2A per-log potency:** each eligible mutated log contributes at most 0.22 (quality weighted by size / 5), capped at 0.35 in tier 1 and 0.70 in tier 2; warn if selection wastes potential. Tiers shift class odds while tier-1 baseline is unchanged.
 - [x] **2B first ability per family:** Golden→GoldenTouch, Frenzied→Fervor, Shocked→Thunderstrike (100% conditional within each family because currently only one is unlocked). One ability family per craft, material/ability/rarity roll separated. Legacy Crystal records remain intact. No Giant weapon effect.
-- [x] **2C first active effects:** Golden Touch gives a server-awarded kill-only coin bonus; Fervor reduces actual enforced chop intervals on successive same-target hits with bounded stacks/time expiry; Thunderstrike delivers one registered secondary hit after N primary chops, with HP-capped XP and a blue flash. Cleave remains separate and Studio-only; these new mutations can execute in published servers.
+- [x] **2C first active effects:** Golden Touch gives a server-awarded kill-only coin bonus; Fervor reduces actual enforced chop intervals on successive same-target hits with bounded stacks/time expiry; Thunderstrike adds a same-target lightning bonus to every Nth successful primary hit, with HP-capped XP counted once and a blue flash (neighbor damage reserved for Chain Lightning). Cleave remains separate and Studio-only; these new mutations can execute in published servers.
 - [x] **Preview/testing code:** existing Forge UI reveals family, potency/cap, ability and mixed-family error; Bag shows ability details; expanded Studio resource fixtures; `tests/ForgeMutationsBatch1.smoke.luau`, `docs/FORGE_MUTATIONS_BATCH1_PLAYTEST.md`.
 - [ ] Execute Batch 1 smoke and prior tests in Roblox Studio and a **single** end-to-end forge/kill/combat session. This assistant has not run Roblox tests or published DataStore persistence.
 - [ ] **Batch 2:** higher-tier ability pools, nonzero odds for newly unlocked abilities, Golden Rush/Jackpot, Bloodrush/Rampage, Chain Lightning; fuller VFX and safety limits on stacking. Do not prematurely build player-activated skills.
@@ -280,7 +280,7 @@ The data model should have stable fields for forge tier, original log provenance
 
 1. **Phase 1D audit accepted:** user confirmed `ASCENSION AUDIT PASS`. Disable/delete the *local* `src/ServerScriptService/DevAscensionFixture.server.luau` temporary runner before entering Phase 2 playtest (tracked test source may remain under `tests/`).
 2. **Phase 2 Batch 1 source committed:** ask agent to execute `tests/ForgeMutationsBatch1.smoke.luau` and six prior weapon/forge tests. Any failures should be fixed before proceeding.
-3. Follow `docs/FORGE_MUTATIONS_BATCH1_PLAYTEST.md` for **one** Forge and combat session: purchase Forge Lv2; forge Golden/Frenzied/Shocked weapons using Studio material presets; verify bonus kill coins, same-tree server speed-up, periodic Thunderstrike actual secondary damage/FX; test mixed-family rejection and Cleave independence. Do not mistake the Studio forging resource auto-refill for a live economy behavior.
+3. Follow `docs/FORGE_MUTATIONS_BATCH1_PLAYTEST.md` for **one** Forge and combat session: purchase Forge Lv2; forge Golden/Frenzied/Shocked weapons using Studio material presets; verify bonus kill coins, same-tree server speed-up, periodic same-target Thunderstrike bonus damage/FX with no neighboring-tree damage; test mixed-family rejection and Cleave independence. Do not mistake the Studio forging resource auto-refill for a live economy behavior.
 4. Then **Phase 2 Batch 2**: Golden Rush/Jackpot, Bloodrush/Rampage, Chain Lightning and expanded ability pools. Leave Awakening/Infusion, Grove economy sources and final UI polish for later batches.
 
 **No new branch; costs/chances are provisional. Studio boot currently uses a Mock data store, not proof of cross-session persistence.**
