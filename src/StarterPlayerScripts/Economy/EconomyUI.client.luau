@@ -52,6 +52,16 @@ local COLORS = {
 	BagPreview = Color3.fromRGB(44, 58, 50),
 }
 
+-- Only display colors; the server-owned Rarity field is authoritative.
+-- Colors are secondary cues, with readable rarity names also displayed.
+local RARITY_TEXT_COLORS = {
+	Common = COLORS.BagMuted,
+	Rare = COLORS.Blue,
+	Epic = Color3.fromRGB(220, 171, 255),
+	Legendary = COLORS.Gold,
+	Ultra = COLORS.BagAction,
+}
+
 local function round(parent, radius)
 	local corner = Instance.new("UICorner")
 	corner.CornerRadius = UDim.new(0, radius or 12)
@@ -1116,6 +1126,7 @@ local function axeStatRow(titleText, valueText)
 	value.TextXAlignment = Enum.TextXAlignment.Right
 	value.TextTruncate = Enum.TextTruncate.AtEnd
 	value.ZIndex = 13
+	return value
 end
 
 local function axeStatNote(noteText)
@@ -1171,7 +1182,8 @@ local function renderAxeDetail(axe)
 	local rarity = type(axe.Rarity) == "string" and axe.Rarity or "Common"
 	local level = safeAxeNumber(axe.Level) or 1
 	local cap = safeAxeNumber(axe.LevelCap) or level
-	axeStatRow("Rarity", rarity)
+	local rarityValueLabel = axeStatRow("Rarity", rarity)
+	rarityValueLabel.TextColor3 = RARITY_TEXT_COLORS[rarity] or COLORS.BagText
 	axeStatRow("Level", string.format("%d / %d", level, cap))
 	if level >= cap then
 		axeStatRow("Weapon XP", "MAX LEVEL")
@@ -1401,7 +1413,7 @@ local function renderAxes(data)
 		local metadata = if safeAxeNumber(axe.Level)
 			then "LV " .. tostring(axe.Level) .. "  PWR " .. tostring(axe.Power or 0)
 			else "PWR " .. tostring(axe.Power or 0)
-		makeItemSlot("AxeSlot_" .. tostring(axe.Id or index), index, "🪓", tostring(axe.Name or "Axe"), metadata, isEquipped, isSelected, false, function()
+		local slot = makeItemSlot("AxeSlot_" .. tostring(axe.Id or index), index, "🪓", tostring(axe.Name or "Axe"), metadata, isEquipped, isSelected, false, function()
 			if typeof(axe.UID) ~= "string" then return end
 			selectedAxeUid = axe.UID
 			equipAxe:FireServer(axe.UID)
@@ -1410,6 +1422,13 @@ local function renderAxes(data)
 				if bagOverlay.Visible and activeBagTab == "Axes" then refreshShop() end
 			end)
 		end)
+		local rarity = type(axe.Rarity) == "string" and axe.Rarity or "Common"
+		local rarityTag = label(slot, "Rarity", string.upper(rarity),
+			UDim2.new(1, -43, 0, 18), UDim2.new(0, 5, 0, 2),
+			11, RARITY_TEXT_COLORS[rarity] or COLORS.BagMuted, Enum.Font.GothamBold)
+		rarityTag.TextXAlignment = Enum.TextXAlignment.Left
+		rarityTag.TextTruncate = Enum.TextTruncate.AtEnd
+		rarityTag.ZIndex = 12
 	end
 	renderAxeDetail(selectedAxe)
 end
@@ -2367,9 +2386,13 @@ if legacyEconomyUpdated then
 			and type(payload.Class) == "string"
 			and type(payload.Metal) == "string"
 			and finiteForgeNumber(payload.Power) then
-			showFeedback(string.format("FORGED %s %s!  %.1f POWER  •  %.0f%% QUALITY",
-				payload.Metal:upper(), payload.Class:upper(), payload.Power,
-				(tonumber(payload.Quality) or 0) * 100), COLORS.Gold)
+			-- Compact and readable for long names such as Legendary
+			-- Battlehammer. Detailed material quality remains in Bag → INFO.
+			local rarity = if type(payload.Rarity) == "string"
+				and RARITY_TEXT_COLORS[payload.Rarity] then payload.Rarity else "Common"
+			showFeedback(string.format("%s %s FORGED!  %.1f PWR",
+				rarity:upper(), payload.Class:upper(), payload.Power),
+				RARITY_TEXT_COLORS[rarity] or COLORS.Gold)
 		end
 		if currency == "WeaponProgression" and type(payload) == "table"
 			and type(payload.UID) == "string" then
