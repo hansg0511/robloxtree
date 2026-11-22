@@ -76,9 +76,20 @@ end
 local function start(player)
 	if started then return end
 	started = true
-	local root = player.Character and player.Character:WaitForChild("HumanoidRootPart", 15)
+	local deadline = os.clock() + 30
+	local root
+	while os.clock() < deadline and player.Parent do
+		local character = player.Character
+		if character then
+			root = character:FindFirstChild("HumanoidRootPart")
+			if root then
+				break
+			end
+		end
+		task.wait(0.25)
+	end
 	if not root or not player.Parent then
-		warn("[MutationPractice] Player root missing, fixture skipped")
+		warn("[MutationPractice] Player root did not initialize within 30 seconds, fixture skipped")
 		return
 	end
 	task.wait(1.5)

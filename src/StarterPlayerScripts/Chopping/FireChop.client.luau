@@ -60,9 +60,12 @@ UserInputService.InputBegan:Connect(function(input, processed)
 			end
 		end
 		local interval = 0.3
+		local animationBaseRate = 1
 		if type(rate) == "number" and rate == rate and rate >= 0.1 and rate <= 10 then
 			interval = math.max(0.3, 1 / rate)
+			animationBaseRate = math.clamp(rate, 0.5, 1 / 0.3)
 		end
+		local baseInterval = interval
 		local speedMultiplier = 1
 		-- Studio/live Fervor updates originate only from successful server
 		-- chops. Use server time, not the client's local os.clock(), so the
@@ -80,8 +83,9 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		if now < nextLocalSwingAt then return end
 		nextLocalSwingAt = now + interval
 		if track then
-			local baseRate = if type(rate) == "number" and rate > 0 then rate else 1
-			track:Play(0.05, 1, math.clamp(baseRate * speedMultiplier, 0.5, 2.2))
+			-- Follow the actual interval ratio, including the server-matched 0.16s floor.
+			local animationRate = animationBaseRate * baseInterval / interval
+			track:Play(0.05, 1, math.clamp(animationRate, 0.5, 1 / 0.16))
 		end
 		-- Intent only: the server validates hit rate and selects the target.
 		ChopEvent:FireServer()
