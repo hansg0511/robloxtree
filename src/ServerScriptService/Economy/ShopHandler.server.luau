@@ -188,6 +188,7 @@ local function buildOwnedAxes(player, profile, eligibleAscensionLogs)
 			Reach = weaponData and weaponData.Reach,
 			GoldenQuality = weaponData and weaponData.GoldenQuality,
 			GoldenBonus = weaponData and weaponData.GoldenBonus,
+			MutationAbility = weaponData and weaponData.MutationAbility,
 			Effects = WeaponEffects.List(weaponData),
 			MaterialCount = materialCount,
 			MutationMaterials = mutationMaterials,
