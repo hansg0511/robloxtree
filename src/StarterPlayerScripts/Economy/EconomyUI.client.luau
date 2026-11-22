@@ -1293,6 +1293,13 @@ local function renderAxeDetail(axe)
 	-- This panel reads an allowlisted server-projected effect list, not
 	-- class-specific fields. More effect IDs require no new layout code.
 	axeStatSection("WEAPON EFFECTS")
+	local mutationAbility = type(axe.MutationAbility) == "table" and axe.MutationAbility or nil
+	if mutationAbility and type(mutationAbility.Id) == "string" then
+		axeStatRow("Mutation ability", tostring(mutationAbility.Id))
+		if safeAxeNumber(mutationAbility.Potency) then
+			axeStatRow("Mutation potency", string.format("%.1f%%", mutationAbility.Potency * 100))
+		end
+	end
 	local effects = type(axe.Effects) == "table" and axe.Effects or {}
 	if #effects == 0 then
 		if axe.WeaponKind == "Battlehammer" then
@@ -2560,9 +2567,14 @@ if legacyEconomyUpdated then
 			-- Battlehammer. Detailed material quality remains in Bag → INFO.
 			local rarity = if type(payload.Rarity) == "string"
 				and RARITY_TEXT_COLORS[payload.Rarity] then payload.Rarity else "Common"
-			showFeedback(string.format("%s %s FORGED!  %.1f PWR",
-				rarity:upper(), payload.Class:upper(), payload.Power),
-				RARITY_TEXT_COLORS[rarity] or COLORS.Gold)
+			local ability = if type(payload.AbilityId) == "string"
+				then payload.AbilityId else nil
+			local toast = if ability
+				then string.format("%s %s + %s!", rarity:upper(),
+					payload.Class:upper(), string.upper(ability))
+				else string.format("%s %s FORGED!  %.1f PWR",
+					rarity:upper(), payload.Class:upper(), payload.Power)
+			showFeedback(toast, RARITY_TEXT_COLORS[rarity] or COLORS.Gold, if ability then 3 else nil)
 		end
 		if currency == "WeaponProgression" and type(payload) == "table"
 			and type(payload.UID) == "string" then
