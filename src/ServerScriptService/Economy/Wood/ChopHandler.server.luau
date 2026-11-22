@@ -67,8 +67,11 @@ ChopEvent.OnServerEvent:Connect(function(player)
 		interval = math.max(MIN_FERVOR_CHOP_INTERVAL,
 			Fervor.Interval(player, weaponUID, tree, now, interval, fervorParams))
 	end
-	if now - (lastChop[player] or -math.huge) < interval then return end
+	local previousChopAt = lastChop[player]
+	if now - (previousChopAt or -math.huge) < interval then return end
 	lastChop[player] = now
+	local isMutationPracticeTree = RunService:IsStudio()
+		and tree.model ~= nil and tree.model:GetAttribute("MutationCombatDummy") == true
 
 	local stats = profile.Data.Runtime.FinalStats
 	local attack = stats and stats.Attack
@@ -107,6 +110,15 @@ ChopEvent.OnServerEvent:Connect(function(player)
 		PrimaryDamage = calculated.Damage,
 		WeaponUID = weaponUID,
 		PrimarySucceeded = false,
+		OnMutationTelemetry = if isMutationPracticeTree then function(effectId, state)
+			if effectId == "Thunderstrike" and type(state) == "table" then
+				print(string.format(
+					"[MutationPractice] THUNDERSTRIKE %d/%d%s | weapon %s",
+					state.Count, state.EveryHits,
+					if state.Proc then " PROC!" else "",
+					weaponUID))
+			end
+		end else nil,
 		EligibleSecondary = function(candidate)
 			return candidate:CanChop(player)
 				and WorldProgressService.CanInteractWithTree(player, candidate)
@@ -130,7 +142,13 @@ ChopEvent.OnServerEvent:Connect(function(player)
 	recordHit(tree, actualDamage, killed, primaryMaxHP)
 	effectContext.PrimarySucceeded = true
 	if fervorParams then
-		Fervor.RecordHit(player, weaponUID, tree, now, fervorParams)
+		local stacks = Fervor.RecordHit(player, weaponUID, tree, now, fervorParams)
+		if isMutationPracticeTree then
+			print(string.format(
+				"[MutationPractice] FERVOR stacks=%d/%d | allowed interval=%.3fs | actual gap=%s",
+				stacks, fervorParams.MaxStacks, interval,
+				if previousChopAt then string.format("%.3fs", now - previousChopAt) else "first hit"))
+		end
 	end
 	local secondaryHits = WeaponEffects.ApplyPrepared(preparedEffects, effectContext)
 	if RunService:IsStudio() then
