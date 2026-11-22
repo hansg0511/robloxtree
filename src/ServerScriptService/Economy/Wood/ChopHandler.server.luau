@@ -59,8 +59,7 @@ ChopEvent.OnServerEvent:Connect(function(player)
 	if not tree then return end
 	local weaponUID = runtime.EquippedWeaponUID
 	local now = os.clock()
-	local fervorParams = if RunService:IsStudio()
-		then WeaponEffects.GetParams(data, "Fervor") else nil
+	local fervorParams = WeaponEffects.GetParams(data, "Fervor")
 	if fervorParams then
 		interval = math.max(MIN_CHOP_INTERVAL,
 			Fervor.Interval(player, weaponUID, tree, now, interval, fervorParams))
@@ -110,8 +109,16 @@ ChopEvent.OnServerEvent:Connect(function(player)
 				and WorldProgressService.CanInteractWithTree(player, candidate)
 		end,
 	}
-	local preparedEffects = if RunService:IsStudio()
-		then WeaponEffects.Prepare("OnHit", data, effectContext) else {}
+	local preparedEffects = WeaponEffects.Prepare("OnHit", data, effectContext)
+	-- Preserve the existing Studio-only Cleave experiment. All new mutation
+	-- abilities are server-authoritative and may run in published gameplay.
+	if not RunService:IsStudio() then
+		for index = #preparedEffects, 1, -1 do
+			if preparedEffects[index].Id == "Cleave" then
+				table.remove(preparedEffects, index)
+			end
+		end
+	end
 
 	-- Normal attack remains single-target; only confirmed hits emit effects.
 	local primaryMaxHP = tree.MaxHP
@@ -122,8 +129,8 @@ ChopEvent.OnServerEvent:Connect(function(player)
 	if fervorParams then
 		Fervor.RecordHit(player, weaponUID, tree, now, fervorParams)
 	end
+	local secondaryHits = WeaponEffects.ApplyPrepared(preparedEffects, effectContext)
 	if RunService:IsStudio() then
-		local secondaryHits = WeaponEffects.ApplyPrepared(preparedEffects, effectContext)
 		-- Avoid noisy output in normal forests; this is a dedicated Studio
 		-- test-zone trace for differentiating "no Cleave" vs "no neighbors".
 		if tree.Parent and tree.Parent.Name == "CleaveTestPatch" then
@@ -147,7 +154,7 @@ ChopEvent.OnServerEvent:Connect(function(player)
 	end
 	-- Golden Touch awards server-owned kill gold after actual primary and
 	-- registered secondary damage. Each TreeObject can die only once.
-	if RunService:IsStudio() and WeaponEffects.GetParams(data, "GoldenTouch") then
+	if WeaponEffects.GetParams(data, "GoldenTouch") then
 		local coinsDelta = 0
 		for _, record in ipairs(hitRecords) do
 			if record.Killed == true and type(record.Tree) == "table" then
