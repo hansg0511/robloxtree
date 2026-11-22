@@ -105,6 +105,7 @@ function Cleave.Apply(prepared, context)
 		if hits < Cleave.MAX_TARGETS and context.ActiveTrees[tree] == true
 			and context.EligibleSecondary(tree)
 			and type(tree.TakeDamage) == "function" then
+			local targetMaxHP = tree.MaxHP
 			local success, applied, killed = tree:TakeDamage({
 				Damage = damage,
 				IsCrit = false,
@@ -118,7 +119,7 @@ function Cleave.Apply(prepared, context)
 				-- return the boolean and do not award XP.
 				if type(context.OnAppliedHit) == "function"
 					and type(applied) == "number" and applied > 0 then
-					context.OnAppliedHit(tree, applied, killed == true)
+					context.OnAppliedHit(tree, applied, killed == true, targetMaxHP)
 				end
 			end
 		end
