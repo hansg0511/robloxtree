@@ -54,11 +54,14 @@ end
 
 -- Ordinary unlocked carry-bag logs only. Protected storage and mutated
 -- logs are intentionally excluded; weakest/smallest are chosen first.
-function Service.EligibleLogs(player)
+-- Pure filter also used by the smoke test with synthetic snapshots.
+function Service.SelectOrdinaryBagLogs(candidates)
 	local logs = {}
-	for _, log in ipairs(LogService.GetEligibleCraftLogs(player)) do
+	for _, log in ipairs(type(candidates) == "table" and candidates or {}) do
 		if type(log) == "table" and log.Source == "Bag"
-			and type(log.UID) == "string" and not hasMutation(log) then
+			and type(log.UID) == "string"
+			and type(log.CraftPowerBonus) == "number"
+			and not hasMutation(log) then
 			logs[#logs + 1] = log
 		end
 	end
@@ -72,6 +75,10 @@ function Service.EligibleLogs(player)
 		return a.UID < b.UID
 	end)
 	return logs
+end
+
+function Service.EligibleLogs(player)
+	return Service.SelectOrdinaryBagLogs(LogService.GetEligibleCraftLogs(player))
 end
 
 function Service.Preview(player, item, eligibleCount)
