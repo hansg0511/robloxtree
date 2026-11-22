@@ -127,10 +127,12 @@ Rampage.Clear(p)
 
 local dummyCharacter=Instance.new("Model")
 dummyCharacter.Name="TemporaryBloodrushSmokeDummy"
-dummyCharacter.Parent=workspace
+dummyCharacter.Parent=game.ServerStorage -- no world/rig simulation
 local humanoid=Instance.new("Humanoid")
-humanoid.WalkSpeed=28
+humanoid.RequiresNeck=false
 humanoid.Parent=dummyCharacter
+humanoid.Health=100
+humanoid.WalkSpeed=28
 local bloodrush=Bloodrush.Prepare({SpeedMultiplier=1.25,DurationSeconds=7},{})
 local bloodContext={Player=p,WeaponUID="blood",Killed=true,
 	Humanoid=humanoid,NoTimer=true}
