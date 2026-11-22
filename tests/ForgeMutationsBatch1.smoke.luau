@@ -168,7 +168,8 @@ for cycle=1,3 do
 		context.PrimaryKilled = primary.HP == 0
 		attributedHP += applied
 		check("Thunderstrike adds zero secondary hits",Thunderstrike.Apply(prepared,context)==0)
-		local state = telemetry[#telemetry]
+		-- Proc hits generate TWO telemetry records (counter then result).
+		local state = telemetry[#telemetry - (if shouldProc then 1 else 0)]
 		check("counter repeats each cycle "..cycle.."/"..swing,
 			state.Id=="Thunderstrike" and state.Count==swing
 			and state.Proc==shouldProc)
