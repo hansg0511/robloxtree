@@ -20,6 +20,7 @@ local purchaseAxeHead = economy:WaitForChild("PurchaseAxeHeadRE")
 local CraftRecipeRE = economy:WaitForChild("CraftRecipeRE")
 local purchaseCapacity = economy:WaitForChild("PurchaseCapacityRE")
 local equipAxe = economy:WaitForChild("EquipAxeRE")
+local ascendWeapon = economy:WaitForChild("AscendWeaponRE")
 
 local COLORS = {
 	Backdrop = Color3.fromRGB(7, 17, 23),
@@ -781,6 +782,9 @@ local isRefreshingLogs = false
 local refreshLogsQueued = false
 local saleCoinsBefore
 local feedbackSequence = 0
+local ascensionPending = false
+local ascensionConfirmUID = nil
+local ascensionConfirmUntil = 0
 
 local function getBagUiCapacity()
 	local logsData = if type(latestLogsData) == "table" then latestLogsData else {}
@@ -798,13 +802,13 @@ local function getBagUiCapacity()
 	return usedKg, carryCapacityKg
 end
 
-local function showFeedback(message, color)
+local function showFeedback(message, color, duration)
 	feedbackSequence += 1
 	local sequence = feedbackSequence
 	feedback.Text = message
 	feedback.TextColor3 = color or COLORS.Gold
 	feedback.Visible = true
-	task.delay(1.8, function()
+	task.delay(duration or 1.8, function()
 		if feedbackSequence == sequence then feedback.Visible = false end
 	end)
 end
@@ -1196,6 +1200,58 @@ local function renderAxeDetail(axe)
 			axeStatRow("Weapon XP", string.format("%d / %d", xp, required))
 		end
 	end
+	-- Full ascension controls only appear when this weapon reaches its cap.
+	-- The server snapshot supplies all costs, pity and availability facts;
+	-- the client sends only a unique weapon UID.
+	local ascend = type(axe.Ascension) == "table" and axe.Ascension or nil
+	if rarity ~= "Debug" then
+		if not ascend then
+			axeStatNote("ULTRA: highest normal rarity.")
+		elseif ascend.Ready then
+			axeStatSection("ASCENSION")
+			axeStatRow("Next rarity", tostring(ascend.To))
+			axeStatRow("Coin cost", formatCoins(ascend.Coins or 0))
+			axeStatRow("Normal bag logs", string.format("%d / %d",
+				ascend.EligibleLogs or 0, ascend.Logs or 0))
+			axeStatRow("Success chance", if ascend.Guaranteed then "GUARANTEED"
+				else string.format("%.1f%%", (ascend.Chance or 0) * 100))
+			axeStatRow("Hard pity", string.format("Attempt %d / %d",
+				ascend.AttemptNumber or 1, ascend.PityLimit or 1))
+			axeStatNote("Failures cost coins and ordinary bag logs, but never damage the weapon.")
+			local actionLabel
+			if ascensionPending then actionLabel = "ASCENDING..."
+			elseif not ascend.AtForge then actionLabel = "VISIT THE FORGE"
+			elseif not ascend.CanAfford then actionLabel = "NEED COINS OR NORMAL BAG LOGS"
+			else actionLabel = "ASCEND TO " .. string.upper(tostring(ascend.To)) end
+			axeStatOrder += 1
+			local action = button(axeStatsScroll, "AscendWeapon", actionLabel,
+				UDim2.new(1, -8, 0, 46), UDim2.new(), COLORS.BagAction)
+			action.LayoutOrder = axeStatOrder
+			action.ZIndex = 14
+			action.TextSize = 14
+			action.TextWrapped = true
+			action.Active = ascend.CanAscend == true and not ascensionPending
+			action.AutoButtonColor = action.Active
+			if not action.Active then action.BackgroundColor3 = COLORS.Disabled end
+			action.Activated:Connect(function()
+				if not action.Active or ascensionPending or type(axe.UID) ~= "string" then return end
+				if ascensionConfirmUID ~= axe.UID or os.clock() > ascensionConfirmUntil then
+					ascensionConfirmUID = axe.UID
+					ascensionConfirmUntil = os.clock() + 6
+					action.Text = "CONFIRM — SPEND COST EVEN IF FAILED"
+					return
+				end
+				ascensionConfirmUID = nil
+				ascensionPending = true
+				action.Active = false
+				action.Text = "ASCENDING..."
+				ascendWeapon:FireServer(axe.UID)
+			end)
+		else
+			axeStatNote("Ascension unlocks at this rarity's maximum level.")
+		end
+	end
+
 	axeStatSection("WEAPON STATS")
 	local speed = safeAxeNumber(axe.AttacksPerSecond)
 	local reach = safeAxeNumber(axe.Reach)
@@ -2381,6 +2437,43 @@ economyStateUpdated.OnClientEvent:Connect(function(snapshot)
 	if shopOverlay.Visible then refreshShop() end
 	if forgeOverlay.Visible then refreshShop() end
 	if bagOverlay.Visible and activeBagTab == "Axes" then refreshShop() end
+end)
+
+-- A separate response from the request RemoteEvent avoids trusting client
+-- supplied odds or costs. Refresh the existing Bag after server resolution.
+ascendWeapon.OnClientEvent:Connect(function(result)
+	ascensionPending = false
+	ascensionConfirmUID = nil
+	if type(result) ~= "table" then
+		showFeedback("ASCENSION UNAVAILABLE", COLORS.Orange, 3)
+		return
+	end
+	if result.Reason == "ATTEMPT_RESOLVED" then
+		if result.Success then
+			showFeedback("ASCENDED TO " .. string.upper(tostring(result.Rarity))
+				.. "!  LV 1", COLORS.Gold, 3.5)
+		else
+			showFeedback(string.format("ASCENSION FAILED • PITY IN %d ATTEMPTS",
+				result.AttemptsUntilGuarantee or 0), COLORS.Orange, 3.5)
+		end
+		refreshLogs()
+		refreshShop()
+	else
+		local errors = {
+			NOT_AT_FORGE = "MOVE CLOSER TO THE FORGE",
+			NOT_MAX_LEVEL = "REACH WEAPON MAX LEVEL FIRST",
+			NOT_ENOUGH_COINS = "NOT ENOUGH COINS",
+			NOT_ENOUGH_LOGS = "NEED UNMUTATED UNLOCKED BAG LOGS",
+			MAX_RARITY = "ULTRA CANNOT ASCEND FURTHER",
+			INVALID_WEAPON = "WEAPON NO LONGER AVAILABLE",
+			LOGS_UNAVAILABLE = "LOGS CHANGED — TRY AGAIN",
+			PROFILE_UNAVAILABLE = "PROFILE UNAVAILABLE",
+			ROLL_FAILED = "ASCENSION COULD NOT BE ROLLED",
+			SERVER_ERROR = "ASCENSION SERVER ERROR",
+		}
+		showFeedback(errors[result.Reason] or "ASCENSION UNAVAILABLE", COLORS.Orange, 3)
+		refreshShop()
+	end
 end)
 
 local legacyEconomyUpdated = economy:FindFirstChild("EconomyUpdated")
