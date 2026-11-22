@@ -1,6 +1,7 @@
 -- Shocked Thunderstrike: every N CONFIRMED primary chops releases one
 -- nonrecursive secondary lightning hit on a server-eligible target.
 local Cleave = require(script.Parent.Cleave)
+local Debris = game:GetService("Debris")
 local Thunderstrike = {}
 Thunderstrike.Id = "Thunderstrike"
 Thunderstrike.Trigger = "OnHit"
@@ -59,6 +60,15 @@ function Thunderstrike.Apply(prepared, context)
 	local count = if previous and previous.UID == uid then previous.Count else 0
 	local nextCount, proc = Thunderstrike.Advance(count, prepared.Profile.EveryHits)
 	histories[player] = { UID = uid, Count = nextCount }
+	-- Optional trusted server diagnostic: counts every accepted primary hit,
+	-- including cycles after the first proc. No remote or player inputs.
+	if type(context.OnMutationTelemetry) == "function" then
+		context.OnMutationTelemetry("Thunderstrike", {
+			Count = if proc then prepared.Profile.EveryHits else nextCount,
+			EveryHits = prepared.Profile.EveryHits,
+			Proc = proc,
+		})
+	end
 	if not proc then return 0 end
 	local target
 	for _, candidate in ipairs(prepared.Targets or {}) do
@@ -78,6 +88,13 @@ function Thunderstrike.Apply(prepared, context)
 	local damage = math.floor(context.PrimaryDamage * prepared.Profile.DamageFraction)
 	if damage < 1 then return 0 end
 	local maxHP = target.MaxHP
+	-- Capture the target's world position BEFORE TakeDamage, because a lethal
+	-- strike can remove the tree's Model immediately. The lightning VFX must
+	-- not depend on that destroyed instance still being parented afterwards.
+	local model = target.model
+	local showVisual = typeof(model) == "Instance" and model.Parent ~= nil
+	local worldPosition = if typeof(target.CFrame) == "CFrame"
+		then target.CFrame.Position else nil
 	local success, applied, killed = target:TakeDamage({
 		Damage = damage, IsCrit = false, EffectId = "Thunderstrike",
 	}, player)
@@ -86,21 +103,35 @@ function Thunderstrike.Apply(prepared, context)
 		and type(context.OnAppliedHit) == "function" then
 		context.OnAppliedHit(target, applied, killed == true, maxHP)
 	end
-	-- Small replicated lightning flash. No per-player remote/input, and
-	-- the target may have been removed by the hit (then skip cosmetic).
-	local model = target.model
-	if typeof(model) == "Instance" and model.Parent then
-		local light = Instance.new("Highlight")
-		light.Name = "ThunderstrikeFlash"
-		light.FillColor = Color3.fromRGB(68, 180, 255)
-		light.OutlineColor = Color3.fromRGB(220, 248, 255)
-		light.FillTransparency = 0.22
-		light.OutlineTransparency = 0
-		light.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-		light.Parent = model
-		task.delay(0.23, function()
-			if light.Parent then light:Destroy() end
-		end)
+	-- World-space neon bolt survives lethal tree removal. It is cosmetic,
+	-- non-collidable, short lived, and not tied to a player's local scripts.
+	if showVisual and worldPosition then
+		local bolt = Instance.new("Part")
+		bolt.Name = "ThunderstrikeFlash"
+		bolt.Anchored = true
+		bolt.CanCollide = false
+		bolt.CanTouch = false
+		bolt.CanQuery = false
+		bolt.Material = Enum.Material.Neon
+		bolt.Color = Color3.fromRGB(65, 185, 255)
+		bolt.Transparency = 0.18
+		bolt.Size = Vector3.new(0.7, 20, 0.7)
+		bolt.CFrame = CFrame.new(worldPosition + Vector3.new(0, 10, 0))
+		bolt.Parent = workspace
+		Debris:AddItem(bolt, 0.3)
+		-- Highlight survivors as a secondary accent, without requiring the
+		-- model to survive for the lightning to be visible.
+		if model.Parent then
+			local light = Instance.new("Highlight")
+			light.Name = "ThunderstrikeOutline"
+			light.FillColor = Color3.fromRGB(68, 180, 255)
+			light.OutlineColor = Color3.fromRGB(220, 248, 255)
+			light.FillTransparency = 0.22
+			light.OutlineTransparency = 0
+			light.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+			light.Parent = model
+			Debris:AddItem(light, 0.3)
+		end
 	end
 	return 1
 end
