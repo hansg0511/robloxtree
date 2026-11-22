@@ -1,0 +1,171 @@
+-- Phase 1D: one server-authoritative ascension transaction.
+-- Never accepts client-provided prices, odds, materials, rarity or XP.
+local ProfileCache = require(game.ServerScriptService.PlayerProfile.ProfileService.ProfileDataCache)
+local LogService = require(game.ServerScriptService.Inventory.LogService)
+local BaseStationAccess = require(game.ServerScriptService.WorldLayout.BaseStationAccess)
+local ItemDataBase = require(game.ServerStorage.Items.ItemDataBase)
+local StatsAggregator = require(game.ServerStorage.Items.StatsAggregator)
+local Progression = require(game.ServerScriptService.WeaponProgressionRules)
+local Ascension = require(game.ServerScriptService.WeaponAscensionRules)
+
+local Service = {}
+local rng = Random.new()
+
+local function isFiniteMoney(value)
+	return type(value) == "number" and value == value
+		and value >= 0 and value < math.huge
+end
+
+local function getUniqueWeapon(data, uid)
+	if type(data) ~= "table" or type(data.Inventory) ~= "table"
+		or type(uid) ~= "string" or #uid < 1 or #uid > 128 then return nil end
+	local result
+	for _, item in ipairs(data.Inventory) do
+		if type(item) == "table" and item.UID == uid then
+			if result then return nil end -- duplicate saved UID: fail closed
+			result = item
+		end
+	end
+	if not result or result.ItemID == 9001
+		or not ItemDataBase.Info[result.ItemID]
+		or ItemDataBase.Info[result.ItemID].Type ~= "Weapon"
+		or not Progression.IsRarity(result.Rarity)
+		or type(result.WeaponData) ~= "table" then
+		return nil
+	end
+	local runtime = data.Runtime
+	local live = type(runtime) == "table" and type(runtime.Weapon) == "table"
+		and runtime.Weapon[uid] or nil
+	if type(live) ~= "table" or live.ItemUID ~= uid
+		or live.ItemID ~= result.ItemID or live.ItemType ~= "Weapon"
+		or type(live.WeaponData) ~= "table"
+		or (runtime.EphemeralWeaponUIDs and runtime.EphemeralWeaponUIDs[uid]) then
+		return nil
+	end
+	return result, live
+end
+
+local function hasMutation(material)
+	-- Favor valuable/rare logs: never automatically consume any log with
+	-- mutation metadata, even if the prototype does not yet activate it.
+	if type(material.Mutations) ~= "table" then return material.Mutations ~= nil end
+	return next(material.Mutations) ~= nil
+end
+
+-- Ordinary unlocked carry-bag logs only. Protected storage and mutated
+-- logs are intentionally excluded; weakest/smallest are chosen first.
+function Service.EligibleLogs(player)
+	local logs = {}
+	for _, log in ipairs(LogService.GetEligibleCraftLogs(player)) do
+		if type(log) == "table" and log.Source == "Bag"
+			and type(log.UID) == "string" and not hasMutation(log) then
+			logs[#logs + 1] = log
+		end
+	end
+	table.sort(logs, function(a, b)
+		local strengthA = type(a.CraftPowerBonus) == "number" and a.CraftPowerBonus or math.huge
+		local strengthB = type(b.CraftPowerBonus) == "number" and b.CraftPowerBonus or math.huge
+		if strengthA ~= strengthB then return strengthA < strengthB end
+		local sizeA = type(a.SizeScale) == "number" and a.SizeScale or math.huge
+		local sizeB = type(b.SizeScale) == "number" and b.SizeScale or math.huge
+		if sizeA ~= sizeB then return sizeA < sizeB end
+		return a.UID < b.UID
+	end)
+	return logs
+end
+
+function Service.Preview(player, item, eligibleCount)
+	if type(item) ~= "table" or item.ItemID == 9001
+		or not Progression.IsRarity(item.Rarity) then return nil end
+	local snapshot = Ascension.Preview(
+		item.Rarity, type(item.WeaponData) == "table"
+			and item.WeaponData.Progression or nil)
+	if not snapshot then return nil end
+	local profile = ProfileCache.GetProfile(player)
+	local data = profile and profile.Data
+	local coins = data and data.Coins
+	local atForge = BaseStationAccess.CanUseForge(player) == true
+	local available = if type(eligibleCount) == "number" then eligibleCount
+		else #Service.EligibleLogs(player)
+	snapshot.EligibleLogs = available
+	snapshot.CanAfford = isFiniteMoney(coins) and coins >= snapshot.Coins
+		and available >= snapshot.Logs
+	snapshot.AtForge = atForge
+	snapshot.CanAscend = snapshot.Ready and snapshot.CanAfford and atForge
+	return snapshot
+end
+
+-- Returns one safe result for the caller to send to the requesting player.
+-- Invariant: all eligibility and resource checks happen before any mutation.
+function Service.Attempt(player, uid)
+	local profile = ProfileCache.GetProfile(player)
+	local data = profile and profile.Data
+	if not data or type(data.Runtime) ~= "table" then
+		return { Reason = "PROFILE_UNAVAILABLE" }
+	end
+	local saved, live = getUniqueWeapon(data, uid)
+	if not saved then return { Reason = "INVALID_WEAPON" } end
+	local preview = Ascension.Preview(saved.Rarity, saved.WeaponData.Progression)
+	if not preview then return { Reason = "MAX_RARITY" } end
+	if not preview.Ready then return { Reason = "NOT_MAX_LEVEL" } end
+	if BaseStationAccess.CanUseForge(player) ~= true then
+		return { Reason = "NOT_AT_FORGE" }
+	end
+	if not isFiniteMoney(data.Coins) or data.Coins < preview.Coins then
+		return { Reason = "NOT_ENOUGH_COINS" }
+	end
+
+	local available = Service.EligibleLogs(player)
+	if #available < preview.Logs then return { Reason = "NOT_ENOUGH_LOGS" } end
+	local selectedUIDs = {}
+	for i = 1, preview.Logs do selectedUIDs[i] = available[i].UID end
+
+	-- Resolve the outcome once, prior to charging anything. Pity is checked
+	-- in the pure rules; the client cannot set the draw or request a reroll.
+	local outcome = Ascension.Resolve(saved.Rarity,
+		saved.WeaponData.Progression, rng:NextNumber())
+	if not outcome then return { Reason = "ROLL_FAILED" } end
+
+	local takeOk, removed, sources = pcall(function()
+		return LogService.TakeCraftLogUIDs(player, selectedUIDs, preview.Logs)
+	end)
+	if not takeOk or type(removed) ~= "table" or #removed ~= preview.Logs then
+		return { Reason = "LOGS_UNAVAILABLE" }
+	end
+
+	-- Synchronous commit (no waits/yields): a failed attempt consumes the
+	-- cost but NEVER destroys or down-levels the weapon.
+	data.Coins -= preview.Coins
+	saved.Rarity = outcome.Rarity
+	saved.WeaponData.Progression = outcome.Progression
+	live.ItemRarity = outcome.Rarity
+	live.WeaponData.Progression = table.clone(outcome.Progression)
+	if type(live.ItemWeaponData) == "table" then
+		live.ItemWeaponData.Progression = table.clone(outcome.Progression)
+	end
+
+	if data.Runtime.EquippedWeaponUID == uid then
+		local ok, err = pcall(function() StatsAggregator.Aggregate(player) end)
+		if not ok then warn("[Ascension] equipped stat refresh failed:", err) end
+	end
+	local updated = Ascension.Preview(saved.Rarity, saved.WeaponData.Progression)
+	-- The reward is already committed: cosmetic notifications must not
+	-- retroactively turn a success into a free retry.
+	local notifyOk, notifyError = pcall(function() LogService.NotifyState(player) end)
+	if not notifyOk then warn("[Ascension] log refresh failed:", notifyError) end
+	return {
+		Reason = "ATTEMPT_RESOLVED",
+		UID = uid,
+		Success = outcome.Success,
+		From = preview.From,
+		To = preview.To,
+		Rarity = saved.Rarity,
+		Level = outcome.Progression.Level,
+		CoinsSpent = preview.Coins,
+		LogsSpent = preview.Logs,
+		Failures = outcome.Progression.AscensionFailures,
+		AttemptsUntilGuarantee = updated and updated.AttemptsUntilGuarantee or 0,
+	}
+end
+
+return Service
