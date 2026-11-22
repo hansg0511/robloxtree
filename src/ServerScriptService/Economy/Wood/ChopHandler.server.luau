@@ -13,6 +13,9 @@ local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDef
 local EconomyUpdated = game.ReplicatedStorage.Economy.EconomyUpdated
 
 local MIN_CHOP_INTERVAL = 0.3
+-- A Fervor weapon can accelerate below the legacy base interval; other
+-- weapons keep the unchanged 0.3-second minimum.
+local MIN_FERVOR_CHOP_INTERVAL = 0.16
 local lastChop = {}
 
 local function hasEquippedAxe(player, profile)
@@ -61,7 +64,7 @@ ChopEvent.OnServerEvent:Connect(function(player)
 	local now = os.clock()
 	local fervorParams = WeaponEffects.GetParams(data, "Fervor")
 	if fervorParams then
-		interval = math.max(MIN_CHOP_INTERVAL,
+		interval = math.max(MIN_FERVOR_CHOP_INTERVAL,
 			Fervor.Interval(player, weaponUID, tree, now, interval, fervorParams))
 	end
 	if now - (lastChop[player] or -math.huge) < interval then return end
