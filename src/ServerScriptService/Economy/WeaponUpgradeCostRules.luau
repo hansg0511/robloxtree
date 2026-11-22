@@ -120,7 +120,8 @@ function Rules.Plan(costs, data, eligibleLogs, selections, selectedFamily)
 		or type(selections)~="table" then return nil end
 	local plan={
 		CanAfford=true, Missing={}, Coins=0, LogUIDs={},
-		MaterialUIDs={}, StackDeductions={}, Ingredients=Rules.Describe(costs),
+		MaterialUIDs={}, MaterialGroups={}, StackDeductions={},
+		Ingredients=Rules.Describe(costs),
 	}
 	local ownedLogs={}
 	for _,log in ipairs(type(eligibleLogs)=="table" and eligibleLogs or {}) do
@@ -158,7 +159,12 @@ function Rules.Plan(costs, data, eligibleLogs, selections, selectedFamily)
 				plan.Missing[#plan.Missing+1]=c.MaterialType
 				continue
 			end
-			local selected=selections.MaterialUIDs
+			-- Supports multiple distinct unique-material ingredients. Client
+			-- sends exact UIDs per (source,type); type/count always server-owned.
+			local map=selections.MaterialUIDsByType
+			local selected=if type(map)=="table" then
+				(map[c.Source..":"..c.MaterialType] or map[c.MaterialType])
+				else selections.MaterialUIDs
 			if not validateSelection(selected,c.Count) then return nil end
 			local seen={}
 			for _,record in ipairs(container) do
@@ -175,7 +181,11 @@ function Rules.Plan(costs, data, eligibleLogs, selections, selectedFamily)
 					break
 				end
 			end
-			plan.MaterialUIDs=table.clone(selected)
+			local group={Source=c.Source,MaterialType=c.MaterialType,UIDs=table.clone(selected)}
+			plan.MaterialGroups[#plan.MaterialGroups+1]=group
+			for _,uid in ipairs(selected) do
+				plan.MaterialUIDs[#plan.MaterialUIDs+1]=uid
+			end
 		elseif c.Kind=="Stack" then
 			local source=data[c.Source]
 			local count=type(source)=="table" and source[c.Id] or nil
