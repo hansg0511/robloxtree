@@ -8,6 +8,7 @@ local itemFolder = game.ServerStorage.Items
 local itemDataBase = require(itemFolder.ItemDataBase)
 local StatsAggregator = require(itemFolder.StatsAggregator)
 local WeaponProgressionRules = require(game.ServerScriptService.WeaponProgressionRules)
+local Fervor = require(game.ServerScriptService.WeaponEffects.Fervor)
 local StatsDatabase = require(itemFolder.StatsDatabase)
 local EquipAxeRE = game.ReplicatedStorage.Economy:WaitForChild("EquipAxeRE")
 local LogService = require(game.ServerScriptService.Inventory.LogService)
@@ -231,6 +232,7 @@ local function EquipItem(player, item)
 	end
 	if not item or item.ItemType ~= "Weapon" or typeof(item.ItemUID) ~= "string" then return false end
 	local runtime = playerProfile.Data.Runtime
+	local previousWeaponUID = runtime.EquippedWeaponUID
 	if runtime.Weapon[item.ItemUID] ~= item then return false end
 	local toolTemplate = itemDataBase.Instances[item.ItemID]
 	if not toolTemplate or not toolTemplate:IsA("Tool") or toolTemplate.Name ~= item.InstanceName then return false end
@@ -277,6 +279,7 @@ local function EquipItem(player, item)
 	else
 		playerProfile.Data.Equipped.Weapon = item.ItemUID
 	end
+	Fervor.OnWeaponEquipped(player, previousWeaponUID, item.ItemUID)
 	StatsAggregator.Aggregate(player)
 	return true
 end

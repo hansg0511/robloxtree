@@ -108,9 +108,19 @@ check("first hit does not grant a free instant stack",
 Fervor.RecordHit(player,uid,a,1.5,frenzyParams)
 check("second hit accelerates next server cooldown",
 	Fervor.Interval(player,uid,a,1.6,baseline,frenzyParams) < baseline)
-check("different tree resets", Fervor.Interval(player,uid,b,1.6,baseline,frenzyParams) == baseline)
-check("different weapon resets", Fervor.Interval(player,"other",a,1.6,baseline,frenzyParams) == baseline)
-check("hit combo expires", Fervor.Interval(player,uid,a,20,baseline,frenzyParams) == baseline)
+check("different tree resets populated combo",
+	Fervor.Interval(player,uid,b,1.6,baseline,frenzyParams) == baseline)
+check("different weapon resets populated combo",
+	Fervor.Interval(player,"other",a,1.6,baseline,frenzyParams) == baseline)
+check("hit combo expires while populated",
+	Fervor.Interval(player,uid,a,20,baseline,frenzyParams) == baseline)
+Fervor.OnWeaponEquipped(player, uid, uid)
+check("same-UID re-equip preserves active combo",
+	Fervor.Interval(player,uid,a,1.61,baseline,frenzyParams) < baseline)
+Fervor.OnWeaponEquipped(player, uid, "other")
+Fervor.OnWeaponEquipped(player, "other", uid)
+check("switch away and back clears active combo",
+	Fervor.Interval(player,uid,a,1.62,baseline,frenzyParams) == baseline)
 Fervor.Clear(player)
 
 -- Thunderstrike after N real primary hits. It damages one eligible

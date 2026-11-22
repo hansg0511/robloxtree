@@ -60,4 +60,13 @@ function Fervor.Clear(player)
 	histories[player] = nil
 end
 
+-- Equipping a different weapon must start a fresh combo. Re-equipping the
+-- same UID leaves its active combo intact; the caller invokes this only after
+-- the server has completed a valid equip transaction.
+function Fervor.OnWeaponEquipped(player, previousUID, nextUID)
+	if previousUID ~= nextUID then
+		histories[player] = nil
+	end
+end
+
 return Fervor
