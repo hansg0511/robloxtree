@@ -6,6 +6,7 @@ local TreeObject = require(game.ServerScriptService.Trees.TreeObject)
 local WorldProgressService = require(game.ServerScriptService.WorldProgressService)
 local DamageService = require(game.ServerStorage.DamageService)
 local WeaponEffects = require(game.ServerScriptService.WeaponEffects.Dispatcher)
+local WeaponProgressionService = require(game.ServerScriptService.WeaponProgressionService)
 
 local MIN_CHOP_INTERVAL = 0.3
 local lastChop = {}
@@ -66,10 +67,28 @@ ChopEvent.OnServerEvent:Connect(function(player)
 	local context = DamageService:createDamageContext(player, tree, weaponUID, stats, nil, lumberjackStrength)
 	local _, calculated = DamageService.Calculate(context)
 
+	-- Collect actual HP removed for this single verified swing. Commit XP
+	-- only after the primary hit and all allowed secondary effects have run;
+	-- that prevents level-up stat growth from affecting this same swing.
+	local hitRecords = {}
+	local function recordHit(target, applied, killed)
+		if #hitRecords >= 9 or type(target) ~= "table" then return end
+		local maxHP = target.MaxHP
+		if type(maxHP) ~= "number" or maxHP ~= maxHP or maxHP <= 0
+			or maxHP == math.huge or type(applied) ~= "number"
+			or applied ~= applied or applied <= 0 or applied > maxHP then return end
+		hitRecords[#hitRecords + 1] = {
+			AppliedDamage = applied,
+			TreeMaxHP = maxHP,
+			Killed = killed == true,
+		}
+	end
+
 	-- Class/mutation/skill origin is encoded in server-owned WeaponData.Effects.
 	-- ChopHandler knows only the OnHit trigger, not individual effect types.
 	-- Prepare before the primary strike because killing it may unregister it.
 	local effectContext = {
+		OnAppliedHit = recordHit,
 		Player = player,
 		PrimaryTree = tree,
 		ActiveTrees = TreeObject.ActiveTrees,
@@ -83,7 +102,9 @@ ChopEvent.OnServerEvent:Connect(function(player)
 		then WeaponEffects.Prepare("OnHit", data, effectContext) else {}
 
 	-- Normal attack remains single-target; only confirmed hits emit effects.
-	if not tree:TakeDamage(calculated, player) then return end
+	local hit, actualDamage, killed = tree:TakeDamage(calculated, player)
+	if not hit then return end
+	recordHit(tree, actualDamage, killed)
 	if RunService:IsStudio() then
 		local secondaryHits = WeaponEffects.ApplyPrepared(preparedEffects, effectContext)
 		-- Avoid noisy output in normal forests; this is a dedicated Studio
@@ -107,6 +128,9 @@ ChopEvent.OnServerEvent:Connect(function(player)
 			end
 		end
 	end
+	-- No client-reported hit/XP values. XP comes exclusively from trusted,
+	-- HP-clamped TreeObject outcomes for the equipped weapon UID.
+	WeaponProgressionService.AwardHits(player, weaponUID, hitRecords)
 end)
 
 Players.PlayerRemoving:Connect(function(player)
