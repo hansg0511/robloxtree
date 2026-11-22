@@ -10,7 +10,7 @@
 - Successful forge persists `WeaponData.MutationAbility = { Family, Id, Potency, ForgeTier }` and a registered generic `WeaponData.Effects` entry with `Source="WoodMutation"`. Class Cleave remains separate. New mutation effects work in published server chopping; **Cleave still Studio-only**.
 - `GoldenTouch` (OnKill): server-awarded extra coins based on trusted tree species sell value and potency, only after actual kills. Currency/UI updates use the existing EconomyUpdated event; kills from valid registered secondary hits count.
 - `Fervor` (OnHit passive): per-player/per-equipped-weapon same-target hit streak boosts **server-enforced** chop rate, with max stacks and short inactivity expiry. Misses and switching targets/weapons do not grant new stacks.
-- `Thunderstrike` (OnHit): after a bounded number of confirmed primary chops, an independent registered effect strikes one eligible nearby target, or the original tree if it survived. Damage is HP-clamped and reported as a registered secondary hit for XP. No recursive effect triggering. Blue target highlight is a brief cosmetic.
+- `Thunderstrike` (OnHit): every N confirmed primary chops, a lightning bonus is included in the SAME current-tree primary hit before HP is removed. Nearby trees are never hit (reserved for Chain Lightning). HP-clamped combined damage awards XP once. A world-space blue strike is visible even if the bonus kills the tree. No recursive effect triggering.
 - Forge previews show mutation family, potency vs cap and identity. Quick test presets: GOLD ×10, FRENZY ×10, SHOCK ×10. Bag weapon details show original mutation ability and potency. Standard forging remains a fixed class; Studio RNG forging still rolls Dagger/Axe/Battlehammer.
 
 ## Automated Studio smoke tests
@@ -25,9 +25,9 @@ Execute in **Play → Server Command Bar**, or via an agent with an actual Roblo
 6. Existing `tests/WeaponRarityRoll.smoke.luau`
 7. Existing `tests/WeaponAscension.smoke.luau`
 
-Expected first test message: `ForgeMutations Batch 1: tier curves, potency caps, mutation independence, Golden Touch, Fervor and Thunderstrike passed`
+Expected test message: `ForgeMutations Batch 1: tier odds, potency, Golden Touch, Fervor, repeated same-target Thunderstrike and lethal FX passed`
 
-**New pure smoke tests cover:** tier odds and caps, per-log contributions/non-dilution, mixed-family rejection, Giant and legacy Crystal exceptions, effects registry, Golden Touch kill-only payout, Fervor same-tree timing/cooldown reset and Thunderstrike proc boundaries/one-target damage/XP callback.
+**New pure smoke tests cover:** tier odds and caps, per-log contributions/non-dilution, mixed-family rejection, Giant and legacy Crystal exceptions, effects registry, Golden Touch kill-only payout, Fervor same-tree timing/cooldown reset and three full Thunderstrike cycles, same-target damage, zero neighbor damage, combined-hit XP, and lethal VFX.
 
 A passing pure test does **not** prove the real Forge purchase/UI and chop integration. Report those separately.
 
@@ -37,7 +37,7 @@ A passing pure test does **not** prove the real Forge purchase/UI and chop integ
 2. Go to **THE FORGE**. It should say **FORGE LV 1** and offer the **2,000 coin Level 2 upgrade**. Click once. Verify it now says **FORGE LV 2**, and Copper/ Iron recipes can be accessed subject to existing forest/head requirements. Existing Studio resource auto-refill may obscure actual coin deduction. Disable `StudioForgeSandbox.ENABLED` for a separate economic-cost test; do not permanently change it for mutation crafting.
 3. In **RNG FORGE → COPPER**, use preset **GOLD ×10**. Craft using real server-owned logs; check the Forge result includes **GOLDEN TOUCH** and **M → AXES → INFO** shows the mutation ability, its potency and the `WoodMutation` effect source. Equip that weapon, chop a normal wild tree to death, and confirm the **GOLDEN TOUCH +coins** feedback. The bonus should trigger only when a tree actually dies.
 4. Use **FRENZY ×10** to forge a weapon with **Fervor**, equip it and hit the *same tougher tree* several times. Server attack intervals should shorten with accumulated hits, not when switching targets. Exact feel is provisional; no final animations required.
-5. Use **SHOCK ×10** to forge **Thunderstrike**, equip it, then hit a tree several times near another eligible tree. Watch for the brief **blue lightning flash** and an actual secondary damage number after the configured hit count. XP should be based on actual damage removed, and secondary hits must not chain new effects.
+5. Use **SHOCK ×10** to forge **Thunderstrike**, equip it, and repeatedly hit the **same** high-HP practice tree while another practice tree stands nearby. Every N successful chops, the **current tree** should take additional damage and show a blue lightning flash. Its neighbor must take no lightning damage. Confirm at least three repeated procs; Studio Output should print `THUNDERSTRIKE N/N PROC!` followed by `THUNDERSTRIKE RESULT HIT`. The combined hit awards XP only once.
 6. Use a mixture of Golden+Frenzied selected logs. The Forge must show **DO NOT MIX** and disable the craft button. No materials/heads should be consumed. Then use only **normal** logs: no mutation ability should appear.
 7. Optional: forge a 20-log Battlehammer in Studio and verify its Cleave remains independent of a Golden/Frenzied/Shocked mutation. For newly forged Battlehammers with one mutation, Bag should show **both** registered effects.
 
