@@ -123,92 +123,122 @@ check("switch away and back clears active combo",
 	Fervor.Interval(player,uid,a,1.62,baseline,frenzyParams) == baseline)
 Fervor.Clear(player)
 
--- Thunderstrike must proc repeatedly, every N real primary hits. It damages one eligible
--- secondary tree by HP-clamped amount, reports XP attribution, no recursion.
-local primary = { CFrame=CFrame.new(0,0,0), CreationId=1, HP=100, MaxHP=100 }
+-- Thunderstrike is a same-target bonus on EVERY Nth confirmed hit.
+-- Three complete cycles must damage only the primary, never its neighbor.
+-- Bonus is combined into ONE HP-clamped primary hit; no duplicate XP.
+local primary = { CFrame=CFrame.new(0,0,0), CreationId=1, HP=1500, MaxHP=1500 }
 local neighbor = { CFrame=CFrame.new(5,0,0), CreationId=2, HP=30, MaxHP=30 }
-function neighbor:TakeDamage(ctx,_player)
-	local applied = math.min(self.HP,math.floor(ctx.Damage or 0))
-	if applied <= 0 then return false end
-	self.HP -= applied
-	return true,applied,self.HP == 0
+local neighborHitCount = 0
+function neighbor:TakeDamage(_ctx, _player)
+	neighborHitCount += 1
+	return true, 1, false
 end
-local appliedHits={}
-local context={
-	Player=player, WeaponUID=uid, PrimarySucceeded=true,
-	PrimaryTree=primary, PrimaryDamage=20,
-	ActiveTrees={[primary]=true,[neighbor]=true},
+local context = {
+	Player=player, WeaponUID=uid, PrimaryTree=primary,
+	PrimaryDamage=20, PrimarySucceeded=false, PrimaryAppliedDamage=0,
+	-- These are deliberately present; Thunderstrike should NEVER use them.
+	ActiveTrees={[primary]=true, [neighbor]=true},
 	EligibleSecondary=function(_) return true end,
-	OnAppliedHit=function(tree,applied,killed,maxHP)
-		table.insert(appliedHits,{tree,applied,killed,maxHP})
-	end,
 }
--- Explicitly cover three FULL proc cycles, not merely the first strike.
--- Rebuild prepared state for every hit just like ChopHandler does.
 local telemetry = {}
 context.OnMutationTelemetry = function(id, state)
-	if id == "Thunderstrike" then
-		telemetry[#telemetry+1] = { Count=state.Count, Proc=state.Proc }
-	end
+	telemetry[#telemetry+1] = {
+		Id=id, Count=state.Count, Proc=state.Proc,
+		Outcome=state.Outcome, Damage=state.Damage,
+	}
 end
-local expected = math.floor(20*shockParams.DamageFraction)
+local expectedBonus = Thunderstrike.BonusDamage(20,shockParams)
+check("positive, bounded same-target bonus",expectedBonus>=1)
+local startingHP = primary.HP
+local attributedHP = 0
 for cycle=1,3 do
 	for swing=1,shockParams.EveryHits do
 		local prepared = Thunderstrike.Prepare(shockParams,context)
-		check("fresh secondary target " .. cycle .. "/" .. swing,
-			prepared and #prepared.Targets == 1 and prepared.Targets[1] == neighbor)
-		local hits = Thunderstrike.Apply(prepared,context)
-		check("proc only on the Nth hit for cycle " .. cycle .. "/" .. swing,
-			hits == (if swing == shockParams.EveryHits then 1 else 0))
+		local shouldProc = swing == shockParams.EveryHits
+		check("proc prepared only on Nth hit for cycle "..cycle.."/"..swing,
+			prepared ~= nil and prepared.WillProc == shouldProc)
+		check("only primary damage increases on proc "..cycle.."/"..swing,
+			prepared.BonusDamage == (if shouldProc then expectedBonus else 0))
+		-- Simulate ONE server TakeDamage, exactly as ChopHandler composes.
+		local attempted = context.PrimaryDamage + prepared.BonusDamage
+		local applied = math.min(primary.HP, attempted)
+		primary.HP -= applied
+		context.PrimarySucceeded = true
+		context.PrimaryAppliedDamage = applied
+		context.PrimaryKilled = primary.HP == 0
+		attributedHP += applied
+		check("Thunderstrike adds zero secondary hits",Thunderstrike.Apply(prepared,context)==0)
 		local state = telemetry[#telemetry]
-		check("counter advances and resets each cycle " .. cycle .. "/" .. swing,
-			state.Count == swing and state.Proc == (swing == shockParams.EveryHits))
+		check("counter repeats each cycle "..cycle.."/"..swing,
+			state.Id=="Thunderstrike" and state.Count==swing
+			and state.Proc==shouldProc)
+		if shouldProc then
+			local procResult = telemetry[#telemetry]
+			check("same-target bonus results in one verified proc",
+				procResult.Id=="ThunderstrikeResult"
+				and procResult.Outcome=="HIT"
+				and procResult.Damage==expectedBonus)
+		end
 	end
-	check("repeated secondary damage hits exactly once per proc",
-		neighbor.HP == 30-expected*cycle and #appliedHits == cycle
-		and appliedHits[cycle][1] == neighbor
-		and appliedHits[cycle][2] == expected)
 end
-check("all N*3 primary strikes reported", #telemetry == shockParams.EveryHits * 3)
+check("three full Thunderstrike cycles completed",primary.HP ==
+	startingHP - 20*shockParams.EveryHits*3 - expectedBonus*3)
+check("no adjacent tree damage ever",neighbor.HP==30 and neighborHitCount==0)
+check("primary HP removed attributed once",attributedHP == startingHP-primary.HP)
 Thunderstrike.Clear(player)
 
--- Regression: old visual was parented to the struck model AFTER damage.
--- A lethal Thunderstrike can remove that model before FX creation. The
--- replacement bolt must appear independently in workspace on a lethal hit.
+-- Unsuccessful primary strikes cannot advance the N-hit counter.
+local attempted = Thunderstrike.Prepare(shockParams,context)
+context.PrimarySucceeded = false
+context.PrimaryAppliedDamage = 0
+check("miss never applies proc", Thunderstrike.Apply(attempted,context)==0)
+local retry = Thunderstrike.Prepare(shockParams,context)
+check("miss does not consume counter", retry.NextCount==attempted.NextCount)
+Thunderstrike.Clear(player)
+
+-- Lethal regression: even when this SAME PRIMARY model is destroyed by the
+-- combined proc hit, lightning must flash at its last known position.
 local lethalModel = Instance.new("Model")
 lethalModel.Name = "TransientThunderTestTree"
 lethalModel.Parent = workspace
-local lethalPrimary = { CFrame=CFrame.new(400,0,0), CreationId=100 }
-local lethalTarget = {
-	CFrame=CFrame.new(406,0,0), CreationId=101,
-	MaxHP=5, HP=5, model=lethalModel,
+local lethal = {
+	CFrame=CFrame.new(400,0,0), CreationId=100,
+	MaxHP=2000, HP=2000, model=lethalModel,
 }
-function lethalTarget:TakeDamage(ctx, _player)
-	check("lethal strike delivers actual damage", ctx.Damage >= 5)
-	self.HP = 0
-	self.model:Destroy()
-	return true, 5, true
-end
 local lethalContext = {
-	Player=player, WeaponUID="lethal-visual-regression", PrimarySucceeded=true,
-	PrimaryTree=lethalPrimary, PrimaryDamage=100,
-	ActiveTrees={[lethalPrimary]=true, [lethalTarget]=true},
-	EligibleSecondary=function(_) return true end,
-	OnAppliedHit=function(_,applied,killed)
-		check("lethal XP callback is clamped", applied==5 and killed==true)
-	end,
+	Player=player, WeaponUID="lethal-primary-visual-regression",
+	PrimaryTree=lethal, PrimaryDamage=100,
+	PrimarySucceeded=false, PrimaryAppliedDamage=0,
 }
+local hitCount = 0
+local bonus = Thunderstrike.BonusDamage(100,shockParams)
 for swing=1,shockParams.EveryHits do
-	local lethalPrepared = Thunderstrike.Prepare(shockParams,lethalContext)
-	local hits = Thunderstrike.Apply(lethalPrepared,lethalContext)
-	check("lethal simulation procs on Nth hit", hits ==
-		(if swing == shockParams.EveryHits then 1 else 0))
+	-- Force the LAST swing into a scenario where regular 100 damage would
+	-- survive, but its Thunderstrike bonus kills the primary.
+	if swing == shockParams.EveryHits then lethal.HP = 100 + math.max(1,bonus-1) end
+	local state = Thunderstrike.Prepare(shockParams,lethalContext)
+	local attemptedDamage = lethalContext.PrimaryDamage + state.BonusDamage
+	local applied = math.min(lethal.HP, attemptedDamage)
+	lethal.HP -= applied
+	hitCount += 1
+	lethalContext.PrimaryAppliedDamage = applied
+	lethalContext.PrimarySucceeded = true
+	lethalContext.PrimaryKilled = lethal.HP==0
+	if lethal.HP==0 then lethalModel:Destroy() end
+	check("lethal primary proc emits no second hit",
+		Thunderstrike.Apply(state,lethalContext)==0)
+	if swing==shockParams.EveryHits then
+		check("same-target bonus killed primary where normal swing would not",
+			applied > 100 and lethal.HP==0 and lethalContext.PrimaryKilled)
+	end
 end
-local bolt = workspace:FindFirstChild("ThunderstrikeFlash")
-check("lethal Thunderstrike still produces a visible world bolt",
-	bolt ~= nil and bolt:IsA("Part"))
-if bolt then bolt:Destroy() end
+check("all lethal simulation primary strikes processed",hitCount==shockParams.EveryHits)
+local flash = workspace:FindFirstChild("ThunderstrikeFlash")
+check("lethal same-target Thunderstrike shows lightning after tree removal",
+	flash and flash:IsA("Part")
+	and (flash.Position - Vector3.new(400,10,0)).Magnitude < 0.1)
+if flash then flash:Destroy() end
 Thunderstrike.Clear(player)
 
-print("ForgeMutations Batch 1: tier odds, potency, Golden Touch, Fervor, 3-cycle Thunderstrike and lethal FX regression passed")
+print("ForgeMutations Batch 1: tier odds, potency, Golden Touch, Fervor, repeated same-target Thunderstrike and lethal FX passed")
 return true
