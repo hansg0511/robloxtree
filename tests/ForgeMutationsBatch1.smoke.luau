@@ -123,7 +123,7 @@ check("switch away and back clears active combo",
 	Fervor.Interval(player,uid,a,1.62,baseline,frenzyParams) == baseline)
 Fervor.Clear(player)
 
--- Thunderstrike after N real primary hits. It damages one eligible
+-- Thunderstrike must proc repeatedly, every N real primary hits. It damages one eligible
 -- secondary tree by HP-clamped amount, reports XP attribution, no recursion.
 local primary = { CFrame=CFrame.new(0,0,0), CreationId=1, HP=100, MaxHP=100 }
 local neighbor = { CFrame=CFrame.new(5,0,0), CreationId=2, HP=30, MaxHP=30 }
@@ -143,21 +143,34 @@ local context={
 		table.insert(appliedHits,{tree,applied,killed,maxHP})
 	end,
 }
-local prepared = Thunderstrike.Prepare(shockParams,context)
-check("thunder target prepared before primary strike",
-	prepared and #prepared.Targets == 1 and prepared.Targets[1] == neighbor)
-for _=1,shockParams.EveryHits-1 do
-	check("no early lightning hit",Thunderstrike.Apply(prepared,context)==0)
+-- Explicitly cover three FULL proc cycles, not merely the first strike.
+-- Rebuild prepared state for every hit just like ChopHandler does.
+local telemetry = {}
+context.OnMutationTelemetry = function(id, state)
+	if id == "Thunderstrike" then
+		telemetry[#telemetry+1] = { Count=state.Count, Proc=state.Proc }
+	end
 end
-check("one lightning proc on intended hit",
-	Thunderstrike.Apply(prepared,context)==1)
 local expected = math.floor(20*shockParams.DamageFraction)
-check("secondary damage uses fraction and one target",
-	neighbor.HP == 30-expected and #appliedHits==1
-		and appliedHits[1][1]==neighbor and appliedHits[1][2]==expected)
-check("proc counter resets and doesn't recurse",
-	Thunderstrike.Apply(prepared,context)==0 and #appliedHits==1)
+for cycle=1,3 do
+	for swing=1,shockParams.EveryHits do
+		local prepared = Thunderstrike.Prepare(shockParams,context)
+		check("fresh secondary target " .. cycle .. "/" .. swing,
+			prepared and #prepared.Targets == 1 and prepared.Targets[1] == neighbor)
+		local hits = Thunderstrike.Apply(prepared,context)
+		check("proc only on the Nth hit for cycle " .. cycle .. "/" .. swing,
+			hits == (if swing == shockParams.EveryHits then 1 else 0))
+		local state = telemetry[#telemetry]
+		check("counter advances and resets each cycle " .. cycle .. "/" .. swing,
+			state.Count == swing and state.Proc == (swing == shockParams.EveryHits))
+	end
+	check("repeated secondary damage hits exactly once per proc",
+		neighbor.HP == 30-expected*cycle and #appliedHits == cycle
+		and appliedHits[cycle][1] == neighbor
+		and appliedHits[cycle][2] == expected)
+end
+check("all N*3 primary strikes reported", #telemetry == shockParams.EveryHits * 3)
 Thunderstrike.Clear(player)
 
-print("ForgeMutations Batch 1: tier curves, potency caps, mutation independence, Golden Touch, Fervor and Thunderstrike passed")
+print("ForgeMutations Batch 1: tier odds, potency, Golden Touch, Fervor and Thunderstrike 3-cycle repeated proc regression passed")
 return true
