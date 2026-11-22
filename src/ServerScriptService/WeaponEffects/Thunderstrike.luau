@@ -84,9 +84,19 @@ function Thunderstrike.Apply(prepared, context)
 		and context.EligibleSecondary(context.PrimaryTree) then
 		target = context.PrimaryTree
 	end
-	if not target or type(target.TakeDamage) ~= "function" then return 0 end
+	if not target or type(target.TakeDamage) ~= "function" then
+		if type(context.OnMutationTelemetry) == "function" then
+			context.OnMutationTelemetry("ThunderstrikeResult", { Outcome = "NO_VALID_TARGET" })
+		end
+		return 0
+	end
 	local damage = math.floor(context.PrimaryDamage * prepared.Profile.DamageFraction)
-	if damage < 1 then return 0 end
+	if damage < 1 then
+		if type(context.OnMutationTelemetry) == "function" then
+			context.OnMutationTelemetry("ThunderstrikeResult", { Outcome = "ZERO_DAMAGE" })
+		end
+		return 0
+	end
 	local maxHP = target.MaxHP
 	-- Capture the target's world position BEFORE TakeDamage, because a lethal
 	-- strike can remove the tree's Model immediately. The lightning VFX must
@@ -98,7 +108,18 @@ function Thunderstrike.Apply(prepared, context)
 	local success, applied, killed = target:TakeDamage({
 		Damage = damage, IsCrit = false, EffectId = "Thunderstrike",
 	}, player)
-	if not success then return 0 end
+	if not success then
+		if type(context.OnMutationTelemetry) == "function" then
+			context.OnMutationTelemetry("ThunderstrikeResult", { Outcome = "DAMAGE_REJECTED" })
+		end
+		return 0
+	end
+	if type(context.OnMutationTelemetry) == "function" then
+		context.OnMutationTelemetry("ThunderstrikeResult", {
+			Outcome = "HIT", Damage = applied,
+			Killed = killed == true,
+		})
+	end
 	if type(applied) == "number" and applied > 0
 		and type(context.OnAppliedHit) == "function" then
 		context.OnAppliedHit(target, applied, killed == true, maxHP)
