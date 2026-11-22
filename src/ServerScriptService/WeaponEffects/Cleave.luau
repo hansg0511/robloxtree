@@ -105,13 +105,21 @@ function Cleave.Apply(prepared, context)
 		if hits < Cleave.MAX_TARGETS and context.ActiveTrees[tree] == true
 			and context.EligibleSecondary(tree)
 			and type(tree.TakeDamage) == "function" then
-			if tree:TakeDamage({
+			local success, applied, killed = tree:TakeDamage({
 				Damage = damage,
 				IsCrit = false,
 				-- Mark secondary damage for the Studio-only diagnostic popup.
 				EffectId = "Cleave",
-			}, context.Player) then
+			}, context.Player)
+			if success then
 				hits += 1
+				-- Optional trusted callback: a real TreeObject returns its
+				-- HP-clamped applied damage. Synthetic old test doubles only
+				-- return the boolean and do not award XP.
+				if type(context.OnAppliedHit) == "function"
+					and type(applied) == "number" and applied > 0 then
+					context.OnAppliedHit(tree, applied, killed == true)
+				end
 			end
 		end
 	end
