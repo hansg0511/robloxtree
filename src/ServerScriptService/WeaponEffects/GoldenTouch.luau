@@ -27,6 +27,9 @@ function GoldenTouch.Apply(prepared, context)
 	local coins = math.clamp(
 		math.floor(base * prepared.Profile.CoinFraction + 0.5), 1, 50000)
 	context.AwardCoins(coins)
+	if type(context.OnMutationProc)=="function" then
+		context.OnMutationProc("GoldenTouch",{Amount=coins})
+	end
 	return 0
 end
 
