@@ -7,8 +7,13 @@ local Dispatcher = {}
 local handlers = {
 	Cleave = require(script.Parent.Cleave),
 	GoldenTouch = require(script.Parent.GoldenTouch),
+	GoldenRush = require(script.Parent.GoldenRush),
+	GoldenJackpot = require(script.Parent.GoldenJackpot),
 	Fervor = require(script.Parent.Fervor),
+	Bloodrush = require(script.Parent.Bloodrush),
+	Rampage = require(script.Parent.Rampage),
 	Thunderstrike = require(script.Parent.Thunderstrike),
+	ChainLightning = require(script.Parent.ChainLightning),
 }
 Dispatcher.MAX_EFFECTS = 8
 
