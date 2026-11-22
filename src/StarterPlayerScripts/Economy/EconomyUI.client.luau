@@ -1824,16 +1824,18 @@ local function getForgeSelectedLogUids(recipeId)
 end
 
 local function forgeMutationPreview(recipe, selectedUids)
+	local forgeLevel = type(latestShopData) == "table"
+		and latestShopData.ForgeLevel or nil
 	if type(recipe) ~= "table" or type(recipe.Tier) ~= "number"
 		or type(selectedUids) ~= "table" or #selectedUids == 0
-		or not forgeSnapshotFresh then return nil end
+		or not forgeSnapshotFresh or type(forgeLevel) ~= "number" then return nil end
 	local logs = {}
 	for _, uid in ipairs(selectedUids) do
 		local log = forgeEligibleLogsByUid[uid]
 		if not log then return nil end
 		logs[#logs + 1] = log
 	end
-	return ForgeMutationRules.Preview(logs, recipe.Tier)
+	return ForgeMutationRules.Preview(logs, forgeLevel)
 end
 
 local function canSubmitForgeRecipe(recipe)
@@ -1962,15 +1964,17 @@ end
 -- Display the exact deterministic probabilities and material potential.
 -- The server independently resolves and validates the real log records.
 local function forgeExperimentPreview(recipe, selectedLogUids)
+	local forgeLevel = type(latestShopData) == "table"
+		and latestShopData.ForgeLevel or nil
 	if recipe.Experimental ~= true or not forgeSnapshotFresh
-		or #selectedLogUids == 0 then return nil end
+		or type(forgeLevel) ~= "number" or #selectedLogUids == 0 then return nil end
 	local logs = {}
 	for _, uid in ipairs(selectedLogUids) do
 		local record = forgeEligibleLogsByUid[uid]
 		if not record then return nil end
 		table.insert(logs, record)
 	end
-	return ExperimentalForgeRules.Preview(recipe.HeadBasePower, logs, recipe.Tier)
+	return ExperimentalForgeRules.Preview(recipe.HeadBasePower, logs, forgeLevel)
 end
 
 local function renderForge(data)

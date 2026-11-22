@@ -542,16 +542,19 @@ local function craftExperimental(player, recipe, selectedLogUids)
 		})
 	end
 
-	local mutationPreview = ForgeMutations.Preview(rollLogs, recipe.Tier)
+	-- ForgeLevel is the upgradeable workstation tier. recipe.Tier remains the
+	-- material/forest tier and only gates access.
+	local forgeLevel = progress.ForgeLevel
+	local mutationPreview = ForgeMutations.Preview(rollLogs, forgeLevel)
 	if not mutationPreview or mutationPreview.InvalidReason then
 		restoreCraftLogs(player, recipe, removedLogs, sourceByUid)
 		return
 	end
-	local mutationAbility = ForgeMutations.Roll(mutationPreview, recipe.Tier, Random.new())
+	local mutationAbility = ForgeMutations.Roll(mutationPreview, forgeLevel, Random.new())
 	local metal = if recipe.Tier == 1 then "Copper" else "Iron"
 	local rollOk, result = pcall(function()
 		return ExperimentalForgeRules.Roll(recipe.HeadBasePower,
-			rollLogs, Random.new(), recipe.Tier)
+			rollLogs, Random.new(), forgeLevel)
 	end)
 	if not rollOk or type(result) ~= "table" or not recipe.Outputs[result.Class] then
 		restoreCraftLogs(player, recipe, removedLogs, sourceByUid)
@@ -706,12 +709,15 @@ craftRecipe.OnServerEvent:Connect(function(player, recipeId, selectedLogUids, ..
 		})
 	end
 
-	local mutationPreview = ForgeMutations.Preview(sourceMaterials, recipe.Tier)
+	-- A Level 2 forge may still craft Copper, but its mutation/class ceilings
+	-- are Level 2 ceilings; keep AxeTier separate from ForgeLevel.
+	local forgeLevel = progress.ForgeLevel
+	local mutationPreview = ForgeMutations.Preview(sourceMaterials, forgeLevel)
 	if not mutationPreview or mutationPreview.InvalidReason then
 		restoreCraftLogs(player, recipe, removedLogs, sourceByUid)
 		return
 	end
-	local mutationAbility = ForgeMutations.Roll(mutationPreview, recipe.Tier, Random.new())
+	local mutationAbility = ForgeMutations.Roll(mutationPreview, forgeLevel, Random.new())
 	local finalPower = math.floor((recipe.HeadBasePower + bonusTotal / #removedLogs) * 10 + 0.5) / 10
 	-- Fixed-output recipes keep their original class/stat formulas. Only
 	-- rarity is rolled, through the same server module as experimental mode.
