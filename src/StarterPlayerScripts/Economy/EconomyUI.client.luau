@@ -1339,7 +1339,7 @@ local function renderAxeDetail(axe)
 				end
 			end
 		end
-		axeStatNote("Experimental effects are active in Studio only.")
+		axeStatNote("Mutation effects run on the server; class Cleave remains Studio-only.")
 	end
 
 	axeStatSection("MUTATIONS")
@@ -1364,7 +1364,7 @@ local function renderAxeDetail(axe)
 	end
 	local goldenBonus = safeAxeNumber(axe.GoldenBonus)
 	if goldenBonus and goldenBonus > 0 and displayed > 0 then
-		axeStatRow("Golden test roll",
+		axeStatRow("Legacy Golden test roll",
 			string.format("+%.1f%% (inactive)", goldenBonus * 100))
 	end
 	axeStatNote("Mutation passives are not active yet. Their effects will appear here later.")
