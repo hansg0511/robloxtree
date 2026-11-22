@@ -228,6 +228,7 @@ local function buildOwnedAxes(profile)
 				Id = "debug_pro_axe",
 				Name = debugInfo.Name,
 				Power = catalog.BaseAttack + attack,
+				Rarity = "Debug", -- session-only item has no natural rarity or XP
 				ItemID = debugWeapon.ItemID,
 				UID = debugUID,
 				Owned = true,
