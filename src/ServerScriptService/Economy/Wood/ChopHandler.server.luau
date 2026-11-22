@@ -143,6 +143,16 @@ ChopEvent.OnServerEvent:Connect(function(player)
 	effectContext.PrimarySucceeded = true
 	if fervorParams then
 		local stacks = Fervor.RecordHit(player, weaponUID, tree, now, fervorParams)
+		-- Replicate only server-confirmed combo state to the equipped Tool.
+		-- The client uses it for animation/input pacing; server gating above
+		-- remains authoritative regardless of local attribute tampering.
+		local tool = runtime.EquippedWeaponTool
+		if typeof(tool) == "Instance" and tool:IsA("Tool") then
+			tool:SetAttribute("FervorStacks", stacks)
+			tool:SetAttribute("FervorSpeedPerStack", fervorParams.SpeedPerStack)
+			tool:SetAttribute("FervorExpiresAtServerTime",
+				workspace:GetServerTimeNow() + fervorParams.WindowSeconds)
+		end
 		if isMutationPracticeTree then
 			print(string.format(
 				"[MutationPractice] FERVOR stacks=%d/%d | allowed interval=%.3fs | actual gap=%s",
