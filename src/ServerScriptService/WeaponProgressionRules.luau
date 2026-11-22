@@ -79,6 +79,7 @@ function Rules.ApplyXP(progression, rarity, xpGain)
 	end
 	local xp = math.min(Rules.MAX_SAVED_XP, current.XP + xpGain)
 	local level = current.Level
+	local startingLevel = level
 	while level < cap do
 		local required = Rules.XPToNextLevel(rarity, level)
 		if not required or xp < required then break end
@@ -87,7 +88,7 @@ function Rules.ApplyXP(progression, rarity, xpGain)
 	end
 	current.Level = level
 	current.XP = if level >= cap then 0 else xp
-	return current, level - (progression and progression.Level or 1)
+	return current, level - startingLevel
 end
 
 function Rules.NewProgression()
