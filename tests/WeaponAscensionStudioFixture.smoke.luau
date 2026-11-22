@@ -11,6 +11,11 @@ local Ascension = require(game.ServerScriptService.WeaponAscensionRules)
 local AscensionService = require(game.ServerScriptService.WeaponAscensionService)
 local LogService = require(game.ServerScriptService.Inventory.LogService)
 local StatsAggregator = require(game.ServerStorage.Items.StatsAggregator)
+local ForgeSandbox = require(game.ServerScriptService.Economy.StudioForgeSandbox)
+
+-- Disable automatic 1-billion-coin refill for THIS Studio Play session so
+-- the ascension price and material deductions can actually be observed.
+ForgeSandbox.ENABLED = false
 
 local FORCE_GUARANTEED_NEXT_ATTEMPT = true -- set false to test ordinary RNG
 local player = Players:GetPlayers()[1]
