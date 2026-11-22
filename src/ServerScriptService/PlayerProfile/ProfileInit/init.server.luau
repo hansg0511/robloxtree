@@ -29,6 +29,9 @@ local ProfileTemplate = {
 	Saplings = {},
 	GroveTrees = {},
 	GroveMaterials = {},
+	-- Expandable server-owned stackable upgrade-material balances.
+	-- No materials are granted here; new items need an acquisition source.
+	MaterialBalances = {},
 	ActiveGroveTreeUIDs = {},
 	-- Axe heads are crafting materials, never equipable Tools.
 	AxeHeads = {
