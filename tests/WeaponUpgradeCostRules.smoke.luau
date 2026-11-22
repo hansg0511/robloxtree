@@ -1,6 +1,12 @@
 -- Phase 3 pure multi-resource recipe architecture smoke test.
 -- Execute as a Roblox Studio SERVER script through the agent's runner.
 local Rules=require(game.ServerScriptService.Economy.WeaponUpgradeCostRules)
+local CostService=require(game.ServerScriptService.Economy.WeaponUpgradeCostService)
+assert(type(CostService.Preview)=="function"
+	and type(CostService.Take)=="function"
+	and type(CostService.Rollback)=="function"
+	and type(CostService.Finalize)=="function",
+	"[UpgradeCost] server transaction adapter failed to initialize")
 local function check(name,condition)
 	assert(condition,"[UpgradeCost] "..name.." FAIL")
 end
