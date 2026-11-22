@@ -1,11 +1,15 @@
 -- Pure, server-authoritative weapon progression rules.
--- Phase 1A only: schema, validation, level caps and derived combat stats.
--- NO XP granting, rarity RNG, ascension or mutation ability rolls here.
+-- Phase 1B: schema, validation, level caps, XP progression and derived stats.
+-- Natural rarity RNG, ascension and mutation ability rolls are future phases.
 local Rules = {}
 
 Rules.SCHEMA_VERSION = 1
 Rules.MAX_SAVED_XP = 1e12
 Rules.MAX_ASCENSION_FAILURES = 1000000
+-- Provisional active-chopping XP tune values; adjust via playtesting.
+Rules.XP_PER_DAMAGE = 1
+Rules.KILL_XP_PER_MAX_HP = 0.25
+Rules.MAX_TREE_HP_FOR_XP = 10000000
 Rules.RARITY_ORDER = { "Common", "Rare", "Epic", "Legendary", "Ultra" }
 
 -- PROTOTYPE TUNING VALUES, not finalized economy design. All rarities may be
@@ -40,6 +44,52 @@ function Rules.GetLevelCap(rarity)
 	return config and config.LevelCap or nil
 end
 
+-- XP represents progress within the current level, not lifetime total.
+-- XP at cap is always zero. No AFK or per-hit XP sources are involved.
+function Rules.XPToNextLevel(rarity, level)
+	local cap = Rules.GetLevelCap(rarity)
+	if not cap or type(level) ~= "number" or level % 1 ~= 0
+		or level < 1 or level >= cap then return nil end
+	-- Placeholder curve; cap-safe integer. Higher rarity has more levels.
+	return 100 + 25 * level
+end
+
+function Rules.XPForAppliedHit(appliedDamage, maxHP, killed)
+	if not finite(appliedDamage) or appliedDamage <= 0
+		or not finite(maxHP) or maxHP <= 0 or maxHP > Rules.MAX_TREE_HP_FOR_XP
+		or appliedDamage > maxHP then return 0 end
+	-- The caller supplies HP-clamped applied damage from the trusted server
+	-- tree object, NEVER calculated hit damage or a client claim.
+	local damageXP = math.floor(appliedDamage * Rules.XP_PER_DAMAGE)
+	local killBonus = if killed == true
+		then math.floor(maxHP * Rules.KILL_XP_PER_MAX_HP) else 0
+	return math.max(0, damageXP + killBonus)
+end
+
+-- Pure, non-mutating advancement. One large hit can pass multiple level
+-- boundaries, and XP at the cap is discarded (no hidden pre-ascension bank).
+function Rules.ApplyXP(progression, rarity, xpGain)
+	local current = Rules.NormalizeProgression(progression, rarity)
+	local cap = Rules.GetLevelCap(rarity)
+	if not cap or not finite(xpGain) or xpGain <= 0
+		or xpGain % 1 ~= 0 then return current, 0 end
+	if current.Level >= cap then
+		current.XP = 0
+		return current, 0
+	end
+	local xp = math.min(Rules.MAX_SAVED_XP, current.XP + xpGain)
+	local level = current.Level
+	while level < cap do
+		local required = Rules.XPToNextLevel(rarity, level)
+		if not required or xp < required then break end
+		xp -= required
+		level += 1
+	end
+	current.Level = level
+	current.XP = if level >= cap then 0 else xp
+	return current, level - (progression and progression.Level or 1)
+end
+
 function Rules.NewProgression()
 	return {
 		SchemaVersion = Rules.SCHEMA_VERSION,
@@ -54,10 +104,12 @@ end
 function Rules.NormalizeProgression(value, rarity)
 	local source = if type(value) == "table" then value else {}
 	local cap = Rules.GetLevelCap(rarity) or Rules.RARITIES.Common.LevelCap
+	local level = boundedInteger(source.Level, 1, cap, 1)
+	local xp = boundedInteger(source.XP, 0, Rules.MAX_SAVED_XP, 0)
 	return {
 		SchemaVersion = Rules.SCHEMA_VERSION,
-		Level = boundedInteger(source.Level, 1, cap, 1),
-		XP = boundedInteger(source.XP, 0, Rules.MAX_SAVED_XP, 0),
+		Level = level,
+		XP = if level >= cap then 0 else xp,
 		AscensionFailures = boundedInteger(
 			source.AscensionFailures, 0, Rules.MAX_ASCENSION_FAILURES, 0
 		),
