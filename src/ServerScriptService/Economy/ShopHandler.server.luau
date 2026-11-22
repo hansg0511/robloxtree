@@ -769,6 +769,7 @@ craftRecipe.OnServerEvent:Connect(function(player, recipeId, selectedLogUids, ..
 		Metal = if recipe.Tier == 1 then "Copper" else "Iron",
 		Rarity = rarity,
 		Power = finalPower + ProgressionRules.DerivedAttackBonus(itemRecord, catalog.BaseAttack),
+		AbilityId = mutationAbility and mutationAbility.Id or nil,
 	})
 	economyUpdated:FireClient(player, "Progression")
 end)
