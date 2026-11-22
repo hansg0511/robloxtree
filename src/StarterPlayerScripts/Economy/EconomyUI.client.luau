@@ -1180,17 +1180,21 @@ local function renderAxeDetail(axe)
 
 	axeStatSection("PROGRESSION")
 	local rarity = type(axe.Rarity) == "string" and axe.Rarity or "Common"
-	local level = safeAxeNumber(axe.Level) or 1
-	local cap = safeAxeNumber(axe.LevelCap) or level
 	local rarityValueLabel = axeStatRow("Rarity", rarity)
 	rarityValueLabel.TextColor3 = RARITY_TEXT_COLORS[rarity] or COLORS.BagText
-	axeStatRow("Level", string.format("%d / %d", level, cap))
-	if level >= cap then
-		axeStatRow("Weapon XP", "MAX LEVEL")
+	if rarity == "Debug" then
+		axeStatNote("Session-only debug weapon; no rarity or XP progression.")
 	else
-		local xp = safeAxeNumber(axe.XP) or 0
-		local required = safeAxeNumber(axe.XPToNextLevel) or 0
-		axeStatRow("Weapon XP", string.format("%d / %d", xp, required))
+		local level = safeAxeNumber(axe.Level) or 1
+		local cap = safeAxeNumber(axe.LevelCap) or level
+		axeStatRow("Level", string.format("%d / %d", level, cap))
+		if level >= cap then
+			axeStatRow("Weapon XP", "MAX LEVEL")
+		else
+			local xp = safeAxeNumber(axe.XP) or 0
+			local required = safeAxeNumber(axe.XPToNextLevel) or 0
+			axeStatRow("Weapon XP", string.format("%d / %d", xp, required))
+		end
 	end
 	axeStatSection("WEAPON STATS")
 	local speed = safeAxeNumber(axe.AttacksPerSecond)
