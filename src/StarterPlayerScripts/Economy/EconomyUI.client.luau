@@ -4,6 +4,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local ExperimentalForgeRules = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ExperimentalForgeRules"))
+local ForgeMutationRules = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ForgeMutationRules"))
 local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
@@ -21,6 +22,7 @@ local CraftRecipeRE = economy:WaitForChild("CraftRecipeRE")
 local purchaseCapacity = economy:WaitForChild("PurchaseCapacityRE")
 local equipAxe = economy:WaitForChild("EquipAxeRE")
 local ascendWeapon = economy:WaitForChild("AscendWeaponRE")
+local upgradeForge = economy:WaitForChild("UpgradeForgeRE")
 
 local COLORS = {
 	Backdrop = Color3.fromRGB(7, 17, 23),
@@ -666,10 +668,14 @@ local forgeTierIron = button(forgePanel, "TierIron", "IRON",
 	UDim2.new(0.5, -24, 0, 34), UDim2.new(0.5, 4, 0, 129), COLORS.BagSlot)
 forgeTierIron.TextSize = 15
 
+local forgeUpgradeButton = button(forgePanel, "UpgradeForge", "FORGE LEVEL 1",
+	UDim2.new(1, -40, 0, 30), UDim2.new(0, 20, 0, 172), COLORS.BagAction)
+forgeUpgradeButton.TextSize = 14
+
 local forgeList = Instance.new("ScrollingFrame")
 forgeList.Name = "RecipeList"
-forgeList.Position = UDim2.new(0, 20, 0, 177)
-forgeList.Size = UDim2.new(1, -40, 1, -195)
+forgeList.Position = UDim2.new(0, 20, 0, 211)
+forgeList.Size = UDim2.new(1, -40, 1, -229)
 forgeList.BackgroundColor3 = COLORS.BagBack
 forgeList.BackgroundTransparency = 0
 forgeList.BorderSizePixel = 0
@@ -690,7 +696,7 @@ local forgeLayout = Instance.new("UIListLayout")
 forgeLayout.Padding = UDim.new(0, 12)
 forgeLayout.SortOrder = Enum.SortOrder.LayoutOrder
 forgeLayout.Parent = forgeList
-local forgeEmptyState = label(forgePanel, "ForgeEmptyState", "LOADING RECIPES...", UDim2.new(1, -60, 0, 80), UDim2.new(0, 30, 0, 180), 20, COLORS.BagMuted, Enum.Font.GothamBold)
+local forgeEmptyState = label(forgePanel, "ForgeEmptyState", "LOADING RECIPES...", UDim2.new(1, -60, 0, 80), UDim2.new(0, 30, 0, 215), 20, COLORS.BagMuted, Enum.Font.GothamBold)
 forgeEmptyState.TextXAlignment = Enum.TextXAlignment.Center
 forgeEmptyState.ZIndex = 3
 forgeEmptyState.Visible = true
@@ -1810,6 +1816,19 @@ local function getForgeSelectedLogUids(recipeId)
 	return selectedLogUids
 end
 
+local function forgeMutationPreview(recipe, selectedUids)
+	if type(recipe) ~= "table" or type(recipe.Tier) ~= "number"
+		or type(selectedUids) ~= "table" or #selectedUids == 0
+		or not forgeSnapshotFresh then return nil end
+	local logs = {}
+	for _, uid in ipairs(selectedUids) do
+		local log = forgeEligibleLogsByUid[uid]
+		if not log then return nil end
+		logs[#logs + 1] = log
+	end
+	return ForgeMutationRules.Preview(logs, recipe.Tier)
+end
+
 local function canSubmitForgeRecipe(recipe)
 	if type(recipe) ~= "table"
 		or recipe.CanCraft ~= true
@@ -1821,6 +1840,8 @@ local function canSubmitForgeRecipe(recipe)
 	local required = requiredForgeLogCount(recipe)
 	local selectedLogUids = getForgeSelectedLogUids(recipe.Id)
 	if not required or not selectedLogUids then return false end
+	local preview = forgeMutationPreview(recipe, selectedLogUids)
+	if preview and preview.InvalidReason then return false end
 	if recipe.Experimental == true then
 		return #selectedLogUids >= required
 			and #selectedLogUids <= (recipe.MaxLogCount or 0)
@@ -1873,8 +1894,9 @@ local function forgeQuickPick(recipeId, wantedCount, mode)
 	end)
 	local selection = {}
 	for _, record in ipairs(candidates) do
-		if mode ~= "Golden" or (type(record.Mutations) == "table"
-			and record.Mutations.Golden == true) then
+		if (mode ~= "Golden" and mode ~= "Frenzied" and mode ~= "Shocked")
+			or (type(record.Mutations) == "table"
+				and record.Mutations[mode] == true) then
 			table.insert(selection, record.UID)
 			if #selection >= wantedCount then break end
 		end
@@ -1883,13 +1905,21 @@ local function forgeQuickPick(recipeId, wantedCount, mode)
 	forgeLogCanvasPositions[recipeId] = Vector2.new(0, 0)
 end
 
-local function forgeSelectionStatus(recipe, selectedCount, required)
+local function forgeSelectionStatus(recipe, selectedCount, required, mutationPreview)
 	if not forgeSnapshotFresh then return "REFRESHING SERVER DATA", COLORS.BagMuted end
 	if not forgeEligibleLogsAvailable then return "ELIGIBLE LOG DATA UNAVAILABLE", COLORS.Orange end
 	if not required then return "RECIPE REQUIREMENT DATA UNAVAILABLE", COLORS.Orange end
 	if recipe.AtForge ~= true then return "RETURN TO THE FORGE", COLORS.Orange end
 	if recipe.ProgressionValid ~= true then return "PROGRESSION REQUIREMENT NOT MET", COLORS.Orange end
 	if not hasForgeHead(recipe) then return "NEED THE REQUIRED AXE HEAD", COLORS.Orange end
+	if type(latestShopData) == "table"
+		and type(latestShopData.ForgeLevel) == "number"
+		and latestShopData.ForgeLevel < recipe.Tier then
+		return "UPGRADE THE FORGE FOR THIS METAL", COLORS.Orange
+	end
+	if mutationPreview and mutationPreview.InvalidReason then
+		return "DO NOT MIX GOLDEN / FRENZIED / SHOCKED", COLORS.Orange
+	end
 	if recipe.Experimental == true then
 		if selectedCount < 1 then
 			return "ADD AT LEAST ONE LOG TO FORGE", COLORS.BagMuted
@@ -1902,6 +1932,10 @@ local function forgeSelectionStatus(recipe, selectedCount, required)
 		return "SELECT " .. tostring(missingCount) .. " MORE ELIGIBLE LOG" .. (if missingCount == 1 then "" else "S"), COLORS.BagMuted
 	end
 	if recipe.CanCraft ~= true then return "RECIPE REQUIREMENTS NOT MET", COLORS.BagMuted end
+	if mutationPreview and mutationPreview.WastedPotency > 0.001 then
+		return string.format("READY • %.1f%% MUTATION POTENCY WASTED AT CAP",
+			mutationPreview.WastedPotency * 100), COLORS.Orange
+	end
 	return "READY TO CRAFT", COLORS.BagAction
 end
 
@@ -1929,11 +1963,21 @@ local function forgeExperimentPreview(recipe, selectedLogUids)
 		if not record then return nil end
 		table.insert(logs, record)
 	end
-	return ExperimentalForgeRules.Preview(recipe.HeadBasePower, logs)
+	return ExperimentalForgeRules.Preview(recipe.HeadBasePower, logs, recipe.Tier)
 end
 
 local function renderForge(data)
 	clearForgeRows()
+	local forgeLevel = type(data) == "table" and data.ForgeLevel or 1
+	local upgrade = type(data) == "table" and data.ForgeUpgrade or nil
+	forgeUpgradeButton.Text = if type(upgrade) == "table"
+		then string.format("FORGE LV %d  •  UPGRADE TO LV %d FOR %s COINS",
+			forgeLevel, upgrade.ToLevel or 2, formatCoins(upgrade.CoinCost or 0))
+		else "FORGE LV " .. tostring(forgeLevel) .. "  •  MAX"
+	forgeUpgradeButton.Active = type(upgrade) == "table" and upgrade.CanUpgrade == true
+	forgeUpgradeButton.AutoButtonColor = forgeUpgradeButton.Active
+	forgeUpgradeButton.BackgroundColor3 = if forgeUpgradeButton.Active
+		then COLORS.BagAction else COLORS.Disabled
 	forgeModeRng.BackgroundColor3 = if forgeModeSelection == "RNG" then COLORS.BagAction else COLORS.BagSlot
 	forgeModeStandard.BackgroundColor3 = if forgeModeSelection == "STANDARD" then COLORS.BagAction else COLORS.BagSlot
 	forgeTierCopper.BackgroundColor3 = if forgeMetalSelection == "copper" then COLORS.Gold else COLORS.BagSlot
@@ -2022,17 +2066,27 @@ local function renderForge(data)
 		clearSelection.TextStrokeTransparency = 0
 
 		local experimentPreview = forgeExperimentPreview(recipe, selectedLogUids)
+		local mutationPreview = forgeMutationPreview(recipe, selectedLogUids)
 		local estimate = if recipe.Experimental == true then nil
 			else forgePowerEstimate(recipe, selectedLogUids)
-		local estimateText = if recipe.Experimental == true
-			then (if experimentPreview then string.format(
-				"LOG QUALITY %.1f%%   •   GOLDEN %.1f%%",
-				experimentPreview.MaterialQuality * 100,
-				experimentPreview.GoldenQuality * 100)
-				else "ADD LOGS TO PREVIEW QUALITY AND CHANCES")
-			else if estimate ~= nil
-				then string.format("POWER ESTIMATE  %.1f  •  PREVIEW ONLY", estimate)
-			else if forgeSnapshotFresh then "POWER ESTIMATE  —  •  PREVIEW ONLY" else "POWER ESTIMATE UPDATING  •  PREVIEW ONLY"
+		local estimateText
+		if mutationPreview and mutationPreview.InvalidReason then
+			estimateText = "MIXED MUTATIONS: CHOOSE ONE ABILITY FAMILY"
+		elseif mutationPreview and mutationPreview.Family then
+			estimateText = string.format("%s • POTENCY %.1f%% / %.0f%% CAP • %s",
+				string.upper(mutationPreview.Family), mutationPreview.Potency * 100,
+				mutationPreview.PotencyCap * 100,
+				string.upper(tostring(mutationPreview.AvailableAbilities[1] or "")))
+		elseif recipe.Experimental == true then
+			estimateText = if experimentPreview
+				then string.format("LOG QUALITY %.1f%% • NO MUTATION ABILITY",
+					experimentPreview.MaterialQuality * 100)
+				else "ADD LOGS TO PREVIEW QUALITY AND CHANCES"
+		else
+			estimateText = if estimate ~= nil
+				then string.format("POWER ESTIMATE %.1f • NO MUTATION ABILITY", estimate)
+				else "SELECT LOGS TO SEE POWER AND MUTATIONS"
+		end
 		local estimateLine = label(card, "PowerEstimate", estimateText, UDim2.new(1, -32, 0, 22), UDim2.new(0, 16, 0, 128), 15, COLORS.BagAction, Enum.Font.GothamBold)
 		estimateLine.TextTruncate = Enum.TextTruncate.AtEnd
 		estimateLine.TextWrapped = false
@@ -2052,7 +2106,7 @@ local function renderForge(data)
 		oddsLine.TextTruncate = Enum.TextTruncate.AtEnd
 
 
-		local statusText, statusColor = forgeSelectionStatus(recipe, selectedCount, required)
+		local statusText, statusColor = forgeSelectionStatus(recipe, selectedCount, required, mutationPreview)
 		local status = label(card, "Availability", statusText, UDim2.new(1, -32, 0, 22), UDim2.new(0, 16, 0, 176), 15, statusColor, Enum.Font.GothamBold)
 		status.TextTruncate = Enum.TextTruncate.AtEnd
 		status.TextWrapped = false
@@ -2065,8 +2119,8 @@ local function renderForge(data)
 			local presets = {
 				{ "1 LOG", 1, "High" }, { "5 LOGS", 5, "High" },
 				{ "10 LOGS", 10, "High" }, { "20 LOGS", 20, "High" },
-				{ "GOLD ×10", 10, "Golden" }, { "LOW ×10", 10, "Low" },
-				{ "STRESS ×96", 96, "High" },
+				{ "GOLD ×10", 10, "Golden" }, { "FRENZY ×10", 10, "Frenzied" },
+				{ "SHOCK ×10", 10, "Shocked" },
 			}
 			for index, preset in ipairs(presets) do
 				local column = (index - 1) % 4
@@ -2269,6 +2323,17 @@ forgeModeStandard.Activated:Connect(function()
 	forgeShowStatRanges = false
 	forgeList.CanvasPosition = Vector2.zero
 	if latestShopData then renderForge(latestShopData) end
+end)
+forgeUpgradeButton.Activated:Connect(function()
+	local upgrade = latestShopData and latestShopData.ForgeUpgrade
+	if not forgeUpgradeButton.Active or type(upgrade) ~= "table"
+		or upgrade.CanUpgrade ~= true then return end
+	forgeUpgradeButton.Active = false
+	forgeUpgradeButton.Text = "UPGRADING FORGE..."
+	upgradeForge:FireServer()
+	task.delay(0.35, function()
+		if forgeOverlay.Visible then refreshShop() end
+	end)
 end)
 forgeTierCopper.Activated:Connect(function()
 	forgeMetalSelection = "copper"
@@ -2479,6 +2544,14 @@ end)
 local legacyEconomyUpdated = economy:FindFirstChild("EconomyUpdated")
 if legacyEconomyUpdated then
 	legacyEconomyUpdated.OnClientEvent:Connect(function(currency, payload)
+		if currency == "ForgeUpgraded" and type(payload) == "table" then
+			showFeedback("FORGE UPGRADED TO LEVEL " .. tostring(payload.Level), COLORS.Gold, 3)
+		end
+		if currency == "MutationProc" and type(payload) == "table"
+			and payload.Id == "GoldenTouch" then
+			showFeedback("GOLDEN TOUCH!  +" .. formatCoins(payload.Amount or 0) .. " COINS",
+				COLORS.Gold, 2.2)
+		end
 		if currency == "ForgeResult" and type(payload) == "table"
 			and type(payload.Class) == "string"
 			and type(payload.Metal) == "string"
