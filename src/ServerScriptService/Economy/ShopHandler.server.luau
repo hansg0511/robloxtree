@@ -6,6 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ExperimentalForgeRules = require(ReplicatedStorage.Shared.ExperimentalForgeRules)
 local WeaponEffects = require(game.ServerScriptService.WeaponEffects.Dispatcher)
 local ProgressionRules = require(game.ServerScriptService.WeaponProgressionRules)
+local WeaponAscensionService = require(game.ServerScriptService.WeaponAscensionService)
 local WeaponRarityRoll = require(game.ServerScriptService.WeaponRarityRoll)
 local ServerScriptService = game:GetService("ServerScriptService")
 
@@ -26,6 +27,7 @@ local purchaseAxeHead = economyRemotes:WaitForChild("PurchaseAxeHeadRE")
 local craftRecipe = economyRemotes:WaitForChild("CraftRecipeRE")
 local purchaseCapacity = economyRemotes:WaitForChild("PurchaseCapacityRE")
 local economyUpdated = economyRemotes:WaitForChild("EconomyUpdated")
+local ascendWeapon = economyRemotes:WaitForChild("AscendWeaponRE")
 
 -- The existing inventory owns all finished weapons. This server-only function
 -- validates and inserts a weapon through the same runtime/profile path as shop axes.
@@ -136,7 +138,7 @@ local function materialMutationSummary(materials)
 	return summary, total
 end
 
-local function buildOwnedAxes(profile)
+local function buildOwnedAxes(player, profile, eligibleAscensionLogs)
 	local axes = {}
 	local data = profile.Data
 	local runtime = type(data.Runtime) == "table" and data.Runtime or nil
@@ -160,6 +162,7 @@ local function buildOwnedAxes(profile)
 		local progression = ProgressionRules.NormalizeProgression(
 			weaponData and weaponData.Progression, rarity)
 		local level = progression.Level
+		local ascension = WeaponAscensionService.Preview(player, item, eligibleAscensionLogs)
 		local experimentalClass = weaponData and weaponData.ExperimentalClass
 		local experimentalName = if (experimentalClass == "Dagger"
 			or experimentalClass == "Axe" or experimentalClass == "Battlehammer")
@@ -175,6 +178,7 @@ local function buildOwnedAxes(profile)
 			LevelCap = ProgressionRules.GetLevelCap(rarity),
 			XP = progression.XP,
 			XPToNextLevel = ProgressionRules.XPToNextLevel(rarity, level),
+			Ascension = ascension,
 			Experimental = experimentalName ~= nil,
 			WeaponKind = weaponData and weaponData.WeaponKind,
 			MaterialQuality = weaponData and weaponData.MaterialQuality,
@@ -356,7 +360,7 @@ local function buildShopSnapshot(player, profile)
 		EligibleCraftLogs = eligibleCraftLogs,
 		-- Axes are now owned inventory only. The Axe Shop no longer exposes a
 		-- purchasable list of finished progression weapons.
-		Axes = buildOwnedAxes(profile),
+		Axes = buildOwnedAxes(player, profile, #WeaponAscensionService.EligibleLogs(player)),
 		CapacityUpgrades = upgrades,
 		StandardAxeTier = standardTier,
 		UnlockedForests = unlockedForests,
@@ -372,6 +376,29 @@ getShopData.OnServerInvoke = function(player, ...)
 	StudioForgeSandbox.Refill(player, profile.Data)
 	return buildShopSnapshot(player, profile)
 end
+
+-- Ascension request takes only a weapon UID. Costs, eligible logs, pity
+-- and RNG remain server-owned; errors return a safe display reason.
+ascendWeapon.OnServerEvent:Connect(function(player, uid, ...)
+	if select("#", ...) ~= 0 or not takeBudget(player, "AscendWeapon") then return end
+	if type(uid) ~= "string" or #uid < 1 or #uid > 128 then return end
+	local ok, result = pcall(function()
+		return WeaponAscensionService.Attempt(player, uid)
+	end)
+	if not ok then
+		warn("[Ascension] transaction error:", result)
+		ascendWeapon:FireClient(player, { Reason = "SERVER_ERROR" })
+		return
+	end
+	ascendWeapon:FireClient(player, result)
+	if result and result.Reason == "ATTEMPT_RESOLVED" then
+		local profile = profileCache.GetProfile(player)
+		if profile and type(profile.Data) == "table" then
+			economyUpdated:FireClient(player, "Coins", profile.Data.Coins)
+		end
+		economyUpdated:FireClient(player, "Progression")
+	end
+end)
 
 purchaseAxeHead.OnServerEvent:Connect(function(player, headId, ...)
 	if select("#", ...) ~= 0 or not takeBudget(player, "PurchaseAxeHead") then return end
