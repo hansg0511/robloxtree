@@ -70,6 +70,7 @@ export type AxeHeadCounts = { [string]: number }
 
 export type RunProgress = {
 	StandardAxeTier: number,
+	ForgeLevel: number,
 	UnlockedForests: { [string]: boolean },
 }
 
