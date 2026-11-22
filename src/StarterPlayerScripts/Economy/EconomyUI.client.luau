@@ -1165,6 +1165,19 @@ local function renderAxeDetail(axe)
 		return
 	end
 
+	axeStatSection("PROGRESSION")
+	local rarity = type(axe.Rarity) == "string" and axe.Rarity or "Common"
+	local level = safeAxeNumber(axe.Level) or 1
+	local cap = safeAxeNumber(axe.LevelCap) or level
+	axeStatRow("Rarity", rarity)
+	axeStatRow("Level", string.format("%d / %d", level, cap))
+	if level >= cap then
+		axeStatRow("Weapon XP", "MAX LEVEL")
+	else
+		local xp = safeAxeNumber(axe.XP) or 0
+		local required = safeAxeNumber(axe.XPToNextLevel) or 0
+		axeStatRow("Weapon XP", string.format("%d / %d", xp, required))
+	end
 	axeStatSection("WEAPON STATS")
 	local speed = safeAxeNumber(axe.AttacksPerSecond)
 	local reach = safeAxeNumber(axe.Reach)
@@ -1383,7 +1396,10 @@ local function renderAxes(data)
 	for index, axe in ipairs(axes) do
 		local isEquipped = axe.Equipped == true
 		local isSelected = axe.UID == selectedAxeUid
-		makeItemSlot("AxeSlot_" .. tostring(axe.Id or index), index, "🪓", tostring(axe.Name or "Axe"), "PWR " .. tostring(axe.Power or 0), isEquipped, isSelected, false, function()
+		local metadata = if safeAxeNumber(axe.Level)
+			then "LV " .. tostring(axe.Level) .. "  PWR " .. tostring(axe.Power or 0)
+			else "PWR " .. tostring(axe.Power or 0)
+		makeItemSlot("AxeSlot_" .. tostring(axe.Id or index), index, "🪓", tostring(axe.Name or "Axe"), metadata, isEquipped, isSelected, false, function()
 			if typeof(axe.UID) ~= "string" then return end
 			selectedAxeUid = axe.UID
 			equipAxe:FireServer(axe.UID)
@@ -2352,6 +2368,33 @@ if legacyEconomyUpdated then
 			showFeedback(string.format("FORGED %s %s!  %.1f POWER  •  %.0f%% QUALITY",
 				payload.Metal:upper(), payload.Class:upper(), payload.Power,
 				(tonumber(payload.Quality) or 0) * 100), COLORS.Gold)
+		end
+		if currency == "WeaponProgression" and type(payload) == "table"
+			and type(payload.UID) == "string" then
+			-- Server-authoritative incremental update. Avoid a GetShopData
+			-- RPC on every successful swing while the Bag is open.
+			local updated = false
+			for _, axe in ipairs(latestShopData and latestShopData.Axes or {}) do
+				if axe.UID == payload.UID then
+					for _, field in ipairs({ "Level", "LevelCap", "XP",
+						"XPToNextLevel", "Rarity", "Power" }) do
+						if payload[field] ~= nil then axe[field] = payload[field] end
+					end
+					-- XPToNextLevel becomes nil at the level cap.
+					if safeAxeNumber(payload.Level) and safeAxeNumber(payload.LevelCap)
+						and payload.Level >= payload.LevelCap then
+						axe.XPToNextLevel = nil
+					end
+					updated = true
+					break
+				end
+			end
+			if updated and bagOverlay.Visible and activeBagTab == "Axes" then
+				renderAxes(latestShopData)
+			end
+			if safeAxeNumber(payload.LevelsGained) and payload.LevelsGained > 0 then
+				showFeedback("WEAPON LEVEL UP!  +" .. tostring(payload.LevelsGained), COLORS.Gold)
+			end
 		end
 		if currency == "Coins" or currency == "Progression" then
 			refreshLogs()
