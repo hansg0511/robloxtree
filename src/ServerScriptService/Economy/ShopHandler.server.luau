@@ -6,6 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ExperimentalForgeRules = require(ReplicatedStorage.Shared.ExperimentalForgeRules)
 local WeaponEffects = require(game.ServerScriptService.WeaponEffects.Dispatcher)
 local ProgressionRules = require(game.ServerScriptService.WeaponProgressionRules)
+local WeaponRarityRoll = require(game.ServerScriptService.WeaponRarityRoll)
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local profileCache = require(ServerScriptService.PlayerProfile.ProfileService.ProfileDataCache)
@@ -492,6 +493,13 @@ local function craftExperimental(player, recipe, selectedLogUids)
 		return
 	end
 	local power = math.floor(result.Damage * 10 + 0.5) / 10
+	-- Rarity is a SEPARATE server roll, independent of logs/class/quality.
+	-- Roll only after all material checks, restoring logs on failure.
+	local rarity = WeaponRarityRoll.Roll()
+	if not ProgressionRules.IsRarity(rarity) then
+		restoreCraftLogs(player, recipe, removedLogs, sourceByUid)
+		return
+	end
 	-- Assignment policy lives here, not inside the Cleave behavior module.
 	-- Later another source (mutation, skill, upgrade) can grant the same
 	-- validated effect without requiring the Battlehammer class.
@@ -512,7 +520,7 @@ local function craftExperimental(player, recipe, selectedLogUids)
 		UID = HttpService:GenerateGUID(false),
 		Stats = { Attack = math.max(0, power - catalog.BaseAttack) },
 		Substat = {},
-		Rarity = "Common",
+		Rarity = rarity,
 		WeaponData = {
 			RecipeId = recipe.Id,
 			WeaponKind = result.Class,
@@ -548,7 +556,8 @@ local function craftExperimental(player, recipe, selectedLogUids)
 	economyUpdated:FireClient(player, "ForgeResult", {
 		Class = result.Class,
 		Metal = metal,
-		Power = power,
+		Rarity = rarity,
+		Power = power + ProgressionRules.DerivedAttackBonus(weapon, catalog.BaseAttack),
 		Quality = result.MaterialQuality,
 	})
 	economyUpdated:FireClient(player, "Progression")
@@ -624,13 +633,20 @@ craftRecipe.OnServerEvent:Connect(function(player, recipeId, selectedLogUids, ..
 	end
 
 	local finalPower = math.floor((recipe.HeadBasePower + bonusTotal / #removedLogs) * 10 + 0.5) / 10
+	-- Fixed-output recipes keep their original class/stat formulas. Only
+	-- rarity is rolled, through the same server module as experimental mode.
+	local rarity = WeaponRarityRoll.Roll()
+	if not ProgressionRules.IsRarity(rarity) then
+		restoreCraftLogs(player, recipe, removedLogs, sourceByUid)
+		return
+	end
 	local itemRecordOk, itemRecord = pcall(function()
 		return {
 			ItemID = fixedOutput.ItemID,
 			UID = HttpService:GenerateGUID(false),
 			Stats = { Attack = finalPower - catalog.BaseAttack },
 			Substat = {},
-			Rarity = "Common",
+			Rarity = rarity,
 			WeaponData = {
 				RecipeId = fixedOutput.RecipeId,
 				WeaponKind = fixedOutput.WeaponKind,
@@ -660,8 +676,15 @@ craftRecipe.OnServerEvent:Connect(function(player, recipeId, selectedLogUids, ..
 		return
 	end
 
-	-- Publish the final resources only after inventory insertion succeeded.
+	-- Publish the result only after inventory insertion succeeded. The
+	-- fixed recipe never rerolls its weapon kind due to rarity.
 	LogService.NotifyState(player)
+	economyUpdated:FireClient(player, "ForgeResult", {
+		Class = fixedOutput.WeaponKind,
+		Metal = if recipe.Tier == 1 then "Copper" else "Iron",
+		Rarity = rarity,
+		Power = finalPower + ProgressionRules.DerivedAttackBonus(itemRecord, catalog.BaseAttack),
+	})
 	economyUpdated:FireClient(player, "Progression")
 end)
 
