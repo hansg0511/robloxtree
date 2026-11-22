@@ -22,7 +22,7 @@ Ship a fun playable **chop → collect logs → forge weapons → level weapons 
 - Classes: **Dagger**, **Axe**, **Battlehammer**. Battlehammer has a **Cleave** effect prototype in the generic effects dispatcher (`src/ServerScriptService/WeaponEffects/Dispatcher.luau`).
 - Grove mutation definitions currently include **Golden**, **Giant**, **Crystal**; this **does not reflect the approved future roster**.
 - New mutation powers, manually activated skills, weapon rarity/XP/ascension, awakening, infusion, Ultra mastery, and multi-tier forge rules described below are **design-only**, not yet coded.
-- **Implementation status (2026-11-23):** User reports Phase 1A/1B working in Studio and Phase 1C rarity behavior apparently working. **Phase 1D ascension/pity has been implemented in one source-code batch, Studio validation pending:** server-only cost/roll/ownership and station checks, per-weapon hard pity, non-destructive failure, one-tier Level-1 success/reset, dedicated request/result remote, Bag ascension preview/confirmation, deterministic smoke tests and optional Studio accelerated fixture. Existing Forge tiers, mutation effects, Awakening/Infusion, activated skills, and final Grove economy are still future phases. **Next development batch: Phase 2 mutation forge/abilities after ascension integration check.**
+- **Implementation status (2026-11-23):** User reports Phase 1A–1C working and **Phase 1D ascension integration audit PASS**, including actual coin/log UID deductions and correct rarity/level result. **Phase 2 Batch 1 source is committed, Studio tests pending:** Forge Level 1→2 upgrade, per-tier class odds and mutation potency caps, new Frenzied/Shocked sources with backward-compatible legacy Crystal, first Golden Touch/Fervor/Thunderstrike server effects, UI previews and smoke tests. Other mutation abilities, Awakening/Infusion, extra tiers, activated skills and final Grove economy are still later phases.
 - **Keep scope explicit:** We have thoroughly designed mutation **abilities** and progression, but **manual activation skills** (if any) have *not* been specified individually. Do not invent and implement an active-skill system merely because it appears in the effect taxonomy.
 - Do not remove functioning experimental forging or Cleave before equivalent functionality is integrated and tested.
 
@@ -190,15 +190,18 @@ The data model should have stable fields for forge tier, original log provenance
 
 ### Phase 2 — Forge tiers, potency, and mutation ability engine
 
-**Build sequence:** (2A) tier-dependent quantity-to-class odds and potency roll with previews; (2B) registered mutation-family ability selection; (2C) implement and test each combat/economy ability in small batches. Do not implement every ability simultaneously. Treat mutation powers as triggered/passive effects; manually activated skills remain deferred.
-- [ ] Generalize multi-tier forge config: per-tier class odds by log quantity, base stat/potency caps, eligible ability pools, and visible preview.
-- [ ] Implement per-log independent potency contributions and cap warnings; size/material mechanics.
-- [ ] Migrate prototype Crystal references safely; establish approved Golden/Frenzied/Shocked/Giant definitions while preserving old saves.
-- [ ] Implement mutation ability rolls and initial effects in small tested batches; register with existing generic server effect dispatcher, not bespoke unbounded weapon paths.
-- [ ] Start with one ability per pool; later unlock higher-tier entries and test nonzero rare ability odds.
-- [ ] Ensure class innate Cleave stays independent of mutation slots, VFX are noticeable but not final-polish.
+**Batch 1 — implementation committed 2026-11-23; Studio smoke and integration still pending.** In one coding pass, the game now supports persistent Forge Level 1→2 purchase (provisional 2,000 coins), tier-dependent quantity-to-class odds and mutation-potency caps, independent per-mutated-log size/quality contribution (ordinary logs do not dilute), cap warnings and a single family per craft. Both RNG and fixed recipes grant a persisted registered mutation effect. New naturally rolling mutation families include Golden, Frenzied and Shocked; the old Crystal identifier remains recognized in prior saves but no longer newly rolls. Giant still affects genetics, not a new weapon ability.
 
-**Exit:** Forging decisions about log quantity, forge tier, mutations and potency visibly matter, with safe combat/economy effects.
+- [x] **2A initial workstation upgrade:** Forge level 1→2 persisted with profile normalization and guarded client/server purchase; two prototype tiers and larger Iron base stats.
+- [x] **2A per-log potency:** each eligible mutated log contributes at most 0.22 (quality weighted by size / 5), capped at 0.35 in tier 1 and 0.70 in tier 2; warn if selection wastes potential. Tiers shift class odds while tier-1 baseline is unchanged.
+- [x] **2B first ability per family:** Golden→GoldenTouch, Frenzied→Fervor, Shocked→Thunderstrike (100% conditional within each family because currently only one is unlocked). One ability family per craft, material/ability/rarity roll separated. Legacy Crystal records remain intact. No Giant weapon effect.
+- [x] **2C first active effects:** Golden Touch gives a server-awarded kill-only coin bonus; Fervor reduces actual enforced chop intervals on successive same-target hits with bounded stacks/time expiry; Thunderstrike delivers one registered secondary hit after N primary chops, with HP-capped XP and a blue flash. Cleave remains separate and Studio-only; these new mutations can execute in published servers.
+- [x] **Preview/testing code:** existing Forge UI reveals family, potency/cap, ability and mixed-family error; Bag shows ability details; expanded Studio resource fixtures; `tests/ForgeMutationsBatch1.smoke.luau`, `docs/FORGE_MUTATIONS_BATCH1_PLAYTEST.md`.
+- [ ] Execute Batch 1 smoke and prior tests in Roblox Studio and a **single** end-to-end forge/kill/combat session. This assistant has not run Roblox tests or published DataStore persistence.
+- [ ] **Batch 2:** higher-tier ability pools, nonzero odds for newly unlocked abilities, Golden Rush/Jackpot, Bloodrush/Rampage, Chain Lightning; fuller VFX and safety limits on stacking. Do not prematurely build player-activated skills.
+- [ ] Full forge level 3+ and eventual balance/tier expansion follow testing; no total tier count is fixed.
+
+**Batch 1 manual exit:** a player can purchase Forge Lv2, forge Golden/Frenzied/Shocked weapons from actual mutated logs, and observe at least one real effect from each family without breaking existing rarity, ascension, XP and class behavior.
 
 ### Phase 3 — Awakening, second slot, infusion and Ultra mastery
 - [ ] Add forge-unlocked Awakening to ordinary weapons (fresh logs → first mutation + potency).
@@ -275,12 +278,12 @@ The data model should have stable fields for forge tier, original log provenance
 
 ## Immediate next action (as of 2026-11-23)
 
-1. **Phase 1D source implementation is committed on existing `dev/gameplay-prototype`.** Have the agent run `tests/WeaponAscension.smoke.luau` plus Phase 1A–1C and forge/effects regression tests; do not claim Roblox Studio execution without real evidence.
-2. Perform **one** fast Studio integration check using `tests/WeaponAscensionStudioFixture.smoke.luau` to max a normal weapon and force hard pity; confirm the double-click UI, actual cost deduction, saved/runtime level reset, new rarity damage and unchanged Cleave/materials.
-3. Fix any blockers, then immediately start the **Phase 2 mutation forge/ability batch**: forge tiers and potency schema first, followed by Golden/Frenzied/Shocked initial ability rolls and working effects, with targeted automated tests. Keep the full ability list incremental but avoid repeated design discussions.
-4. Full Grove economy/Infusion and final balance/UI polish remain later. Cross-session persistence needs a separate published DataStore test, since prototype Studio uses Mock.
+1. **Phase 1D audit accepted:** user confirmed `ASCENSION AUDIT PASS`. Disable/delete the *local* `src/ServerScriptService/DevAscensionFixture.server.luau` temporary runner before entering Phase 2 playtest (tracked test source may remain under `tests/`).
+2. **Phase 2 Batch 1 source committed:** ask agent to execute `tests/ForgeMutationsBatch1.smoke.luau` and six prior weapon/forge tests. Any failures should be fixed before proceeding.
+3. Follow `docs/FORGE_MUTATIONS_BATCH1_PLAYTEST.md` for **one** Forge and combat session: purchase Forge Lv2; forge Golden/Frenzied/Shocked weapons using Studio material presets; verify bonus kill coins, same-tree server speed-up, periodic Thunderstrike actual secondary damage/FX; test mixed-family rejection and Cleave independence. Do not mistake the Studio forging resource auto-refill for a live economy behavior.
+4. Then **Phase 2 Batch 2**: Golden Rush/Jackpot, Bloodrush/Rampage, Chain Lightning and expanded ability pools. Leave Awakening/Infusion, Grove economy sources and final UI polish for later batches.
 
-**No new branch; no final economy pricing or speculative activated skills.**
+**No new branch; costs/chances are provisional. Studio boot currently uses a Mock data store, not proof of cross-session persistence.**
 
 ## Things that are examples, NOT locked numbers
 Illustrations previously discussed (such as Common 10 / Rare 20 level caps, 5% upgrades, 15–25% AFK efficiency, five perfect logs producing full potency, 1–3 Golden logs, or a fixed number of forge tiers) **must not be treated as finalized economy values**. Only the **pity formula** and conceptual rules above are agreed.
