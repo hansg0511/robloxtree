@@ -9,6 +9,9 @@ local WeaponEffects = require(game.ServerScriptService.WeaponEffects.Dispatcher)
 local WeaponProgressionService = require(game.ServerScriptService.WeaponProgressionService)
 local Fervor = require(game.ServerScriptService.WeaponEffects.Fervor)
 local Thunderstrike = require(game.ServerScriptService.WeaponEffects.Thunderstrike)
+local Rampage = require(game.ServerScriptService.WeaponEffects.Rampage)
+local GoldenRush = require(game.ServerScriptService.WeaponEffects.GoldenRush)
+local Bloodrush = require(game.ServerScriptService.WeaponEffects.Bloodrush)
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
 local EconomyUpdated = game.ReplicatedStorage.Economy.EconomyUpdated
 
@@ -80,6 +83,14 @@ ChopEvent.OnServerEvent:Connect(function(player)
 	local lumberjackStrength = profile.Data.LumberjackStrength
 	local context = DamageService:createDamageContext(player, tree, weaponUID, stats, nil, lumberjackStrength)
 	local _, calculated = DamageService.Calculate(context)
+	-- Damage boost from a PRIOR confirmed kill. This cannot boost the kill
+	-- that first created Rampage, and duration/weapon ownership are checked
+	-- server-side before modifying the single primary damage result.
+	local rampageMultiplier = Rampage.Multiplier(player, weaponUID, now)
+	if rampageMultiplier > 1 and type(calculated.Damage)=="number"
+		and calculated.Damage > 0 and calculated.Damage < math.huge then
+		calculated.Damage=math.clamp(math.floor(calculated.Damage*rampageMultiplier),1,1000000000)
+	end
 
 	-- Collect actual HP removed for this single verified swing. Commit XP
 	-- only after the primary hit and all allowed secondary effects have run;
@@ -110,6 +121,17 @@ ChopEvent.OnServerEvent:Connect(function(player)
 		PrimaryDamage = calculated.Damage,
 		WeaponUID = weaponUID,
 		PrimarySucceeded = false,
+		OnMutationProc = function(id, details)
+			if type(id)=="string" and type(details)=="table" then
+				local payload={Id=id}
+				for k,v in pairs(details) do
+					if type(k)=="string" and (type(v)=="number" or type(v)=="string") then
+						payload[k]=v
+					end
+				end
+				EconomyUpdated:FireClient(player, "MutationProc", payload)
+			end
+		end,
 		OnMutationTelemetry = if isMutationPracticeTree then function(effectId, state)
 			if effectId == "Thunderstrike" and type(state) == "table" then
 				print(string.format(
@@ -208,38 +230,38 @@ ChopEvent.OnServerEvent:Connect(function(player)
 			end
 		end
 	end
-	-- Golden Touch awards server-owned kill gold after actual primary and
-	-- registered secondary damage. Each TreeObject can die only once.
-	if WeaponEffects.GetParams(data, "GoldenTouch") then
-		local coinsDelta = 0
-		for _, record in ipairs(hitRecords) do
-			if record.Killed == true and type(record.Tree) == "table" then
-				local species = record.Tree.SpeciesId
-				local base = MaterialDefinitions.GetSellValue(species)
-				if type(base) == "number" and base > 0 then
-					WeaponEffects.ApplyTrigger("OnKill", data, {
-						Killed = true,
-						TreeCoinBase = base,
-						AwardCoins = function(amount)
-							if type(amount) == "number" and amount >= 1
-								and amount <= 50000 and amount % 1 == 0 then
-								coinsDelta += amount
-							end
-						end,
-					})
-				end
-			end
+	-- All OnKill effects share this verified, HP-clamped reward path:
+	-- Golden Touch/Rush/Jackpot receive only species-based server payouts;
+	-- Bloodrush/Rampage receive short, bounded buffs. No client kill claims.
+	-- A tree can reward at most once per swing, including Chain Lightning
+	-- and (Studio-only) Cleave secondary kills.
+	local coinDelta=0
+	local seenKills={}
+	for _, record in ipairs(hitRecords) do
+		local killedTree=record.Tree
+		if record.Killed==true and type(killedTree)=="table"
+			and not seenKills[killedTree] then
+			seenKills[killedTree]=true
+			local base=MaterialDefinitions.GetSellValue(killedTree.SpeciesId) or 0
+			WeaponEffects.ApplyTrigger("OnKill",data,{
+				Player=player,WeaponUID=weaponUID,Now=now,Killed=true,
+				TreeCoinBase=base,
+				AwardCoins=function(amount)
+					if type(amount)=="number" and amount==amount
+						and amount>=1 and amount<=50000 and amount%1==0 then
+						coinDelta += amount
+					end
+				end,
+				OnMutationProc=effectContext.OnMutationProc,
+			})
 		end
-		if coinsDelta > 0 then
-			local coins = profile.Data.Coins
-			if type(coins) == "number" and coins == coins
-				and coins >= 0 and coins < 1e12 then
-				profile.Data.Coins = math.min(1e12, coins + coinsDelta)
-				EconomyUpdated:FireClient(player, "Coins", profile.Data.Coins)
-				EconomyUpdated:FireClient(player, "MutationProc", {
-					Id = "GoldenTouch", Amount = coinsDelta,
-				})
-			end
+	end
+	if coinDelta>0 then
+		local coins=profile.Data.Coins
+		if type(coins)=="number" and coins==coins and coins>=0
+			and coins<1e12 then
+			profile.Data.Coins=math.min(1e12,coins+coinDelta)
+			EconomyUpdated:FireClient(player,"Coins",profile.Data.Coins)
 		end
 	end
 	-- No client-reported hit/XP values. XP comes exclusively from trusted,
@@ -251,4 +273,7 @@ Players.PlayerRemoving:Connect(function(player)
 	lastChop[player] = nil
 	Fervor.Clear(player)
 	Thunderstrike.Clear(player)
+	Rampage.Clear(player)
+	GoldenRush.Clear(player)
+	Bloodrush.Clear(player)
 end)
