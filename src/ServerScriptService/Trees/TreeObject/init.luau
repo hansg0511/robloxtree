@@ -2044,7 +2044,10 @@ function Tree:TakeDamage(ctx, player)
 	if self.HP == 0 and not self.IsPersistentGrove then
 		self:Die(player)
 	end
-	return true
+	-- Backward compatible: existing callers still use the first boolean.
+	-- The server's XP path also receives HP-clamped applied damage and
+	-- the lethal-hit flag, never raw calculated/overkill damage.
+	return true, appliedDamage, isLethalHit
 end
 
 function Tree:Die(player)
