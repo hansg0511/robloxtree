@@ -85,12 +85,6 @@ function Sandbox.Refill(player, data)
 	-- This is a sandbox-only override; normal progression remains intact
 	-- when the toggle above is disabled or outside Studio.
 	if type(data.RunProgress) == "table" then
-		-- Convenience for existing Studio iron-forge playtests. Disable
-		-- sandbox when testing the real paid workstation upgrade.
-		if data.RunProgress.ForgeLevel ~= 2 then
-			data.RunProgress.ForgeLevel = 2
-			changed = true
-		end
 		local tier = data.RunProgress.StandardAxeTier
 		if type(tier) ~= "number" or tier < 2 then
 			data.RunProgress.StandardAxeTier = 2
