@@ -33,7 +33,7 @@ local function normalWeapon(data)
 			and runtime.Weapon[item.UID].ItemUID == item.UID
 	end
 	for _, item in ipairs(data.Inventory) do
-		if item.UID == runtime.EquippedWeaponUID and eligible(item) then
+		if eligible(item) and item.UID == runtime.EquippedWeaponUID then
 			return item
 		end
 	end
