@@ -46,11 +46,15 @@ UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then return end
 	if isChopInput(input) then
 		local rate
+		local fervorStacks, fervorPerStack, fervorExpiresAt
 		local character = player.Character
 		if character then
 			for _, tool in ipairs(character:GetChildren()) do
 				if tool:IsA("Tool") and tool:GetAttribute("EquippedAxe") == true then
 					rate = tool:GetAttribute("CraftAttackRate")
+					fervorStacks = tool:GetAttribute("FervorStacks")
+					fervorPerStack = tool:GetAttribute("FervorSpeedPerStack")
+					fervorExpiresAt = tool:GetAttribute("FervorExpiresAtServerTime")
 					break
 				end
 			end
@@ -59,10 +63,26 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		if type(rate) == "number" and rate == rate and rate >= 0.1 and rate <= 10 then
 			interval = math.max(0.3, 1 / rate)
 		end
+		local speedMultiplier = 1
+		-- Studio/live Fervor updates originate only from successful server
+		-- chops. Use server time, not the client's local os.clock(), so the
+		-- combo expires reliably across different client/server clocks.
+		if type(fervorStacks) == "number" and fervorStacks >= 1
+			and fervorStacks <= 8 and fervorStacks % 1 == 0
+			and type(fervorPerStack) == "number" and fervorPerStack > 0
+			and fervorPerStack <= 0.3
+			and type(fervorExpiresAt) == "number"
+			and workspace:GetServerTimeNow() <= fervorExpiresAt then
+			speedMultiplier = 1 + fervorStacks * fervorPerStack
+			interval = math.max(0.16, interval / speedMultiplier)
+		end
 		local now = os.clock()
 		if now < nextLocalSwingAt then return end
 		nextLocalSwingAt = now + interval
-		if track then track:Play(0.05, 1, if rate then math.clamp(rate, 0.5, 2.2) else 1) end
+		if track then
+			local baseRate = if type(rate) == "number" and rate > 0 then rate else 1
+			track:Play(0.05, 1, math.clamp(baseRate * speedMultiplier, 0.5, 2.2))
+		end
 		-- Intent only: the server validates hit rate and selects the target.
 		ChopEvent:FireServer()
 	end
