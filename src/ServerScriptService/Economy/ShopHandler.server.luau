@@ -4,6 +4,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ExperimentalForgeRules = require(ReplicatedStorage.Shared.ExperimentalForgeRules)
+local ForgeMutations = require(ReplicatedStorage.Shared.ForgeMutationRules)
 local WeaponEffects = require(game.ServerScriptService.WeaponEffects.Dispatcher)
 local ProgressionRules = require(game.ServerScriptService.WeaponProgressionRules)
 local WeaponAscensionService = require(game.ServerScriptService.WeaponAscensionService)
@@ -28,6 +29,7 @@ local craftRecipe = economyRemotes:WaitForChild("CraftRecipeRE")
 local purchaseCapacity = economyRemotes:WaitForChild("PurchaseCapacityRE")
 local economyUpdated = economyRemotes:WaitForChild("EconomyUpdated")
 local ascendWeapon = economyRemotes:WaitForChild("AscendWeaponRE")
+local upgradeForge = economyRemotes:WaitForChild("UpgradeForgeRE")
 
 -- The existing inventory owns all finished weapons. This server-only function
 -- validates and inserts a weapon through the same runtime/profile path as shop axes.
@@ -251,6 +253,8 @@ local function buildShopSnapshot(player, profile)
 	if not isFiniteNumber(standardTier) or standardTier < 0 or standardTier % 1 ~= 0 then
 		standardTier = 0
 	end
+	local forgeLevel = progression and progression.ForgeLevel or 1
+	if not isNonnegativeInteger(forgeLevel) or not ForgeMutations.Tier(forgeLevel) then forgeLevel = 1 end
 	local headCounts = type(data.AxeHeads) == "table" and data.AxeHeads or {}
 	local coins = isFiniteNumber(data.Coins) and data.Coins or 0
 	local atAxeShop = BaseStationAccess.CanUseAxeShop(player)
@@ -299,6 +303,7 @@ local function buildShopSnapshot(player, profile)
 				and unlocked
 				and progressionValid
 				and outputDefined
+				and forgeLevel >= recipe.Tier
 				and ownedHeadCount >= 1,
 		}
 	end
@@ -326,6 +331,7 @@ local function buildShopSnapshot(player, profile)
 				Unlocked = unlocked, ProgressionValid = progressionValid,
 				AtForge = atForge,
 				CanCraft = atForge and unlocked and progressionValid
+					and forgeLevel >= recipe.Tier
 					and validExperimentalOutputs(recipe) and count >= 1,
 			}
 		end
@@ -363,6 +369,12 @@ local function buildShopSnapshot(player, profile)
 		Axes = buildOwnedAxes(player, profile, #WeaponAscensionService.EligibleLogs(player)),
 		CapacityUpgrades = upgrades,
 		StandardAxeTier = standardTier,
+		ForgeLevel = forgeLevel,
+		ForgeUpgrade = if forgeLevel == 1 then {
+			ToLevel = catalog.ForgeLevelUpgrade.ToLevel,
+			CoinCost = catalog.ForgeLevelUpgrade.CoinCost,
+			CanUpgrade = atForge and coins >= catalog.ForgeLevelUpgrade.CoinCost,
+		} else nil,
 		UnlockedForests = unlockedForests,
 	}
 end
@@ -376,6 +388,23 @@ getShopData.OnServerInvoke = function(player, ...)
 	StudioForgeSandbox.Refill(player, profile.Data)
 	return buildShopSnapshot(player, profile)
 end
+
+-- Persistent Forge upgrade. A client never chooses the paid tier/cost.
+upgradeForge.OnServerEvent:Connect(function(player, ...)
+	if select("#", ...) ~= 0 or not takeBudget(player, "UpgradeForge") then return end
+	if not canUseForge(player) then return end
+	local profile, data = getProfileData(player)
+	if not profile or type(data.RunProgress) ~= "table" then return end
+	local progress = data.RunProgress
+	local upgrade = catalog.ForgeLevelUpgrade
+	if progress.ForgeLevel ~= upgrade.ToLevel - 1 then return end
+	if not isFiniteNumber(data.Coins) or data.Coins < upgrade.CoinCost then return end
+	data.Coins -= upgrade.CoinCost
+	progress.ForgeLevel = upgrade.ToLevel
+	economyUpdated:FireClient(player, "Coins", data.Coins)
+	economyUpdated:FireClient(player, "ForgeUpgraded", { Level = progress.ForgeLevel })
+	economyUpdated:FireClient(player, "Progression")
+end)
 
 -- Ascension request takes only a weapon UID. Costs, eligible logs, pity
 -- and RNG remain server-owned; errors return a safe display reason.
@@ -472,7 +501,8 @@ local function craftExperimental(player, recipe, selectedLogUids)
 	if type(progress) ~= "table"
 		or not isNonnegativeInteger(progress.StandardAxeTier) then return end
 	local previousTier = progress.StandardAxeTier
-	if recipe.Tier > previousTier + 1 then return end
+	if recipe.Tier > previousTier + 1 or not isNonnegativeInteger(progress.ForgeLevel)
+		or progress.ForgeLevel < recipe.Tier then return end
 	if not WorldProgressService.CanAccessForest(player, recipe.RequiredForestId) then return end
 	local head = catalog.FindAxeHead(recipe.HeadId)
 	if not head then return end
@@ -511,10 +541,16 @@ local function craftExperimental(player, recipe, selectedLogUids)
 		})
 	end
 
+	local mutationPreview = ForgeMutations.Preview(rollLogs, recipe.Tier)
+	if not mutationPreview or mutationPreview.InvalidReason then
+		restoreCraftLogs(player, recipe, removedLogs, sourceByUid)
+		return
+	end
+	local mutationAbility = ForgeMutations.Roll(mutationPreview, recipe.Tier, Random.new())
 	local metal = if recipe.Tier == 1 then "Copper" else "Iron"
 	local rollOk, result = pcall(function()
 		return ExperimentalForgeRules.Roll(recipe.HeadBasePower,
-			rollLogs, Random.new())
+			rollLogs, Random.new(), recipe.Tier)
 	end)
 	if not rollOk or type(result) ~= "table" or not recipe.Outputs[result.Class] then
 		restoreCraftLogs(player, recipe, removedLogs, sourceByUid)
@@ -543,6 +579,9 @@ local function craftExperimental(player, recipe, selectedLogUids)
 			},
 		}
 	end
+	if mutationAbility then
+		grantedEffects[#grantedEffects + 1] = mutationAbility.Effect
+	end
 	local weapon = {
 		ItemID = recipe.Outputs[result.Class],
 		UID = HttpService:GenerateGUID(false),
@@ -563,7 +602,11 @@ local function craftExperimental(player, recipe, selectedLogUids)
 			AttacksPerSecond = result.AttacksPerSecond,
 			Reach = result.Reach,
 			Effects = grantedEffects,
-			GoldenBonus = result.GoldenBonus, -- metadata; no Golden effect yet
+			MutationAbility = if mutationAbility then {
+				Family = mutationAbility.Family, Id = mutationAbility.Id,
+				Potency = mutationAbility.Potency, ForgeTier = mutationAbility.Tier,
+			} else nil,
+			GoldenBonus = result.GoldenBonus, -- legacy prototype metadata
 			Materials = sourceMaterials,
 		},
 	}
@@ -624,7 +667,8 @@ craftRecipe.OnServerEvent:Connect(function(player, recipeId, selectedLogUids, ..
 	end
 	local previousTier = progress.StandardAxeTier
 	local progressionValid = recipe.Tier <= previousTier or recipe.Tier == previousTier + 1
-	if not progressionValid then return end
+	if not progressionValid or not isNonnegativeInteger(progress.ForgeLevel)
+		or progress.ForgeLevel < recipe.Tier then return end
 	if not WorldProgressService.CanAccessForest(player, recipe.RequiredForestId) then return end
 
 	local head = catalog.FindAxeHead(recipe.HeadId)
@@ -651,7 +695,7 @@ craftRecipe.OnServerEvent:Connect(function(player, recipeId, selectedLogUids, ..
 		table.insert(sourceMaterials, {
 			SourceUID = logRecord.UID,
 			SpeciesId = logRecord.SpeciesId,
-			SizeScale = logRecord.SizeScale,
+			SizeScale = LogStorageRules.SizeScale(logRecord),
 			Source = sourceByUid and sourceByUid[logRecord.UID] or "Bag",
 			SourceType = logRecord.SourceType,
 			SourceGroveTreeUID = logRecord.SourceGroveTreeUID,
@@ -660,6 +704,12 @@ craftRecipe.OnServerEvent:Connect(function(player, recipeId, selectedLogUids, ..
 		})
 	end
 
+	local mutationPreview = ForgeMutations.Preview(sourceMaterials, recipe.Tier)
+	if not mutationPreview or mutationPreview.InvalidReason then
+		restoreCraftLogs(player, recipe, removedLogs, sourceByUid)
+		return
+	end
+	local mutationAbility = ForgeMutations.Roll(mutationPreview, recipe.Tier, Random.new())
 	local finalPower = math.floor((recipe.HeadBasePower + bonusTotal / #removedLogs) * 10 + 0.5) / 10
 	-- Fixed-output recipes keep their original class/stat formulas. Only
 	-- rarity is rolled, through the same server module as experimental mode.
@@ -681,6 +731,11 @@ craftRecipe.OnServerEvent:Connect(function(player, recipeId, selectedLogUids, ..
 				AxeTier = recipe.Tier,
 				HeadId = recipe.HeadId,
 				CraftedPower = finalPower,
+				Effects = if mutationAbility then { mutationAbility.Effect } else {},
+				MutationAbility = if mutationAbility then {
+					Family = mutationAbility.Family, Id = mutationAbility.Id,
+					Potency = mutationAbility.Potency, ForgeTier = mutationAbility.Tier,
+				} else nil,
 				Materials = sourceMaterials,
 			},
 		}
