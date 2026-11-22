@@ -89,5 +89,37 @@ check("cross-source UID reuse rejected",Rules.Plan(sample,data,
 	{{UID="heart-a",SizeScale=5,Mutations={Golden=true}},
 		{UID="log-g2",SizeScale=5,Mutations={Golden=true}}},
 	{LogUIDs={"heart-a","log-g2"},MaterialUIDs={"heart-a"}},"Golden")==nil)
+-- Multi-type unique materials must coexist in one recipe. No one-to-one
+-- "Heartwood only" shortcut is allowed in the future transaction adapter.
+local multiType={
+	{Kind="Coins",Amount=20},
+	{Kind="Logs",Count=1,MutationFamily="$selected"},
+	{Kind="Material",Source="GroveMaterials",MaterialType="Heartwood",Count=1},
+	{Kind="Material",Source="GroveMaterials",MaterialType="CrystalCatalyst",Count=1},
+}
+local multiData={
+	Coins=100,GroveMaterials={
+		{UID="heart-x",MaterialType="Heartwood"},
+		{UID="crystal-y",MaterialType="CrystalCatalyst"},
+	},
+}
+local multi=Rules.Plan(multiType,multiData,
+	{{UID="log-g1",SizeScale=5,Mutations={Golden=true}}},
+	{LogUIDs={"log-g1"},MaterialUIDsByType={
+		Heartwood={"heart-x"},CrystalCatalyst={"crystal-y"},
+	}},"Golden")
+check("multiple unique material types coexist",multi and multi.CanAfford
+	and #multi.MaterialGroups==2 and #multi.MaterialUIDs==2)
+check("missing second type fails closed",Rules.Plan(multiType,multiData,
+	{{UID="log-g1",SizeScale=5,Mutations={Golden=true}}},
+	{LogUIDs={"log-g1"},MaterialUIDsByType={
+		Heartwood={"heart-x"},CrystalCatalyst={"missing-y"},
+	}},"Golden").CanAfford==false)
+check("duplicate cross-type resource UID rejected",Rules.Plan(multiType,multiData,
+	{{UID="log-g1",SizeScale=5,Mutations={Golden=true}}},
+	{LogUIDs={"log-g1"},MaterialUIDsByType={
+		Heartwood={"heart-x"},CrystalCatalyst={"heart-x"},
+	}},"Golden")==nil)
+
 print("UpgradeCost PASS: multiple ingredient types, unique UIDs, exact resources, fail-closed missing materials and non-mutating previews")
 return true
