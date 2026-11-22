@@ -22,7 +22,7 @@ Ship a fun playable **chop → collect logs → forge weapons → level weapons 
 - Classes: **Dagger**, **Axe**, **Battlehammer**. Battlehammer has a **Cleave** effect prototype in the generic effects dispatcher (`src/ServerScriptService/WeaponEffects/Dispatcher.luau`).
 - Grove mutation definitions currently include **Golden**, **Giant**, **Crystal**; this **does not reflect the approved future roster**.
 - New mutation powers, manually activated skills, weapon rarity/XP/ascension, awakening, infusion, Ultra mastery, and multi-tier forge rules described below are **design-only**, not yet coded.
-- **Implementation status (2026-11-23):** Phase 1A was tested by the agent and manually validated by the user. Phase 1B XP/leveling has also been **reported working as expected in manual playtesting** (agent automated test details not independently verified by this assistant). It awards server-owned HP-clamped XP for primary/Cleave damage, kill XP, and level growth, with live Bag Level/XP display. **Readability pass committed:** replace `GothamBlack` with `GothamBold` throughout the scripted Economy/Bag UI and Grove reward popup; increase level-up/economy toast from 16 to 18px. **Next unimplemented system: Phase 1C natural rarity rolls**, then Phase 1D ascension/pity; forge tiers, mutation powers, awakening/infusion and manually activated skills are still future work.
+- **Implementation status (2026-11-23):** Phase 1A and Phase 1B were reported tested and working by the user (agent smoke test details not independently accessible here). **Phase 1C is implemented in source, but Roblox Studio testing is pending:** a shared server-only natural rarity roller now supplies Common/Rare/Epic/Legendary/Ultra to **both standard and experimental crafting**, persisting existing `Rarity` and using the already implemented rarity/level stat growth. The Bag includes readable rarity names/colors and the forge success toast shows the rolled rarity. **Phase 1D ascension/pity is next after validation.** Forge tiers, mutation powers, Awakening/Infusion and manually activated skills remain unimplemented.
 - **Keep scope explicit:** We have thoroughly designed mutation **abilities** and progression, but **manual activation skills** (if any) have *not* been specified individually. Do not invent and implement an active-skill system merely because it appears in the effect taxonomy.
 - Do not remove functioning experimental forging or Cleave before equivalent functionality is integrated and tested.
 
@@ -152,9 +152,9 @@ Unlock one ability in each relevant mutation pool at low forge tiers; higher tie
 **Build sequence:** (1A) persistent/versioned weapon data + derived stat calculation; (1B) chopping XP and leveling; (1C) natural rarity roll and rarity-based stat growth; (1D) ascension, Level-1 reset and hard pity. **Studio-test after each substage.** No mutation ability implementation or active skill system required for this vertical slice.
 
 The data model should have stable fields for forge tier, original log provenance, forged base quality/size/stats, rarity, level/XP, ascension pity, primary mutation ability/potency and a future secondary ability/potency. Prototype weapons from older saves must remain usable.
-- [x] Phase 1B source implementation: server-owned weapon XP/levels, HP-clamped primary and Cleave secondary attribution, kill XP and no max-level XP banking. Studio verification pending.
-- [x] Phase 1A/1B source implementation: rarity tier configs, level caps/growth, server validation, persistent level/XP, minimal Bag display. Actual rarity RNG remains Phase 1C.
-- [ ] Add natural rarity roll at forging, including possibility of direct Ultra; no new weapon-silencing bugs in existing crafting.
+- [x] Phase 1B source implementation: server-owned weapon XP/levels, HP-clamped primary and Cleave secondary attribution, kill XP and no max-level XP banking. User reports manual gameplay checks passing.
+- [x] Phase 1A/1B source implementation: rarity tier configs, level caps/growth, server validation, persistent level/XP and Bag display. Phase 1C now supplies newly forged rarity values.
+- [x] Phase 1C source implementation: independent server-side natural rarity roll at forging in both crafting modes, including nonzero direct Ultra chance; legacy items untouched. **Studio smoke and forge regression testing pending.**
 - [ ] Add max-level ascension, chance display, material+gold cost, RNG, hard pity `ceil(1.5/p)`, successful Level-1 reset; preserve forged qualities and existing effects.
 - [ ] Add Studio-only accelerated testing fixtures / admin resources without exposing cheats to production.
 - [ ] Test save/load, repeated attempts, pity boundaries, high-rarity natural roll, ascension resetting only level-derived stats, and fast vs slow weapons earning reasonable XP.
@@ -245,14 +245,28 @@ The data model should have stable fields for forge tier, original log provenance
 
 **Remaining before/while editing:** confirm current client snapshot refresh and existing smoke test conventions; preserve production-safe Studio gating for experimental forging/Cleave.
 
+#### Phase 1C checkpoint — code committed 2026-11-23; Studio verification pending
+
+- [x] New `src/ServerScriptService/WeaponRarityRoll.luau`: an ordered, 1,000,000-weight, server-only rarity RNG that calls `Random:NextInteger` exactly once per roll; accepts synthetic test RNG. **No material, class or forge-tier input** can change the rarity. Every listed normal rarity has positive odds; Secret cannot roll naturally.
+- [x] `Economy/ShopHandler.server.luau` invokes **the same roll function in both crafting paths** after validating/taking materials and before adding the weapon. A failed/invalid rarity aborts and restores logs without consuming the axe head. Both paths persist their result in the existing `InventoryItem.Rarity`; no old weapon is rerolled. Existing class odds, base stats, materials and effect grants remain unchanged.
+- [x] Rarity is already read by `WeaponProgressionRules` and `StatsAggregator` to set Level-1 base rarity bonus and higher level caps. A naturally forged Ultra does **not** gain free mutation abilities.
+- [x] `EconomyUI.client.luau` now shows a compact rarity-aware forge result, a readable rarity label in each weapon slot, and a rarity-colored value in existing `M → AXES → INFO → PROGRESSION`. Existing slot Power/Level and Cleave details remain visible.
+- [x] Added `tests/WeaponRarityRoll.smoke.luau` for deterministic boundary/ordering checks, distribution sanity with seeded Roblox RNG, persistence through existing item parser, class/stat/Cleave independence and Ultra without free abilities; added `docs/WEAPON_RARITY_PLAYTEST.md`.
+- [ ] **Studio tests still required:** execute the new rarity smoke test **plus the four prior smoke tests** in the Studio Server Command Bar. Forge a few weapons via **both standard recipes and Studio RNG recipes**; verify result rarity, inventory label, Level 1 cap/power, XP, Cleave and no resource/UID regressions. **Do not require a natural Legendary or Ultra drop in manual testing**; synthetic boundary tests confirm their availability.
+- [ ] Real cross-session DataStore durability is still not verified while the Studio profile test boot uses `ProfileStore.Mock`.
+
+**Temporary rarity odds, not locked balancing:** Common 78.00%; Rare 18.50%; Epic 3.00%; Legendary 0.45%; Ultra 0.05%. All independent of logs and metal/tier for this slice.
+
+**Phase 1C exit:** New rarity smoke test passes, prior regression tests still pass and at least one normal craft in each forge mode shows correct server-owned rarity and inventory/combat behavior. Then Phase 1D ascension/pity may begin.
+
 ## Immediate next action (as of 2026-11-23)
 
-1. **Phase 1B manual verification accepted.** The small readability pass is committed to the same branch; visually confirm the level-up notification, Bag labels, forge/shop headings and Grove reward popup remain legible in Studio.
-2. **Implement Phase 1C next: natural rarity RNG at forging**, with Common / Rare / Epic / Legendary / Ultra all possible from a successful craft, including tiny nonzero chances for upper rarities on early materials/tiers. Preserve class RNG independence, forged base power/quality/size and Cleave. Use a **single server-owned rarity-roll function** in both experimental and standard crafting paths, persist to the existing `item.Rarity` field, and allow `WeaponProgressionRules` to supply cap/bonuses.
-3. Keep launch rarity odds **configurable provisional values** (numbers not previously locked). Add deterministic RNG and distribution smoke tests, rarity-specific inventory display, and a small Studio forge regression. High-rarity weapons remain empty of mutation abilities unless their materials/awakening actually grant abilities.
-4. **Phase 1D after Phase 1C:** implement max-level rarity ascension, material/gold cost, non-destructive failure, independent pity counters and successful reset to Level 1.
+1. **Phase 1C code is committed to the existing branch `dev/gameplay-prototype`**; Studio validation has not been run by this assistant. Ask the agent to execute `tests/WeaponRarityRoll.smoke.luau` and the existing weapon progression/XP/effects/forge smoke tests, or run them in Studio's Server Command Bar.
+2. Follow `docs/WEAPON_RARITY_PLAYTEST.md` for a **short** Studio check: forge one **standard Copper Axe** and one **experimental RNG weapon**, verify the rarity appears in the result toast and Bag, old weapons remain unchanged, and the appropriate weapon class/effects/XP still work. No need to roll an Ultra manually.
+3. Fix any regressions before starting **Phase 1D**: max-level ascension, one-step rarity increase, non-destructive failure, coins/material cost, formula-based pity `ceil(1.5 / base_success_probability)` and successful Level-1 reset without rerolling forged materials/effects.
+4. Leave the test odds provisional and postpone mutation mechanics, final economy pricing and major UI polish.
 
-**No new branch, no unrelated refactor, no final economy pricing or premature UI polish.**
+**No new branch, no unrelated refactor, and no fabricated Studio test results.**
 
 ## Things that are examples, NOT locked numbers
 Illustrations previously discussed (such as Common 10 / Rare 20 level caps, 5% upgrades, 15–25% AFK efficiency, five perfect logs producing full potency, 1–3 Golden logs, or a fixed number of forge tiers) **must not be treated as finalized economy values**. Only the **pity formula** and conceptual rules above are agreed.
