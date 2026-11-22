@@ -22,7 +22,7 @@ Ship a fun playable **chop → collect logs → forge weapons → level weapons 
 - Classes: **Dagger**, **Axe**, **Battlehammer**. Battlehammer has a **Cleave** effect prototype in the generic effects dispatcher (`src/ServerScriptService/WeaponEffects/Dispatcher.luau`).
 - Grove mutation definitions currently include **Golden**, **Giant**, **Crystal**; this **does not reflect the approved future roster**.
 - New mutation powers, manually activated skills, weapon rarity/XP/ascension, awakening, infusion, Ultra mastery, and multi-tier forge rules described below are **design-only**, not yet coded.
-- **Implementation status (2026-11-23):** Phase 1A and Phase 1B were reported tested and working by the user (agent smoke test details not independently accessible here). **Phase 1C is implemented in source, but Roblox Studio testing is pending:** a shared server-only natural rarity roller now supplies Common/Rare/Epic/Legendary/Ultra to **both standard and experimental crafting**, persisting existing `Rarity` and using the already implemented rarity/level stat growth. The Bag includes readable rarity names/colors and the forge success toast shows the rolled rarity. **Phase 1D ascension/pity is next after validation.** Forge tiers, mutation powers, Awakening/Infusion and manually activated skills remain unimplemented.
+- **Implementation status (2026-11-23):** User reports Phase 1A/1B working in Studio and Phase 1C rarity behavior apparently working. **Phase 1D ascension/pity has been implemented in one source-code batch, Studio validation pending:** server-only cost/roll/ownership and station checks, per-weapon hard pity, non-destructive failure, one-tier Level-1 success/reset, dedicated request/result remote, Bag ascension preview/confirmation, deterministic smoke tests and optional Studio accelerated fixture. Existing Forge tiers, mutation effects, Awakening/Infusion, activated skills, and final Grove economy are still future phases. **Next development batch: Phase 2 mutation forge/abilities after ascension integration check.**
 - **Keep scope explicit:** We have thoroughly designed mutation **abilities** and progression, but **manual activation skills** (if any) have *not* been specified individually. Do not invent and implement an active-skill system merely because it appears in the effect taxonomy.
 - Do not remove functioning experimental forging or Cleave before equivalent functionality is integrated and tested.
 
@@ -155,8 +155,8 @@ The data model should have stable fields for forge tier, original log provenance
 - [x] Phase 1B source implementation: server-owned weapon XP/levels, HP-clamped primary and Cleave secondary attribution, kill XP and no max-level XP banking. User reports manual gameplay checks passing.
 - [x] Phase 1A/1B source implementation: rarity tier configs, level caps/growth, server validation, persistent level/XP and Bag display. Phase 1C now supplies newly forged rarity values.
 - [x] Phase 1C source implementation: independent server-side natural rarity roll at forging in both crafting modes, including nonzero direct Ultra chance; legacy items untouched. **Studio smoke and forge regression testing pending.**
-- [ ] Add max-level ascension, chance display, material+gold cost, RNG, hard pity `ceil(1.5/p)`, successful Level-1 reset; preserve forged qualities and existing effects.
-- [ ] Add Studio-only accelerated testing fixtures / admin resources without exposing cheats to production.
+- [x] **Phase 1D source committed:** max-level ascension, chance/pity display, coin and ordinary unlocked carry-bag-log cost, server-only RNG, hard pity `ceil(1.5/p)`, successful one-rarity Level-1 reset. Original forged materials/base stats/effects are preserved. **Studio integration and smoke tests not yet executed by this assistant.**
+- [x] Added optional Studio **Server Command Bar** test fixture to max a saved weapon, grant ordinary logs, and force a guaranteed pity attempt; fixture is in `tests/` and not mounted into production.
 - [ ] Test save/load, repeated attempts, pity boundaries, high-rarity natural roll, ascension resetting only level-derived stats, and fast vs slow weapons earning reasonable XP.
 
 **Exit:** A player can **forge → chop/earn XP → reach cap → attempt ascension → grow stronger again**, with reliable persistence.
@@ -173,6 +173,20 @@ The data model should have stable fields for forge tier, original log provenance
 - [ ] True cross-session DataStore persistence remains unverified because existing test boot uses `ProfileStore.Mock`.
 
 **Phase 1B accepted from user playtesting; proceed to Phase 1C.** Temporary values (`1 XP / actual damage`, `25% max-HP kill bonus`, `100+25*level` requirement) remain tunable. User also requested a font readability fix, committed 2026-11-23: all 31 `GothamBlack` usages in `EconomyUI.client.luau` and the Grove reward popup now use `GothamBold`; feedback toast text enlarged to 18px. Quick visual check after Rojo sync is advised, not a full gameplay regression.
+
+#### Phase 1D checkpoint — code committed 2026-11-23, Studio validation pending
+
+- [x] New `ServerScriptService/WeaponAscensionRules.luau`: provisional step config, exact hard pity `ceil(1.5 / p)` with per-weapon failure counter, normal-ladder-only eligibility, pure deterministic success/failure outcome. Success resets level/XP/pity at the **next rarity**, failure preserves current level/rarity/stats/abilities.
+- [x] New `ServerScriptService/WeaponAscensionService.luau`: validates saved and runtime item identity, max level, and physical Forge proximity. Selects cheapest/smallest **unmutated, unlocked carry-bag logs** (never protected storage); deducts coins and logs once per success or failure, updates saved and runtime progression and recalculates equipped stats.
+- [x] Added `ReplicatedStorage/Economy/AscendWeaponRE.model.json`, integrated `ShopHandler.server.luau` request and result dispatch, throttle and server-owned preview, including coin/log affordability and chance/pity.
+- [x] `EconomyUI.client.luau`: an `ASCENSION` section in `M → AXES → INFO` for capped weapons; displays requirements, current chance, guarantee counter, costs and explicit two-click confirmation. UI messages distinguish success, failure and ineligibility.
+- [x] Added `tests/WeaponAscension.smoke.luau`, `tests/WeaponAscensionStudioFixture.smoke.luau`, and `docs/WEAPON_ASCENSION_PLAYTEST.md`.
+- [ ] **Not run by this assistant:** ask agent to execute all six weapon/forge smoke tests. In Studio, use the optional fixture to test one **guaranteed** normal ascension, watch costs decrease and Level return to 1, and check original materials and Cleave remain unchanged. Full DataStore durability still requires later published-game validation (current Studio uses Mock).
+- [ ] **Known prototype limitation:** existing `StudioForgeSandbox` auto-refills coins when requesting the shop snapshot; the optional test fixture disables that auto-refill in the current Play session to make costs visible. Rates/costs are placeholders.
+
+**Temporary costs/chances (unbalanced):** Common→Rare: 50%, 150 coins +1 ordinary bag log (pity 3); Rare→Epic: 25%, 600 coins +2 logs (pity 6); Epic→Legendary: 10%, 2500 coins +3 logs (pity 15); Legendary→Ultra: 2%, 9000 coins +4 logs (pity 75). No Ultra→Secret normal ascension.
+
+**Next milestone after one integration check:** Phase 2 Forge tiers and mutation powers as a larger development batch, rather than dozens of UI-only checkpoints.
 
 ### Phase 2 — Forge tiers, potency, and mutation ability engine
 
@@ -261,12 +275,12 @@ The data model should have stable fields for forge tier, original log provenance
 
 ## Immediate next action (as of 2026-11-23)
 
-1. **Phase 1C code is committed to the existing branch `dev/gameplay-prototype`**; Studio validation has not been run by this assistant. Ask the agent to execute `tests/WeaponRarityRoll.smoke.luau` and the existing weapon progression/XP/effects/forge smoke tests, or run them in Studio's Server Command Bar.
-2. Follow `docs/WEAPON_RARITY_PLAYTEST.md` for a **short** Studio check: forge one **standard Copper Axe** and one **experimental RNG weapon**, verify the rarity appears in the result toast and Bag, old weapons remain unchanged, and the appropriate weapon class/effects/XP still work. No need to roll an Ultra manually.
-3. Fix any regressions before starting **Phase 1D**: max-level ascension, one-step rarity increase, non-destructive failure, coins/material cost, formula-based pity `ceil(1.5 / base_success_probability)` and successful Level-1 reset without rerolling forged materials/effects.
-4. Leave the test odds provisional and postpone mutation mechanics, final economy pricing and major UI polish.
+1. **Phase 1D source implementation is committed on existing `dev/gameplay-prototype`.** Have the agent run `tests/WeaponAscension.smoke.luau` plus Phase 1A–1C and forge/effects regression tests; do not claim Roblox Studio execution without real evidence.
+2. Perform **one** fast Studio integration check using `tests/WeaponAscensionStudioFixture.smoke.luau` to max a normal weapon and force hard pity; confirm the double-click UI, actual cost deduction, saved/runtime level reset, new rarity damage and unchanged Cleave/materials.
+3. Fix any blockers, then immediately start the **Phase 2 mutation forge/ability batch**: forge tiers and potency schema first, followed by Golden/Frenzied/Shocked initial ability rolls and working effects, with targeted automated tests. Keep the full ability list incremental but avoid repeated design discussions.
+4. Full Grove economy/Infusion and final balance/UI polish remain later. Cross-session persistence needs a separate published DataStore test, since prototype Studio uses Mock.
 
-**No new branch, no unrelated refactor, and no fabricated Studio test results.**
+**No new branch; no final economy pricing or speculative activated skills.**
 
 ## Things that are examples, NOT locked numbers
 Illustrations previously discussed (such as Common 10 / Rare 20 level caps, 5% upgrades, 15–25% AFK efficiency, five perfect logs producing full potency, 1–3 Golden logs, or a fixed number of forge tiers) **must not be treated as finalized economy values**. Only the **pity formula** and conceptual rules above are agreed.
