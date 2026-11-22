@@ -11,8 +11,9 @@ local WeaponProgressionService = {}
 local MAX_HITS_PER_ATTACK = 9 -- primary + bounded registered secondary effects
 
 local function findUniquePersistentWeapon(data, uid, itemID)
+	if type(data) ~= "table" or type(data.Inventory) ~= "table" then return nil end
 	local match
-	for _, item in ipairs(data.Inventory or {}) do
+	for _, item in ipairs(data.Inventory) do
 		if type(item) == "table" and item.UID == uid then
 			if match or item.ItemID ~= itemID then return nil end
 			match = item
@@ -76,6 +77,10 @@ function WeaponProgressionService.AwardHits(player, weaponUID, hitRecords)
 	local level = nextProgress.Level
 	local cap = ProgressionRules.GetLevelCap(saved.Rarity)
 	local baseAttack = type(saved.Stats) == "table" and saved.Stats.Attack or 0
+	if type(baseAttack) ~= "number" or baseAttack ~= baseAttack
+		or baseAttack < 0 or baseAttack == math.huge then
+		baseAttack = 0
+	end
 	local bonus = ProgressionRules.DerivedAttackBonus(saved, 5)
 	EconomyUpdated:FireClient(player, "WeaponProgression", {
 		UID = weaponUID,
