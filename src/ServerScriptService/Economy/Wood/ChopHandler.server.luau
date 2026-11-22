@@ -71,9 +71,9 @@ ChopEvent.OnServerEvent:Connect(function(player)
 	-- only after the primary hit and all allowed secondary effects have run;
 	-- that prevents level-up stat growth from affecting this same swing.
 	local hitRecords = {}
-	local function recordHit(target, applied, killed)
+	local function recordHit(target, applied, killed, maxHPBeforeHit)
 		if #hitRecords >= 9 or type(target) ~= "table" then return end
-		local maxHP = target.MaxHP
+		local maxHP = maxHPBeforeHit or target.MaxHP
 		if type(maxHP) ~= "number" or maxHP ~= maxHP or maxHP <= 0
 			or maxHP == math.huge or type(applied) ~= "number"
 			or applied ~= applied or applied <= 0 or applied > maxHP then return end
@@ -102,9 +102,10 @@ ChopEvent.OnServerEvent:Connect(function(player)
 		then WeaponEffects.Prepare("OnHit", data, effectContext) else {}
 
 	-- Normal attack remains single-target; only confirmed hits emit effects.
+	local primaryMaxHP = tree.MaxHP
 	local hit, actualDamage, killed = tree:TakeDamage(calculated, player)
 	if not hit then return end
-	recordHit(tree, actualDamage, killed)
+	recordHit(tree, actualDamage, killed, primaryMaxHP)
 	if RunService:IsStudio() then
 		local secondaryHits = WeaponEffects.ApplyPrepared(preparedEffects, effectContext)
 		-- Avoid noisy output in normal forests; this is a dedicated Studio
