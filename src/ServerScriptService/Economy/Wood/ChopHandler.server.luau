@@ -7,6 +7,10 @@ local WorldProgressService = require(game.ServerScriptService.WorldProgressServi
 local DamageService = require(game.ServerStorage.DamageService)
 local WeaponEffects = require(game.ServerScriptService.WeaponEffects.Dispatcher)
 local WeaponProgressionService = require(game.ServerScriptService.WeaponProgressionService)
+local Fervor = require(game.ServerScriptService.WeaponEffects.Fervor)
+local Thunderstrike = require(game.ServerScriptService.WeaponEffects.Thunderstrike)
+local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
+local EconomyUpdated = game.ReplicatedStorage.Economy.EconomyUpdated
 
 local MIN_CHOP_INTERVAL = 0.3
 local lastChop = {}
@@ -37,10 +41,6 @@ ChopEvent.OnServerEvent:Connect(function(player)
 		and data.ExperimentalClass ~= nil then
 		interval = math.max(MIN_CHOP_INTERVAL, 1 / math.clamp(rate, 0.1, 10))
 	end
-	local now = os.clock()
-	if now - (lastChop[player] or -math.huge) < interval then return end
-	lastChop[player] = now
-
 	-- This request deliberately has no target payload. The server resolves the
 	-- closest eligible registered tree from its own interaction geometry, so a
 	-- client cannot nominate a model, HP, damage value, or reward target.
@@ -57,12 +57,21 @@ ChopEvent.OnServerEvent:Connect(function(player)
 			and WorldProgressService.CanInteractWithTree(player, candidate)
 	end, reach)
 	if not tree then return end
+	local weaponUID = runtime.EquippedWeaponUID
+	local now = os.clock()
+	local fervorParams = if RunService:IsStudio()
+		then WeaponEffects.GetParams(data, "Fervor") else nil
+	if fervorParams then
+		interval = math.max(MIN_CHOP_INTERVAL,
+			Fervor.Interval(player, weaponUID, tree, now, interval, fervorParams))
+	end
+	if now - (lastChop[player] or -math.huge) < interval then return end
+	lastChop[player] = now
 
 	local stats = profile.Data.Runtime.FinalStats
 	local attack = stats and stats.Attack
 	if type(attack) ~= "number" or attack ~= attack or attack <= 0 or attack == math.huge then return end
 
-	local weaponUID = profile.Data.Runtime.EquippedWeaponUID
 	local lumberjackStrength = profile.Data.LumberjackStrength
 	local context = DamageService:createDamageContext(player, tree, weaponUID, stats, nil, lumberjackStrength)
 	local _, calculated = DamageService.Calculate(context)
@@ -78,6 +87,7 @@ ChopEvent.OnServerEvent:Connect(function(player)
 			or maxHP == math.huge or type(applied) ~= "number"
 			or applied ~= applied or applied <= 0 or applied > maxHP then return end
 		hitRecords[#hitRecords + 1] = {
+			Tree = target,
 			AppliedDamage = applied,
 			TreeMaxHP = maxHP,
 			Killed = killed == true,
@@ -93,6 +103,8 @@ ChopEvent.OnServerEvent:Connect(function(player)
 		PrimaryTree = tree,
 		ActiveTrees = TreeObject.ActiveTrees,
 		PrimaryDamage = calculated.Damage,
+		WeaponUID = weaponUID,
+		PrimarySucceeded = false,
 		EligibleSecondary = function(candidate)
 			return candidate:CanChop(player)
 				and WorldProgressService.CanInteractWithTree(player, candidate)
@@ -106,6 +118,10 @@ ChopEvent.OnServerEvent:Connect(function(player)
 	local hit, actualDamage, killed = tree:TakeDamage(calculated, player)
 	if not hit then return end
 	recordHit(tree, actualDamage, killed, primaryMaxHP)
+	effectContext.PrimarySucceeded = true
+	if fervorParams then
+		Fervor.RecordHit(player, weaponUID, tree, now, fervorParams)
+	end
 	if RunService:IsStudio() then
 		local secondaryHits = WeaponEffects.ApplyPrepared(preparedEffects, effectContext)
 		-- Avoid noisy output in normal forests; this is a dedicated Studio
@@ -129,6 +145,40 @@ ChopEvent.OnServerEvent:Connect(function(player)
 			end
 		end
 	end
+	-- Golden Touch awards server-owned kill gold after actual primary and
+	-- registered secondary damage. Each TreeObject can die only once.
+	if RunService:IsStudio() and WeaponEffects.GetParams(data, "GoldenTouch") then
+		local coinsDelta = 0
+		for _, record in ipairs(hitRecords) do
+			if record.Killed == true and type(record.Tree) == "table" then
+				local species = record.Tree.SpeciesId
+				local base = MaterialDefinitions.GetSellValue(species)
+				if type(base) == "number" and base > 0 then
+					WeaponEffects.ApplyTrigger("OnKill", data, {
+						Killed = true,
+						TreeCoinBase = base,
+						AwardCoins = function(amount)
+							if type(amount) == "number" and amount >= 1
+								and amount <= 50000 and amount % 1 == 0 then
+								coinsDelta += amount
+							end
+						end,
+					})
+				end
+			end
+		end
+		if coinsDelta > 0 then
+			local coins = profile.Data.Coins
+			if type(coins) == "number" and coins == coins
+				and coins >= 0 and coins < 1e12 then
+				profile.Data.Coins = math.min(1e12, coins + coinsDelta)
+				EconomyUpdated:FireClient(player, "Coins", profile.Data.Coins)
+				EconomyUpdated:FireClient(player, "MutationProc", {
+					Id = "GoldenTouch", Amount = coinsDelta,
+				})
+			end
+		end
+	end
 	-- No client-reported hit/XP values. XP comes exclusively from trusted,
 	-- HP-clamped TreeObject outcomes for the equipped weapon UID.
 	WeaponProgressionService.AwardHits(player, weaponUID, hitRecords)
@@ -136,4 +186,6 @@ end)
 
 Players.PlayerRemoving:Connect(function(player)
 	lastChop[player] = nil
+	Fervor.Clear(player)
+	Thunderstrike.Clear(player)
 end)
