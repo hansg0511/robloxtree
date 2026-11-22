@@ -22,7 +22,7 @@ Ship a fun playable **chop → collect logs → forge weapons → level weapons 
 - Classes: **Dagger**, **Axe**, **Battlehammer**. Battlehammer has a **Cleave** effect prototype in the generic effects dispatcher (`src/ServerScriptService/WeaponEffects/Dispatcher.luau`).
 - Grove mutation definitions currently include **Golden**, **Giant**, **Crystal**; this **does not reflect the approved future roster**.
 - New mutation powers, manually activated skills, weapon rarity/XP/ascension, awakening, infusion, Ultra mastery, and multi-tier forge rules described below are **design-only**, not yet coded.
-- **Implementation status (2026-11-22):** Basic chopping, log collection, experimental class-roll forging, inventory and Cleave work as prototypes. **Phase 1A source code committed, Studio validation pending:** versioned progress normalization and additive rarity/level-derived Attack stat source. **Not implemented:** XP earning, natural rarity rolls, ascension/pity, full forge tiers, mutation ability pools/potency, Awakening/Infusion, manually activated skills and complete Grove sourcing/upgrades. Grove **already has** planted ownership, mature-only E-prompt harvest, start-of-cycle size rolls and one-log regrowth; do not rebuild this code.
+- **Implementation status (2026-11-22):** Phase 1A tests were reported passing by the user and their agent, including six manual forging/chopping/Cleave regressions. **Phase 1B source implementation committed, new Studio verification pending:** server-derived HP-clamped weapon XP (primary and Cleave), kill XP, multi-level advancement, equipped stat refresh, and live Bag Level/XP UI. **Not implemented:** natural rarity RNG, ascension/pity, forge tiers, mutation powers, Awakening/Infusion, active skills and complete Grove economy. Major Grove growth/harvest mechanics already exist.
 - **Keep scope explicit:** We have thoroughly designed mutation **abilities** and progression, but **manual activation skills** (if any) have *not* been specified individually. Do not invent and implement an active-skill system merely because it appears in the effect taxonomy.
 - Do not remove functioning experimental forging or Cleave before equivalent functionality is integrated and tested.
 
@@ -135,31 +135,44 @@ Unlock one ability in each relevant mutation pool at low forge tiers; higher tie
 
 **Exit:** Contracts and migration plan are clear. No detailed balance math required.
 
-#### Phase 1A implementation checkpoint — committed 2026-11-22; Studio test pending
+#### Phase 1A checkpoint — completed; agent automated and user manual tests reported passing 2026-11-22
 
 - [x] New `src/ServerScriptService/WeaponProgressionRules.luau` with schema v1 (`Level`, `XP`, `AscensionFailures`), rarity order, provisional level caps/growth and **non-destructive** derived Attack calculation. Legitimate saved levels above a new cap are clamped, not wiped.
 - [x] `PlayerProfile/ProfileService/ProfileDataCache.luau` normalizes actual persistent weapons before runtime inventory loading, ignoring seeds and debug-only ID 9001.
 - [x] `Inventory/InventoryHandler.server.luau` initializes new crafted weapon progression before inserting into persistence/IMS. Existing top-level `Rarity` remains authoritative.
 - [x] `ServerStorage/Items/StatsAggregator.luau` treats rarity/level bonus as a separate stat source, never rewriting forged `Stats.Attack`, Cleave or material provenance. Common Lv1 has no combat difference.
 - [x] Added `WeaponProgression` type and `tests/WeaponProgressionRules.smoke.luau` covering legacy migration, malformed records, over-cap preservation, rarity/level growth, debug isolation and actual profile/item parser.
-- [ ] **Studio validation needed:** after Rojo sync, run `tests/WeaponProgressionRules.smoke.luau` in the **SERVER Command Bar** in Play. Then run existing `ExperimentalForgeRules.smoke.luau` and `WeaponEffectsDispatcher.smoke.luau`. Forge/equip a 1-log Dagger and 20-log Battlehammer, verify baseline damage/speed and Cleave, and inspect errors. Repository tooling cannot run Roblox Studio.
+- [x] User reports all six manual checks passed; their agent reports automated Phase 1A smoke tests passed. Those outcomes are user/agent-reported, not directly executed by this assistant. **Phase 1B changes require rerunning these regression tests.**
 - [ ] Real save/reload semantics should be tested in a compatible environment. Current Studio profile boot uses a mock data store and may not prove actual published DataStore persistence.
 
-**Exit criterion:** no regressions, progression data survives inventory parse, and no baseline changes to Common Lv1. Phase 1B can follow after Studio validation.
+**Phase 1A exit accepted from user/agent test results.** No gameplay XP existed until Phase 1B.
 
 ### Phase 1 — Weapon leveling and rarity vertical slice (first playable feature)
 
 **Build sequence:** (1A) persistent/versioned weapon data + derived stat calculation; (1B) chopping XP and leveling; (1C) natural rarity roll and rarity-based stat growth; (1D) ascension, Level-1 reset and hard pity. **Studio-test after each substage.** No mutation ability implementation or active skill system required for this vertical slice.
 
 The data model should have stable fields for forge tier, original log provenance, forged base quality/size/stats, rarity, level/XP, ascension pity, primary mutation ability/potency and a future secondary ability/potency. Prototype weapons from older saves must remain usable.
-- [ ] Add server-owned weapon XP and levels; damage attribution and tree-kill XP; cap XP to actual damage.
-- [ ] Add rarity grade, rarity-dependent cap/growth, server validation, persistence, and minimal useful inventory display.
+- [x] Phase 1B source implementation: server-owned weapon XP/levels, HP-clamped primary and Cleave secondary attribution, kill XP and no max-level XP banking. Studio verification pending.
+- [x] Phase 1A/1B source implementation: rarity tier configs, level caps/growth, server validation, persistent level/XP, minimal Bag display. Actual rarity RNG remains Phase 1C.
 - [ ] Add natural rarity roll at forging, including possibility of direct Ultra; no new weapon-silencing bugs in existing crafting.
 - [ ] Add max-level ascension, chance display, material+gold cost, RNG, hard pity `ceil(1.5/p)`, successful Level-1 reset; preserve forged qualities and existing effects.
 - [ ] Add Studio-only accelerated testing fixtures / admin resources without exposing cheats to production.
 - [ ] Test save/load, repeated attempts, pity boundaries, high-rarity natural roll, ascension resetting only level-derived stats, and fast vs slow weapons earning reasonable XP.
 
 **Exit:** A player can **forge → chop/earn XP → reach cap → attempt ascension → grow stronger again**, with reliable persistence.
+
+#### Phase 1B checkpoint — source committed 2026-11-22; Roblox Studio tests pending
+
+- [x] `WeaponProgressionRules.luau`: provisional XP per actual HP removed, max-HP-weighted kill bonus, XP-to-next-level curve, nonmutating multi-level advancement, cap/no-banking.
+- [x] `TreeObject:TakeDamage`: backward-compatible extra return values `(success, appliedDamage, killed)`; original boolean remains first.
+- [x] `Cleave.luau` + `ChopHandler.server.luau`: report confirmed primary/secondary applied damage to one collector, then commit XP **after** all effects in a swing. Existing Studio-only Cleave gating remains.
+- [x] New `WeaponProgressionService.luau`: verify real equipped UID/tool, exclude debug/ephemeral weapons, find matching unique persisted weapon, update saved and runtime progression, reaggregate equipped stats on level-up, publish lightweight client update. No XP remote exposed to clients.
+- [x] `ShopHandler.server.luau` + `EconomyUI.client.luau`: server-projected rarity/level/XP and current power in existing M → AXES detail section; live XP updates via existing EconomyUpdated without a snapshot RPC per hit.
+- [x] Added `tests/WeaponProgressionXP.smoke.luau` and `docs/WEAPON_XP_PLAYTEST.md`; updated Phase 1A smoke expectation for no XP banking at max cap.
+- [ ] **Tests not run by this assistant:** ask agent to run the new XP smoke test and re-run Phase 1A + forge + dispatcher regression tests. Then user performs brief Studio playtest for Level 1→2, increased damage, Battlehammer XP from secondary hits, weapon-specific progress, and no Grove/debug exploits.
+- [ ] True cross-session DataStore persistence remains unverified because existing test boot uses `ProfileStore.Mock`.
+
+**Do not begin Phase 1C until Phase 1B tests pass and XP/UI behavior is confirmed in Roblox Studio.** Values currently used (`1 XP / actual damage`, `25% max-HP kill bonus`, `100+25*level` requirement) are playtest-only and can be changed later.
 
 ### Phase 2 — Forge tiers, potency, and mutation ability engine
 
@@ -234,12 +247,12 @@ The data model should have stable fields for forge tier, original log provenance
 
 ## Immediate next action (as of 2026-11-22)
 
-1. **Phase 1A code is committed to `dev/gameplay-prototype`.** Studio Play/regression verification is the immediate checkpoint; no gameplay XP should be claimed yet.
-2. After passing verification, implement **Phase 1B: server-owned weapon XP on actual clamped damage + tree kills** (including secondary Cleave damage), level thresholds, correct runtime/persistent item sync and equipped-stat refresh.
-3. Show Level/XP in the existing Bag/axe panel with minimum functional UI changes.
-4. Then implement **Phase 1C/1D:** natural rarity rolls, max-level ascension, hard pity and true Level-1 reset. Only then move on to forge tiers, mutation powers, Awakening and Infusion.
+1. **Phase 1B source implementation is complete on `dev/gameplay-prototype`, but runtime tests have not been executed by this assistant.** Run `tests/WeaponProgressionXP.smoke.luau` plus the three older tests in Studio's Server Command Bar (or the user's agent's verified test runner). See `docs/WEAPON_XP_PLAYTEST.md`.
+2. Perform a short **manual XP and level-up test**: chop an Oak with a Common Lv1 weapon, watch M → AXES → INFO for XP gains, reach Lv2 and verify power/actual damage increase, then repeat on clustered trees with a Battlehammer to confirm Cleave XP.
+3. Validate that two weapons have separate levels and an equipped weapon's level-up doesn't rewrite original forge metadata. Any bugs should be fixed before beginning rarity RNG.
+4. **Next implementation milestone (after validation): Phase 1C** natural rarity rolls for new forged weapons, with higher-rarity level caps. Then Phase 1D ascension/pity.
 
-**Next assistant task:** Validate Phase 1A in Studio or resolve any discovered issues, then build Phase 1B in small testable commits. Do not create another branch or finalize arbitrary economy rates.
+**No new branches, no final economy pricing, no unrelated changes.**
 
 ## Things that are examples, NOT locked numbers
 Illustrations previously discussed (such as Common 10 / Rare 20 level caps, 5% upgrades, 15–25% AFK efficiency, five perfect logs producing full potency, 1–3 Golden logs, or a fixed number of forge tiers) **must not be treated as finalized economy values**. Only the **pity formula** and conceptual rules above are agreed.
