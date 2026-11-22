@@ -631,6 +631,7 @@ local function craftExperimental(player, recipe, selectedLogUids)
 		Rarity = rarity,
 		Power = power + ProgressionRules.DerivedAttackBonus(weapon, catalog.BaseAttack),
 		Quality = result.MaterialQuality,
+		AbilityId = mutationAbility and mutationAbility.Id or nil,
 	})
 	economyUpdated:FireClient(player, "Progression")
 end
