@@ -13,11 +13,11 @@ local Sandbox = {}
 Sandbox.ENABLED = true
 Sandbox.COIN_FLOOR = 1_000_000_000
 Sandbox.HEAD_FLOOR = 1_000
-Sandbox.FIXTURES_PER_VARIANT = 3
+Sandbox.FIXTURES_PER_VARIANT = 2
 Sandbox.MAX_TOTAL_STORED = 210 -- leave 30 places free for Grove harvest/other logs
 Sandbox.SPECIES = { "Bamboo", "Oak", "Ironwood" }
 Sandbox.SIZES = { 0.5, 1, 2, 3.5, 5 }
-Sandbox.MUTATION_TYPES = { "Normal", "Golden", "Crystal" }
+Sandbox.MUTATION_TYPES = { "Normal", "Golden", "Frenzied", "Shocked", "Crystal" }
 local UID_PREFIX = "devforge-"
 
 function Sandbox.IsEnabled()
@@ -30,11 +30,10 @@ end
 
 local function mutationKind(mutations)
 	if type(mutations) ~= "table" then return "Normal" end
-	if mutations.Golden == true and mutations.Crystal ~= true and mutations.Giant ~= true then
-		return "Golden"
-	elseif mutations.Crystal == true and mutations.Golden ~= true and mutations.Giant ~= true then
-		return "Crystal"
-	end
+	if mutations.Golden == true then return "Golden" end
+	if mutations.Frenzied == true then return "Frenzied" end
+	if mutations.Shocked == true then return "Shocked" end
+	if mutations.Crystal == true then return "Crystal" end
 	return "Normal"
 end
 
@@ -86,6 +85,12 @@ function Sandbox.Refill(player, data)
 	-- This is a sandbox-only override; normal progression remains intact
 	-- when the toggle above is disabled or outside Studio.
 	if type(data.RunProgress) == "table" then
+		-- Convenience for existing Studio iron-forge playtests. Disable
+		-- sandbox when testing the real paid workstation upgrade.
+		if data.RunProgress.ForgeLevel ~= 2 then
+			data.RunProgress.ForgeLevel = 2
+			changed = true
+		end
 		local tier = data.RunProgress.StandardAxeTier
 		if type(tier) ~= "number" or tier < 2 then
 			data.RunProgress.StandardAxeTier = 2
