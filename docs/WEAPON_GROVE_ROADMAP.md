@@ -206,6 +206,7 @@ The data model should have stable fields for forge tier, original log provenance
 **Batch 1 manual exit:** a player can purchase Forge Lv2, forge Golden/Frenzied/Shocked weapons from actual mutated logs, and observe at least one real effect from each family without breaking existing rarity, ascension, XP and class behavior.
 
 ### Phase 3 — Awakening, second slot, infusion and Ultra mastery
+- [x] **Cost architecture foundation:** server-owned `WeaponUpgradeCostRules` and `WeaponUpgradeCostService` support heterogeneous upgrade ingredients (mutated-log UIDs **plus** other unique materials, stackable catalysts, owned axe-head counts and coins), with full cost previews, exact UID verification, nonyielding debit/rollback, and a new empty persisted `MaterialBalances` map for future items. See `docs/WEAPON_UPGRADE_MULTI_RESOURCE_COST_ARCHITECTURE.md`. Existing Heartwood already belongs to `GroveMaterials`; actual required Awakening ingredients/costs are **not locked**. Source checks committed, Studio test pending. **This does not yet implement or enable Awakening/Infusion actions.**
 - [ ] Add forge-unlocked Awakening to ordinary weapons (fresh logs → first mutation + potency).
 - [ ] Add Legendary second slot, fresh-log infusion and independent potency, duplicate checks, replacement route, preserving original ability.
 - [ ] Add Ultra mastery as enhancement to existing abilities rather than third slot; scope mastery conservatively.
