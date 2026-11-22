@@ -117,6 +117,9 @@ ChopEvent.OnServerEvent:Connect(function(player)
 					state.Count, state.EveryHits,
 					if state.Proc then " PROC!" else "",
 					weaponUID))
+			elseif effectId == "ThunderstrikeResult" and type(state) == "table" then
+				print(string.format("[MutationPractice] THUNDERSTRIKE RESULT %s | damage=%s",
+					tostring(state.Outcome), tostring(state.Damage or 0)))
 			end
 		end else nil,
 		EligibleSecondary = function(candidate)
