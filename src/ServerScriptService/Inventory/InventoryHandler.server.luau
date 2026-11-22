@@ -9,6 +9,9 @@ local itemDataBase = require(itemFolder.ItemDataBase)
 local StatsAggregator = require(itemFolder.StatsAggregator)
 local WeaponProgressionRules = require(game.ServerScriptService.WeaponProgressionRules)
 local Fervor = require(game.ServerScriptService.WeaponEffects.Fervor)
+local GoldenRush = require(game.ServerScriptService.WeaponEffects.GoldenRush)
+local Bloodrush = require(game.ServerScriptService.WeaponEffects.Bloodrush)
+local Rampage = require(game.ServerScriptService.WeaponEffects.Rampage)
 local StatsDatabase = require(itemFolder.StatsDatabase)
 local EquipAxeRE = game.ReplicatedStorage.Economy:WaitForChild("EquipAxeRE")
 local LogService = require(game.ServerScriptService.Inventory.LogService)
@@ -280,6 +283,9 @@ local function EquipItem(player, item)
 		playerProfile.Data.Equipped.Weapon = item.ItemUID
 	end
 	Fervor.OnWeaponEquipped(player, previousWeaponUID, item.ItemUID)
+	GoldenRush.OnWeaponEquipped(player, previousWeaponUID, item.ItemUID)
+	Bloodrush.OnWeaponEquipped(player, previousWeaponUID, item.ItemUID)
+	Rampage.OnWeaponEquipped(player, previousWeaponUID, item.ItemUID)
 	StatsAggregator.Aggregate(player)
 	return true
 end
