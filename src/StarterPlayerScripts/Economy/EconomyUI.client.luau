@@ -2021,7 +2021,7 @@ local function renderForge(data)
 		local card = Instance.new("Frame")
 		card.Name = "Recipe_" .. recipe.Id
 		card.LayoutOrder = renderedCount
-		card.Size = UDim2.new(1, -8, 0, if recipe.Experimental == true then 530 else 420)
+		card.Size = UDim2.new(1, -8, 0, if recipe.Experimental == true then 560 else 450)
 		card.BackgroundColor3 = COLORS.BagSlot
 		card.Parent = forgeList
 		round(card, 12)
@@ -2084,10 +2084,10 @@ local function renderForge(data)
 		if mutationPreview and mutationPreview.InvalidReason then
 			estimateText = "MIXED MUTATIONS: CHOOSE ONE ABILITY FAMILY"
 		elseif mutationPreview and mutationPreview.Family then
-			estimateText = string.format("%s • POTENCY %.1f%% / %.0f%% CAP • %s",
+			estimateText = string.format("%s • POTENCY %.1f%% / %.0f%% CAP • %d ABILITY CHOICE(S)",
 				string.upper(mutationPreview.Family), mutationPreview.Potency * 100,
 				mutationPreview.PotencyCap * 100,
-				string.upper(tostring(mutationPreview.AvailableAbilities[1] or "")))
+				#(mutationPreview.AvailableAbilities or {}))
 		elseif recipe.Experimental == true then
 			estimateText = if experimentPreview
 				then string.format("LOG QUALITY %.1f%% • NO MUTATION ABILITY",
@@ -2104,6 +2104,27 @@ local function renderForge(data)
 		estimateLine.TextStrokeColor3 = COLORS.BagLine
 		estimateLine.TextStrokeTransparency = 0
 
+		-- Same shared odds table drives both the client preview and the
+		-- server roll. Show the actual unlocked pool, not merely the first
+		-- ability as in the single-ability prototype.
+		local shortAbility = {
+			GoldenTouch="TOUCH",GoldenRush="RUSH",GoldenJackpot="JACKPOT",
+			Fervor="FERVOR",Bloodrush="BLOODRUSH",Rampage="RAMPAGE",
+			Thunderstrike="THUNDER",ChainLightning="CHAIN",
+		}
+		local abilityParts={}
+		for _, choice in ipairs(mutationPreview and mutationPreview.AbilityOdds or {}) do
+			abilityParts[#abilityParts+1]=string.format("%s %.0f%%",
+				shortAbility[choice.Id] or choice.Id:upper(),choice.Chance*100)
+		end
+		local abilityOddsText=if #abilityParts>0 then
+			"ABILITY ODDS  "..table.concat(abilityParts,"   •   ")
+			else "ABILITY ODDS  SELECT MUTATED WOOD"
+		local abilityOddsLine=label(card,"MutationAbilityOdds",abilityOddsText,
+			UDim2.new(1,-32,0,22),UDim2.new(0,16,0,151),
+			13,COLORS.Gold,Enum.Font.GothamBold)
+		abilityOddsLine.TextTruncate=Enum.TextTruncate.AtEnd
+
 		local oddsText = if experimentPreview then string.format(
 			"CLASS CHANCES   DAGGER %.0f%%   AXE %.0f%%   HAMMER %.0f%%",
 			experimentPreview.Odds.Dagger * 100,
@@ -2112,13 +2133,13 @@ local function renderForge(data)
 			else if recipe.Experimental == true then "CLASS CHANCES   SELECT LOGS"
 				else "FIXED STANDARD AXE RECIPE"
 		local oddsLine = label(card, "ClassOdds", oddsText,
-			UDim2.new(1, -32, 0, 22), UDim2.new(0, 16, 0, 151),
+			UDim2.new(1, -32, 0, 22), UDim2.new(0, 16, 0, 175),
 			14, COLORS.Gold, Enum.Font.GothamBold)
 		oddsLine.TextTruncate = Enum.TextTruncate.AtEnd
 
 
 		local statusText, statusColor = forgeSelectionStatus(recipe, selectedCount, required, mutationPreview)
-		local status = label(card, "Availability", statusText, UDim2.new(1, -32, 0, 22), UDim2.new(0, 16, 0, 176), 15, statusColor, Enum.Font.GothamBold)
+		local status = label(card, "Availability", statusText, UDim2.new(1, -32, 0, 22), UDim2.new(0, 16, 0, 201), 15, statusColor, Enum.Font.GothamBold)
 		status.TextTruncate = Enum.TextTruncate.AtEnd
 		status.TextWrapped = false
 		status.TextStrokeColor3 = COLORS.BagLine
@@ -2141,7 +2162,7 @@ local function renderForge(data)
 				local mode = preset[3]
 				local quickPick = button(card, "QuickPick_" .. tostring(index),
 					actionLabel, UDim2.new(0.25, -8, 0, 34),
-					UDim2.new(0.25 * column, 4, 0, 201 + 40 * line),
+					UDim2.new(0.25 * column, 4, 0, 228 + 40 * line),
 					COLORS.Blue)
 				quickPick.TextSize = 12
 				quickPick.TextStrokeColor3 = COLORS.BagLine
@@ -2158,7 +2179,7 @@ local function renderForge(data)
 			local rangesToggle = button(card, "RangeToggle",
 				if forgeShowStatRanges then "BACK TO LOGS" else "STAT DETAILS",
 				UDim2.new(0.25, -8, 0, 34),
-				UDim2.new(0.75, 4, 0, 241), COLORS.Gold)
+				UDim2.new(0.75, 4, 0, 268), COLORS.Gold)
 			rangesToggle.TextSize = 12
 			rangesToggle.Active = forgeSnapshotFresh
 			rangesToggle.AutoButtonColor = rangesToggle.Active
@@ -2170,14 +2191,14 @@ local function renderForge(data)
 		end
 
 		local candidateHint = label(card, "EligibleLogsHint", if recipe.Experimental == true then (if forgeShowStatRanges then "POSSIBLE ROLLS • 90–110% PER STAT" else "PICK LOGS OR USE A PRESET ABOVE")
-			else "CHOOSE 3 LOGS", UDim2.new(1, -32, 0, 20), UDim2.new(0, 16, 0, if recipe.Experimental == true then 284 else 198), 14, COLORS.BagMuted, Enum.Font.GothamBold)
+			else "CHOOSE 3 LOGS", UDim2.new(1, -32, 0, 20), UDim2.new(0, 16, 0, if recipe.Experimental == true then 311 else 225), 14, COLORS.BagMuted, Enum.Font.GothamBold)
 		candidateHint.TextTruncate = Enum.TextTruncate.AtEnd
 		candidateHint.TextWrapped = false
 
 		local candidateList = Instance.new("ScrollingFrame")
 		candidateList.Name = "EligibleLogs"
-		candidateList.Position = UDim2.new(0, 14, 0, if recipe.Experimental == true then 307 else 222)
-		candidateList.Size = UDim2.new(1, -28, 1, if recipe.Experimental == true then -321 else -236)
+		candidateList.Position = UDim2.new(0, 14, 0, if recipe.Experimental == true then 334 else 249)
+		candidateList.Size = UDim2.new(1, -28, 1, if recipe.Experimental == true then -348 else -263)
 		candidateList.Visible = recipe.Experimental ~= true or not forgeShowStatRanges
 		candidateList.BackgroundColor3 = COLORS.BagBack
 		candidateList.BorderSizePixel = 0
@@ -2215,7 +2236,7 @@ local function renderForge(data)
 				previewText = table.concat(sections, "\n\n")
 			end
 			local statPreview = label(card, "ExpandedStatRanges", previewText,
-				UDim2.new(1, -48, 0, 207), UDim2.new(0, 24, 0, 313),
+				UDim2.new(1, -48, 0, 207), UDim2.new(0, 24, 0, 340),
 				14, COLORS.BagText, Enum.Font.GothamBold)
 			statPreview.TextXAlignment = Enum.TextXAlignment.Left
 			statPreview.TextYAlignment = Enum.TextYAlignment.Top
@@ -2558,10 +2579,23 @@ if legacyEconomyUpdated then
 		if currency == "ForgeUpgraded" and type(payload) == "table" then
 			showFeedback("FORGE UPGRADED TO LEVEL " .. tostring(payload.Level), COLORS.Gold, 3)
 		end
-		if currency == "MutationProc" and type(payload) == "table"
-			and payload.Id == "GoldenTouch" then
-			showFeedback("GOLDEN TOUCH!  +" .. formatCoins(payload.Amount or 0) .. " COINS",
-				COLORS.Gold, 2.2)
+		if currency == "MutationProc" and type(payload) == "table" then
+			if payload.Id=="GoldenTouch" or payload.Id=="GoldenRush"
+				or payload.Id=="GoldenJackpot" then
+				local extra=if payload.Id=="GoldenRush"
+					then "  •  STREAK "..tostring(payload.Stacks or 1) else ""
+				showFeedback(string.upper(tostring(payload.Id)).."!  +"
+					..formatCoins(payload.Amount or 0).." COINS"..extra,COLORS.Gold,2.4)
+			elseif payload.Id=="Bloodrush" then
+				showFeedback(string.format("BLOODRUSH!  SPEED BOOST %.0fs",
+					payload.Duration or 0),COLORS.Blue,2.2)
+			elseif payload.Id=="Rampage" then
+				showFeedback(string.format("RAMPAGE!  %.0f%% DAMAGE FOR %.0fs",
+					(payload.Multiplier or 1)*100,payload.Duration or 0),COLORS.Orange,2.3)
+			elseif payload.Id=="ChainLightning" then
+				showFeedback("CHAIN LIGHTNING!  "..tostring(payload.Hits or 0)
+					.." JUMPS",COLORS.Blue,2.3)
+			end
 		end
 		if currency == "ForgeResult" and type(payload) == "table"
 			and type(payload.Class) == "string"
