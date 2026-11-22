@@ -250,7 +250,7 @@ local function makeModal(screen, name, titleText, subtitleText)
 	header.Position = UDim2.fromOffset(20, 10)
 	header.Size = UDim2.new(1, -40, 0, 62)
 	header.Parent = panel
-	local title = label(header, "Title", titleText, UDim2.new(1, -54, 0, 32), UDim2.new(0, 0, 0, 0), 26, COLORS.Ink, Enum.Font.GothamBlack)
+	local title = label(header, "Title", titleText, UDim2.new(1, -54, 0, 32), UDim2.new(0, 0, 0, 0), 26, COLORS.Ink, Enum.Font.GothamBold)
 	title.TextStrokeColor3 = COLORS.BagLine
 	title.TextStrokeTransparency = 0
 	local subtitle = label(header, "Subtitle", subtitleText, UDim2.new(1, -54, 0, 24), UDim2.new(0, 0, 0, 34), 12, COLORS.Ink, Enum.Font.GothamBold)
@@ -297,7 +297,7 @@ coinsPill.BackgroundColor3 = COLORS.Gold
 coinsPill.Parent = hud
 round(coinsPill, 16)
 outline(coinsPill, Color3.fromRGB(255, 244, 190), 2)
-local hudCoins = label(coinsPill, "Coins", "🪙  0", UDim2.new(1, -18, 1, 0), UDim2.new(0, 10, 0, 0), 17, COLORS.Ink, Enum.Font.GothamBlack)
+local hudCoins = label(coinsPill, "Coins", "🪙  0", UDim2.new(1, -18, 1, 0), UDim2.new(0, 10, 0, 0), 17, COLORS.Ink, Enum.Font.GothamBold)
 hudCoins.TextStrokeColor3 = COLORS.BagLine
 hudCoins.TextStrokeTransparency = 0
 
@@ -309,14 +309,16 @@ logsPill.BackgroundColor3 = COLORS.Surface
 logsPill.Parent = hud
 round(logsPill, 16)
 outline(logsPill, COLORS.Blue, 2)
-local hudLogs = label(logsPill, "LogCount", "🪵  BAG  — / — KG", UDim2.new(1, -14, 1, 0), UDim2.new(0, 8, 0, 0), 15, COLORS.Ink, Enum.Font.GothamBlack)
+local hudLogs = label(logsPill, "LogCount", "🪵  BAG  — / — KG", UDim2.new(1, -14, 1, 0), UDim2.new(0, 8, 0, 0), 15, COLORS.Ink, Enum.Font.GothamBold)
 
 local bagButton = button(hud, "OpenBagButton", "OPEN BAG  •  M", UDim2.new(0.39, -4, 1, 0), UDim2.new(), COLORS.Green)
 bagButton.LayoutOrder = 3
 bagButton.TextSize = 14
 round(bagButton, 16)
 
-local feedback = label(screen, "EconomyFeedback", "", UDim2.new(0.86, 0, 0, 40), UDim2.new(0.5, 0, 0, 74), 16, COLORS.Gold, Enum.Font.GothamBlack)
+-- Shared toast for weapon level-ups, forging and economy notifications.
+-- Use a readable weight/size instead of the former extra-heavy small text.
+local feedback = label(screen, "EconomyFeedback", "", UDim2.new(0.86, 0, 0, 46), UDim2.new(0.5, 0, 0, 74), 18, COLORS.Gold, Enum.Font.GothamBold)
 feedback.AnchorPoint = Vector2.new(0.5, 0)
 feedback.BackgroundColor3 = COLORS.Surface
 feedback.BackgroundTransparency = 0.14
@@ -354,7 +356,7 @@ bagPanel.Header.Title.Position = UDim2.new(0.5, 0, 0, 0)
 bagPanel.Header.Title.Size = UDim2.new(0, 300, 1, 0)
 bagPanel.Header.Title.TextXAlignment = Enum.TextXAlignment.Center
 bagPanel.Header.Title.TextSize = 36
-bagPanel.Header.Title.Font = Enum.Font.GothamBlack
+bagPanel.Header.Title.Font = Enum.Font.GothamBold
 bagPanel.Header.Title.TextColor3 = COLORS.BagText
 bagPanel.Header.Title.TextStrokeColor3 = COLORS.BagLine
 bagPanel.Header.Title.TextStrokeTransparency = 0
@@ -393,7 +395,7 @@ local sortButton = button(bagToolbar, "SortButton", "SORT: WT", UDim2.new(1, -20
 sortButton.TextSize = 16
 sortButton.TextColor3 = COLORS.BagText
 sortButton.Parent = bagPanel.Header
-local bagCountLabel = label(bagToolbar, "Capacity", "— / — KG", UDim2.new(1, -20, 0, 60), UDim2.new(0, 10, 0, 230), 16, COLORS.BagText, Enum.Font.GothamBlack)
+local bagCountLabel = label(bagToolbar, "Capacity", "— / — KG", UDim2.new(1, -20, 0, 60), UDim2.new(0, 10, 0, 230), 16, COLORS.BagText, Enum.Font.GothamBold)
 bagCountLabel.TextXAlignment = Enum.TextXAlignment.Center
 bagCountLabel.TextYAlignment = Enum.TextYAlignment.Center
 local infoButton = button(bagToolbar, "InfoButton", "INFO", UDim2.new(1, -20, 0, 50), UDim2.new(0, 10, 0, 298), COLORS.BagAction)
@@ -444,7 +446,7 @@ gridLayout.CellSize = UDim2.fromOffset(132, 132)
 gridLayout.FillDirectionMaxCells = 4
 gridLayout.Parent = logGrid
 
-local emptyState = label(bagBody, "EmptyState", "", UDim2.new(1, 0, 1, 0), UDim2.new(), 18, COLORS.BagMuted, Enum.Font.GothamBlack)
+local emptyState = label(bagBody, "EmptyState", "", UDim2.new(1, 0, 1, 0), UDim2.new(), 18, COLORS.BagMuted, Enum.Font.GothamBold)
 emptyState.TextXAlignment = Enum.TextXAlignment.Center
 emptyState.TextYAlignment = Enum.TextYAlignment.Center
 emptyState.ZIndex = 3
@@ -481,21 +483,21 @@ detailIcon.ZIndex = 10
 local detailLogVisual = makeLogIllustration(detailPreview, "LogVisual", 12)
 detailLogVisual.Size = UDim2.fromScale(0.82, 0.5)
 detailLogVisual.Visible = false
-local detailSpecies = label(detailPanel, "Species", "NO LOG SELECTED", UDim2.new(1, -36, 0, 30), UDim2.new(0, 18, 0, 12), 23, COLORS.BagText, Enum.Font.GothamBlack)
+local detailSpecies = label(detailPanel, "Species", "NO LOG SELECTED", UDim2.new(1, -36, 0, 30), UDim2.new(0, 18, 0, 12), 23, COLORS.BagText, Enum.Font.GothamBold)
 detailSpecies.TextTruncate = Enum.TextTruncate.AtEnd
 detailSpecies.TextStrokeColor3 = COLORS.BagLine
 detailSpecies.TextStrokeTransparency = 0
 detailSpecies.TextStrokeColor3 = COLORS.BagLine
 detailSpecies.TextStrokeTransparency = 0
 local detailStatus = label(detailPanel, "Status", "CHOOSE A SLOT", UDim2.new(1, -36, 0, 26), UDim2.new(0, 18, 0, 46), 16, COLORS.BagMuted, Enum.Font.GothamBold)
-local detailMetricLabel = label(detailPanel, "MetricLabel", "VALUE", UDim2.new(1, -36, 0, 24), UDim2.new(0, 18, 0, 0), 16, COLORS.BagMuted, Enum.Font.GothamBlack)
-local detailMetricValue = label(detailPanel, "MetricValue", "", UDim2.new(1, -36, 0, 40), UDim2.new(0, 18, 0, 0), 30, COLORS.BagAction, Enum.Font.GothamBlack)
+local detailMetricLabel = label(detailPanel, "MetricLabel", "VALUE", UDim2.new(1, -36, 0, 24), UDim2.new(0, 18, 0, 0), 16, COLORS.BagMuted, Enum.Font.GothamBold)
+local detailMetricValue = label(detailPanel, "MetricValue", "", UDim2.new(1, -36, 0, 40), UDim2.new(0, 18, 0, 0), 30, COLORS.BagAction, Enum.Font.GothamBold)
 detailMetricValue.TextXAlignment = Enum.TextXAlignment.Center
 local detailValue = label(detailPanel, "Value", "", UDim2.new(), UDim2.new(), 1, COLORS.BagMuted)
 detailValue.Visible = false
 local detailSize = label(detailPanel, "Size", "", UDim2.new(), UDim2.new(), 1, COLORS.BagMuted)
 detailSize.Visible = false
-local detailExtraLabel = label(detailPanel, "ExtraStatsLabel", "OTHER STATS", UDim2.new(1, -36, 0, 24), UDim2.new(0, 18, 0, 0), 16, COLORS.BagText, Enum.Font.GothamBlack)
+local detailExtraLabel = label(detailPanel, "ExtraStatsLabel", "OTHER STATS", UDim2.new(1, -36, 0, 24), UDim2.new(0, 18, 0, 0), 16, COLORS.BagText, Enum.Font.GothamBold)
 local detailExtraValue = label(detailPanel, "ExtraStatsValue", "Not configured yet", UDim2.new(1, -36, 0, 28), UDim2.new(0, 18, 0, 0), 16, COLORS.BagMuted, Enum.Font.GothamBold)
 detailExtraLabel.Visible = false
 detailExtraValue.Visible = false
@@ -571,7 +573,7 @@ local function styleStationModal(panel, titleText, subtitleText)
 	header.Title.Text = titleText
 	header.Title.Position = UDim2.new(0, 18, 0, 2)
 	header.Title.Size = UDim2.new(1, -92, 0, 38)
-	header.Title.Font = Enum.Font.GothamBlack
+	header.Title.Font = Enum.Font.GothamBold
 	header.Title.TextSize = 32
 	header.Title.TextColor3 = COLORS.BagText
 	header.Title.TextStrokeColor3 = COLORS.BagLine
@@ -602,7 +604,7 @@ end
 
 local shopOverlay, shopPanel = makeModal(screen, "AxeShop", "AXE SHOP", "Buy a head component, then forge the finished axe.")
 styleStationModal(shopPanel, "AXE SHOP", "BUY AN AXE HEAD • FORGE YOUR AXE SEPARATELY")
-local shopNotice = label(shopPanel, "ShopNotice", "AXE HEADS • CRAFTING COMPONENTS ONLY", UDim2.new(1, -42, 0, 30), UDim2.new(0, 21, 0, 88), 18, COLORS.BagText, Enum.Font.GothamBlack)
+local shopNotice = label(shopPanel, "ShopNotice", "AXE HEADS • CRAFTING COMPONENTS ONLY", UDim2.new(1, -42, 0, 30), UDim2.new(0, 21, 0, 88), 18, COLORS.BagText, Enum.Font.GothamBold)
 shopNotice.TextStrokeColor3 = COLORS.BagLine
 shopNotice.TextStrokeTransparency = 0
 local shopList = Instance.new("ScrollingFrame")
@@ -677,7 +679,7 @@ local forgeLayout = Instance.new("UIListLayout")
 forgeLayout.Padding = UDim.new(0, 12)
 forgeLayout.SortOrder = Enum.SortOrder.LayoutOrder
 forgeLayout.Parent = forgeList
-local forgeEmptyState = label(forgePanel, "ForgeEmptyState", "LOADING RECIPES...", UDim2.new(1, -60, 0, 80), UDim2.new(0, 30, 0, 180), 20, COLORS.BagMuted, Enum.Font.GothamBlack)
+local forgeEmptyState = label(forgePanel, "ForgeEmptyState", "LOADING RECIPES...", UDim2.new(1, -60, 0, 80), UDim2.new(0, 30, 0, 180), 20, COLORS.BagMuted, Enum.Font.GothamBold)
 forgeEmptyState.TextXAlignment = Enum.TextXAlignment.Center
 forgeEmptyState.ZIndex = 3
 forgeEmptyState.Visible = true
@@ -718,15 +720,15 @@ local sellCardConstraint = Instance.new("UISizeConstraint")
 sellCardConstraint.MinSize = Vector2.new(280, 300)
 sellCardConstraint.MaxSize = Vector2.new(700, 360)
 sellCardConstraint.Parent = sellCard
-local sellIcon = label(sellCard, "Icon", "READY LOGS", UDim2.new(1, -32, 0, 34), UDim2.new(0, 16, 0, 16), 22, COLORS.BagAction, Enum.Font.GothamBlack)
+local sellIcon = label(sellCard, "Icon", "READY LOGS", UDim2.new(1, -32, 0, 34), UDim2.new(0, 16, 0, 16), 22, COLORS.BagAction, Enum.Font.GothamBold)
 sellIcon.TextXAlignment = Enum.TextXAlignment.Center
 sellIcon.TextStrokeColor3 = COLORS.BagLine
 sellIcon.TextStrokeTransparency = 0
-local sellCount = label(sellCard, "EligibleCount", "0 LOGS READY TO SELL", UDim2.new(1, -32, 0, 34), UDim2.new(0, 16, 0, 58), 23, COLORS.BagText, Enum.Font.GothamBlack)
+local sellCount = label(sellCard, "EligibleCount", "0 LOGS READY TO SELL", UDim2.new(1, -32, 0, 34), UDim2.new(0, 16, 0, 58), 23, COLORS.BagText, Enum.Font.GothamBold)
 sellCount.TextXAlignment = Enum.TextXAlignment.Center
 sellCount.TextStrokeColor3 = COLORS.BagLine
 sellCount.TextStrokeTransparency = 0
-local sellValue = label(sellCard, "TotalValue", "0 COINS", UDim2.new(1, -32, 0, 52), UDim2.new(0, 16, 0, 96), 38, COLORS.BagAction, Enum.Font.GothamBlack)
+local sellValue = label(sellCard, "TotalValue", "0 COINS", UDim2.new(1, -32, 0, 52), UDim2.new(0, 16, 0, 96), 38, COLORS.BagAction, Enum.Font.GothamBold)
 sellValue.TextXAlignment = Enum.TextXAlignment.Center
 sellValue.TextStrokeColor3 = COLORS.BagLine
 sellValue.TextStrokeTransparency = 0
@@ -1084,7 +1086,7 @@ local function axeStatSection(titleText)
 	axeStatOrder += 1
 	local heading = label(axeStatsScroll, "Section_" .. tostring(axeStatOrder), titleText,
 		UDim2.new(1, -8, 0, 25), UDim2.new(), 14,
-		COLORS.Gold, Enum.Font.GothamBlack)
+		COLORS.Gold, Enum.Font.GothamBold)
 	heading.LayoutOrder = axeStatOrder
 	heading.TextXAlignment = Enum.TextXAlignment.Left
 	heading.TextTruncate = Enum.TextTruncate.AtEnd
@@ -1110,7 +1112,7 @@ local function axeStatRow(titleText, valueText)
 	title.ZIndex = 13
 	local value = label(line, "StatValue", valueText,
 		UDim2.new(0.48, -8, 1, 0), UDim2.new(0.52, 0, 0, 0), 13,
-		COLORS.BagText, Enum.Font.GothamBlack)
+		COLORS.BagText, Enum.Font.GothamBold)
 	value.TextXAlignment = Enum.TextXAlignment.Right
 	value.TextTruncate = Enum.TextTruncate.AtEnd
 	value.ZIndex = 13
@@ -1313,7 +1315,7 @@ local function makeItemSlot(name, order, icon, title, metadata, isEquipped, isSe
 		iconLabel.TextStrokeColor3 = COLORS.BagLine
 		iconLabel.TextStrokeTransparency = 0
 	end
-	local nameLabel = label(slot, "Name", title, UDim2.new(1, -6, 0, nameHeight), UDim2.new(0, 3, 0, nameY), math.clamp(math.floor(cellSide * 0.13), 14, 19), COLORS.BagText, Enum.Font.GothamBlack)
+	local nameLabel = label(slot, "Name", title, UDim2.new(1, -6, 0, nameHeight), UDim2.new(0, 3, 0, nameY), math.clamp(math.floor(cellSide * 0.13), 14, 19), COLORS.BagText, Enum.Font.GothamBold)
 	nameLabel.TextXAlignment = Enum.TextXAlignment.Center
 	nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
 	nameLabel.TextWrapped = false
@@ -1326,12 +1328,12 @@ local function makeItemSlot(name, order, icon, title, metadata, isEquipped, isSe
 	metadataLabel.TextStrokeColor3 = COLORS.BagLine
 	metadataLabel.TextStrokeTransparency = 0
 	if isEquipped then
-		local equippedMark = label(slot, "Equipped", "ON", UDim2.new(0, 36, 0, 18), UDim2.new(1, -38, 0, 2), 14, COLORS.BagAction, Enum.Font.GothamBlack)
+		local equippedMark = label(slot, "Equipped", "ON", UDim2.new(0, 36, 0, 18), UDim2.new(1, -38, 0, 2), 14, COLORS.BagAction, Enum.Font.GothamBold)
 		equippedMark.TextXAlignment = Enum.TextXAlignment.Right
 		equippedMark.TextStrokeColor3 = COLORS.BagLine
 		equippedMark.TextStrokeTransparency = 0
 	elseif isLocked then
-		local lockedMark = label(slot, "Locked", "LOCK", UDim2.new(0, 46, 0, 18), UDim2.new(0, 4, 0, 2), 14, COLORS.BagText, Enum.Font.GothamBlack)
+		local lockedMark = label(slot, "Locked", "LOCK", UDim2.new(0, 46, 0, 18), UDim2.new(0, 4, 0, 2), 14, COLORS.BagText, Enum.Font.GothamBold)
 		lockedMark.TextXAlignment = Enum.TextXAlignment.Left
 		lockedMark.TextStrokeColor3 = COLORS.BagLine
 		lockedMark.TextStrokeTransparency = 0
@@ -1490,7 +1492,7 @@ local function renderShop(data)
 		emptyCard.Parent = shopList
 		round(emptyCard, 12)
 		outline(emptyCard, COLORS.BagLine, 3)
-		local emptyText = label(emptyCard, "Message", if axeHeads then "NO AXE HEADS AVAILABLE" else "AXE HEAD DATA UNAVAILABLE", UDim2.new(1, -24, 1, 0), UDim2.new(0, 12, 0, 0), 17, COLORS.BagMuted, Enum.Font.GothamBlack)
+		local emptyText = label(emptyCard, "Message", if axeHeads then "NO AXE HEADS AVAILABLE" else "AXE HEAD DATA UNAVAILABLE", UDim2.new(1, -24, 1, 0), UDim2.new(0, 12, 0, 0), 17, COLORS.BagMuted, Enum.Font.GothamBold)
 		emptyText.TextXAlignment = Enum.TextXAlignment.Center
 	end
 	for _, head in ipairs(axeHeads or {}) do
@@ -1515,13 +1517,13 @@ local function renderShop(data)
 		headIcon.Parent = card
 		round(headIcon, 12)
 		outline(headIcon, COLORS.BagLine, 3)
-		local headIconText = label(headIcon, "ComponentLabel", "AXE\nHEAD", UDim2.fromScale(1, 1), UDim2.new(), 19, COLORS.BagText, Enum.Font.GothamBlack)
+		local headIconText = label(headIcon, "ComponentLabel", "AXE\nHEAD", UDim2.fromScale(1, 1), UDim2.new(), 19, COLORS.BagText, Enum.Font.GothamBold)
 		headIconText.TextXAlignment = Enum.TextXAlignment.Center
 		headIconText.TextStrokeColor3 = COLORS.BagLine
 		headIconText.TextStrokeTransparency = 0
 		local textLeft = if compactShopCards then 86 else 104
 		local textWidth = if compactShopCards then UDim2.new(1, -textLeft - 12, 0, 32) else UDim2.new(0.54, -108, 0, 32)
-		local name = label(card, "Name", tostring(head.Name or "Axe Head"), textWidth, UDim2.new(0, textLeft, 0, 8), 22, COLORS.BagText, Enum.Font.GothamBlack)
+		local name = label(card, "Name", tostring(head.Name or "Axe Head"), textWidth, UDim2.new(0, textLeft, 0, 8), 22, COLORS.BagText, Enum.Font.GothamBold)
 		name.TextTruncate = Enum.TextTruncate.AtEnd
 		name.TextStrokeColor3 = COLORS.BagLine
 		name.TextStrokeTransparency = 0
@@ -1533,7 +1535,7 @@ local function renderShop(data)
 		local price = if typeof(head.Price) == "number" then head.Price else 0
 		local priceLabel = label(card, "Price", "PRICE  " .. formatCoins(price) .. " COINS", textWidth, UDim2.new(0, textLeft, 0, compactShopCards and 60 or 64), 15, COLORS.BagText, Enum.Font.GothamBold)
 		priceLabel.TextTruncate = Enum.TextTruncate.AtEnd
-		local owned = label(card, "OwnedCount", "OWNED  " .. tostring(count), textWidth, UDim2.new(0, textLeft, 0, compactShopCards and 80 or 84), 14, COLORS.BagMuted, Enum.Font.GothamBlack)
+		local owned = label(card, "OwnedCount", "OWNED  " .. tostring(count), textWidth, UDim2.new(0, textLeft, 0, compactShopCards and 80 or 84), 14, COLORS.BagMuted, Enum.Font.GothamBold)
 		owned.TextTruncate = Enum.TextTruncate.AtEnd
 		local actionText
 		local actionColor
@@ -1581,7 +1583,7 @@ local function renderShop(data)
 	heading.Size = UDim2.new(1, -8, 0, 50)
 	heading.BackgroundTransparency = 1
 	heading.Parent = shopList
-	local headingText = label(heading, "Text", "BAG CAPACITY  •  " .. (formatKg(carryCapacityKg) or "DATA UPDATING"), UDim2.new(1, 0, 1, 0), UDim2.new(), 20, COLORS.BagText, Enum.Font.GothamBlack)
+	local headingText = label(heading, "Text", "BAG CAPACITY  •  " .. (formatKg(carryCapacityKg) or "DATA UPDATING"), UDim2.new(1, 0, 1, 0), UDim2.new(), 20, COLORS.BagText, Enum.Font.GothamBold)
 	headingText.TextStrokeColor3 = COLORS.BagLine
 	headingText.TextStrokeTransparency = 0
 
@@ -1600,7 +1602,7 @@ local function renderShop(data)
 				card.Parent = shopList
 				round(card, 12)
 				outline(card, COLORS.BagLine, 3)
-				local upgradeText = label(card, "Upgrade", "CARRY " .. (formatKg(targetCapacityKg) or "— KG"), UDim2.new(0.52, -20, 1, 0), UDim2.new(0, 16, 0, 0), 20, COLORS.BagText, Enum.Font.GothamBlack)
+				local upgradeText = label(card, "Upgrade", "CARRY " .. (formatKg(targetCapacityKg) or "— KG"), UDim2.new(0.52, -20, 1, 0), UDim2.new(0, 16, 0, 0), 20, COLORS.BagText, Enum.Font.GothamBold)
 				upgradeText.TextStrokeColor3 = COLORS.BagLine
 				upgradeText.TextStrokeTransparency = 0
 				local price = validNonNegativeNumber(upgrade.Price)
@@ -1891,7 +1893,7 @@ local function renderForge(data)
 		round(card, 12)
 		outline(card, COLORS.BagLine, 3)
 
-		local axeName = label(card, "AxeName", if recipe.Experimental == true then string.upper(forgeMetalSelection) .. " RNG FORGE" else tostring(recipe.Name or "Standard Axe"), UDim2.new(0.68, -20, 0, 34), UDim2.new(0, 16, 0, 10), 23, COLORS.BagText, Enum.Font.GothamBlack)
+		local axeName = label(card, "AxeName", if recipe.Experimental == true then string.upper(forgeMetalSelection) .. " RNG FORGE" else tostring(recipe.Name or "Standard Axe"), UDim2.new(0.68, -20, 0, 34), UDim2.new(0, 16, 0, 10), 23, COLORS.BagText, Enum.Font.GothamBold)
 		axeName.TextTruncate = Enum.TextTruncate.AtEnd
 		axeName.TextStrokeColor3 = COLORS.BagLine
 		axeName.TextStrokeTransparency = 0
@@ -1952,7 +1954,7 @@ local function renderForge(data)
 			else if estimate ~= nil
 				then string.format("POWER ESTIMATE  %.1f  •  PREVIEW ONLY", estimate)
 			else if forgeSnapshotFresh then "POWER ESTIMATE  —  •  PREVIEW ONLY" else "POWER ESTIMATE UPDATING  •  PREVIEW ONLY"
-		local estimateLine = label(card, "PowerEstimate", estimateText, UDim2.new(1, -32, 0, 22), UDim2.new(0, 16, 0, 128), 15, COLORS.BagAction, Enum.Font.GothamBlack)
+		local estimateLine = label(card, "PowerEstimate", estimateText, UDim2.new(1, -32, 0, 22), UDim2.new(0, 16, 0, 128), 15, COLORS.BagAction, Enum.Font.GothamBold)
 		estimateLine.TextTruncate = Enum.TextTruncate.AtEnd
 		estimateLine.TextWrapped = false
 		estimateLine.TextStrokeColor3 = COLORS.BagLine
@@ -1972,7 +1974,7 @@ local function renderForge(data)
 
 
 		local statusText, statusColor = forgeSelectionStatus(recipe, selectedCount, required)
-		local status = label(card, "Availability", statusText, UDim2.new(1, -32, 0, 22), UDim2.new(0, 16, 0, 176), 15, statusColor, Enum.Font.GothamBlack)
+		local status = label(card, "Availability", statusText, UDim2.new(1, -32, 0, 22), UDim2.new(0, 16, 0, 176), 15, statusColor, Enum.Font.GothamBold)
 		status.TextTruncate = Enum.TextTruncate.AtEnd
 		status.TextWrapped = false
 		status.TextStrokeColor3 = COLORS.BagLine
