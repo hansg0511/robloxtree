@@ -89,7 +89,6 @@ function Rules.Roll(preview, tier, rng)
 		params = {
 			EveryHits = math.max(3, math.floor(7 - 3 * potency)),
 			DamageFraction = 0.20 + potency * 0.5,
-			Radius = 18,
 		}
 	else return nil end
 	return {
