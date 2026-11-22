@@ -138,12 +138,34 @@ ChopEvent.OnServerEvent:Connect(function(player)
 		end
 	end
 
+	-- Thunderstrike's proc is a damage modifier on this SAME verified tree.
+	-- Resolve BEFORE TakeDamage, not as a second hit afterwards: it works
+	-- even when the combined strike kills the tree, and its actual HP removed
+	-- will count ONCE for XP/rewards. Other effects retain base PrimaryDamage.
+	local lightningBonus = 0
+	for _, effect in ipairs(preparedEffects) do
+		if effect.Id == "Thunderstrike" and type(effect.State) == "table"
+			and effect.State.WillProc == true then
+			local bonus = effect.State.BonusDamage
+			if type(bonus) == "number" and bonus == bonus
+				and bonus >= 1 and bonus <= 1000000000 then
+				lightningBonus = bonus
+			end
+		end
+	end
+	if lightningBonus > 0 then
+		calculated.Damage += lightningBonus
+		calculated.EffectId = "Thunderstrike"
+	end
+
 	-- Normal attack remains single-target; only confirmed hits emit effects.
 	local primaryMaxHP = tree.MaxHP
 	local hit, actualDamage, killed = tree:TakeDamage(calculated, player)
 	if not hit then return end
 	recordHit(tree, actualDamage, killed, primaryMaxHP)
 	effectContext.PrimarySucceeded = true
+	effectContext.PrimaryAppliedDamage = actualDamage
+	effectContext.PrimaryKilled = killed == true
 	if fervorParams then
 		local stacks = Fervor.RecordHit(player, weaponUID, tree, now, fervorParams)
 		-- Replicate only server-confirmed combo state to the equipped Tool.
