@@ -80,9 +80,14 @@ local capped = Rules.NormalizeProgression({
 	AscensionFailures = Rules.MAX_ASCENSION_FAILURES + 1,
 }, "Rare")
 assert(capped.Level == Rules.GetLevelCap("Rare")
-	and capped.XP == Rules.MAX_SAVED_XP
+	and capped.XP == 0
 	and capped.AscensionFailures == Rules.MAX_ASCENSION_FAILURES,
-	"Legitimate integer saves should clamp after future balance reductions")
+	"Over-cap levels clamp, with no XP stored at the new level cap")
+local cappedXP = Rules.NormalizeProgression({
+	Level = 2, XP = Rules.MAX_SAVED_XP + 1,
+}, "Rare")
+assert(cappedXP.Level == 2 and cappedXP.XP == Rules.MAX_SAVED_XP,
+	"Non-capped valid XP should clamp to the persistence safety bound")
 
 -- Progression is computed without modifying the original forged stats.
 local runtime = {
