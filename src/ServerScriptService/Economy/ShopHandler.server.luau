@@ -5,6 +5,7 @@ local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ExperimentalForgeRules = require(ReplicatedStorage.Shared.ExperimentalForgeRules)
 local WeaponEffects = require(game.ServerScriptService.WeaponEffects.Dispatcher)
+local ProgressionRules = require(game.ServerScriptService.WeaponProgressionRules)
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local profileCache = require(ServerScriptService.PlayerProfile.ProfileService.ProfileDataCache)
@@ -153,6 +154,11 @@ local function buildOwnedAxes(profile)
 		local weaponData = type(item.WeaponData) == "table" and item.WeaponData or nil
 		local mutationMaterials, materialCount = materialMutationSummary(
 			weaponData and weaponData.Materials)
+		local rarity = if ProgressionRules.IsRarity(item.Rarity)
+			then item.Rarity else "Common"
+		local progression = ProgressionRules.NormalizeProgression(
+			weaponData and weaponData.Progression, rarity)
+		local level = progression.Level
 		local experimentalClass = weaponData and weaponData.ExperimentalClass
 		local experimentalName = if (experimentalClass == "Dagger"
 			or experimentalClass == "Axe" or experimentalClass == "Battlehammer")
@@ -161,7 +167,13 @@ local function buildOwnedAxes(profile)
 		table.insert(axes, {
 			Id = recipe and recipe.Id or ("item_" .. tostring(item.ItemID)),
 			Name = experimentalName or info.Name,
-			Power = catalog.BaseAttack + attack,
+			Power = catalog.BaseAttack + attack
+				+ ProgressionRules.DerivedAttackBonus(item, catalog.BaseAttack),
+			Rarity = rarity,
+			Level = level,
+			LevelCap = ProgressionRules.GetLevelCap(rarity),
+			XP = progression.XP,
+			XPToNextLevel = ProgressionRules.XPToNextLevel(rarity, level),
 			Experimental = experimentalName ~= nil,
 			WeaponKind = weaponData and weaponData.WeaponKind,
 			MaterialQuality = weaponData and weaponData.MaterialQuality,
