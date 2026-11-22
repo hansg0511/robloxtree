@@ -1,6 +1,7 @@
 -- Shared, pure preview / roll rules for STUDIO-ONLY experimental forging.
 -- These are deliberately provisional balance values. Server verifies owned UIDs.
 local Rules = {}
+local ForgeMutations = require(script.Parent.ForgeMutationRules)
 
 Rules.MAX_LOG_SIZE = 5
 Rules.MAX_OFFERED_LOGS = 96 -- defensive transaction bound, not game economy design
@@ -45,8 +46,11 @@ function Rules.LogQuality(sizeScale)
 	return math.clamp(sizeScale / Rules.MAX_LOG_SIZE, 0, 1)
 end
 
-function Rules.Odds(count)
+function Rules.Odds(count, forgeTier)
 	if not Rules.ValidateCount(count) then return nil end
+	local adjustedCount = ForgeMutations.ClassCount(count, forgeTier or 1)
+	if not adjustedCount then return nil end
+	count = adjustedCount
 	local anchors = Rules.COUNT_ANCHORS
 	local last = anchors[#anchors]
 	if count >= last[1] then
@@ -66,7 +70,7 @@ function Rules.Odds(count)
 	return nil
 end
 
-function Rules.Preview(metalBase, logs)
+function Rules.Preview(metalBase, logs, forgeTier)
 	if not finite(metalBase) or metalBase <= 0
 		or type(logs) ~= "table" or not Rules.ValidateCount(#logs) then return nil end
 	local sumQuality, sumStrength, sumGolden = 0, 0, 0
@@ -107,7 +111,7 @@ function Rules.Preview(metalBase, logs)
 		MaterialQuality = quality,
 		GoldenQuality = goldenQuality,
 		AverageWoodStrength = sumStrength / #logs,
-		Odds = Rules.Odds(#logs),
+		Odds = Rules.Odds(#logs, forgeTier or 1),
 		Ranges = classRanges,
 		GoldenBonusRange = {
 			Min = Rules.GOLDEN_MAX_BONUS * goldenQuality * Rules.ROLL_MIN,
@@ -117,8 +121,8 @@ function Rules.Preview(metalBase, logs)
 end
 
 -- The server supplies a Random object. Preview never consumes an RNG draw.
-function Rules.Roll(metalBase, logs, rng)
-	local preview = Rules.Preview(metalBase, logs)
+function Rules.Roll(metalBase, logs, rng, forgeTier)
+	local preview = Rules.Preview(metalBase, logs, forgeTier)
 	if not preview or not rng then return nil end
 	local draw = rng:NextNumber()
 	local cumulative, class = 0, Rules.CLASSES[#Rules.CLASSES]
