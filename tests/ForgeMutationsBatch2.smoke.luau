@@ -88,8 +88,8 @@ check("Golden Rush streak expires",coins==25+50+75+100+100+100+25)
 GoldenRush.OnWeaponEquipped(p,"rush","other")
 rushContext.Now=131
 GoldenRush.Apply(rush,rushContext)
-check("Golden Rush resets on equip change",coins==25+50+75+100+100+100+50)
--- The last two consecutive kills are a fresh streak of two.
+check("Golden Rush resets on equip change",coins==25+50+75+100+100+100+25+25)
+-- Both the expired streak and the post-equip streak start at one stack.
 GoldenRush.Clear(p)
 rushContext.Killed=false
 local oldCoins=coins
