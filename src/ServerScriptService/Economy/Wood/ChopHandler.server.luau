@@ -269,11 +269,21 @@ ChopEvent.OnServerEvent:Connect(function(player)
 	WeaponProgressionService.AwardHits(player, weaponUID, hitRecords)
 end)
 
-Players.PlayerRemoving:Connect(function(player)
+local function clearTransientCombatState(player)
 	lastChop[player] = nil
 	Fervor.Clear(player)
 	Thunderstrike.Clear(player)
 	Rampage.Clear(player)
 	GoldenRush.Clear(player)
 	Bloodrush.Clear(player)
-end)
+end
+Players.PlayerRemoving:Connect(clearTransientCombatState)
+local function watchCharacter(player)
+	player.CharacterRemoving:Connect(function()
+		clearTransientCombatState(player)
+	end)
+end
+Players.PlayerAdded:Connect(watchCharacter)
+for _, player in ipairs(Players:GetPlayers()) do
+	watchCharacter(player)
+end
