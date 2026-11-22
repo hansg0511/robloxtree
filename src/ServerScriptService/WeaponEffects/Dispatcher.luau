@@ -6,6 +6,9 @@ local Dispatcher = {}
 
 local handlers = {
 	Cleave = require(script.Parent.Cleave),
+	GoldenTouch = require(script.Parent.GoldenTouch),
+	Fervor = require(script.Parent.Fervor),
+	Thunderstrike = require(script.Parent.Thunderstrike),
 }
 Dispatcher.MAX_EFFECTS = 8
 
@@ -57,6 +60,22 @@ function Dispatcher.List(weaponData)
 		end
 	end
 	return descriptions
+end
+
+-- Returns one server-validated effect's parameters for persistent/passive
+-- combat control (e.g. Fervor modifies the server's chop cooldown).
+function Dispatcher.GetParams(weaponData, effectId)
+	for _, effect in ipairs(Dispatcher.List(weaponData)) do
+		if effect.Id == effectId then return effect.Params end
+	end
+	return nil
+end
+
+-- Used for confirmed non-hit triggers (currently OnKill). Same registered
+-- handlers and validation path as OnHit, never client-nominated targets.
+function Dispatcher.ApplyTrigger(trigger, weaponData, context)
+	return Dispatcher.ApplyPrepared(
+		Dispatcher.Prepare(trigger, weaponData, context), context)
 end
 
 -- Prepare the relevant effect(s) BEFORE the primary hit. This preserves
