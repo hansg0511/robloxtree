@@ -18,6 +18,8 @@ local itemDetailsFrame = bpFrame.ItemDetailsFrame
 local ItemDetailsManager = require(itemDetailsFrame.ItemDetailsManager)
 local EquipBtnColorChange = require(itemDetailsFrame.MainItemDetails.ItemStats.EquipBtn.EquipBtnColorChange)
 
+-- The server may send item additions before the initial inventory is built.
+IMC.ReadyForServerAdds = false
 IMC.Initialize(screenGui)
 
 
@@ -194,6 +196,7 @@ local function buildInventory()
 	end)	
 	IMC.Build({ backpack })
 	inventoryBuilt = true
+	IMC.ReadyForServerAdds = true
 end
 
 profileLoadEvent.OnClientEvent:Connect(buildInventory)
