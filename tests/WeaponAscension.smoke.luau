@@ -3,10 +3,23 @@
 -- This uses pure rules and synthetic weapons; spends no real coins/logs.
 local Progression = require(game.ServerScriptService.WeaponProgressionRules)
 local Ascension = require(game.ServerScriptService.WeaponAscensionRules)
+local AscensionService = require(game.ServerScriptService.WeaponAscensionService)
 
 local function test(description, condition)
 	assert(condition, "[Ascension] " .. description)
 end
+
+-- Ascension cannot silently consume mutated logs or protected storage.
+local eligible = AscensionService.SelectOrdinaryBagLogs({
+	{ UID = "stored", Source = "Storage", CraftPowerBonus = 1, Mutations = {} },
+	{ UID = "mutated", Source = "Bag", CraftPowerBonus = 1, Mutations = { Golden = true } },
+	{ UID = "bigger", Source = "Bag", CraftPowerBonus = 2, SizeScale = 4, Mutations = {} },
+	{ UID = "smaller", Source = "Bag", CraftPowerBonus = 2, SizeScale = 0.5, Mutations = {} },
+	{ UID = "cheapest", Source = "Bag", CraftPowerBonus = 1, SizeScale = 1, Mutations = {} },
+})
+test("only normal carry-bag logs eligible and cheapest used first",
+	#eligible == 3 and eligible[1].UID == "cheapest"
+		and eligible[2].UID == "smaller" and eligible[3].UID == "bigger")
 
 local ladder = Progression.RARITY_ORDER
 test("five normal rarities", #ladder == 5 and ladder[5] == "Ultra")
