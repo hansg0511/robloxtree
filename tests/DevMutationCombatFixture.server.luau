@@ -99,13 +99,20 @@ local function start(player)
 	folder.Name = "MutationCombatPracticeTrees"
 	folder.Parent = workspace
 	local origin = root.CFrame
-	-- Two practice Bamboo trees ~14 studs apart. Both have 50M HP.
-	-- The second tree helps prove Thunderstrike DOES NOT hit neighbors.
+	-- Four practice Bamboo trees: high HP allows extended Fervor/Rampage
+	-- combos, while the extra two form a 3-hop Chain Lightning lane.
+	-- Thunderstrike should continue hitting ONLY the current target.
 	local left = (origin * CFrame.new(-SIDE, -3, -START_DISTANCE)).Position
 	local right = (origin * CFrame.new(SIDE, -3, -START_DISTANCE)).Position
 	local ok, err = pcall(function()
 		spawnPracticeTree(folder, left, "FERVOR / NEIGHBOR", Color3.fromRGB(255, 170, 90))
 		spawnPracticeTree(folder, right, "THUNDERSTRIKE TARGET", Color3.fromRGB(80, 195, 255))
+		spawnPracticeTree(folder,
+			(origin * CFrame.new(SIDE, -3, -START_DISTANCE-10)).Position,
+			"CHAIN JUMP 2", Color3.fromRGB(110, 215, 255))
+		spawnPracticeTree(folder,
+			(origin * CFrame.new(SIDE, -3, -START_DISTANCE-20)).Position,
+			"CHAIN JUMP 3", Color3.fromRGB(150, 245, 255))
 	end)
 	if not ok then
 		warn("[MutationPractice] Failed to prepare trees:", err)
@@ -114,11 +121,12 @@ local function start(player)
 		return
 	end
 
-	print("[MutationPractice] READY: Two 50M HP registered training trees placed ahead of spawn.")
+	print("[MutationPractice] READY: Four 50M HP registered training trees placed ahead of spawn.")
 	print("[MutationPractice] Move near either trunk and equip Fervor or Thunderstrike.")
 	print("[MutationPractice] Fervor prints stacks, allowed attack interval and measured hit gap.")
 	print("[MutationPractice] Thunderstrike: chop the SAME TARGET, lightning strikes only that tree, never the neighbor.")
 	print("[MutationPractice] Hit counter prints 1/N ... N/N PROC! and HIT extra damage, repeating.")
+	print("[MutationPractice] For Chain Lightning, chop THUNDERSTRIKE TARGET and watch arcs jump toward CHAIN JUMP 2 and 3.")
 	print("[MutationPractice] Studio-only. No regular-tree rewards or persistent profile mutations are needed.")
 	player.AncestryChanged:Connect(function(_, parentNow)
 		if not parentNow then
