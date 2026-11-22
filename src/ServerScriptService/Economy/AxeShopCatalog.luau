@@ -77,6 +77,12 @@ function AxeShopCatalog.FindExperimentalForgeRecipe(recipeId)
 	return nil
 end
 
+-- Prototype one-step workstation upgrade; more forge tiers later.
+AxeShopCatalog.ForgeLevelUpgrade = {
+	ToLevel = 2,
+	CoinCost = 2000,
+}
+
 AxeShopCatalog.DEFAULT_CAPACITY_KG = 10
 AxeShopCatalog.MAX_CAPACITY_KG = 40
 AxeShopCatalog.CAPACITY_TIERS_KG = { 10, 15, 20, 30, 40 }
