@@ -3149,11 +3149,10 @@ function LogService.CaptureTreeLogAward(tree, contributions, fallRotation)
 		SpeciesId = tree.SpeciesId,
 		LogYield = tree.LogYield,
 		SizeScale = tree.SizeScale,
-		-- Wild mutated trees are discovery targets for matching permanent
-		-- saplings; mutated crafting wood comes from regrowing Grove trees.
-		-- Keep immediate wild logs ordinary so Grove capacity/maturation
-		-- remains meaningful rather than bypassable by endless wild kills.
-		Mutations = {},
+		-- A wild tree's logs inherit the same server-owned mutation visible
+		-- on the tree. Sapling discovery remains an independent rare reward;
+		-- the Grove supplies renewable wood from planted mutations.
+		Mutations = copyMutations(tree.Mutations),
 		Contributions = contributionSnapshot,
 		FallPlacement = getFallPlacement(tree, fallRotation),
 	}
