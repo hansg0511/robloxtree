@@ -27,6 +27,7 @@ local ProfileTemplate = {
 	-- Personal Grove ownership is stored as primitive profile records. Runtime
 	-- TreeObjects and world transforms are rebuilt after the player's plot loads.
 	Saplings = {},
+	SaplingShop = { RareBoughtCycle = -1 },
 	GroveTrees = {},
 	GroveMaterials = {},
 	-- Expandable server-owned stackable upgrade-material balances.
