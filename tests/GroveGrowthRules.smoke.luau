@@ -183,5 +183,51 @@ check("repeated normalization preserves legacy records",
 	Cache.NormalizeGroveData(synthetic) and #synthetic.GroveTrees==1
 	and #synthetic.GroveMaterials==1)
 
-print("Grove growth + no extra harvest materials + rare wild inheritance + sapling shop rules passed")
+-- Quest vertical slice: extend the existing Grove suite rather than
+-- creating a new runner. These are pure, safe fake profiles.
+local QuestRules=require(game.ServerScriptService.Quests.QuestRules)
+check("daily/weekly slots reserved but Story is the only active category",
+	QuestRules.Categories.Daily=="Daily" and QuestRules.Categories.Weekly=="Weekly"
+	and QuestRules.Story[1].Category=="Story")
+local fresh=QuestRules.Normalize(nil)
+check("legacy profile begins at first quest",fresh.Stage==1 and fresh.Count==0)
+local ignored,changed=QuestRules.Advance(fresh,"GroveHarvested",1)
+check("wrong event cannot advance story",not changed and ignored.Count==0)
+local partial,didProgress=QuestRules.Advance(fresh,"WildTreeChopped",2)
+check("valid wild death advances first objective",
+	didProgress and partial.Stage==1 and partial.Count==2)
+local complete=QuestRules.Advance(partial,"WildTreeChopped",1)
+check("three wild chops complete but do not auto-claim",
+	QuestRules.Ready(complete) and complete.Stage==1)
+local overCap=QuestRules.Advance(complete,"WildTreeChopped",1)
+check("duplicate/extra kills cannot overcount",overCap.Count==3)
+check("invalid event amounts cannot grant arbitrary progress",
+	not select(2,QuestRules.Advance(fresh,"WildTreeChopped",999))
+		and not select(2,QuestRules.Advance(fresh,"WildTreeChopped",-1)))
+local stage2=QuestRules.NextAfterClaim(complete)
+check("claim advances to Grove harvest objective exactly once",
+	stage2.Stage==2 and stage2.Count==0
+	and QuestRules.NextAfterClaim(stage2)==nil)
+local wrongGrove=QuestRules.Advance(stage2,"WildTreeChopped",1)
+check("wild chopping does not satisfy Grove harvest",
+	wrongGrove.Count==0)
+local groveDone=QuestRules.Advance(stage2,"GroveHarvested",1)
+local finished=QuestRules.NextAfterClaim(groveDone)
+check("Grove stage completes once and ends story",
+	finished and finished.Stage==QuestRules.CompleteStage
+	and not QuestRules.Ready(finished)
+	and QuestRules.NextAfterClaim(finished)==nil)
+check("stage 1/2 rewards defined as saplings, no currency invented",
+	QuestRules.Story[1].Reward.Kind=="Sapling"
+	and QuestRules.Story[2].Reward.Kind=="Sapling"
+	and QuestRules.Story[2].Reward.Mutations.Golden==true)
+local fakeData={QuestProgress={Stage=math.huge,Count=-50}}
+check("quest normalization repairs invalid profile values",
+	Cache.NormalizeQuestProgress(fakeData)
+	and fakeData.QuestProgress.Stage==1
+	and fakeData.QuestProgress.Count==0)
+check("completed quest persists through normalization",
+	Cache.NormalizeQuestProgress({QuestProgress=finished}))
+
+print("Grove and one-time quest progression rules passed")
 return true
