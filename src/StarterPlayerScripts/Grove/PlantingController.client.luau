@@ -10,6 +10,7 @@ local RunService = game:GetService("RunService")
 local GuiService = game:GetService("GuiService")
 local shopRF = ReplicatedStorage:WaitForChild("Grove"):WaitForChild("GetSaplingShopRF")
 local buySaplingRE = ReplicatedStorage:WaitForChild("Grove"):WaitForChild("BuySaplingRE")
+local uprootGroveTreeRE = ReplicatedStorage:WaitForChild("Grove"):WaitForChild("UprootGroveTreeRE")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -38,6 +39,15 @@ local saplings = {}
 local groveMaterials = {}
 local groveTrees = {}
 local selectedSaplingUID
+local selectedGroveTreeUID
+local groveCapacity = 25 -- overwritten by the server snapshot
+local managerOpen = false
+local uprootPending = false
+local confirmUprootUID
+local confirmUprootUntil = 0
+local groveManagerPanel
+local selectionHighlight
+local renderTreeManager
 local plantingMode = false
 local pendingPlantUID
 local plantingAttemptId = 0
@@ -83,7 +93,7 @@ local panel = Instance.new("Frame")
 panel.Name = "StatusPanel"
 panel.AnchorPoint = Vector2.new(0, 1)
 panel.Position = UDim2.new(0, 18, 1, -18)
-panel.Size = UDim2.fromOffset(372, 307)
+panel.Size = UDim2.fromOffset(372, 348)
 panel.BackgroundColor3 = Color3.fromRGB(21, 29, 25)
 panel.BackgroundTransparency = 0.08
 panel.BorderSizePixel = 0
@@ -93,6 +103,9 @@ panel.Parent = screenGui
 -- It returns automatically when the last economy panel closes.
 local function syncGrovePanelWithEconomy()
 	panel.Visible = playerGui:GetAttribute("EconomyModalOpen") ~= true
+	if groveManagerPanel then
+		groveManagerPanel.Visible = managerOpen and panel.Visible
+	end
 end
 keepConnection(playerGui:GetAttributeChangedSignal("EconomyModalOpen"):Connect(syncGrovePanelWithEconomy))
 syncGrovePanelWithEconomy()
@@ -323,6 +336,68 @@ keepConnection(buySaplingRE.OnClientEvent:Connect(function(result)
 	renderSaplingShop()
 end))
 renderSaplingShop()
+
+-- Management is an optional contextual panel. Keep the existing shop
+-- and planting HUD compact instead of adding a full-screen inventory.
+local function makeManagerButton(parent,name,caption,x,y,width,height,color)
+	local b=Instance.new("TextButton")
+	b.Name=name
+	b.Text=caption
+	b.Position=UDim2.fromOffset(x,y)
+	b.Size=UDim2.fromOffset(width,height)
+	b.BackgroundColor3=color or Color3.fromRGB(60,99,70)
+	b.TextColor3=Color3.fromRGB(245,244,234)
+	b.Font=Enum.Font.GothamBold
+	b.TextSize=12
+	b.TextWrapped=true
+	b.BorderSizePixel=0
+	b.Parent=parent
+	local corner=Instance.new("UICorner")
+	corner.CornerRadius=UDim.new(0,6)
+	corner.Parent=b
+	return b
+end
+
+local managerToggle=makeManagerButton(panel,"ManagePlantedTrees",
+	"MANAGE PLANTED TREES",13,307,343,31)
+groveManagerPanel=Instance.new("Frame")
+groveManagerPanel.Name="SelectedGroveTree"
+groveManagerPanel.AnchorPoint=Vector2.new(0,1)
+groveManagerPanel.Position=UDim2.new(0,401,1,-18)
+groveManagerPanel.Size=UDim2.fromOffset(340,236)
+groveManagerPanel.BackgroundColor3=Color3.fromRGB(21,29,25)
+groveManagerPanel.BackgroundTransparency=0.04
+groveManagerPanel.BorderSizePixel=0
+groveManagerPanel.Visible=false
+groveManagerPanel.Parent=screenGui
+local managerCorner=Instance.new("UICorner")
+managerCorner.CornerRadius=UDim.new(0,8)
+managerCorner.Parent=groveManagerPanel
+local managerStroke=Instance.new("UIStroke")
+managerStroke.Color=Color3.fromRGB(104,145,108)
+managerStroke.Transparency=0.12
+managerStroke.Parent=groveManagerPanel
+local managerTitle=makeLabel(groveManagerPanel,"ManageTitle",
+	UDim2.fromOffset(12,7),UDim2.fromOffset(312,22),
+	Enum.Font.GothamBold,14,Color3.fromRGB(225,240,220))
+managerTitle.Text="SELECT A PLANTED TREE"
+local managerPrevious=makeManagerButton(groveManagerPanel,
+	"PreviousTree","<",12,34,40,32)
+local managerNext=makeManagerButton(groveManagerPanel,
+	"NextTree",">",286,34,40,32)
+local managerPosition=makeLabel(groveManagerPanel,"TreeIndex",
+	UDim2.fromOffset(58,34),UDim2.fromOffset(222,32),
+	Enum.Font.GothamBold,12,Color3.fromRGB(225,240,220))
+managerPosition.TextXAlignment=Enum.TextXAlignment.Center
+local managerDetails=makeLabel(groveManagerPanel,"TreeDetails",
+	UDim2.fromOffset(12,75),UDim2.fromOffset(314,65),
+	Enum.Font.GothamMedium,13,Color3.fromRGB(231,229,211))
+managerDetails.TextYAlignment=Enum.TextYAlignment.Top
+local uprootButton=makeManagerButton(groveManagerPanel,
+	"UprootTree","UPROOT SELECTED TREE",12,147,314,41,Color3.fromRGB(131,68,57))
+local uprootWarning=makeLabel(groveManagerPanel,"PermanentRemovalWarning",
+	UDim2.fromOffset(12,192),UDim2.fromOffset(314,33),
+	Enum.Font.Gotham,11,Color3.fromRGB(235,177,154))
 
 local function containsSaplingUID(list, uid)
 	for _, sapling in ipairs(list) do
