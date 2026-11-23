@@ -234,6 +234,15 @@ function PlayerProfileCache.NormalizeQuestProgress(data)
 	return true
 end
 
+-- Migrates old saves without recurring tasks; never changes coins or rewards.
+function PlayerProfileCache.NormalizeRecurringQuestProgress(data)
+	if type(data)~="table" then return false end
+	local clean=QuestRules.NormalizeRecurring(data.QuestRecurring,os.time())
+	if not clean then return false end
+	data.QuestRecurring=clean
+	return true
+end
+
 -- Normalize persisted, unique weapon records BEFORE ItemDataBase parses them
 -- into the transient runtime equipment cache. Skip non-weapons and the
 -- session-only debug axe (which must never become a progression candidate).
@@ -325,6 +334,7 @@ export type PlayerProfileCache = {
 	NormalizeCarryCapacity: (data: { [string]: any }) -> number,
 	NormalizeGroveData: (data: { [string]: any }) -> boolean,
 	NormalizeQuestProgress: (data: { [string]: any }) -> boolean,
+	NormalizeRecurringQuestProgress: (data: { [string]: any }) -> boolean,
 	NormalizeWeaponData: (data: { [string]: any }) -> boolean,
 	FireLoaded: (profile: profileType.PlayerData) -> ()
 }
@@ -363,6 +373,7 @@ function PlayerProfileCache.Set(player: Player, profile)
 		PlayerProfileCache.NormalizeCarryCapacity(profile.Data)
 		PlayerProfileCache.NormalizeGroveData(profile.Data)
 		PlayerProfileCache.NormalizeQuestProgress(profile.Data)
+		PlayerProfileCache.NormalizeRecurringQuestProgress(profile.Data)
 		PlayerProfileCache.NormalizeWeaponData(profile.Data)
 		normalizeProgressionData(profile.Data)
 	end
