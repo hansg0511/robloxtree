@@ -8,7 +8,7 @@ _2026-11-24 · branch `dev/gameplay-prototype` · Phase 4E.1 in progress_
 | Resource / progression | How it currently enters the account | Where it is spent or limited | Status |
 | --- | --- | --- | --- |
 | Coins | Sell eligible *unlocked, carried* logs at the base; server-verified Golden mutation kill bonuses | Axe heads, Forge Lv2, carry upgrades, sapling shop, ascension attempts | Implemented, values provisional |
-| Wild logs (Bamboo/Oak/Ironwood) | Server-verified wild tree death produces physical owner-reserved drops; tree size decides yield (1–3 ordinary; Bamboo configured at 5) | Standard/RNG forging, ascension (eligible bag logs only), sales, limited carrying / pickup | Implemented |
+| Wild logs (Sapwood/Bamboo/Oak/Ironwood) | Server-verified wild tree death produces physical owner-reserved drops; ordinary size-based yields (1–3), **Sapwood 2**, Bamboo 5 | Standard/RNG forging (RNG Studio-only), ascension (eligible bag logs only), sales, carrying / pickup | Implemented; starter Sapwood update pending Studio playtest |
 | Mutated wild logs | Mutation rolled per wild tree life (currently 6% chance), inherited by logs from that tree | Premium/mutation forging, Awakening/Infusion test costs, potentially sale (not currently a distinct priced material) | Implemented; rarity unbalanced |
 | Grove harvested logs | Each mature owned tree grants one inherited-species/mutation log into protected storage, then regrows | Weapon crafting or upgrade inputs; protected storage cap; manual harvest time | Implemented; current full-capacity 25 trees, 30s growth cycle are provisional |
 | Normal saplings | Wild sapling discovery, always-on rotating shop entries, introductory quests | Plant into Grove; uprooting planted tree destroys its sapling | Implemented |
@@ -22,10 +22,10 @@ _2026-11-24 · branch `dev/gameplay-prototype` · Phase 4E.1 in progress_
 
 ## Code anchors / parameters (not final prices)
 
-- `Economy/MaterialDefinitions.luau`: Bamboo 0.5 kg / 5 coin base sale, Oak 4 kg / 16 coins, Ironwood 10 kg / 144 coins.
+- `Economy/MaterialDefinitions.luau`: **Sapwood 0.5kg / 5-coin base sale**, Bamboo 0.5kg / 5 coins, Oak 4kg / 16 coins, Ironwood 10kg / 144 coins. Sapwood's back-stack visual scale is 0.7 (prototype), and log kg does not depend on tree size.
 - `Inventory/LogService.luau`: actual sale per log is `round(baseSellValue * SizeScale^2)` (minimum 1); bag kg cost is fixed per species, **not scaled by size**. Initial bag 10 kg. Unlocked carried logs sell at the base; protected stored logs are available for crafting, not included directly in the bag-sell request.
-- `Trees/TreeDefinitions.luau`: Oak 60 base HP / 3s respawn; Ironwood 180 base HP / 5s; Bamboo 18 HP / five logs; first barrier 600 HP and Copper-tier prerequisite. Actual HP scales by `SizeScale^1.4`.
-- `Inventory/LogService.luau`: ordinary wild logs per tree = 1 if scale <0.7, 2 if <1.3, else 3. Bamboo's configured yield overrides this with 5. Ground pickup / overflow / protected auto-keep rules also constrain realized harvest.
+- `Trees/TreeDefinitions.luau`: **Sapwood 20 base HP / 3s respawn / 2 logs**, Oak 60 base HP / 3s, Ironwood 180 base HP / 5s, Bamboo 18 HP / five logs; first barrier 600 HP and Copper-tier prerequisite. Actual HP scales by `SizeScale^1.4`.
+- `Inventory/LogService.luau`: ordinary wild logs per tree = 1 if scale <0.7, 2 if <1.3, else 3; explicit `LogYield` overrides this (**2 Sapwood; 5 Bamboo**). Ground pickup / overflow / protected auto-keep rules also constrain realized harvest.
 - `Economy/AxeShopCatalog.luau`: Copper / Iron heads 150 / 750 coins; fixed recipes use one head plus three logs; Forge Lv2 costs 2,000 coins; bag capacity upgrades 10→15 (250), →20 (1,000), →30 (4,000), →40 (15,000) kg.
 - `Economy/ShopHandler.server.luau`: **experimental RNG class forging is Studio-only** (`RunService:IsStudio()` guard in `craftExperimental`). Standard deterministic Copper/Iron craft paths remain. This is a **release-readiness decision** separate from balance: decide what the actual shipping forging path should be before making an economy model for production.
 - `Grove/SaplingShopRules.luau`: common saplings cost 100/250/800 coins; rare example 3,000 or 5,500; shop restock every 600s, with 40% chance of one rare offer per restock. All provisional.
@@ -38,14 +38,17 @@ _2026-11-24 · branch `dev/gameplay-prototype` · Phase 4E.1 in progress_
 
 ## First comparisons at size 1.0 (illustrations, not measured player time)
 
-At normal size 1.0, each ordinary Oak or Ironwood death yields 2 logs if both drops can be collected:
+At normal size 1.0, Sapwood, Oak and Ironwood each yield 2 logs if both drops can be collected; **Forest 1 is now primarily Sapwood** (14 Sapwood, 4 Oaks and the existing Bamboo clump):
+- **Sapwood: 2×5 = 10 coins** worth of logs; both weigh 1kg. Starter bag 10kg fits **20 Sapwood logs** (10 trees) if no other logs are being carried. This makes a tall backpack stack feasible even before bag upgrades, though actual stack height needs Studio confirmation.
 - Oak: 2×16 = **32 coins** worth of eligible logs; both weigh 8 kg, fitting the initial 10 kg bag.
 - Ironwood: 2×144 = **288 coins** worth, but each log weighs 10 kg, so the starting bag only holds **one at a time**. Other drops require overflow / later retrieval, so actual coin production per minute is *not* simply 288 per kill.
-- Copper head alone = 150 coins = about **five full normal-size Oak tree yields sold**, *before* keeping three more logs for the fixed Copper craft. Approximate bare-minimum is **seven Oak trees** for one Copper craft if nothing else supplies coins/logs.
+- Copper head alone = 150 coins = **15 normal-size Sapwood tree yields** or about five full Oak tree yields sold, *before* retaining three more logs for the fixed Copper craft. From Sapwood alone, the rough minimum is 17 tree deaths (15 to sell + 2 to obtain 3 craft logs) and **more than one sell trip** using the 10kg starter bag. That's a pacing warning, not an approved price target.
 - Forge Lv2 2,000 coins is equivalent to **125 normal-size Oak logs** or **14 normal-size Ironwood logs** sold, ignoring Golden bonuses and size variation. Distance to the sell station, ground-drop retention and storage handling may dominate the time.
 - Verified weapon XP at exact base HP across all hits plus death bonus: **75 XP** for a size-1 Oak, **225 XP** for a size-1 Ironwood, assuming the same eligible weapon received all damage. This is per-tree XP potential, not a measured clear-speed comparison.
 
 These numbers already suggest **transport/carrying friction, ease of level-up, and renewable rare-wood supply** deserve attention before we re-price upgrades or duplicate forest tiers. **Do not confuse Studio-only forge/upgrade prototypes with a functioning published economy.**
+
+**Sapwood scope note (2026-11-24):** Sapwood logs use the existing carrying, selling, crafting and mutation flow. The current Sapwood forest tree is not registered as a wild sapling-discovery source and no Sapwood Grove sapling is offered; the established Oak/Bamboo/Ironwood Grove sources are unchanged. Both the new forest visual and live reward integration are source-committed, **not yet Studio-validated**. No bag capacity, existing material weights or future upgrade prices were changed.
 
 ## Next measurements / decisions — Phase 4E.2
 
