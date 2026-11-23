@@ -126,7 +126,6 @@ local function notifyOwner(player, reward)
 	fxRemote:FireClient(player, {
 		Mode = "Reward",
 		RewardUID = reward.RewardUID,
-		HeartwoodAwarded = reward.HeartwoodUID ~= nil,
 		SpeciesId = reward.SpeciesId,
 		Mutations = copyMutations(reward.Mutations),
 		SizeScale = reward.SizeScale,
