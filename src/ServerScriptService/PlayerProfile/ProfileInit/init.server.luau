@@ -2,6 +2,7 @@ local profileCache = require(script.Parent.ProfileService.ProfileDataCache)
 local DevelopmentLoadouts = require(script.Parent.DevelopmentLoadouts)
 local AxeShopCatalog = require(game.ServerScriptService.Economy.AxeShopCatalog)
 local StudioForgeSandbox = require(game.ServerScriptService.Economy.StudioForgeSandbox)
+local ChopLeaderboardService = require(game.ServerScriptService.ChopLeaderboardService)
 local bindableLoaded = script.ProfileLoadedEvent
 local remoteLoaded = game.ReplicatedStorage.Profile.ProfileLoadEvent
 
@@ -31,6 +32,8 @@ local ProfileTemplate = {
 	-- One-time tutorial campaign plus independent recurring task progress.
 	QuestProgress = { Stage = 1, Count = 0 },
 	QuestRecurring = {}, -- UTC window IDs and per-task counts; normalized on load.
+	-- Server-verified wild-tree deaths, not competitive weighted scoring.
+	ChopLeaderboard = { Lifetime = 0, WeeklyWindowId = -1, WeeklyCount = 0 },
 	GroveTrees = {},
 	GroveMaterials = {},
 	-- Expandable server-owned stackable upgrade-material balances.
@@ -135,6 +138,9 @@ local function PlayerAdded(player)
 		end)
 		if player:IsDescendantOf(Players) == true then
 			profileCache.Set(player, profile)
+			-- Native player-list standings, independent of quest UI/reward delivery.
+			local rankingOk, rankingErr = pcall(ChopLeaderboardService.RefreshPlayer, player)
+			if not rankingOk then warn("[ChopLeaderboard] Initial display failed", rankingErr) end
 			bindableLoaded:Fire(player)
 			player:SetAttribute("ProfileReady", true)
 			remoteLoaded:FireClient(player)
