@@ -81,6 +81,7 @@ export type PlayerData = {
 	AutoKeep: { Mutations: boolean, Oversized: boolean, SizeThreshold: number },
 	Saplings: { Sapling },
 	SaplingShop: { RareBoughtCycle: number },
+	QuestProgress: { Stage: number, Count: number },
 	GroveTrees: { GroveTree },
 	GroveMaterials: { Heartwood },
 	-- Future recipe catalysts/essences, counted by server-assigned material ID.
