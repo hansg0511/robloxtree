@@ -80,6 +80,7 @@ export type PlayerData = {
 	StoredLogs: { LogItem },
 	AutoKeep: { Mutations: boolean, Oversized: boolean, SizeThreshold: number },
 	Saplings: { Sapling },
+	SaplingShop: { RareBoughtCycle: number },
 	GroveTrees: { GroveTree },
 	GroveMaterials: { Heartwood },
 	-- Future recipe catalysts/essences, counted by server-assigned material ID.
