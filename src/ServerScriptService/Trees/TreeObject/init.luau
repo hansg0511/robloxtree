@@ -16,6 +16,7 @@ local WorldProgressService = require(game.ServerScriptService.WorldProgressServi
 local LogService = require(game.ServerScriptService.Inventory.LogService)
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
 local SaplingDiscoveryService = require(game.ServerScriptService.Grove.SaplingDiscoveryService)
+local QuestService = require(game.ServerScriptService.Quests.QuestService)
 local GroveHarvestVisualService = require(game.ServerScriptService.Grove.GroveHarvestVisualService)
 local GroveHarvestPresentation = require(game.ReplicatedStorage.Shared.GroveHarvestPresentation)
 local GroveGrowthRules = require(game.ServerScriptService.Grove.GroveGrowthRules)
@@ -2130,6 +2131,14 @@ function Tree:Die(player)
 	)
 	if not awardSnapshot then
 		LogService.DebugHarvestPickupLifecycle("NO_REWARD_CREATED", self.SpeciesId, "reason=award-snapshot-unavailable")
+	else
+		-- Credit only the validated wild-log award winner for a legitimate
+		-- server-owned tree death; never credit from client log pickup.
+		local winner=LogService.GetTreeAwardWinner(self.DamageContributions)
+		if winner then
+			local ok,err=pcall(QuestService.RecordWildTreeChopped,winner,self)
+			if not ok then warn("[Quests] Wild chop credit failed",err) end
+		end
 	end
 	if self.UnlockForestId then
 		WorldProgressService.UnlockForest(player, self.UnlockForestId)
