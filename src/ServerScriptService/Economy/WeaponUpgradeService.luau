@@ -68,6 +68,8 @@ function Service.Preview(player,saved)
 		ForgeLevel=level,
 		AtForge=BaseStation.CanUseForge(player)==true,
 		Slots=slots,
+		CostPolicy=Rules.COST_POLICY,
+		EconomyConfigured=Rules.ECONOMY_CONFIGURED,
 		Awaken=nil,Infuse=nil,
 	}
 	for _,mode in ipairs({"Awaken","Infuse"}) do
@@ -79,7 +81,8 @@ function Service.Preview(player,saved)
 		local allowed,why=Rules.Check(mode,saved.Rarity,saved.WeaponData,
 			exampleFamily,level)
 		status[mode]={
-			Eligible=allowed~=nil,Reason=why,
+			Eligible=allowed~=nil and Rules.CanUseUpgradeRecipe(),
+			Reason=if not Rules.CanUseUpgradeRecipe() then "UPGRADE_ECONOMY_PENDING" else why,
 			Replacing=allowed and allowed.Replacing or false,
 			Costs=CostRules.Describe(Rules.COSTS[mode]),
 		}
@@ -115,6 +118,11 @@ local function clearTransientEffects(player)
 end
 
 function Service.Attempt(player,uid,mode,family,selections)
+	-- Deliberately block public servers until players have approved recipes.
+	-- No implicit logs-only fallback can bypass the future non-log cost.
+	if not Rules.CanUseUpgradeRecipe() then
+		return {Reason="UPGRADE_ECONOMY_PENDING"}
+	end
 	local profile=ProfileCache.GetProfile(player)
 	local data=profile and profile.Data
 	if not data or type(data.Runtime)~="table" then
