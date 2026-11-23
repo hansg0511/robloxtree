@@ -83,16 +83,10 @@ check("legacy visuals finish at saved deadline",
 
 -- Phase 4 integration uses this EXISTING smoke suite, not a separate
 -- file per Grove source, shop, or material adapter.
-check("Heartwood cannot drop early",
-	not rules.HeartwoodEligible(1,0,0) and not rules.HeartwoodEligible(2,0,0))
-check("third harvest yields Heartwood",
-	rules.HeartwoodEligible(3,0,0))
-check("outstanding Heartwood never blocks the normal log harvest",
-	not rules.HeartwoodEligible(6,1,1))
-check("no infinite Heartwood stockpiling",
-	not rules.HeartwoodEligible(6,0,rules.MAX_HEARTWOOD_HELD))
-check("Heartwood remains available after previous unit is spent",
-	rules.HeartwoodEligible(6,0,0))
+check("unapproved extra Grove harvest material rule removed",
+	rules.HeartwoodEligible==nil
+		and rules.HEARTWOOD_EVERY_HARVESTS==nil
+		and rules.MAX_HEARTWOOD_HELD==nil)
 
 local Shop=require(game.ServerScriptService.Grove.SaplingShopRules)
 local Search=require(game.ServerScriptService.Grove.SaplingDiscoveryService)
@@ -134,9 +128,9 @@ check("discovery mutation originates on wild spawn",
 check("Giant and other types remain eligible",
 	Search.RollWildTreeMutations(0,0.32).Giant==true)
 
--- Saved Grove trees and the Heartwood they produced share two legitimate
--- source IDs. Neither is a duplicate player-owned record, and BOTH must
--- survive a real profile normalization. No live player data is mutated.
+-- Preserve existing serialized legacy Grove-material records, if any,
+-- without granting NEW materials. Normalization must not delete the tree
+-- when a historical record references it.
 local Cache=require(game.ServerScriptService.PlayerProfile.ProfileService.ProfileDataCache)
 local synthetic={
 	Saplings={},
@@ -155,12 +149,12 @@ local synthetic={
 	}},
 }
 check("Grove normalizer accepts linked records",Cache.NormalizeGroveData(synthetic))
-check("tree and Heartwood persist through reload normalization",
+check("existing Grove tree and legacy material survive normalization",
 	#synthetic.GroveTrees==1 and #synthetic.GroveMaterials==1
 	and synthetic.GroveMaterials[1].SourceGroveTreeUID==synthetic.GroveTrees[1].UID)
-check("repeated normalization does not delete linked material",
+check("repeated normalization preserves legacy records",
 	Cache.NormalizeGroveData(synthetic) and #synthetic.GroveTrees==1
 	and #synthetic.GroveMaterials==1)
 
-print("Grove growth + Heartwood + rare wild inheritance + sapling shop rules passed")
+print("Grove growth + no extra harvest materials + rare wild inheritance + sapling shop rules passed")
 return true
