@@ -172,6 +172,13 @@ local function buildOwnedAxes(player, profile, eligibleAscensionLogs)
 			or experimentalClass == "Axe" or experimentalClass == "Battlehammer")
 			and (weaponData.Metal == "Copper" or weaponData.Metal == "Iron")
 			then weaponData.Metal .. " " .. experimentalClass else nil
+		-- Identifiable temporary test axes, without changing real names or
+		-- persisting any customer-visible nickname in published gameplay.
+		if RunService:IsStudio() and type(weaponData)=="table"
+			and (weaponData.DevUpgradeTestLabel=="AWAKEN TEST (RARE)"
+				or weaponData.DevUpgradeTestLabel=="INFUSE TEST (LEGENDARY)") then
+			experimentalName=weaponData.DevUpgradeTestLabel
+		end
 		table.insert(axes, {
 			Id = recipe and recipe.Id or ("item_" .. tostring(item.ItemID)),
 			Name = experimentalName or info.Name,
