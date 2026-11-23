@@ -378,6 +378,16 @@ local function buildShopSnapshot(player, profile)
 		EligibleCraftLogs = eligibleCraftLogs,
 		-- Own unique nonlog materials are previewed by UID and kind. A UI
 		-- selection never authorizes consumption; the server checks again.
+		UpgradeBalances = (function()
+			local counts={}
+			for id,count in pairs(type(data.MaterialBalances)=="table" and data.MaterialBalances or {}) do
+				if type(id)=="string" and #id<=80
+					and isNonnegativeInteger(count) then
+					counts[id]=count
+				end
+			end
+			return counts
+		end)(),
 		UpgradeMaterials = (function()
 			local materials = {}
 			for _,record in ipairs(type(data.GroveMaterials)=="table" and data.GroveMaterials or {}) do
