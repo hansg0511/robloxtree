@@ -117,5 +117,33 @@ assert(#Dispatcher.List(sourceClassWeapon) == 1
 	and Dispatcher.List(sourceClassWeapon)[1].Source == "WeaponClass",
 	"Forge class grant uses the same handler and dispatcher as mutation grant")
 
-print("WeaponEffects: independent source, trigger, no chaining, caps, legacy and safety passed")
+-- First-hit claims use a pure rule; the production tree applies it to
+-- both direct attacks and AoE secondary hits before modifying HP.
+-- Extend THIS existing combat smoke suite rather than adding new runners.
+local FirstHitClaimRules=require(game.ServerScriptService.Trees.FirstHitClaimRules)
+local t=100
+local lease=FirstHitClaimRules.CLAIM_IDLE_SECONDS
+assert(lease>0 and lease<=30,"claim idle lease is bounded")
+assert(FirstHitClaimRules.CanHit(nil,nil,17,t),
+	"fresh wild tree can be claimed by a first valid damaging hit")
+assert(FirstHitClaimRules.IsActive(17,t,t+lease-0.001),
+	"owner remains active inside idle window")
+assert(FirstHitClaimRules.CanHit(17,t,17,t+lease-0.001),
+	"same owner can keep chopping and renew lease")
+assert(not FirstHitClaimRules.CanHit(17,t,18,t+lease-0.001),
+	"other players cannot steal active direct or AoE targets")
+assert(FirstHitClaimRules.CanHit(17,t,18,t+lease),
+	"claim may be transferred exactly after idle expiry")
+assert(not FirstHitClaimRules.IsActive(17,t,t+lease),
+	"expired owner no longer holds the tree")
+assert(FirstHitClaimRules.CanHit(nil,nil,18,t+lease),
+	"respawned or manually released tree starts unclaimed")
+assert(FirstHitClaimRules.CanHit(-1,t,-1,t+0.1)
+	and not FirstHitClaimRules.CanHit(-1,t,-2,t+0.1),
+	"negative Studio test-player IDs are valid distinct owners")
+assert(not FirstHitClaimRules.CanHit(nil,nil,math.huge,t)
+	and not FirstHitClaimRules.CanHit(nil,nil,18,0/0),
+	"malformed attacker and time cannot bypass claim checks")
+
+print("WeaponEffects: independent source, trigger, no chaining, caps, legacy, safety and first-hit claim policy passed")
 return true
