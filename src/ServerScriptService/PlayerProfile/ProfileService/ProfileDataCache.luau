@@ -242,6 +242,17 @@ function PlayerProfileCache.NormalizeWeaponData(data)
 end
 
 local function normalizeProgressionData(data)
+	-- One rare sapling per shop restock window. Ordinary sapling purchases
+	-- remain unlimited within inventory capacity. This field is persistent,
+	-- so reopening/rejoining a session cannot reset rare-stock consumption.
+	if type(data.SaplingShop)~="table" then
+		data.SaplingShop={RareBoughtCycle=-1}
+	end
+	local boughtCycle=data.SaplingShop.RareBoughtCycle
+	if boughtCycle~=-1 and (not isNonnegativeInteger(boughtCycle)
+		or boughtCycle>1000000000) then
+		data.SaplingShop.RareBoughtCycle=-1
+	end
 	-- Future stackable upgrade ingredients. Keep owned nonnegative counts
 	-- during migration, reject malformed IDs, NaN and negative balances.
 	if type(data.MaterialBalances) ~= "table" then
