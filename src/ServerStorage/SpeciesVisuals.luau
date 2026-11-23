@@ -8,6 +8,19 @@ local OakLogAppearance = require(replicatedStorage:WaitForChild("Shared"):WaitFo
 
 local PALETTES = {
 	Oak = OakLogAppearance.Palette,
+	-- A recognizable young tree rather than a bamboo stalk: pale warm bark
+	-- and cuboid green foliage, distinct from mature Oaks.
+	Sapwood = {
+		Bark = Color3.fromRGB(159, 111, 71),
+		BarkHighlight = Color3.fromRGB(185, 138, 91),
+		BarkShadow = Color3.fromRGB(113, 76, 49),
+		CutEnd = Color3.fromRGB(224, 193, 146),
+		CutRing = Color3.fromRGB(174, 131, 85),
+		CutRingShadow = Color3.fromRGB(122, 91, 61),
+		Leaf = Color3.fromRGB(49, 124, 64),
+		LeafHighlight = Color3.fromRGB(77, 161, 80),
+		LeafShadow = Color3.fromRGB(34, 91, 53),
+	},
 	Ironwood = {
 		Bark = Color3.fromRGB(79, 50, 36),
 		BarkHighlight = Color3.fromRGB(116, 76, 49),
