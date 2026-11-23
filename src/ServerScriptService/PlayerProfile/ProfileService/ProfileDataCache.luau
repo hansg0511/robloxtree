@@ -128,11 +128,25 @@ function PlayerProfileCache.NormalizeGroveData(data)
 	countRawRecordUIDs(rawGroveTrees, uidCounts)
 	countRawRecordUIDs(rawGroveMaterials, uidCounts)
 
+	-- Grove trees and earned Heartwood may refer to the SAME planted
+	-- sapling. These are separate, legitimate provenance relationships.
+	-- Counting both in one map used to silently DELETE the entire Grove
+	-- tree and Heartwood upon profile reload after the first harvest.
 	local sourceSaplingUIDCounts = {}
 	countRawSourceUIDs(rawGroveTrees, "SourceSaplingUID", sourceSaplingUIDCounts)
-	countRawSourceUIDs(rawGroveMaterials, "SourceSaplingUID", sourceSaplingUIDCounts)
+	local heartwoodSaplingUIDCounts = {}
+	countRawSourceUIDs(rawGroveMaterials, "SourceSaplingUID", heartwoodSaplingUIDCounts)
 	local sourceGroveTreeUIDCounts = {}
 	countRawSourceUIDs(rawGroveMaterials, "SourceGroveTreeUID", sourceGroveTreeUIDCounts)
+	local rawTreeByUID = {}
+	if type(rawGroveTrees)=="table" then
+		for _,tree in pairs(rawGroveTrees) do
+			if type(tree)=="table" and isValidGroveUID(tree.UID)
+				and uidCounts[tree.UID]==1 then
+				rawTreeByUID[tree.UID]=tree
+			end
+		end
+	end
 
 	local saplings = {}
 	if type(rawSaplings) == "table" then
@@ -180,9 +194,15 @@ function PlayerProfileCache.NormalizeGroveData(data)
 		for _, record in pairs(rawGroveMaterials) do
 			if isValidHeartwoodRecord(record)
 				and uidCounts[record.UID] == 1
-				and uidCounts[record.SourceGroveTreeUID] == nil
+				and (uidCounts[record.SourceGroveTreeUID]==nil
+					or (uidCounts[record.SourceGroveTreeUID]==1
+						and rawTreeByUID[record.SourceGroveTreeUID]~=nil
+						and rawTreeByUID[record.SourceGroveTreeUID].SourceSaplingUID
+							==record.SourceSaplingUID
+						and rawTreeByUID[record.SourceGroveTreeUID].SpeciesId
+							==record.SpeciesId))
 				and uidCounts[record.SourceSaplingUID] == nil
-				and sourceSaplingUIDCounts[record.SourceSaplingUID] == 1
+				and heartwoodSaplingUIDCounts[record.SourceSaplingUID] == 1
 				and sourceGroveTreeUIDCounts[record.SourceGroveTreeUID] == 1 then
 				table.insert(groveMaterials, {
 					UID = record.UID,
