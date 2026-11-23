@@ -2,6 +2,7 @@
 -- Provisional prototype ingredients: NEVER assume logs are sufficient.
 -- Change costs by editing this table; the transaction layer remains generic.
 local Forge=require(game.ReplicatedStorage.Shared.ForgeMutationRules)
+local Dispatcher=require(game.ServerScriptService.WeaponEffects.Dispatcher)
 local Rules={}
 
 Rules.MIN_FORGE_LEVEL=2
@@ -47,6 +48,9 @@ function Rules.ReadSlots(weaponData)
 	if weaponData.MutationSlots~=nil then
 		if type(weaponData.MutationSlots)~="table"
 			or #weaponData.MutationSlots>2 then return nil,"INVALID_SLOTS" end
+		if #weaponData.MutationSlots==0 and weaponData.MutationAbility~=nil then
+			return nil,"CONFLICTING_LEGACY_MUTATION"
+		end
 		for i,slot in ipairs(weaponData.MutationSlots) do
 			if not validSlot(slot) then return nil,"INVALID_SLOTS" end
 			slots[i]=copy(slot)
@@ -109,7 +113,8 @@ function Rules.Build(weaponData,mode,ability,rarity,forgeLevel)
 	local check,reason=Rules.Check(mode,rarity,weaponData,
 		ability.Family,forgeLevel)
 	if not check then return nil,reason end
-	local effects=type(weaponData.Effects)=="table" and weaponData.Effects or {}
+	local effects=if type(weaponData.Effects)=="table" then weaponData.Effects
+		else Dispatcher.List(weaponData) -- preserve valid legacy Cleave
 	local base=copy(weaponData)
 	local oldSlots=check.Slots
 	local newSlot={
