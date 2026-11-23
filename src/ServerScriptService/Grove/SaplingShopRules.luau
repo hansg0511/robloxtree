@@ -31,7 +31,7 @@ function Rules.Offers(timestamp)
 			Id=offer.Id,Name=offer.Name,SpeciesId=offer.SpeciesId,
 			SizePotential=offer.SizePotential,Mutations={},
 			Price=offer.Price,Forest=offer.Forest,Rare=false,
-			Stock=math.huge,
+			Stock="Unlimited",
 		}
 	end
 	-- One global cycle -> one deterministic draw; ordinary saplings do not
