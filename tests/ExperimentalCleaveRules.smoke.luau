@@ -101,5 +101,25 @@ assert(near(rolled.CleaveDamageFraction, Forge.CLEAVE_DAMAGE_FRACTION)
 	"Cleave stats get material-quality and independent roll calculations")
 assert(draw == 6, "One class, three core stats and two ability stats; no Golden roll")
 
+-- Forest 1 Sapwood is a genuine material, not a thin Oak visual.
+-- Keep this in the existing forge/effects smoke; no new test runner.
+local materials = require(game.ServerScriptService.Economy.MaterialDefinitions)
+local treeDefs = require(game.ServerScriptService.Trees.TreeDefinitions)
+local sapwood = materials.Get("Sapwood")
+local sapwoodTree = treeDefs.SapwoodTree
+assert(sapwood and sapwood.CapacityKg == 0.5
+	and sapwood.CarryVisualScale > 0 and sapwood.SellValue > 0,
+	"Sapwood must support light carry weight, log visuals and sale")
+assert(sapwoodTree and sapwoodTree.SpeciesId == "Sapwood"
+	and sapwoodTree.YieldsLog == true and sapwoodTree.LogYield == 2
+	and sapwoodTree.ForestId == "Forest1",
+	"Sapwood trees must use the normal wild harvest contract")
+local lightPreview = Forge.Preview(25, {
+	{SpeciesId = "Sapwood", SizeScale = 1, Mutations = {}},
+}, 1)
+assert(lightPreview and lightPreview.LogCount == 1
+	and lightPreview.Odds.Dagger == 1,
+	"Sapwood must be usable in existing experimental forge previews")
+
 print("Battlehammer Cleave: class gate, caps, target filtering, deterministic tie-break and rolls passed")
 return true
