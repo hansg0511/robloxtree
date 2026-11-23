@@ -186,9 +186,10 @@ check("repeated normalization preserves legacy records",
 -- Quest vertical slice: extend the existing Grove suite rather than
 -- creating a new runner. These are pure, safe fake profiles.
 local QuestRules=require(game.ServerScriptService.Quests.QuestRules)
-check("daily/weekly slots reserved but Story is the only active category",
+check("daily/weekly tasks coexist with Story",
 	QuestRules.Categories.Daily=="Daily" and QuestRules.Categories.Weekly=="Weekly"
-	and QuestRules.Story[1].Category=="Story")
+	and QuestRules.Story[1].Category=="Story"
+	and #QuestRules.Recurring.Daily==2 and #QuestRules.Recurring.Weekly==2)
 local fresh=QuestRules.Normalize(nil)
 check("legacy profile begins at first quest",fresh.Stage==1 and fresh.Count==0)
 local ignored,changed=QuestRules.Advance(fresh,"GroveHarvested",1)
@@ -229,5 +230,68 @@ check("quest normalization repairs invalid profile values",
 check("completed quest persists through normalization",
 	Cache.NormalizeQuestProgress({QuestProgress=finished}))
 
-print("Grove and one-time quest progression rules passed")
+-- Recurring quests: the same verified event advances both active windows,
+-- while Story still requires a separate explicit reward claim.
+-- A Monday 00:00 UTC is Unix 345600 (1970-01-05).
+local monday=345600
+local prevDaily,prevDailyAt=QuestRules.Window("Daily",monday-1)
+local newDaily,newDailyAt=QuestRules.Window("Daily",monday)
+local prevWeekly,prevWeeklyAt=QuestRules.Window("Weekly",monday-1)
+local newWeekly,newWeeklyAt=QuestRules.Window("Weekly",monday)
+check("daily UTC midnight boundary",prevDailyAt==monday
+	and newDaily==prevDaily+1 and newDailyAt==monday+86400)
+check("weekly Monday UTC boundary",prevWeeklyAt==monday
+	and newWeekly==prevWeekly+1 and newWeeklyAt==monday+604800)
+check("invalid window timestamp rejected",QuestRules.Window("Daily",-1)==nil)
+
+local freshRecurring,wasCreated=QuestRules.NormalizeRecurring(nil,monday)
+check("legacy save receives both current windows",wasCreated
+	and freshRecurring.Daily.WindowId==newDaily
+	and freshRecurring.Weekly.WindowId==newWeekly)
+local both,changedBoth,creditedBoth=QuestRules.AdvanceRecurring(freshRecurring,
+	"WildTreeChopped",monday)
+check("one kill advances both task categories",changedBoth and creditedBoth
+	and both.Daily.Counts.daily_wild_chops==1
+	and both.Weekly.Counts.weekly_wild_chops==1
+	and both.Daily.Counts.daily_grove_harvest==0)
+local harvested,changedHarvest=QuestRules.AdvanceRecurring(both,"GroveHarvested",monday)
+check("one Grove harvest advances both windows",changedHarvest
+	and harvested.Daily.Counts.daily_grove_harvest==1
+	and harvested.Weekly.Counts.weekly_grove_harvest==1)
+local unchanged,changedInvalid=QuestRules.AdvanceRecurring(harvested,"ClientFakeEvent",monday)
+check("invalid event cannot grant progress",not changedInvalid
+	and unchanged.Weekly.Counts.weekly_wild_chops==1)
+local capped=unchanged
+for _=1,40 do capped=QuestRules.AdvanceRecurring(capped,"WildTreeChopped",monday) end
+check("concurrent tasks cap independently",
+	capped.Daily.Counts.daily_wild_chops==5
+	and capped.Weekly.Counts.weekly_wild_chops==25)
+local secondDay,resetDay=QuestRules.NormalizeRecurring(capped,monday+86400)
+check("daily resets but weekly remains",resetDay
+	and secondDay.Daily.Counts.daily_wild_chops==0
+	and secondDay.Weekly.Counts.weekly_wild_chops==25)
+local nextWeek,resetWeek=QuestRules.NormalizeRecurring(secondDay,monday+604800)
+check("weekly resets on Monday",resetWeek
+	and nextWeek.Weekly.Counts.weekly_wild_chops==0)
+local invalidRaw={
+	Daily={WindowId=newDaily,Counts={daily_wild_chops=math.huge,garbage=999}},
+	Weekly={WindowId=newWeekly+5000,Counts={weekly_wild_chops=25}},
+}
+local repaired,repairChanged=QuestRules.NormalizeRecurring(invalidRaw,monday)
+check("bad values, stale/implausible future windows and old tasks reset",
+	repairChanged and repaired.Daily.Counts.daily_wild_chops==0
+	and repaired.Daily.Counts.garbage==nil
+	and repaired.Weekly.Counts.weekly_wild_chops==0)
+local snapshot=QuestRules.RecurringSnapshot(both,"Daily",monday)
+check("client projection has deadlines, counts and no pending fake rewards",
+	snapshot.ResetAt==monday+86400 and #snapshot.Tasks==2
+	and snapshot.Tasks[1].Count==1 and snapshot.RewardsConfigured==false
+	and snapshot.Tasks[1].Reward==nil)
+local oldSave={QuestProgress=finished}
+check("legacy save gains recurring without touching completed Story",
+	Cache.NormalizeRecurringQuestProgress(oldSave)
+	and oldSave.QuestProgress.Stage==QuestRules.CompleteStage
+	and oldSave.QuestRecurring.Daily~=nil)
+
+print("Grove, Story and recurring quest progression rules passed")
 return true
