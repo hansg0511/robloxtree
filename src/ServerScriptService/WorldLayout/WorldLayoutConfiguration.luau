@@ -11,24 +11,37 @@ local function makeTreeRecords(definitionId, positions)
 	return records
 end
 
-local starterForestTrees = makeTreeRecords("StarterForestTree", {
-	-- Loose, alternating clusters leave a broad clear lane through Forest 1.
+-- Sapwood is the first plentiful, light-log harvest. Keep the corridor
+-- centered on x=-112 clear; the skinny trees flank it in loose clusters.
+local starterForestTrees = makeTreeRecords("SapwoodTree", {
 	Vector3.new(-156, -0.5, 160),
+	Vector3.new(-142, -0.5, 160),
+	Vector3.new(-154, -0.5, 175),
 	Vector3.new(-137, -0.5, 174),
+	Vector3.new(-136, -0.5, 193),
 	Vector3.new(-160, -0.5, 201),
 	Vector3.new(-138, -0.5, 213),
-	Vector3.new(-157, -0.5, 237),
-	Vector3.new(-136, -0.5, 239),
+	Vector3.new(-159, -0.5, 219),
 	Vector3.new(-86, -0.5, 164),
+	Vector3.new(-72, -0.5, 166),
 	Vector3.new(-67, -0.5, 182),
+	Vector3.new(-82, -0.5, 185),
 	Vector3.new(-88, -0.5, 206),
-	Vector3.new(-66, -0.5, 223),
-	Vector3.new(-84, -0.5, 239),
 	Vector3.new(-69, -0.5, 199),
 })
+-- Mature Oaks remain visibly deeper into the SAME forest as a next-power
+-- landmark, and retain their existing approved procedural appearance.
+for _, oak in ipairs(makeTreeRecords("StarterForestTree", {
+	Vector3.new(-157, -0.5, 237),
+	Vector3.new(-136, -0.5, 239),
+	Vector3.new(-66, -0.5, 223),
+	Vector3.new(-84, -0.5, 239),
+})) do
+	table.insert(starterForestTrees, oak)
+end
 table.insert(starterForestTrees, {
 	DefinitionId = "BambooClump",
-	-- Retain the existing Forest 1 Bamboo gameplay tree beside the entrance.
+	-- Keep the older lightweight Bamboo option near the entrance.
 	Position = Vector3.new(-61, -0.5, 157),
 })
 
@@ -60,7 +73,7 @@ local WorldLayoutConfiguration = {
 	PROCEDURAL_STARTER_OAKS_ENABLED = true,
 
 	ROOT_NAME = "SourceWorld",
-	VERSION = 21,
+	VERSION = 22,
 	STATION_USE_DISTANCES = STATION_USE_DISTANCES,
 
 	-- Surface steps stay small: support ground -0.56, forest/base -0.5,
