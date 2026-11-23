@@ -1,43 +1,45 @@
-# Phase 3 — Configurable multi-resource upgrade cost architecture
+# Weapon upgrade material architecture — costs deliberately undecided
 
-**Status: Phase 3A Awakening and 3B Legendary Infusion gameplay actions now wired; Roblox Studio runtime verification pending.** Upgrade amounts below are temporary tuning values, not the final game economy.
+**Status (2026-11-23):** User-approved behaviors: Awakening grants the permanent first mutation; Legendary/Ultra Infusion adds or replaces **only the second mutation**. Awakening must eventually require additional materials beyond mutated logs. **No specific extra material, drop source, coin price, axe-head cost, or total ingredient quantity has been agreed.** Ultra Mastery is on hold.
 
-## Design constraint: Awakening uses other materials, not only mutated logs
+## What was reverted
 
-A server-authored Awakening/Infusion recipe contains an **array of required ingredients**. The recipe can require all of the following at once:
+- The arbitrary Heartwood requirements for Awakening and Infusion are gone, along with the provisional coin/axe-head charges for these actions.
+- The arbitrary one-Heartwood-every-third-Grove-harvest reward was removed, including HUD and reward notifications and Studio Heartwood auto-injection.
+- The Grove continues to produce **one stored log per mature harvest**, inheriting the planted sapling's mutation. This is separate from future weapon-upgrade material sourcing.
+- Existing `GroveMaterials` schema/old Heartwood records are **retained for backward compatibility**; existing records are not deleted and *no gameplay system generates new Heartwood*. No upgrade recipe refers to Heartwood.
+- The generic multi-resource `WeaponUpgradeCostRules`, `WeaponUpgradeCostService`, and empty saved `MaterialBalances` map remain so future **approved** materials can be added without rewriting weapon mutation logic.
 
-- `Coins`: `{Kind="Coins", Amount=...}`
-- `Logs`: `{Kind="Logs", Count=..., MutationFamily="$selected"}` — client can choose **owned exact UIDs**, but not change the authoritative required count or mutation family. All logs are verified via the existing `LogService.GetEligibleCraftLogs` and exact-UID `LogService.TakeCraftLogUIDs` APIs.
-- `Material`: `{Kind="Material", Source="GroveMaterials", MaterialType="Heartwood", Count=...}` — unique-ID nonlog materials (e.g., Heartwood already exists in profile storage). Supports multiple different types via `MaterialUIDsByType`, with cross-resource duplicate UID rejection.
-- `Stack`: `{Kind="Stack", Source="AxeHeads", Id="copper_head", Count=...}` — existing counted owned materials.
-- `Stack`: `{Kind="Stack", Source="MaterialBalances", Id="future_catalyst", Count=...}` — a **new, empty, normalized profile field** for future recipe catalysts/essences. No such material is granted by this patch. Future acquisition systems set counts server-side. Missing balances fail closed.
+## Explicit Studio-only temporary upgrade test inputs
 
-**None of the example values or types above are locked recipe choices.** Heartwood is a concrete existing source, *not* a decision that all Awakening recipes must consume Heartwood.
+`src/ServerScriptService/Economy/WeaponUpgradeRules.luau` declares:
 
-## Implementation contracts
+- `Rules.ECONOMY_CONFIGURED = false`
+- `Rules.COST_POLICY = "STUDIO_TEST_ONLY"`
+- Temporary Awakening test: **2 qualifying mutated logs**
+- Temporary Infusion/slot-2 replacement test: **3 qualifying mutated logs**
 
-- `src/ServerScriptService/Economy/WeaponUpgradeCostRules.luau`: pure `Validate(costs)`, `Describe(costs)` and `Plan(costs, data, eligibleLogs, selections, family)`. Checks every requirement in a single quote, gives the UI all ingredients (including missing ones), rejects wrong mutation families, spoofed or reused UIDs, negative/malformed amounts, duplicate cost rows, unknown inventory-source types, and absent balances. Never mutates inventory.
-- `src/ServerScriptService/Economy/WeaponUpgradeCostService.luau`: `Preview(player,...)` with authoritative profile/log snapshots; `Take(player,...)` checks all costs then consumes exact owned log UIDs through LogService and debits unique materials/stack balances/coins in one nonyielding transaction; `Rollback(receipt)` restores the precise consumed log records and source locations plus money/other materials on weapon-upgrade failure; `Finalize(receipt)` prevents replaying or double refunding the same receipt. Errors fail closed. A rollback failure quarantines the receipt with a warning rather than issuing a potentially duplicative refund.
-- `src/ServerScriptService/PlayerProfile/ProfileInit/init.server.luau`, `DefaultPlayerData.luau`, and `ProfileDataCache.luau`: new `MaterialBalances` profile map, default empty, nonnegative integer normalization. Existing `GroveMaterials`/Heartwood schema and `AxeHeads` remain untouched.
+These are **not** finalized prices or an approved logs-only upgrade design. The counts only provide reproducible inputs to the existing ability/potency mechanics. **No coins, Heartwood, axe heads or catalysts are deducted** by these Studio recipes.
 
-## Implemented provisional gameplay recipes
+`WeaponUpgradeService.Attempt` explicitly returns `UPGRADE_ECONOMY_PENDING` in **non-Studio** servers while `ECONOMY_CONFIGURED` is false. Its snapshot marks upgrade actions ineligible there. This prevents shipping the placeholder logs-only recipe as a permanent live economy by mistake. Normal forging, weapon leveling, rarity ascension, class abilities and Grove gameplay are not gated by this policy.
 
-- **Awakening:** Forge Lv2; one existing weapon with no mutation, two owned logs from one mutation family, **one Heartwood**, and **500 coins**. Rolls first mutation from the shared Level 2 ability pool, preserves rarity/XP and other weapon data.
-- **Legendary/Ultra Infusion:** Forge Lv2, an already-mutated Legendary/Ultra weapon, three matching family logs, **two Heartwood**, **one copper axe head**, and **1,500 coins**. Adds/replaces only slot 2. The first family's mutation cannot be used again; the first effect, weapon class/Cleave, rarity, XP and forged stats are preserved.
-- **UI:** `M → AXES → INFO` now displays the exact ingredients, auto-selects the largest eligible mutation logs, shows projected potency/ability odds, and asks for a second click to confirm. You must stand at the actual Forge.
-- **Server:** `WeaponUpgradeRules.luau`, `WeaponUpgradeService.luau`, `ShopHandler.server.luau` and `UpgradeWeaponRE.model.json` coordinate real server-owned metadata updates, UUID verification, nonyielding resource consumption, rollback and runtime cache refresh. Existing one-ability metadata stays compatible.
-- **Studio:** The pre-existing `StudioForgeSandbox.luau` supplies uniquely identified test Heartwood only when Studio sandbox is enabled. The already-existing mutation-abilities fixture now also adds a Rare unmutated `AWAKEN TEST` and a Legendary Fervor `INFUSE TEST` weapon (no new smoke runner).
-- **Validation:** the existing `tests/WeaponUpgradeCostRules.smoke.luau` has been extended to exercise the slot rules and old-Cleave preservation. Run it together with the existing weapon regressions once. The user still needs one manual test of actual deductions, persistence during the Studio session and real combat.
+Once the actual economy is agreed, configure both final server-authored cost arrays and set `ECONOMY_CONFIGURED=true` in one intentional change. Do not silently promote test amounts to production.
 
-## Next activation step
+## Retained general-purpose cost contract
 
-1. Ask the coding agent to pull and execute the extended existing cost smoke plus relevant prior effect, progression, ascension and forge tests in Roblox Studio. Do not create another independent smoke suite unless a new bug cannot be covered by the existing file.
-2. Use the updated existing Studio fixture to test one Awakening, one Infusion, and one replacement; verify material deduction by comparing exact UID lists/coin balances at the transaction boundary, then check combat and the runtime weapon profile.
-3. Keep ingredient requirements provisional until Grove economy sources and player pacing are designed; future catalyst materials should be added by recipe configuration and a genuine acquisition source, not by substituting logs.
-4. Only after this single integrated pass, move on to Ultra mastery.
+Each future recipe can combine independent requirements, chosen from these existing validated ingredient kinds:
 
-## Current automated test
+- `{Kind="Logs", Count=..., MutationFamily="$selected"}`: server-validated exact eligible owned log UIDs, including stored Grove logs
+- `{Kind="Coins", Amount=...}`: existing coin balance
+- `{Kind="Stack", Source="AxeHeads", Id="...", Count=...}`: existing item balances, **if** later approved
+- `{Kind="Stack", Source="MaterialBalances", Id="some_future_id", Count=...}`: a future named stackable upgrade resource; currently no acquisition path is implied
+- `{Kind="Material", Source="GroveMaterials", MaterialType="some_future_type", Count=...}`: a **schema example** for individually identified resources; requires a separately approved acquisition and profile-validation path if chosen
 
-`tests/WeaponUpgradeCostRules.smoke.luau` runs purely on synthetic cost snapshots and loads the server adapter without consuming any real inventory. It tests mixed resource kinds, display preview, separate unique material groups, exact log material family and UID validation, unavailable future balances, missing ingredients and safe failure.
+The pure planner previews all ingredients; the payment service checks every source, verifies exact UIDs, debits ingredients as one nonyielding operation and can restore the original records on a failed weapon update. All quantities, mutation-family checks and material types are server-owned. The client may request a mutation family and select UIDs, but cannot choose the price.
 
-This is **architecture scaffolding only**, not a report that Awakening/Infusion can already be used in Roblox. It should not change current forging, ascension, mutation ability use or resources.
+## Current testing and handoff
+
+- Use the **existing** `tests/WeaponUpgradeCostRules.smoke.luau` to verify the reusable cost engine still accepts multi-resource synthetic test recipes and the actual Awakening/Infusion recipes are clearly Studio-only.
+- Manual Axe INFO tests can still demonstrate Awakening and second-slot Infusion in Studio using mutated logs; they should **not** demand Heartwood or charge unrelated resources.
+- Use `tests/GroveGrowthRules.smoke.luau` for Grove lifecycle, rare sapling shop/inheritance, old-profile compatibility and assurance that the unapproved extra-material drop rule has been removed.
+- Do not create new upgrade materials, a Heartwood drop system, or Ultra Mastery until the user explicitly agrees to the corresponding design.
