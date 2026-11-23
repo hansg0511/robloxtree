@@ -67,6 +67,25 @@ local function createRecord(player,spec)
 		},
 	}
 end
+-- Additional Phase 3 subjects reuse the existing Studio Mock inventory
+-- fixture: no new auto-runner, no grinding for Ultra/Legendary test items.
+local function createUpgradeSubject(player,kind)
+	local seed=if kind=="Awaken" then
+		createRecord(player,{Family="Golden",Id="GoldenRush"})
+		else createRecord(player,{Family="Frenzied",Id="Fervor"})
+	seed.UID="dev-phase3-"..tostring(player.UserId).."-"..kind
+	if kind=="Awaken" then
+		seed.Rarity="Rare"
+		seed.WeaponData.Effects={}
+		seed.WeaponData.MutationAbility=nil
+		seed.WeaponData.DevUpgradeTestLabel="AWAKEN TEST (RARE)"
+	else
+		seed.Rarity="Legendary"
+		seed.WeaponData.DevUpgradeTestLabel="INFUSE TEST (LEGENDARY)"
+	end
+	return seed
+end
+
 local function start(player)
 	local started=os.clock()
 	while player.Parent and os.clock()-started<45 do
@@ -101,8 +120,33 @@ local function start(player)
 					end
 				end
 			end
+			-- Add exactly two further test subjects through the same verified
+			-- inventory AddShopAxeItem path (existing axes left untouched).
+			for _,kind in ipairs({"Awaken","Infuse"}) do
+				local record=createUpgradeSubject(player,kind)
+				if alreadyOwned(data,record.UID) then
+					success+=1
+				else
+					local added=false
+					for attempt=1,15 do
+						if not player.Parent then return end
+						local ok,result=pcall(function()
+							return AddShop:Invoke(player,record)
+						end)
+						if ok and result==true then added=true break end
+						task.wait(0.6)
+					end
+					if added then
+						success+=1
+						print("[MutationBatch2Fixture] ADDED Phase3 "..kind.." subject")
+					else
+						warn("[MutationBatch2Fixture] COULD NOT ADD "..kind..
+							" subject: inventory may be full")
+					end
+				end
+			end
 			print(string.format(
-				"[MutationBatch2Fixture] READY %d/5: M > AXES > INFO; equip by ability name.",
+				"[MutationBatch2Fixture] READY %d/7: includes AWAKEN TEST (RARE) and INFUSE TEST (LEGENDARY).",
 				success))
 			print("[MutationBatch2Fixture] GoldenJackpot sample uses 50% PROC CHANCE only for short Studio testing.")
 			print("[MutationBatch2Fixture] All five are ordinary equipped Axe tools with saved WeaponData.Effects in Studio Mock only.")
