@@ -149,5 +149,98 @@ check("duplicate cross-type resource UID rejected",Rules.Plan(multiType,multiDat
 		Heartwood={"heart-x"},CrystalCatalyst={"heart-x"},
 	}},"Golden")==nil)
 
-print("UpgradeCost PASS: multiple ingredient types, unique UIDs, exact resources, fail-closed missing materials and non-mutating previews")
+-- Phase 3A/3B PURE upgrade rules share this ONE existing test.
+-- These tests do not consume profile materials or create any extra runner.
+local Upgrades=require(game.ServerScriptService.Economy.WeaponUpgradeRules)
+local Forge=require(game.ReplicatedStorage.Shared.ForgeMutationRules)
+local Dispatcher=require(game.ServerScriptService.WeaponEffects.Dispatcher)
+local function sampleAbility(family,roll)
+	local mutated={}
+	for _=1,3 do
+		mutated[#mutated+1]={SpeciesId="Oak",SizeScale=5,Mutations={[family]=true}}
+	end
+	local preview=Forge.Preview(mutated,2)
+	return Forge.Roll(preview,2,{NextNumber=function() return roll or 0.1 end})
+end
+local first=sampleAbility("Golden",0.1)
+local second=sampleAbility("Frenzied",0.1)
+local replacement=sampleAbility("Shocked",0.9)
+check("phase 3 test abilities exist",first and second and replacement)
+local clean={
+	ExperimentalClass="Axe",Progression={SchemaVersion=1,Level=22,XP=35},
+	Effects={},Materials={{UID="original-log"}},CraftedPower=81,
+}
+local canAwaken,allowReason=Upgrades.Check("Awaken","Rare",clean,"Golden",2)
+check("ordinary rare weapon can awaken",canAwaken and not allowReason)
+check("cannot awaken at forge level 1",
+	not Upgrades.Check("Awaken","Rare",clean,"Golden",1))
+local awakened,reason=Upgrades.Build(clean,"Awaken",first,"Rare",2)
+check("awakening gives first slot",awakened and not reason
+	and #awakened.MutationSlots==1 and awakened.MutationSlots[1].Id==first.Id)
+check("awakening preserves existing stats/XP/materials",
+	awakened.Progression.Level==22 and awakened.Progression.XP==35
+	and awakened.CraftedPower==81 and #awakened.Materials==1)
+check("pure build never mutates original weapon",
+	clean.MutationAbility==nil and #clean.Effects==0)
+check("second awakening rejected",
+	not Upgrades.Check("Awaken","Rare",awakened,"Shocked",2))
+check("rare cannot infuse second slot",
+	not Upgrades.Check("Infuse","Rare",awakened,"Shocked",2))
+check("must awaken before infusion",
+	not Upgrades.Check("Infuse","Legendary",clean,"Frenzied",2))
+check("same-family infusion denied",
+	not Upgrades.Check("Infuse","Legendary",awakened,"Golden",2))
+local legend={
+	ExperimentalClass="Battlehammer",
+	CleaveRadius=10,CleaveDamageFraction=0.4,
+	Progression={Level=45,XP=0},Effects={
+		{Id="Cleave",Trigger="OnHit",Source="WeaponClass",
+			Params={Radius=10,DamageFraction=0.4}},
+		first.Effect,
+	},
+	MutationAbility={
+		Family=first.Family,Id=first.Id,Potency=first.Potency,
+		ForgeTier=first.Tier,
+	},
+}
+local infused,reason=Upgrades.Build(legend,"Infuse",second,"Legendary",2)
+check("legacy one-slot weapon gains second",infused and not reason
+	and #infused.MutationSlots==2)
+check("first legacy ability is unchanged",infused.MutationSlots[1].Id==first.Id)
+check("infusion preserves Cleave AND two mutations",
+	#Dispatcher.List(infused)==3 and infused.Effects[1].Id=="Cleave"
+	and infused.Effects[2].Id==first.Id and infused.Effects[3].Id==second.Id)
+check("infusion leaves original legacy item untouched",
+	legend.MutationSlots==nil and #legend.Effects==2)
+check("infused weapon refuses same-family duplicate",
+	not Upgrades.Check("Infuse","Legendary",infused,"Golden",2))
+local replaced,why=Upgrades.Build(infused,"Infuse",replacement,"Ultra",2)
+check("infusion replacement rewrites ONLY slot 2",replaced and not why
+	and replaced.MutationSlots[1].Id==first.Id
+	and replaced.MutationSlots[2].Id==replacement.Id)
+check("replacement retains first mutation and Cleave but drops old second",
+	#Dispatcher.List(replaced)==3 and replaced.Effects[1].Id=="Cleave"
+	and replaced.Effects[2].Id==first.Id
+	and replaced.Effects[3].Id==replacement.Id)
+check("replacement does not mutate the already infused source",
+	infused.MutationSlots[2].Id==second.Id)
+local legacyHammer={
+	ExperimentalClass="Battlehammer",
+	CleaveRadius=11,CleaveDamageFraction=0.4,
+}
+local awakenedHammer=Upgrades.Build(legacyHammer,"Awaken",first,"Common",2)
+check("old Battlehammer scalar Cleave preserved on awakening",
+	awakenedHammer and #Dispatcher.List(awakenedHammer)==2
+	and Dispatcher.List(awakenedHammer)[1].Id=="Cleave")
+check("Awakening cost has non-log Heartwood requirement",
+	Upgrades.COSTS.Awaken[3].Kind=="Material"
+	and Upgrades.COSTS.Awaken[3].MaterialType=="Heartwood")
+check("Infusion cost has both Heartwood and axe-head stack",
+	Upgrades.COSTS.Infuse[3].MaterialType=="Heartwood"
+	and Upgrades.COSTS.Infuse[4].Kind=="Stack")
+check("all actual recipes are accepted by shared cost planner",
+	Rules.Validate(Upgrades.COSTS.Awaken)
+	and Rules.Validate(Upgrades.COSTS.Infuse))
+
+print("UpgradeCost + WeaponUpgradeRules PASS: multiple ingredient types, unique UIDs, exact resources, fail-closed missing materials and non-mutating previews")
 return true
