@@ -303,7 +303,8 @@ local function render()
 	for _, groveTree in ipairs(groveTrees) do
 		if groveTree.Stage == "mature" then mature += 1 end
 	end
-	heartwoodLabel.Text = string.format("Grove: %d planted • %d mature • %d growing", #groveTrees, mature, #groveTrees - mature)
+	heartwoodLabel.Text = string.format("Grove: %d planted • %d mature • Heartwood: %d",
+		#groveTrees, mature, #groveMaterials)
 	if selected then
 		selectedSaplingLabel.Text = string.format(
 			"Selected: %s\nSize: %.2fx",
