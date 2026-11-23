@@ -1,6 +1,5 @@
--- Server-authoritative, one-time quest vertical slice. Progress is
--- recorded ONLY by verified server gameplay callbacks, never client events.
--- Daily/Weekly categories have no tasks, resets, wallet or rewards yet.
+-- Server-authoritative Story and recurring quest progress.
+-- Only verified gameplay events credit objectives; recurring rewards are deferred.
 local Players=game:GetService("Players")
 local HttpService=game:GetService("HttpService")
 local ReplicatedStorage=game:GetService("ReplicatedStorage")
@@ -17,6 +16,8 @@ local started=false
 local revisionByPlayer={}
 local lastClaimAt=setmetatable({},{__mode="k"})
 local processedWildTrees=setmetatable({},{__mode="k"})
+-- One last credited harvest cycle per player/Grove UID prevents duplicate awards.
+local processedGroveHarvests=setmetatable({},{__mode="k"})
 
 local function playerData(player)
 	if typeof(player)~="Instance" or not player:IsA("Player")
@@ -31,6 +32,10 @@ local function makeState(player)
 	local data=playerData(player)
 	if not data then return nil end
 	local progress=Rules.Normalize(data.QuestProgress)
+	local now=os.time()
+	local recurring=Rules.NormalizeRecurring(data.QuestRecurring,now)
+	if not recurring then return nil end
+	data.QuestRecurring=recurring
 	local definition=Rules.Story[progress.Stage]
 	local state={
 		Revision=revisionByPlayer[player] or 0,
@@ -38,10 +43,12 @@ local function makeState(player)
 		Stage=progress.Stage,
 		TotalStages=#Rules.Story,
 		Completed=definition==nil,
-		-- Only the campaign is implemented. Daily/Weekly are disabled
-		-- until their reward economy/reset policy is approved.
-		DailyEnabled=false,
-		WeeklyEnabled=false,
+		-- Progress is live; there are deliberately no recurring rewards yet.
+		DailyEnabled=true,
+		WeeklyEnabled=true,
+		ServerTime=now,
+		Daily=Rules.RecurringSnapshot(recurring,Rules.Categories.Daily,now),
+		Weekly=Rules.RecurringSnapshot(recurring,Rules.Categories.Weekly,now),
 	}
 	if definition then
 		state.Id=definition.Id
@@ -76,9 +83,12 @@ end
 local function creditEvent(player,event)
 	local data=playerData(player)
 	if not data then return false end
-	local advanced,changed=Rules.Advance(data.QuestProgress,event,1)
-	if not changed then return false end
-	data.QuestProgress=advanced
+	local story,storyChanged=Rules.Advance(data.QuestProgress,event,1)
+	local recurring,recurringChanged=Rules.AdvanceRecurring(data.QuestRecurring,event,os.time())
+	if not recurring then return false end
+	if not storyChanged and not recurringChanged then return false end
+	data.QuestProgress=story
+	data.QuestRecurring=recurring
 	publish(player)
 	return true
 end
@@ -99,6 +109,12 @@ function Service.RecordGroveHarvested(player,groveTreeUID,harvestCount)
 		or harvestCount<1 then return false end
 	-- Only GroveService.HarvestPersistentTree invokes this after granting
 	-- a stored log and committing the next growth cycle.
+	local data=playerData(player)
+	if not data then return false end
+	local cycles=processedGroveHarvests[player]
+	if not cycles then cycles={} processedGroveHarvests[player]=cycles end
+	if (cycles[groveTreeUID] or 0)>=harvestCount then return false end
+	cycles[groveTreeUID]=harvestCount
 	return creditEvent(player,"GroveHarvested")
 end
 
@@ -188,6 +204,24 @@ function Service.Start()
 	Players.PlayerRemoving:Connect(function(player)
 		lastClaimAt[player]=nil
 		revisionByPlayer[player]=nil
+		processedGroveHarvests[player]=nil
+	end)
+	-- Online rollover without depending on a client reopening the panel.
+	task.spawn(function()
+		while started do
+			task.wait(15)
+			local now=os.time()
+			for _,player in ipairs(Players:GetPlayers()) do
+				local data=playerData(player)
+				if data then
+					local normalized,changed=Rules.NormalizeRecurring(data.QuestRecurring,now)
+					if normalized and changed then
+						data.QuestRecurring=normalized
+						publish(player)
+					end
+				end
+			end
+		end
 	end)
 end
 
