@@ -245,22 +245,34 @@ local function makeStarterForestTree()
 	return model
 end
 
--- Two detachable wood sections make each small Sapwood kill yield two
--- physical-looking log pieces through the existing authored harvest pipeline.
--- All canopy pieces are simple cuboids, like the rest of World 1.
+-- Sapwood uses two clean, height-extendable trunk segments and a compact
+-- cuboid crown. No brick studs or textured brick faces; the small number of
+-- authored parts remain compatible with the existing harvest/growth adapters.
 local function makeSapwoodTree()
 	local palette = SpeciesVisuals.GetPalette("Sapwood")
 	local model = Instance.new("Model")
 	model.Name = "SapwoodTree"
 
-	-- Unobtrusive carrier holds the hitbox and leafy crown during the fall;
-	-- visible thin trunk sections detach as the two ordinary log rewards.
-	local carrier = makeBrickPart("SapwoodRootCarrier",
-		Vector3.new(0.8, 10, 0.8), Vector3.new(0, 5, 0), palette.Bark, model)
-	carrier.PivotOffset = CFrame.new(0, -5, 0)
+	local function makeSmoothPart(name, size, position, color, parent, root)
+		local part = makeBrickPart(name, size, position, color, parent, root, false)
+		part.Material = Enum.Material.SmoothPlastic
+		part.TopSurface = Enum.SurfaceType.Smooth
+		part.BottomSurface = Enum.SurfaceType.Smooth
+		part.FrontSurface = Enum.SurfaceType.Smooth
+		part.BackSurface = Enum.SurfaceType.Smooth
+		part.LeftSurface = Enum.SurfaceType.Smooth
+		part.RightSurface = Enum.SurfaceType.Smooth
+		part.CanTouch = false
+		return part
+	end
+
+	-- Invisible carrier keeps the entire tree rigid until the two harvest
+	-- pieces detach at impact. A clear silhouette matters more than detail.
+	local carrier = makeSmoothPart("SapwoodRootCarrier",
+		Vector3.new(0.7, 12, 0.7), Vector3.new(0, 6, 0),
+		palette.Bark, model)
+	carrier.PivotOffset = CFrame.new(0, -6, 0)
 	carrier.Transparency = 1
-	carrier.CanCollide = false
-	carrier.CanTouch = false
 	carrier.CanQuery = false
 	carrier:SetAttribute("AlwaysInvisible", true)
 	model.PrimaryPart = carrier
@@ -269,11 +281,13 @@ local function makeSapwoodTree()
 	sectionsFolder.Name = "SapwoodHarvestSections"
 	sectionsFolder.Parent = model
 	local sections = {}
+	-- Matching bark colors keep the two pieces visually continuous, with a
+	-- gentle natural taper instead of the previous stacked-toy-block look.
 	for index, definition in ipairs({
-		{ Name = "SapwoodLowerTrunk", Size = Vector3.new(1.7, 5, 1.7),
-			Position = Vector3.new(0, 2.5, 0), Color = palette.Bark },
-		{ Name = "SapwoodUpperTrunk", Size = Vector3.new(1.4, 5, 1.4),
-			Position = Vector3.new(0, 7.5, 0), Color = palette.BarkHighlight },
+		{ Name = "SapwoodLowerTrunk", Size = Vector3.new(1.6, 6, 1.6),
+			Position = Vector3.new(0, 3, 0) },
+		{ Name = "SapwoodUpperTrunk", Size = Vector3.new(1.4, 6, 1.4),
+			Position = Vector3.new(0, 9, 0) },
 	}) do
 		local section = Instance.new("Model")
 		section.Name = "SapwoodHarvestSection" .. index
@@ -281,10 +295,10 @@ local function makeSapwoodTree()
 		section:SetAttribute("HarvestSectionIndex", index)
 		section:SetAttribute("SpeciesId", "Sapwood")
 		section.Parent = sectionsFolder
-		local trunk = makeBrickPart(definition.Name, definition.Size,
-			definition.Position, definition.Color, section, carrier, false)
-		trunk.CanTouch = false
-		addBarkStuds(trunk, trunk, palette)
+		local trunk = makeSmoothPart(definition.Name, definition.Size,
+			definition.Position, palette.Bark, section, carrier)
+		trunk:SetAttribute("GroveGrowthAxis", "Y")
+		trunk:SetAttribute("GroveGrowthRole", "trunk")
 		section.PrimaryPart = trunk
 		sections[index] = section
 	end
@@ -292,14 +306,20 @@ local function makeSapwoodTree()
 	local leaves = Instance.new("Folder")
 	leaves.Name = "Leaves"
 	leaves.Parent = model
-	addLeafBricks(leaves, carrier, {
-		{ Size = Vector3.new(7.2, 3.4, 7), Position = Vector3.new(0, 11.4, 0),
-			Color = palette.Leaf },
-		{ Size = Vector3.new(5.2, 3.2, 5), Position = Vector3.new(-1.1, 13.2, -0.6),
-			Color = palette.LeafHighlight },
-		{ Size = Vector3.new(4.2, 2.9, 4.5), Position = Vector3.new(1.0, 13.6, 0.7),
-			Color = palette.LeafShadow },
-	}, false)
+	-- All World 1 leaves stay cuboids; overlapping, restrained masses read as
+	-- one leafy young tree rather than multiple disconnected Minecraft blocks.
+	for index, definition in ipairs({
+		{ Size = Vector3.new(7.4, 4.2, 7.2),
+			Position = Vector3.new(0, 12.8, 0), Color = palette.Leaf },
+		{ Size = Vector3.new(5.6, 4.0, 5.4),
+			Position = Vector3.new(-1.2, 15.0, -0.7), Color = palette.LeafHighlight },
+		{ Size = Vector3.new(4.8, 3.4, 4.6),
+			Position = Vector3.new(1.4, 14.4, 0.8), Color = palette.LeafShadow },
+	}) do
+		local leaf = makeSmoothPart("Leaf" .. index, definition.Size,
+			definition.Position, definition.Color, leaves, carrier)
+		leaf.CastShadow = true
+	end
 	addChopHitbox(model, carrier, Vector3.new(5, 12, 5),
 		Vector3.new(0, 6, 0))
 	return model, sections
