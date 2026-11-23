@@ -1,5 +1,6 @@
--- Reusable server-owned multi-resource cost adapter for future Awakening
--- and Infusion operations. Not wired to a player RemoteEvent yet.
+-- Reusable server-owned multi-resource cost adapter used by the Studio
+-- Awakening/Infusion prototype. Final game economy recipes are UNDECIDED.
+-- Never mistake an example material source for an approved production cost.
 --
 -- Usage in a single NONYIELDING weapon upgrade transaction:
 --   local receipt, reason = Costs.Take(player, recipe.Costs, selections, family)
