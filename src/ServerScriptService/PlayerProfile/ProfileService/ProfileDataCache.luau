@@ -226,6 +226,14 @@ function PlayerProfileCache.NormalizeGroveData(data)
 	return true
 end
 
+-- The tutorial campaign is a small, one-time persisted state machine.
+-- Normalize legacy/malformed saves without changing any currency/materials.
+function PlayerProfileCache.NormalizeQuestProgress(data)
+	if type(data)~="table" then return false end
+	data.QuestProgress=QuestRules.Normalize(data.QuestProgress)
+	return true
+end
+
 -- Normalize persisted, unique weapon records BEFORE ItemDataBase parses them
 -- into the transient runtime equipment cache. Skip non-weapons and the
 -- session-only debug axe (which must never become a progression candidate).
@@ -316,6 +324,7 @@ export type PlayerProfileCache = {
 	Remove: (player: Player) -> (),
 	NormalizeCarryCapacity: (data: { [string]: any }) -> number,
 	NormalizeGroveData: (data: { [string]: any }) -> boolean,
+	NormalizeQuestProgress: (data: { [string]: any }) -> boolean,
 	NormalizeWeaponData: (data: { [string]: any }) -> boolean,
 	FireLoaded: (profile: profileType.PlayerData) -> ()
 }
