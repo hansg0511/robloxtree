@@ -445,16 +445,8 @@ local function sourceSaplingReferenceCount(data, uid)
 	for _, record in ipairs(data.GroveTrees) do
 		if type(record) == "table" and record.SourceSaplingUID == uid then count += 1 end
 	end
-	-- Heartwood is a separate earned material referencing the same
-	-- planted sapling. Its existence must not block regrowth/harvesting.
-	return count
-end
-
-local function heartwoodSourceTreeCount(data, uid)
-	local count = 0
-	for _, record in ipairs(data.GroveMaterials) do
-		if type(record) == "table" and record.SourceGroveTreeUID == uid then count += 1 end
-	end
+	-- Existing legacy materials may reference a planted sapling.
+	-- Only the active Grove tree counts for its unique plant identity.
 	return count
 end
 
@@ -540,31 +532,6 @@ function GroveService.HarvestPersistentTree(player, treeObject)
 		return false
 	end
 
-	-- The normal Grove harvest now earns the other material required by
-	-- Awakening/Infusion. Provisional rule: one Heartwood per 3 completed
-	-- harvests, never more than one outstanding from the same tree, and a
-	-- bounded material bag. No RNG, no early-harvest exploit.
-	-- Award is OPTIONAL: at capacity, the log still harvests/regrows.
-	local heartwoodUID
-	if GroveGrowthRules.HeartwoodEligible(cycle.HarvestCount,
-		heartwoodSourceTreeCount(data,record.UID),#data.GroveMaterials) then
-		local candidate=newGroveUID(data)
-		if candidate then
-			local heartwood={
-				UID=candidate,
-				MaterialType="Heartwood",
-				SpeciesId=record.SpeciesId,
-				Mutations=copyMutations(record.Mutations),
-				SizePotential=record.SizePotential,
-				SourceGroveTreeUID=record.UID,
-				SourceSaplingUID=record.SourceSaplingUID,
-				CreatedAt=now,
-			}
-			table.insert(data.GroveMaterials,heartwood)
-			heartwoodUID=candidate
-		end
-	end
-
 	local groveUID = record.UID
 	-- Atomic within this synchronous server callback: all validations above
 	-- complete before the next cycle is committed and before a new TreeObject
@@ -583,7 +550,6 @@ function GroveService.HarvestPersistentTree(player, treeObject)
 	-- it does not control or authorize item grants.
 	local reward = {
 		RewardUID = logUID,
-		HeartwoodUID=heartwoodUID,
 		GroveTreeUID = groveUID,
 		SourceSaplingUID = record.SourceSaplingUID,
 		SpeciesId = record.SpeciesId,
@@ -601,7 +567,6 @@ function GroveService.HarvestPersistentTree(player, treeObject)
 		GroveHarvestFXRE:FireClient(player, {
 			Mode = "Start",
 			RewardUID = logUID,
-			HeartwoodAwarded=heartwoodUID~=nil,
 			GroveTreeUID = groveUID,
 			TreeModel = treeObject.model,
 			WorldCFrame = reward.WorldCFrame,
