@@ -64,7 +64,12 @@ local function publish(player)
 	revisionByPlayer[player]=(revisionByPlayer[player] or 0)+1
 	local snapshot=makeState(player)
 	if snapshot then
-		QuestStateUpdatedRE:FireClient(player,snapshot)
+		-- A UI/remote delivery failure must never turn an already-granted
+		-- unique sapling + claimed quest into an apparent server failure.
+		local ok,err=pcall(function()
+			QuestStateUpdatedRE:FireClient(player,snapshot)
+		end)
+		if not ok then warn("[Quests] State delivery failed",err) end
 	end
 end
 
