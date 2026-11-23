@@ -21,6 +21,12 @@ local Rampage=require(game.ServerScriptService.WeaponEffects.Rampage)
 
 local Service={}
 local random=Random.new()
+local function deepCopy(input)
+	if type(input)~="table" then return input end
+	local output={}
+	for k,v in pairs(input) do output[deepCopy(k)]=deepCopy(v) end
+	return output
+end
 
 local function findWeapon(data,uid)
 	if type(data)~="table" or type(data.Inventory)~="table"
@@ -164,9 +170,9 @@ function Service.Attempt(player,uid,mode,family,selections)
 	local beforeItem=live.ItemWeaponData
 	local ok,err=pcall(function()
 		saved.WeaponData=updated
-		live.WeaponData=table.clone(updated)
+		live.WeaponData=deepCopy(updated)
 		if type(beforeItem)=="table" then
-			live.ItemWeaponData=table.clone(updated)
+			live.ItemWeaponData=deepCopy(updated)
 		end
 	end)
 	if not ok then
@@ -181,8 +187,9 @@ function Service.Attempt(player,uid,mode,family,selections)
 		return {Reason="WEAPON_UPDATE_FAILED"}
 	end
 	if not Costs.Finalize(receipt) then
-		warn("[WeaponUpgrade] cost receipt finalization failed for weapon",uid)
-		return {Reason="COST_FINALIZE_FAILED"}
+		-- The weapon and deduction are already committed. Never tell the
+		-- client "failed" and tempt a destructive duplicate retry.
+		warn("[WeaponUpgrade] finalized weapon but receipt cleanup failed:",uid)
 	end
 	clearTransientEffects(player)
 	if data.Runtime.EquippedWeaponUID==uid then
