@@ -29,6 +29,22 @@ local TreeDefinitions = {
 		InteractionPartName = "ChopHitbox",
 		ChopRadius = 7,
 	},
+	-- Main Forest 1 harvest tree: slim trunk, quick beginner chops,
+	-- two light logs per death (both can fit repeatedly in the starter bag).
+	SapwoodTree = {
+		Category = "Grove",
+		ModelName = "SapwoodTree",
+		MaxHP = 20,
+		SpeciesId = "Sapwood",
+		LogYield = 2,
+		YieldsLog = true,
+		RespawnSeconds = 3,
+		OwnerOnly = false,
+		Choppable = true,
+		ForestId = "Forest1",
+		InteractionPartName = "ChopHitbox",
+		ChopRadius = 6,
+	},
 	StarterForestTree = {
 		Category = "Grove",
 		ModelName = "StarterForestTree",
