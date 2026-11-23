@@ -2677,7 +2677,9 @@ axesTab.Activated:Connect(function()
 	infoOverlay.Visible = false
 	setBagLayout()
 	if latestShopData then renderAxes(latestShopData) else renderAxes(nil) end
-	if not latestShopData then refreshShop() end
+	-- Upgrade eligibility depends on REAL Forge proximity and current
+	-- stock; refresh on entry even if an older shop snapshot is cached.
+	refreshShop()
 end)
 infoButton.Activated:Connect(function()
 	if bagWideLayout or not bagOverlay.Visible then return end
