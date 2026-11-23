@@ -33,6 +33,7 @@ local MAX_SIZE_POTENTIAL = 2
 local GROVE_FOLDER = ReplicatedStorage:WaitForChild("Grove")
 local GetGroveStateRF = GROVE_FOLDER:WaitForChild("GetGroveStateRF")
 local PlantSaplingRE = GROVE_FOLDER:WaitForChild("PlantSaplingRE")
+local UprootGroveTreeRE = GROVE_FOLDER:WaitForChild("UprootGroveTreeRE")
 local GroveStateUpdatedRE = GROVE_FOLDER:WaitForChild("GroveStateUpdatedRE")
 local GroveHarvestFXRE = GROVE_FOLDER:WaitForChild("GroveHarvestFXRE")
 
@@ -41,6 +42,7 @@ local RuntimeTreesByUID = {}
 local PlayerRuntimeUIDs = {}
 local RestoredPlotByPlayer = {}
 local LastPlantRequestAt = {}
+local LastUprootRequestAt = {}
 local LastSuccessfulHarvestAt = {}
 -- A state response and a state-update event travel over separate remotes. Keep a
 -- monotonically increasing revision so an older RemoteFunction response cannot
@@ -349,6 +351,7 @@ end
 function GroveService.CleanUp(player)
 	GroveService.CleanRuntime(player)
 	LastPlantRequestAt[player] = nil
+	LastUprootRequestAt[player] = nil
 	LastSuccessfulHarvestAt[player] = nil
 	StateRevisionByPlayer[player] = nil
 end
@@ -448,6 +451,61 @@ local function sourceSaplingReferenceCount(data, uid)
 	-- Existing legacy materials may reference a planted sapling.
 	-- Only the active Grove tree counts for its unique plant identity.
 	return count
+end
+
+-- Explicit, permanent uprooting is a PLAYER-OWNED Grove operation, not
+-- a sapling recovery or harvest. The server resolves a unique saved UID in
+-- the caller's assigned Grove before changing anything. A regrowth timer
+-- cannot resurrect a removed tree because it rechecks this saved record.
+function GroveService.UprootTree(player, groveTreeUID)
+	if not isValidUID(groveTreeUID) then return false, "INVALID_TREE_UID" end
+	local data = getProfileData(player)
+	local plot, plotModel, area = getAssignedGrove(player)
+	if not data or not plot or RestoredPlotByPlayer[player] ~= plot then
+		return false, "GROVE_NOT_READY"
+	end
+
+	local record, index = findUniqueGroveTree(data, groveTreeUID)
+	if not record or not isInsidePlacementBounds(area, record.LocalX, record.LocalZ) then
+		return false, "TREE_NOT_OWNED"
+	end
+	local runtime = RuntimeTreesByUID[groveTreeUID]
+	if runtime and (runtime.OwnerUserId ~= player.UserId
+		or runtime.GroveTreeUID ~= groveTreeUID
+		or runtime.SourceSaplingUID ~= record.SourceSaplingUID
+		or runtime.Parent ~= plotModel
+		or runtime.IsPersistentGrove ~= true) then
+		return false, "TREE_NOT_OWNED"
+	end
+	-- Do not allow one player to remove another player's runtime entry,
+	-- including during plot reassignment. Missing runtime is permitted for
+	-- the short falling-stump interval or a failed visual restoration.
+	if runtime and (not PlayerRuntimeUIDs[player]
+		or PlayerRuntimeUIDs[player][groveTreeUID] ~= true) then
+		return false, "GROVE_NOT_READY"
+	end
+
+	-- Single nonyielding authoritative commit: remove the saved tree first,
+	-- then its runtime incarnation. The consumed source sapling is NOT
+	-- restored to Saplings, and no logs, currency or materials are granted.
+	table.remove(data.GroveTrees, index)
+	if type(data.ActiveGroveTreeUIDs) == "table" then
+		data.ActiveGroveTreeUIDs[groveTreeUID] = nil
+	end
+	RuntimeTreesByUID[groveTreeUID] = nil
+	if PlayerRuntimeUIDs[player] then
+		PlayerRuntimeUIDs[player][groveTreeUID] = nil
+	end
+	if runtime then
+		local destroyed, err = pcall(function() runtime:Destroy() end)
+		if not destroyed then
+			warn("[Grove] Uproot runtime cleanup failed for", groveTreeUID, err)
+			-- Even if a visual lingers, its removed saved UID can never
+			-- authorize a harvest or regain this Grove slot.
+		end
+	end
+	publishState(player)
+	return true, nil
 end
 
 local function validateRuntimeGroveTree(player, treeObject)
@@ -714,6 +772,27 @@ function GroveService.Start()
 			return
 		end
 		plantSapling(player, saplingUID, localX, localZ)
+	end)
+	UprootGroveTreeRE.OnServerEvent:Connect(function(player, ...)
+		if select("#", ...) ~= 1 then return end
+		local uid = ...
+		if not isValidUID(uid) then return end
+		local now = os.clock()
+		if now - (LastUprootRequestAt[player] or -math.huge) < 0.4 then
+			return
+		end
+		LastUprootRequestAt[player] = now
+		local ok, success, reason = pcall(GroveService.UprootTree, player, uid)
+		if not ok then
+			warn("[Grove] Uproot request failed:", success)
+			UprootGroveTreeRE:FireClient(player, {UID=uid, Success=false, Reason="SERVER_ERROR"})
+			return
+		end
+		UprootGroveTreeRE:FireClient(player, {
+			UID=uid,
+			Success=success==true,
+			Reason=if success then "UPROOTED" else reason or "INVALID_TREE",
+		})
 	end)
 	task.spawn(function()
 		while true do
