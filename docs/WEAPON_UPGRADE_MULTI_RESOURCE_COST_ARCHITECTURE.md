@@ -1,6 +1,6 @@
 # Phase 3 — Configurable multi-resource upgrade cost architecture
 
-**Status: source foundation committed; Awakening and Infusion actions are NOT yet wired to gameplay.** This checkpoint intentionally does not select the final materials, quantities or balance. The next implementation pass connects this shared cost engine to the two weapon-upgrade operations.
+**Status: Phase 3A Awakening and 3B Legendary Infusion gameplay actions now wired; Roblox Studio runtime verification pending.** Upgrade amounts below are temporary tuning values, not the final game economy.
 
 ## Design constraint: Awakening uses other materials, not only mutated logs
 
@@ -20,13 +20,21 @@ A server-authored Awakening/Infusion recipe contains an **array of required ingr
 - `src/ServerScriptService/Economy/WeaponUpgradeCostService.luau`: `Preview(player,...)` with authoritative profile/log snapshots; `Take(player,...)` checks all costs then consumes exact owned log UIDs through LogService and debits unique materials/stack balances/coins in one nonyielding transaction; `Rollback(receipt)` restores the precise consumed log records and source locations plus money/other materials on weapon-upgrade failure; `Finalize(receipt)` prevents replaying or double refunding the same receipt. Errors fail closed. A rollback failure quarantines the receipt with a warning rather than issuing a potentially duplicative refund.
 - `src/ServerScriptService/PlayerProfile/ProfileInit/init.server.luau`, `DefaultPlayerData.luau`, and `ProfileDataCache.luau`: new `MaterialBalances` profile map, default empty, nonnegative integer normalization. Existing `GroveMaterials`/Heartwood schema and `AxeHeads` remain untouched.
 
+## Implemented provisional gameplay recipes
+
+- **Awakening:** Forge Lv2; one existing weapon with no mutation, two owned logs from one mutation family, **one Heartwood**, and **500 coins**. Rolls first mutation from the shared Level 2 ability pool, preserves rarity/XP and other weapon data.
+- **Legendary/Ultra Infusion:** Forge Lv2, an already-mutated Legendary/Ultra weapon, three matching family logs, **two Heartwood**, **one copper axe head**, and **1,500 coins**. Adds/replaces only slot 2. The first family's mutation cannot be used again; the first effect, weapon class/Cleave, rarity, XP and forged stats are preserved.
+- **UI:** `M → AXES → INFO` now displays the exact ingredients, auto-selects the largest eligible mutation logs, shows projected potency/ability odds, and asks for a second click to confirm. You must stand at the actual Forge.
+- **Server:** `WeaponUpgradeRules.luau`, `WeaponUpgradeService.luau`, `ShopHandler.server.luau` and `UpgradeWeaponRE.model.json` coordinate real server-owned metadata updates, UUID verification, nonyielding resource consumption, rollback and runtime cache refresh. Existing one-ability metadata stays compatible.
+- **Studio:** The pre-existing `StudioForgeSandbox.luau` supplies uniquely identified test Heartwood only when Studio sandbox is enabled. The already-existing mutation-abilities fixture now also adds a Rare unmutated `AWAKEN TEST` and a Legendary Fervor `INFUSE TEST` weapon (no new smoke runner).
+- **Validation:** the existing `tests/WeaponUpgradeCostRules.smoke.luau` has been extended to exercise the slot rules and old-Cleave preservation. Run it together with the existing weapon regressions once. The user still needs one manual test of actual deductions, persistence during the Studio session and real combat.
+
 ## Next activation step
 
-1. Define server-only **actual** recipes with both mutation logs **and** one or more additional ingredients. *Do not* add a "logs-only" fallback when those items are absent. A recipe cannot be considered eligible without all of them.
-2. Integrate the `Take/Finalize/Rollback` adapter into the Awakening and Legendary Infusion server operations; debit materials only if weapon UID, rarity, ability slots, selected log family, forge location, and server recipe all validate.
-3. Weapon mutations update **both persistent Inventory item WeaponData and current runtime weapon copies**, with one verified stat/effects refresh. Reject mutations if the full operation cannot complete; never silently lose material or reroll an existing ability.
-4. Expose all ingredient requirements and their availability in Forge UI, without claiming an unavailable catalyst was paid.
-5. Smoke-test real Studio Mock-owned material UIDs and coins with success/rollback/replay/spoofing cases before enabling user-facing operations; add a temporary fixture for missing material acquisition, never release free materials to production.
+1. Ask the coding agent to pull and execute the extended existing cost smoke plus relevant prior effect, progression, ascension and forge tests in Roblox Studio. Do not create another independent smoke suite unless a new bug cannot be covered by the existing file.
+2. Use the updated existing Studio fixture to test one Awakening, one Infusion, and one replacement; verify material deduction by comparing exact UID lists/coin balances at the transaction boundary, then check combat and the runtime weapon profile.
+3. Keep ingredient requirements provisional until Grove economy sources and player pacing are designed; future catalyst materials should be added by recipe configuration and a genuine acquisition source, not by substituting logs.
+4. Only after this single integrated pass, move on to Ultra mastery.
 
 ## Current automated test
 
