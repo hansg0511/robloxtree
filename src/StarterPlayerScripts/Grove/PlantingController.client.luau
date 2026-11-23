@@ -48,6 +48,7 @@ local confirmUprootUntil = 0
 local groveManagerPanel
 local selectionHighlight
 local renderTreeManager
+local render
 local plantingMode = false
 local pendingPlantUID
 local plantingAttemptId = 0
@@ -484,7 +485,182 @@ local function getAssignedGroveArea()
 	return nil
 end
 
-local function render()
+local function selectedManagedTree()
+	for i,tree in ipairs(groveTrees) do
+		if tree.UID==selectedGroveTreeUID then return tree,i end
+	end
+	return nil,nil
+end
+
+local function highlightManagedTree()
+	if not managerOpen or not panel.Visible or not selectedGroveTreeUID then
+		if selectionHighlight then selectionHighlight.Enabled=false end
+		return
+	end
+	local area=getAssignedGroveArea()
+	local plotModel=area and area.Parent
+	local model
+	if plotModel then
+		for _,item in ipairs(plotModel:GetChildren()) do
+			if item:IsA("Model") and item:GetAttribute("PersistentGrove")==true
+				and item:GetAttribute("OwnerUserId")==player.UserId
+				and item:GetAttribute("GroveTreeUID")==selectedGroveTreeUID then
+				model=item
+				break
+			end
+		end
+	end
+	if model and not selectionHighlight then
+		selectionHighlight=Instance.new("Highlight")
+		selectionHighlight.Name="LocalSelectedGroveTreeOutline"
+		selectionHighlight.FillTransparency=1
+		selectionHighlight.OutlineColor=Color3.fromRGB(245,238,115)
+		selectionHighlight.OutlineTransparency=0
+		selectionHighlight.DepthMode=Enum.HighlightDepthMode.Occluded
+		selectionHighlight.Parent=Workspace
+	end
+	if selectionHighlight then
+		selectionHighlight.Adornee=model
+		selectionHighlight.Enabled=model~=nil
+	end
+end
+
+local function selectManagedTree(uid)
+	if uprootPending then return false end
+	for _,tree in ipairs(groveTrees) do
+		if tree.UID==uid then
+			selectedGroveTreeUID=uid
+			managerOpen=true
+			confirmUprootUID=nil
+			confirmUprootUntil=0
+			render()
+			return true
+		end
+	end
+	return false
+end
+
+renderTreeManager=function()
+	local count=#groveTrees
+	managerToggle.Text=string.format("MANAGE PLANTED TREES  •  %d / %d",count,groveCapacity)
+	managerToggle.Active=stateLoaded and hasAssignedGrove and count>0 and not uprootPending
+	managerToggle.AutoButtonColor=managerToggle.Active
+	managerToggle.BackgroundColor3=if managerToggle.Active
+		then Color3.fromRGB(57,103,73) else Color3.fromRGB(79,87,79)
+	if managerOpen and count>0 and not selectedManagedTree() then
+		selectedGroveTreeUID=groveTrees[1].UID
+		confirmUprootUID=nil
+		confirmUprootUntil=0
+	end
+	groveManagerPanel.Visible=managerOpen and panel.Visible and count>0
+	if not groveManagerPanel.Visible then
+		highlightManagedTree()
+		return
+	end
+	local tree,index=selectedManagedTree()
+	if not tree then return end
+	managerTitle.Text=string.format("TREE MANAGEMENT  •  %d / %d",count,groveCapacity)
+	managerPosition.Text=string.format("TREE %d OF %d",index,count)
+	local mutations=formatMutationNames(tree.Mutations)
+	local name=if mutations=="" then tostring(tree.SpeciesId)
+		else mutations.." "..tostring(tree.SpeciesId)
+	managerDetails.Text=string.format("%s\nGenetic size potential: %.2fx (maximum)\nStage: %s",
+		name,tonumber(tree.SizePotential) or 1,tostring(tree.Stage or "growing"))
+	local rare=mutations~=""
+	uprootWarning.Text=if rare
+		then "WARNING: Mutated sapling LOST FOREVER. No materials refunded."
+		else "Permanent removal. Planted sapling is NOT returned to inventory."
+	uprootWarning.TextColor3=if rare then Color3.fromRGB(255,157,127)
+		else Color3.fromRGB(235,187,154)
+	managerPrevious.Active=not uprootPending and count>1
+	managerNext.Active=not uprootPending and count>1
+	local armed=confirmUprootUID==tree.UID and os.clock()<=confirmUprootUntil
+	uprootButton.Active=not uprootPending
+	uprootButton.AutoButtonColor=uprootButton.Active
+	uprootButton.BackgroundColor3=if armed then Color3.fromRGB(185,56,50)
+		else Color3.fromRGB(130,68,57)
+	uprootButton.Text=if uprootPending then "UPROOTING..."
+		else if armed then "CONFIRM PERMANENT DESTRUCTION"
+		else "UPROOT SELECTED TREE"
+	highlightManagedTree()
+end
+
+managerToggle.Activated:Connect(function()
+	if uprootPending or not stateLoaded or not hasAssignedGrove or #groveTrees==0 then return end
+	managerOpen=not managerOpen
+	confirmUprootUID=nil
+	confirmUprootUntil=0
+	if managerOpen and not selectedManagedTree() then
+		selectedGroveTreeUID=groveTrees[1].UID
+	end
+	render()
+end)
+
+local function cycleManagedTree(direction)
+	if uprootPending or #groveTrees==0 then return end
+	local _,index=selectedManagedTree()
+	local nextIndex=(((index or 1)-1+direction)%#groveTrees)+1
+	selectManagedTree(groveTrees[nextIndex].UID)
+end
+managerPrevious.Activated:Connect(function() cycleManagedTree(-1) end)
+managerNext.Activated:Connect(function() cycleManagedTree(1) end)
+
+uprootButton.Activated:Connect(function()
+	if uprootPending or not managerOpen or not uprootButton.Active then return end
+	local tree=selectedManagedTree()
+	if not tree then return end
+	local uid=tree.UID
+	if confirmUprootUID~=uid or os.clock()>confirmUprootUntil then
+		confirmUprootUID=uid
+		confirmUprootUntil=os.clock()+7
+		renderTreeManager()
+		task.delay(7,function()
+			if not cleanedUp and confirmUprootUID==uid
+				and os.clock()>=confirmUprootUntil then
+				confirmUprootUID=nil
+				renderTreeManager()
+			end
+		end)
+		return
+	end
+	-- Second click required for the SAME owned Grove UID, within 7 seconds.
+	confirmUprootUID=nil
+	uprootPending=true
+	renderTreeManager()
+	uprootGroveTreeRE:FireServer(uid)
+	task.delay(5,function()
+		if not cleanedUp and uprootPending then
+			uprootPending=false
+			setFeedback("Uproot result delayed. Refresh before retrying.","error")
+			refreshState()
+			render()
+		end
+	end)
+end)
+
+keepConnection(uprootGroveTreeRE.OnClientEvent:Connect(function(payload)
+	if type(payload)~="table" then return end
+	uprootPending=false
+	confirmUprootUID=nil
+	confirmUprootUntil=0
+	if payload.Success==true then
+		managerOpen=false
+		if selectedGroveTreeUID==payload.UID then selectedGroveTreeUID=nil end
+		setFeedback("Tree permanently uprooted. Grove slot freed.","success")
+	else
+		local reasons={
+			INVALID_TREE_UID="Invalid tree selection.",
+			TREE_NOT_OWNED="Tree not found in your Grove. Refresh selection.",
+			GROVE_NOT_READY="Grove is not ready. Try again.",
+			SERVER_ERROR="Tree removal failed on the server.",
+		}
+		setFeedback(reasons[payload.Reason] or "Could not remove tree.","error")
+	end
+	refreshState()
+	render()
+end))
+
+render = function()
 	if cleanedUp then
 		return
 	end
