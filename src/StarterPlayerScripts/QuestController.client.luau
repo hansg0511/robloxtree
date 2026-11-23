@@ -85,6 +85,7 @@ local claimPending=false
 local fetching=false
 local opened=false
 local destroyed=false
+local feedbackText
 
 local function syncVisible()
 	local modal=playerGui:GetAttribute("EconomyModalOpen")==true
@@ -95,6 +96,9 @@ playerGui:GetAttributeChangedSignal("EconomyModalOpen"):Connect(syncVisible)
 
 local function render()
 	local state=current
+	future.Text=feedbackText or "Daily / Weekly: planned • No active rewards yet"
+	future.TextColor3=if feedbackText then Color3.fromRGB(251,181,135)
+		else Color3.fromRGB(161,179,159)
 	if not state then
 		title.Text="Quest state loading..."
 		objective.Text="Progress comes from verified chopping and Grove harvesting."
@@ -156,6 +160,7 @@ toggle.Activated:Connect(function()
 end)
 claimButton.Activated:Connect(function()
 	if not current or current.Completed or not current.CanClaim or claimPending then return end
+	feedbackText=nil
 	local id=current.Id
 	if type(id)~="string" then return end
 	claimPending=true
@@ -174,6 +179,7 @@ claim.OnClientEvent:Connect(function(result)
 	if type(result)~="table" then return end
 	claimPending=false
 	if result.Success==true then
+		feedbackText=nil
 		refresh()
 	else
 		-- Failed claims (e.g., full sapling inventory) leave the objective
@@ -184,13 +190,17 @@ claim.OnClientEvent:Connect(function(result)
 			INVALID_QUEST="This quest is no longer active.",
 			SERVER_ERROR="Unable to claim reward; try again.",
 		}
-		objective.Text=reasons[result.Reason] or "Reward unavailable; try again."
+		feedbackText=reasons[result.Reason] or "Reward unavailable; try again."
 		refresh()
 	end
 	render()
 end)
 player:GetAttributeChangedSignal("ProfileReady"):Connect(function()
-	if player:GetAttribute("ProfileReady")==true then refresh() end
+	if player:GetAttribute("ProfileReady")==true then
+		-- The initial snapshot request may still be in flight at profile
+		-- load time; retry after it settles instead of remaining blank.
+		task.delay(0.3,refresh)
+	end
 end)
 gui.Destroying:Connect(function() destroyed=true end)
 syncVisible()
