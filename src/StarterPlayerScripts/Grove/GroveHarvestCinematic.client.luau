@@ -133,9 +133,6 @@ local function showReward(payload)
 	reward.Text = string.format("SAVED TO CRAFTING STORAGE!\n%s%s LOG  •  %.2fx",
 		name, tostring(payload.SpeciesId or "Grove"),
 		tonumber(payload.SizeScale) or 1)
-	if payload.HeartwoodAwarded == true then
-		reward.Text ..= "\n+1 HEARTWOOD • UPGRADE MATERIAL!"
-	end
 	notificationGeneration += 1
 	local generation = notificationGeneration
 	reward.Visible = true
