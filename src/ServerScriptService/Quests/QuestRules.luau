@@ -151,7 +151,8 @@ function Rules.RecurringSnapshot(progress,category,now)
 	local id,resetAt=Rules.Window(category,now)
 	if id==nil or not Rules.Recurring[category] then return nil end
 	local period=type(progress)=="table" and progress[category] or nil
-	local counts=type(period)=="table" and period.Counts or {}
+	local counts=type(period)=="table" and type(period.Counts)=="table"
+		and period.Counts or {}
 	local tasks={}
 	for _,definition in ipairs(Rules.Recurring[category]) do
 		local count=math.clamp(tonumber(counts[definition.Id]) or 0,0,definition.Target)
