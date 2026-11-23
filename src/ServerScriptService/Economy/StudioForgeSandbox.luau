@@ -13,7 +13,6 @@ local Sandbox = {}
 Sandbox.ENABLED = true
 Sandbox.COIN_FLOOR = 1_000_000_000
 Sandbox.HEAD_FLOOR = 1_000
-Sandbox.HEARTWOOD_FLOOR = 12 -- Studio Mock ONLY; provisional upgrade sink testing
 Sandbox.FIXTURES_PER_VARIANT = 2
 Sandbox.MAX_TOTAL_STORED = 210 -- leave 30 places free for Grove harvest/other logs
 Sandbox.SPECIES = { "Bamboo", "Oak", "Ironwood" }
@@ -95,41 +94,6 @@ function Sandbox.Refill(player, data)
 			and data.RunProgress.UnlockedForests.Forest2 ~= true then
 			data.RunProgress.UnlockedForests.Forest2 = true
 			changed = true
-		end
-	end
-
-	-- Dedicated Studio-only input supply for Awakening/Infusion.
-	-- Every sample is a valid uniquely identified Heartwood Grove material,
-	-- not a generic coin proxy. Existing real Grove materials are untouched.
-	-- Each source UID pair is unique to survive GroveData normalization.
-	if type(data.GroveMaterials)=="table" then
-		local count=0
-		local existing={}
-		for _,material in ipairs(data.GroveMaterials) do
-			if type(material)=="table" and material.MaterialType=="Heartwood" then
-				count+=1
-			end
-			if type(material)=="table" and type(material.UID)=="string" then
-				existing[material.UID]=true
-			end
-		end
-		local serial=1
-		while count<Sandbox.HEARTWOOD_FLOOR do
-			local uid="devawakening-heartwood-"..tostring(player.UserId).."-"..serial
-			if not existing[uid] then
-				table.insert(data.GroveMaterials,{
-					UID=uid,MaterialType="Heartwood",
-					SpeciesId="Oak",Mutations={},SizePotential=1,
-					SourceGroveTreeUID="devawakening-grown-"..tostring(player.UserId).."-"..serial,
-					SourceSaplingUID="devawakening-seed-"..tostring(player.UserId).."-"..serial,
-					CreatedAt=os.time(),
-				})
-				existing[uid]=true
-				count+=1
-				changed=true
-			end
-			serial+=1
-			if serial>100 then break end
 		end
 	end
 
