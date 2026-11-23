@@ -9,9 +9,11 @@ local function validTime(x)
 		and x >= 0 and x < math.huge
 end
 
+-- Studio multiplayer test clients may use negative or zero UserIds;
+-- identity is validated as a real Player by TreeObject before invoking us.
 local function validUserId(x)
 	return type(x) == "number" and x == x and x % 1 == 0
-		and x > 0 and x < math.huge
+		and x > -math.huge and x < math.huge
 end
 
 function Rules.IsActive(ownerUserId, lastDamageAt, now)
