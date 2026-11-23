@@ -8,6 +8,7 @@ local ForgeMutations = require(ReplicatedStorage.Shared.ForgeMutationRules)
 local WeaponEffects = require(game.ServerScriptService.WeaponEffects.Dispatcher)
 local ProgressionRules = require(game.ServerScriptService.WeaponProgressionRules)
 local WeaponAscensionService = require(game.ServerScriptService.WeaponAscensionService)
+local WeaponUpgradeService = require(script.Parent.WeaponUpgradeService)
 local WeaponRarityRoll = require(game.ServerScriptService.WeaponRarityRoll)
 local ServerScriptService = game:GetService("ServerScriptService")
 
@@ -30,6 +31,7 @@ local purchaseCapacity = economyRemotes:WaitForChild("PurchaseCapacityRE")
 local economyUpdated = economyRemotes:WaitForChild("EconomyUpdated")
 local ascendWeapon = economyRemotes:WaitForChild("AscendWeaponRE")
 local upgradeForge = economyRemotes:WaitForChild("UpgradeForgeRE")
+local upgradeWeapon = economyRemotes:WaitForChild("UpgradeWeaponRE")
 
 -- The existing inventory owns all finished weapons. This server-only function
 -- validates and inserts a weapon through the same runtime/profile path as shop axes.
@@ -109,7 +111,7 @@ end
 
 -- Only send display-safe weapon metadata. Future mutation abilities can
 -- extend this list without changing the inventory screen's layout.
-local KNOWN_MUTATIONS = { "Golden", "Crystal", "Giant" }
+local KNOWN_MUTATIONS = { "Golden", "Frenzied", "Shocked", "Crystal", "Giant" }
 
 local function materialMutationSummary(materials)
 	if type(materials) ~= "table" then return {}, nil end
@@ -189,6 +191,8 @@ local function buildOwnedAxes(player, profile, eligibleAscensionLogs)
 			GoldenQuality = weaponData and weaponData.GoldenQuality,
 			GoldenBonus = weaponData and weaponData.GoldenBonus,
 			MutationAbility = weaponData and weaponData.MutationAbility,
+			MutationSlots = weaponData and weaponData.MutationSlots,
+			Upgrade = WeaponUpgradeService.Preview(player, item),
 			Effects = WeaponEffects.List(weaponData),
 			MaterialCount = materialCount,
 			MutationMaterials = mutationMaterials,
@@ -365,6 +369,20 @@ local function buildShopSnapshot(player, profile)
 		AxeHeads = axeHeads,
 		Recipes = recipes,
 		EligibleCraftLogs = eligibleCraftLogs,
+		-- Own unique nonlog materials are previewed by UID and kind. A UI
+		-- selection never authorizes consumption; the server checks again.
+		UpgradeMaterials = (function()
+			local materials = {}
+			for _,record in ipairs(type(data.GroveMaterials)=="table" and data.GroveMaterials or {}) do
+				if type(record)=="table" and type(record.UID)=="string"
+					and type(record.MaterialType)=="string" then
+					materials[#materials+1]={
+						UID=record.UID,MaterialType=record.MaterialType,
+					}
+				end
+			end
+			return materials
+		end)(),
 		-- Axes are now owned inventory only. The Axe Shop no longer exposes a
 		-- purchasable list of finished progression weapons.
 		Axes = buildOwnedAxes(player, profile, #WeaponAscensionService.EligibleLogs(player)),
@@ -427,6 +445,33 @@ ascendWeapon.OnServerEvent:Connect(function(player, uid, ...)
 			economyUpdated:FireClient(player, "Coins", profile.Data.Coins)
 		end
 		economyUpdated:FireClient(player, "Progression")
+	end
+end)
+
+-- Awakening/Infusion are mutually exclusive transactions on ONE owned UID.
+-- The client supplies selection intent only; the server validates every
+-- price, mutation family, rarity, forge access and exact resource identity.
+upgradeWeapon.OnServerEvent:Connect(function(player, uid, mode, family, selections, ...)
+	if select("#",...)~=0 or not takeBudget(player,"UpgradeWeapon") then return end
+	if type(uid)~="string" or #uid<1 or #uid>128
+		or (mode~="Awaken" and mode~="Infuse")
+		or (family~="Golden" and family~="Frenzied" and family~="Shocked")
+		or type(selections)~="table" then return end
+	local ok,result=pcall(function()
+		return WeaponUpgradeService.Attempt(player,uid,mode,family,selections)
+	end)
+	if not ok then
+		warn("[WeaponUpgrade] request failed:",result)
+		upgradeWeapon:FireClient(player,{Reason="SERVER_ERROR"})
+		return
+	end
+	upgradeWeapon:FireClient(player,result)
+	if result and result.Reason=="UPGRADED" then
+		local profile=profileCache.GetProfile(player)
+		if profile and type(profile.Data)=="table" then
+			economyUpdated:FireClient(player,"Coins",profile.Data.Coins)
+		end
+		economyUpdated:FireClient(player,"Progression")
 	end
 end)
 
