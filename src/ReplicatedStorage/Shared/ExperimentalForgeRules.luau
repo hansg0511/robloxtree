@@ -14,7 +14,7 @@ Rules.GOLDEN_MAX_BONUS = 0.30 -- prototype metadata only; no combat effect yet
 Rules.CLEAVE_DAMAGE_FRACTION = 0.40
 Rules.CLEAVE_RADIUS_STUDS = 16
 Rules.CLEAVE_MAX_TARGETS = 2
-Rules.WOOD_STRENGTH = { Bamboo = 6, Oak = 10, Ironwood = 16 }
+Rules.WOOD_STRENGTH = { Sapwood = 6, Bamboo = 6, Oak = 10, Ironwood = 16 }
 Rules.CLASS_PROFILES = {
 	Dagger = { Damage = 0.55, AttacksPerSecond = 2.2, Reach = 0.75 },
 	Axe = { Damage = 1.25, AttacksPerSecond = 1.2, Reach = 1 },
