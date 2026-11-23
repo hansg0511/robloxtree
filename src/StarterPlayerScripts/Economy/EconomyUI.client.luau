@@ -1479,11 +1479,15 @@ renderAxeDetail = function(axe)
 	-- This panel reads an allowlisted server-projected effect list, not
 	-- class-specific fields. More effect IDs require no new layout code.
 	axeStatSection("WEAPON EFFECTS")
-	local mutationAbility = type(axe.MutationAbility) == "table" and axe.MutationAbility or nil
-	if mutationAbility and type(mutationAbility.Id) == "string" then
-		axeStatRow("Mutation ability", tostring(mutationAbility.Id))
-		if safeAxeNumber(mutationAbility.Potency) then
-			axeStatRow("Mutation potency", string.format("%.1f%%", mutationAbility.Potency * 100))
+	local slots=type(axe.MutationSlots)=="table" and axe.MutationSlots
+		or (type(axe.MutationAbility)=="table" and {axe.MutationAbility} or {})
+	for index,slot in ipairs(slots) do
+		if type(slot)=="table" and type(slot.Id)=="string" then
+			axeStatRow("Mutation slot "..tostring(index),tostring(slot.Id))
+			if safeAxeNumber(slot.Potency) then
+				axeStatRow("Slot "..tostring(index).." potency",
+					string.format("%.1f%%",slot.Potency*100))
+			end
 		end
 	end
 	local effects = type(axe.Effects) == "table" and axe.Effects or {}
@@ -1553,7 +1557,7 @@ renderAxeDetail = function(axe)
 		axeStatRow("Legacy Golden test roll",
 			string.format("+%.1f%% (inactive)", goldenBonus * 100))
 	end
-	axeStatNote("Mutation passives are not active yet. Their effects will appear here later.")
+	axeStatNote("Triggered mutation effects are listed above; original forging materials remain recorded.")
 
 	-- A server snapshot refresh shouldn't jump the scroll back to the top.
 	axeStatsScroll.CanvasPosition = if uid == previousDetailAxeUID
@@ -2755,6 +2759,47 @@ ascendWeapon.OnClientEvent:Connect(function(result)
 			SERVER_ERROR = "ASCENSION SERVER ERROR",
 		}
 		showFeedback(errors[result.Reason] or "ASCENSION UNAVAILABLE", COLORS.Orange, 3)
+		refreshShop()
+	end
+end)
+
+-- The server validates every ingredient and performs the weapon upgrade.
+-- Refresh once after an outcome; do not guess success from the initial click.
+upgradeWeapon.OnClientEvent:Connect(function(result)
+	upgradePending=false
+	upgradeConfirmKey=nil
+	if type(result)~="table" then
+		showFeedback("WEAPON UPGRADE UNAVAILABLE",COLORS.Orange,3)
+		refreshShop()
+		return
+	end
+	if result.Reason=="UPGRADED" then
+		local action=if result.Mode=="Awaken" then "AWAKENED"
+			else if result.Replacing then "SECOND ABILITY REPLACED"
+			else "SECOND ABILITY ADDED"
+		showFeedback(action.."!  "..string.upper(tostring(result.AbilityId or "")),
+			COLORS.Gold,3.5)
+		refreshLogs()
+		refreshShop()
+	else
+		local messages={
+			NOT_AT_FORGE="MOVE CLOSER TO THE FORGE",
+			FORGE_LEVEL_TOO_LOW="UPGRADE FORGE TO LEVEL 2",
+			LEGENDARY_REQUIRED="NEED LEGENDARY OR ULTRA RARITY",
+			AWAKEN_FIRST="AWAKEN FIRST",
+			ALREADY_AWAKENED="WEAPON ALREADY HAS AN ABILITY",
+			DUPLICATE_FAMILY="SELECT A DIFFERENT MUTATION FAMILY",
+			INSUFFICIENT_RESOURCES="NOT ENOUGH LOGS, HEARTWOOD, HEADS OR COINS",
+			INVALID_LOG_SELECTION="SELECTED LOGS UNAVAILABLE",
+			WRONG_MUTATED_LOGS="MUTATED LOG FAMILY CHANGED",
+			MATERIALS_CHANGED="UPGRADE MATERIALS CHANGED",
+			LOGS_CHANGED="LOGS CHANGED — REFRESH",
+			INVALID_WEAPON="WEAPON NO LONGER AVAILABLE",
+			INVALID_UPGRADED_EFFECTS="WEAPON EFFECTS COULD NOT BE VALIDATED",
+			SERVER_ERROR="SERVER UPGRADE ERROR",
+		}
+		showFeedback(messages[result.Reason] or ("UPGRADE BLOCKED: "..tostring(result.Reason)),
+			COLORS.Orange,3.5)
 		refreshShop()
 	end
 end)
