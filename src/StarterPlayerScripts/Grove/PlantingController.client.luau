@@ -686,8 +686,8 @@ render = function()
 	for _, groveTree in ipairs(groveTrees) do
 		if groveTree.Stage == "mature" then mature += 1 end
 	end
-	groveSummaryLabel.Text = string.format("Grove: %d planted • %d mature • %d growing",
-		#groveTrees, mature, #groveTrees - mature)
+	groveSummaryLabel.Text = string.format("Grove: %d / %d planted • %d mature • %d growing",
+		#groveTrees, groveCapacity, mature, #groveTrees - mature)
 	if selected then
 		selectedSaplingLabel.Text = string.format(
 			"Selected: %s\nSize: %.2fx",
@@ -708,6 +708,7 @@ render = function()
 	else
 		feedbackLabel.TextColor3 = Color3.fromRGB(185, 203, 183)
 	end
+	renderTreeManager()
 end
 
 local function createPreviewPart(name, size, color, material, shape, transparency)
@@ -849,6 +850,9 @@ end
 
 local function setPlantingMode(enabled, showFeedback)
 	if enabled then
+		managerOpen=false
+		confirmUprootUID=nil
+		confirmUprootUntil=0
 		if not stateLoaded or not hasAssignedGrove then
 			setFeedback("Planting unavailable until an assigned Grove is ready.", "error")
 			render()
@@ -901,6 +905,10 @@ local function applySnapshot(snapshot)
 
 	stateLoaded = true
 	hasAssignedGrove = snapshot.HasAssignedGrove == true
+	if type(snapshot.Capacity)=="number" and snapshot.Capacity>=1
+		and snapshot.Capacity%1==0 then
+		groveCapacity=snapshot.Capacity
+	end
 	saplings = {}
 	if type(snapshot.Saplings) == "table" then
 		for _, sapling in ipairs(snapshot.Saplings) do
@@ -920,6 +928,15 @@ local function applySnapshot(snapshot)
 				table.insert(groveTrees, groveTree)
 			end
 		end
+	end
+
+	if selectedGroveTreeUID and not selectedManagedTree() then
+		selectedGroveTreeUID=nil
+		confirmUprootUID=nil
+		confirmUprootUntil=0
+	end
+	if #groveTrees==0 or not hasAssignedGrove then
+		managerOpen=false
 	end
 
 	groveMaterials = {}
@@ -1182,11 +1199,35 @@ local function isPointerOverPanel()
 	return false
 end
 
+-- Click a planted tree to select it directly, or use the UI arrows
+-- while it is still a stump/rebuilding. Server metadata is NOT trusted for
+-- deletion; the UID is revalidated against the player's profile there.
+local function selectClickedGroveTree()
+	if plantingMode or uprootPending or not panel.Visible
+		or not hasAssignedGrove or isPointerOverPanel() then return end
+	local mouse=player:GetMouse()
+	local current=mouse and mouse.Target
+	while current and current~=Workspace do
+		if current:IsA("Model") and current:GetAttribute("PersistentGrove")==true then
+			if current:GetAttribute("OwnerUserId")==player.UserId then
+				local uid=current:GetAttribute("GroveTreeUID")
+				if type(uid)=="string" then selectManagedTree(uid) end
+			end
+			return
+		end
+		current=current.Parent
+	end
+end
+
 keepConnection(UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then
 		return
 	end
 
+	if input.UserInputType==Enum.UserInputType.MouseButton1 then
+		selectClickedGroveTree()
+		return
+	end
 	if input.KeyCode == Enum.KeyCode.G then
 		setPlantingMode(not plantingMode, true)
 	elseif input.KeyCode == Enum.KeyCode.Q then
@@ -1227,6 +1268,9 @@ end))
 keepConnection(Workspace.DescendantAdded:Connect(function(descendant)
 	if descendant.Name == "GroveArea" or descendant.Name == "PlayerPlots" then
 		render()
+	elseif managerOpen and descendant:IsA("Model")
+		and descendant.Name=="Tree" then
+		task.defer(highlightManagedTree)
 	end
 end))
 keepConnection(player:GetAttributeChangedSignal("PlotNumber"):Connect(render))
@@ -1247,6 +1291,10 @@ keepConnection(script.Destroying:Connect(function()
 	end
 	ContextActionService:UnbindAction(ACTION_NAME)
 	destroyPreview()
+	if selectionHighlight then
+		selectionHighlight:Destroy()
+		selectionHighlight=nil
+	end
 	if stateUpdatedConnection then
 		stateUpdatedConnection:Disconnect()
 		stateUpdatedConnection = nil
