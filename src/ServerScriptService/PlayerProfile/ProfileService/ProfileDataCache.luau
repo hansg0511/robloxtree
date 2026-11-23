@@ -353,6 +353,7 @@ function PlayerProfileCache.Set(player: Player, profile)
 	if profile and type(profile.Data) == "table" then
 		PlayerProfileCache.NormalizeCarryCapacity(profile.Data)
 		PlayerProfileCache.NormalizeGroveData(profile.Data)
+		PlayerProfileCache.NormalizeQuestProgress(profile.Data)
 		PlayerProfileCache.NormalizeWeaponData(profile.Data)
 		normalizeProgressionData(profile.Data)
 	end
