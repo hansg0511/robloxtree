@@ -37,5 +37,42 @@ for tree in pairs(Tree.ActiveTrees) do
 		end
 	end
 end
-print(string.format("Grove prompt smoke checks passed (%d grove trees inspected)", count))
+-- Phase 4B management uses this existing Grove smoke, not another runner.
+-- Invalid requests and foreign UIDs must never destroy saved trees or cause
+-- sapling refunds. Real selected-tree removal is an intentional manual test.
+local Grove=require(game.ServerScriptService.Grove.GroveService)
+local remote=ReplicatedStorage.Grove:FindFirstChild("UprootGroveTreeRE")
+check("Grove uproot remote exists",remote and remote:IsA("RemoteEvent"))
+local invalid,reason=Grove.UprootTree(nil,"")
+check("empty UID rejects without changing any profile",
+	invalid==false and reason=="INVALID_TREE_UID")
+local players=Players:GetPlayers()
+for _,owner in ipairs(players) do
+	local before=Grove.GetState(owner)
+	local randomUID="test-foreign-invalid-"..tostring(owner.UserId)
+	local allowed,why=Grove.UprootTree(owner,randomUID)
+	local after=Grove.GetState(owner)
+	check("unknown UID cannot uproot a tree",allowed==false)
+	check("unknown UID leaves Grove count unchanged",
+		#before.GroveTrees==#after.GroveTrees)
+end
+if #players>1 then
+	for i=1,#players do
+		local attacker=players[i]
+		local defender=players[(i%#players)+1]
+		local foreign=Grove.GetState(defender).GroveTrees[1]
+		if foreign then
+			local beforeAttacker=Grove.GetState(attacker)
+			local beforeDefender=Grove.GetState(defender)
+			local accepted=Grove.UprootTree(attacker,foreign.UID)
+			local afterAttacker=Grove.GetState(attacker)
+			local afterDefender=Grove.GetState(defender)
+			check("foreign owned Grove UID cannot uproot",not accepted
+				and #beforeDefender.GroveTrees==#afterDefender.GroveTrees
+				and #beforeAttacker.GroveTrees==#afterAttacker.GroveTrees)
+		end
+	end
+end
+
+print(string.format("Grove prompt + permanent-uproot safety checks passed (%d grove trees inspected)", count))
 return true
