@@ -128,6 +128,33 @@ check("discovery mutation originates on wild spawn",
 check("Giant and other types remain eligible",
 	Search.RollWildTreeMutations(0,0.32).Giant==true)
 
+-- Wild-tree harvests must preserve the same mutation shown on the
+-- tree, regardless of the separate RNG roll for discovering its sapling.
+-- CaptureTreeLogAward is also used for the normal multi-log award path.
+local LogService=require(game.ServerScriptService.Inventory.LogService)
+local wildTree={
+	YieldsLog=true,SpeciesId="Oak",DefinitionId="StarterForestTree",
+	SizeScale=1,CFrame=CFrame.new(1,2,3),LogYield=2,
+	Mutations={Golden=true},
+}
+local goldenWild=LogService.CaptureTreeLogAward(wildTree,{},CFrame.new())
+check("wild Golden tree preserves its mutation in the log award",
+	goldenWild and goldenWild.Mutations.Golden==true
+	and goldenWild.LogYield==2 and goldenWild.SpeciesId=="Oak")
+wildTree.Mutations.Golden=nil
+check("log award owns a detached copy of source mutation",
+	goldenWild.Mutations.Golden==true)
+for _,family in ipairs({"Frenzied","Shocked","Giant"}) do
+	wildTree.Mutations={[family]=true}
+	local capture=LogService.CaptureTreeLogAward(wildTree,{},CFrame.new())
+	check("wild tree log inherits "..family,
+		capture and capture.Mutations[family]==true)
+end
+wildTree.Mutations={}
+local ordinaryWild=LogService.CaptureTreeLogAward(wildTree,{},CFrame.new())
+check("ordinary wild tree still grants ordinary logs",
+	ordinaryWild and next(ordinaryWild.Mutations)==nil)
+
 -- Preserve existing serialized legacy Grove-material records, if any,
 -- without granting NEW materials. Normalization must not delete the tree
 -- when a historical record references it.
