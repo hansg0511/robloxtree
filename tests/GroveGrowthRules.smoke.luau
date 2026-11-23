@@ -293,5 +293,48 @@ check("legacy save gains recurring without touching completed Story",
 	and oldSave.QuestProgress.Stage==QuestRules.CompleteStage
 	and oldSave.QuestRecurring.Daily~=nil)
 
-print("Grove, Story and recurring quest progression rules passed")
+-- Leaderboard record counters are source-backed by the same verified wild
+-- tree deaths as the quest progress (no client-submitted damage or claims).
+local ChopRules=require(game.ServerScriptService.ChopLeaderboardRules)
+local empty,initiallyMigrated=ChopRules.Normalize(nil,monday)
+check("legacy leaderboard migrates without fake chop history",
+	initiallyMigrated and empty.Lifetime==0 and empty.WeeklyCount==0
+	and empty.WeeklyWindowId==newWeekly)
+local chopOnce=ChopRules.Record(empty,monday)
+local chopTwice=ChopRules.Record(chopOnce,monday+1)
+check("lifetime and weekly count confirmed deaths",
+	chopTwice.Lifetime==2 and chopTwice.WeeklyCount==2)
+check("recording is pure, no mutation of persisted input",
+	empty.Lifetime==0 and empty.WeeklyCount==0)
+local rollover,changedWindow=ChopRules.Normalize(chopTwice,monday+604800)
+check("weekly leaderboard resets Monday, lifetime persists",
+	changedWindow and rollover.Lifetime==2 and rollover.WeeklyCount==0
+	and rollover.WeeklyWindowId==newWeekly+1)
+local firstNextWeek=ChopRules.Record(chopTwice,monday+604800)
+check("new week begins at one and lifetime continues",
+	firstNextWeek.Lifetime==3 and firstNextWeek.WeeklyCount==1)
+local bad=ChopRules.Normalize({
+	Lifetime=-100,WeeklyWindowId=newWeekly,WeeklyCount=math.huge,
+},monday)
+check("invalid leaderboard counters cannot inflate progress",
+	bad.Lifetime==0 and bad.WeeklyCount==0)
+local oldCount=ChopRules.Normalize({
+	Lifetime=7,WeeklyWindowId=newWeekly+15,WeeklyCount=100,
+},monday)
+check("future weekly window does not credit current week",
+	oldCount.Lifetime==7 and oldCount.WeeklyCount==0)
+local cap=ChopRules.Record({
+	Lifetime=ChopRules.MAX_COUNT,WeeklyWindowId=newWeekly,
+	WeeklyCount=ChopRules.MAX_COUNT,
+},monday)
+check("long-running leaderboard counters saturate safely",
+	cap.Lifetime==ChopRules.MAX_COUNT
+	and cap.WeeklyCount==ChopRules.MAX_COUNT)
+local migratedProfile={QuestProgress=finished}
+check("profile normalization doesn't affect existing Story data",
+	Cache.NormalizeChopLeaderboard(migratedProfile)
+	and migratedProfile.ChopLeaderboard.WeeklyCount==0
+	and migratedProfile.QuestProgress.Stage==QuestRules.CompleteStage)
+
+print("Grove, Story, recurring quests and basic chop leaderboard rules passed")
 return true
