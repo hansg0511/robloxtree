@@ -8,6 +8,8 @@ local UserInputService = game:GetService("UserInputService")
 local ContextActionService = game:GetService("ContextActionService")
 local RunService = game:GetService("RunService")
 local GuiService = game:GetService("GuiService")
+local shopRF = ReplicatedStorage:WaitForChild("Grove"):WaitForChild("GetSaplingShopRF")
+local buySaplingRE = ReplicatedStorage:WaitForChild("Grove"):WaitForChild("BuySaplingRE")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -81,7 +83,7 @@ local panel = Instance.new("Frame")
 panel.Name = "StatusPanel"
 panel.AnchorPoint = Vector2.new(0, 1)
 panel.Position = UDim2.new(0, 18, 1, -18)
-panel.Size = UDim2.fromOffset(372, 210)
+panel.Size = UDim2.fromOffset(372, 307)
 panel.BackgroundColor3 = Color3.fromRGB(21, 29, 25)
 panel.BackgroundTransparency = 0.08
 panel.BorderSizePixel = 0
@@ -191,6 +193,132 @@ local function setFeedback(message, kind)
 		feedbackLabel.TextColor3 = Color3.fromRGB(185, 203, 183)
 	end
 end
+
+-- Shop is a compact strip beneath the EXISTING Grove controls, not
+-- another modal to maintain. Normal stock stays present during rare resets.
+local shopHeading = makeLabel(panel,"SaplingShopHeading",
+	UDim2.fromOffset(13,207),UDim2.new(1,-26,0,16),
+	Enum.Font.GothamBold,12,Color3.fromRGB(232,218,153))
+shopHeading.Text="SAPLING SHOP • COMMON ALWAYS STOCKED"
+local function createShopButton(name,x,y,w)
+	local b=Instance.new("TextButton")
+	b.Name=name
+	b.Size=UDim2.fromOffset(w,33)
+	b.Position=UDim2.fromOffset(x,y)
+	b.BackgroundColor3=Color3.fromRGB(59,106,71)
+	b.TextColor3=Color3.fromRGB(240,255,228)
+	b.TextSize=11
+	b.TextWrapped=true
+	b.Font=Enum.Font.GothamBold
+	b.BorderSizePixel=0
+	b.Parent=panel
+	local corner=Instance.new("UICorner")
+	corner.CornerRadius=UDim.new(0,6)
+	corner.Parent=b
+	return b
+end
+local shopCommonButtons={
+	common_bamboo=createShopButton("BuyBambooSapling",13,226,111),
+	common_oak=createShopButton("BuyOakSapling",129,226,111),
+	common_ironwood=createShopButton("BuyIronwoodSapling",245,226,111),
+}
+local shopRareButton=createShopButton("BuyRareSapling",13,266,343)
+local shopSnapshot
+local shopPending=false
+local shopBusy=false
+local refreshSaplingShop
+local function renderSaplingShop()
+	local stock={}
+	if type(shopSnapshot)=="table" then
+		for _,offer in ipairs(shopSnapshot.Offers or {}) do
+			stock[offer.Id]=offer
+			if offer.Rare then stock._Rare=offer end
+		end
+	end
+	for id,b in pairs(shopCommonButtons) do
+		local offer=stock[id]
+		b.Text=if offer then
+			(string.upper(tostring(offer.SpeciesId)).."  "..tostring(offer.Price))
+			else "LOADING..."
+		b.Active=offer~=nil and offer.CanBuy==true and not shopPending
+		b.AutoButtonColor=b.Active
+		b.BackgroundColor3=if b.Active then Color3.fromRGB(59,106,71)
+			else Color3.fromRGB(81,89,83)
+	end
+	local rare=stock._Rare
+	if rare then
+		shopRareButton.Text=if rare.SoldOut then
+			"SOLD OUT • "..string.upper(rare.Name)
+			else string.upper(rare.Name).." • "..tostring(rare.Price).." COINS"
+		shopRareButton.Active=rare.CanBuy==true and not shopPending
+	else
+		shopRareButton.Text="RARE SAPLING: NONE THIS RESTOCK"
+		shopRareButton.Active=false
+	end
+	shopRareButton.AutoButtonColor=shopRareButton.Active
+	shopRareButton.BackgroundColor3=if shopRareButton.Active
+		then Color3.fromRGB(113,83,165) else Color3.fromRGB(81,89,83)
+end
+local function buyOffer(id)
+	if shopPending or not shopSnapshot then return end
+	local offer
+	for _,o in ipairs(shopSnapshot.Offers or {}) do
+		if o.Id==id and o.CanBuy==true then offer=o break end
+	end
+	if not offer then return end
+	shopPending=true
+	renderSaplingShop()
+	buySaplingRE:FireServer(id)
+	-- Network problems must not leave buttons disabled indefinitely.
+	task.delay(3,function()
+		if shopPending and not cleanedUp then
+			shopPending=false
+			renderSaplingShop()
+		end
+	end)
+end
+for id,b in pairs(shopCommonButtons) do
+	b.Activated:Connect(function() buyOffer(id) end)
+end
+shopRareButton.Activated:Connect(function()
+	if type(shopSnapshot)~="table" then return end
+	for _,o in ipairs(shopSnapshot.Offers or {}) do
+		if o.Rare then buyOffer(o.Id) return end
+	end
+end)
+refreshSaplingShop=function()
+	if shopBusy or cleanedUp then return end
+	shopBusy=true
+	task.spawn(function()
+		local ok,result=pcall(function() return shopRF:InvokeServer() end)
+		shopBusy=false
+		if cleanedUp then return end
+		if ok and type(result)=="table" then
+			shopSnapshot=result
+		end
+		renderSaplingShop()
+	end)
+end
+keepConnection(buySaplingRE.OnClientEvent:Connect(function(result)
+	shopPending=false
+	if type(result)=="table" and result.Reason=="PURCHASED" then
+		setFeedback("Bought "..tostring(result.Name or "sapling").."! Plant with [G].","success")
+		if refreshState then refreshState() end
+	else
+		local names={
+			NOT_ENOUGH_COINS="Not enough coins for this sapling.",
+			SOLD_OUT="Rare sapling already purchased this restock.",
+			OFFER_NOT_AVAILABLE="Offer rotated. Please check the shop again.",
+			SAPLING_STORAGE_FULL="Too many unplanted saplings.",
+			FOREST_LOCKED="Unlock this forest before buying its saplings.",
+		}
+		setFeedback(names[result and result.Reason]
+			or "Sapling purchase unavailable. Try again.","error")
+	end
+	refreshSaplingShop()
+	renderSaplingShop()
+end))
+renderSaplingShop()
 
 local function containsSaplingUID(list, uid)
 	for _, sapling in ipairs(list) do
