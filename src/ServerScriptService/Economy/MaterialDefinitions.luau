@@ -4,6 +4,14 @@
 local MaterialDefinitions = {}
 
 local DEFINITIONS = {
+	-- Early-game skinny forest tree: lots of lightweight wood to carry.
+	-- Numbers are prototype defaults, not final backpack/economy balance.
+	Sapwood = {
+		CapacityKg = 0.5,
+		SellValue = 5,
+		CarryVisualScale = 0.7,
+		CraftPowerBonus = 1,
+	},
 	Bamboo = {
 		CapacityKg = 0.5,
 		SellValue = 5,
