@@ -13,14 +13,14 @@ end
 local sample={
 	{Kind="Coins",Amount=1000},
 	{Kind="Logs",Count=2,MutationFamily="$selected"},
-	{Kind="Material",Source="GroveMaterials",MaterialType="Heartwood",Count=1},
+	{Kind="Material",Source="GroveMaterials",MaterialType="TestMaterialA",Count=1},
 	{Kind="Stack",Source="AxeHeads",Id="copper_head",Count=1},
 	{Kind="Stack",Source="MaterialBalances",Id="future_essence",Count=2},
 }
 check("mixed independent resource types valid",Rules.Validate(sample))
 check("bad count rejected",not Rules.Validate({{Kind="Logs",Count=-1}}))
 check("unknown material source rejected",not Rules.Validate({
-	{Kind="Material",Source="UntrustedStorage",MaterialType="Heartwood",Count=1},
+	{Kind="Material",Source="UntrustedStorage",MaterialType="TestMaterialA",Count=1},
 }))
 check("unknown generic source rejected",not Rules.Validate({
 	{Kind="Stack",Source="Arbitrary",Id="future_essence",Count=1},
@@ -38,12 +38,12 @@ sparseCosts[2]={Kind="Stack",Source="AxeHeads",Id="copper_head",Count=1}
 sparseCosts[1]=nil
 check("sparse cost rows rejected",not Rules.Validate(sparseCosts))
 check("duplicate material row rejected",not Rules.Validate({
-	{Kind="Material",Source="GroveMaterials",MaterialType="Heartwood",Count=1},
-	{Kind="Material",Source="GroveMaterials",MaterialType="Heartwood",Count=1},
+	{Kind="Material",Source="GroveMaterials",MaterialType="TestMaterialA",Count=1},
+	{Kind="Material",Source="GroveMaterials",MaterialType="TestMaterialA",Count=1},
 }))
 local described=Rules.Describe(sample)
 check("UI recipe includes nonlog other materials",#described==5
-	and described[3].MaterialType=="Heartwood"
+	and described[3].MaterialType=="TestMaterialA"
 	and described[5].Id=="future_essence")
 described[1].Amount=42
 check("preview is detached from recipe source",sample[1].Amount==1000)
@@ -51,8 +51,8 @@ check("preview is detached from recipe source",sample[1].Amount==1000)
 local data={
 	Coins=1200,
 	GroveMaterials={
-		{UID="heart-a",MaterialType="Heartwood"},
-		{UID="heart-b",MaterialType="Heartwood"},
+		{UID="heart-a",MaterialType="TestMaterialA"},
+		{UID="heart-b",MaterialType="TestMaterialA"},
 		{UID="other",MaterialType="Other"},
 	},
 	AxeHeads={copper_head=3},
@@ -107,31 +107,31 @@ check("cross-source UID reuse rejected",Rules.Plan(sample,data,
 	{{UID="heart-a",SizeScale=5,Mutations={Golden=true}},
 		{UID="log-g2",SizeScale=5,Mutations={Golden=true}}},
 	{LogUIDs={"heart-a","log-g2"},MaterialUIDs={"heart-a"}},"Golden")==nil)
--- Multi-type unique materials must coexist in one recipe. No one-to-one
--- "Heartwood only" shortcut is allowed in the future transaction adapter.
+-- Synthetic material types prove architecture flexibility; no specific
+-- real upgrade material has been selected for gameplay.
 local multiType={
 	{Kind="Coins",Amount=20},
 	{Kind="Logs",Count=1,MutationFamily="$selected"},
-	{Kind="Material",Source="GroveMaterials",MaterialType="Heartwood",Count=1},
+	{Kind="Material",Source="GroveMaterials",MaterialType="TestMaterialA",Count=1},
 	{Kind="Material",Source="GroveMaterials",MaterialType="CrystalCatalyst",Count=1},
 }
 local multiData={
 	Coins=100,GroveMaterials={
-		{UID="heart-x",MaterialType="Heartwood"},
+		{UID="heart-x",MaterialType="TestMaterialA"},
 		{UID="crystal-y",MaterialType="CrystalCatalyst"},
 	},
 }
 local multi=Rules.Plan(multiType,multiData,
 	{{UID="log-g1",SizeScale=5,Mutations={Golden=true}}},
 	{LogUIDs={"log-g1"},MaterialUIDsByType={
-		Heartwood={"heart-x"},CrystalCatalyst={"crystal-y"},
+		TestMaterialA={"heart-x"},CrystalCatalyst={"crystal-y"},
 	}},"Golden")
 check("multiple unique material types coexist",multi and multi.CanAfford
 	and #multi.MaterialGroups==2 and #multi.MaterialUIDs==2)
 check("missing second type fails closed",Rules.Plan(multiType,multiData,
 	{{UID="log-g1",SizeScale=5,Mutations={Golden=true}}},
 	{LogUIDs={"log-g1"},MaterialUIDsByType={
-		Heartwood={"heart-x"},CrystalCatalyst={"missing-y"},
+		TestMaterialA={"heart-x"},CrystalCatalyst={"missing-y"},
 	}},"Golden").CanAfford==false)
 -- This intentionally keeps #selection == 2 while index 1 is missing;
 -- previously it could produce a receipt without spending the material.
@@ -141,12 +141,12 @@ sparseMaterialUIDs[2]="heart-b"
 sparseMaterialUIDs[1]=nil
 check("sparse material regression precondition",#sparseMaterialUIDs==2)
 check("sparse material UID selection rejected",Rules.Plan({
-	{Kind="Material",Source="GroveMaterials",MaterialType="Heartwood",Count=2},
+	{Kind="Material",Source="GroveMaterials",MaterialType="TestMaterialA",Count=2},
 },data,{}, {MaterialUIDs=sparseMaterialUIDs},nil)==nil)
 check("duplicate cross-type resource UID rejected",Rules.Plan(multiType,multiData,
 	{{UID="log-g1",SizeScale=5,Mutations={Golden=true}}},
 	{LogUIDs={"log-g1"},MaterialUIDsByType={
-		Heartwood={"heart-x"},CrystalCatalyst={"heart-x"},
+		TestMaterialA={"heart-x"},CrystalCatalyst={"heart-x"},
 	}},"Golden")==nil)
 
 -- Phase 3A/3B PURE upgrade rules share this ONE existing test.
@@ -232,12 +232,18 @@ local awakenedHammer=Upgrades.Build(legacyHammer,"Awaken",first,"Common",2)
 check("old Battlehammer scalar Cleave preserved on awakening",
 	awakenedHammer and #Dispatcher.List(awakenedHammer)==2
 	and Dispatcher.List(awakenedHammer)[1].Id=="Cleave")
-check("Awakening cost has non-log Heartwood requirement",
-	Upgrades.COSTS.Awaken[3].Kind=="Material"
-	and Upgrades.COSTS.Awaken[3].MaterialType=="Heartwood")
-check("Infusion cost has both Heartwood and axe-head stack",
-	Upgrades.COSTS.Infuse[3].MaterialType=="Heartwood"
-	and Upgrades.COSTS.Infuse[4].Kind=="Stack")
+check("live upgrade economy is explicitly unconfigured",
+	Upgrades.ECONOMY_CONFIGURED==false
+	and Upgrades.COST_POLICY=="STUDIO_TEST_ONLY")
+check("only temporary mutated-log inputs remain for Studio testing",
+	#Upgrades.COSTS.Awaken==1 and #Upgrades.COSTS.Infuse==1
+	and Upgrades.COSTS.Awaken[1].Kind=="Logs"
+	and Upgrades.COSTS.Awaken[1].Count==2
+	and Upgrades.COSTS.Infuse[1].Kind=="Logs"
+	and Upgrades.COSTS.Infuse[1].Count==3)
+check("there are no unapproved material, coin or head costs",
+	Upgrades.COSTS.Awaken[1].MutationFamily=="$selected"
+	and Upgrades.COSTS.Infuse[1].MutationFamily=="$selected")
 check("all actual recipes are accepted by shared cost planner",
 	Rules.Validate(Upgrades.COSTS.Awaken)
 	and Rules.Validate(Upgrades.COSTS.Infuse))
