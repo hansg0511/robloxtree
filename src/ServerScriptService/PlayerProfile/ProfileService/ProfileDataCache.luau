@@ -8,6 +8,7 @@ local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDef
 local MutationDefinitions = require(game.ServerScriptService.Grove.MutationDefinitions)
 local GroveGrowthRules = require(game.ServerScriptService.Grove.GroveGrowthRules)
 local QuestRules = require(game.ServerScriptService.Quests.QuestRules)
+local ChopLeaderboardRules = require(game.ServerScriptService.ChopLeaderboardRules)
 local ItemDataBase = require(game.ServerStorage.Items.ItemDataBase)
 local WeaponProgressionRules = require(game.ServerScriptService.WeaponProgressionRules)
 
@@ -243,6 +244,15 @@ function PlayerProfileCache.NormalizeRecurringQuestProgress(data)
 	return true
 end
 
+-- Normalize legacy leaderboard data without granting past or unverified kills.
+function PlayerProfileCache.NormalizeChopLeaderboard(data)
+	if type(data) ~= "table" then return false end
+	local clean = ChopLeaderboardRules.Normalize(data.ChopLeaderboard, os.time())
+	if not clean then return false end
+	data.ChopLeaderboard = clean
+	return true
+end
+
 -- Normalize persisted, unique weapon records BEFORE ItemDataBase parses them
 -- into the transient runtime equipment cache. Skip non-weapons and the
 -- session-only debug axe (which must never become a progression candidate).
@@ -335,6 +345,7 @@ export type PlayerProfileCache = {
 	NormalizeGroveData: (data: { [string]: any }) -> boolean,
 	NormalizeQuestProgress: (data: { [string]: any }) -> boolean,
 	NormalizeRecurringQuestProgress: (data: { [string]: any }) -> boolean,
+	NormalizeChopLeaderboard: (data: { [string]: any }) -> boolean,
 	NormalizeWeaponData: (data: { [string]: any }) -> boolean,
 	FireLoaded: (profile: profileType.PlayerData) -> ()
 }
@@ -374,6 +385,7 @@ function PlayerProfileCache.Set(player: Player, profile)
 		PlayerProfileCache.NormalizeGroveData(profile.Data)
 		PlayerProfileCache.NormalizeQuestProgress(profile.Data)
 		PlayerProfileCache.NormalizeRecurringQuestProgress(profile.Data)
+		PlayerProfileCache.NormalizeChopLeaderboard(profile.Data)
 		PlayerProfileCache.NormalizeWeaponData(profile.Data)
 		normalizeProgressionData(profile.Data)
 	end
