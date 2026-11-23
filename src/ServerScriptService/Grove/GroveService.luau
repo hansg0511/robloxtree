@@ -9,6 +9,7 @@ local PlotManager = require(game.ServerStorage.PlotManager)
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
 local MutationDefinitions = require(script.Parent.MutationDefinitions)
 local GroveGrowthRules = require(script.Parent.GroveGrowthRules)
+local QuestService = require(game.ServerScriptService.Quests.QuestService)
 local LogService = require(game.ServerScriptService.Inventory.LogService)
 local GroveHarvestPresentation = require(ReplicatedStorage.Shared.GroveHarvestPresentation)
 
@@ -600,6 +601,11 @@ function GroveService.HarvestPersistentTree(player, treeObject)
 	record.HarvestCount = cycle.HarvestCount
 	LastSuccessfulHarvestAt[player] = os.clock()
 	RuntimeTreesByUID[groveUID] = nil
+	-- This event is earned ONLY after a successful protected log award and
+	-- committed persistent regrowth. No credit for early/blocked harvests.
+	local questOk,questErr=pcall(QuestService.RecordGroveHarvested,
+		player,groveUID,cycle.HarvestCount)
+	if not questOk then warn("[Quests] Grove harvest credit failed",questErr) end
 
 	-- Keep PlayerRuntimeUIDs[groveUID] reserved for cleanup until the new
 	-- incarnation appears. The old dying tree is removed from ActiveTrees by
