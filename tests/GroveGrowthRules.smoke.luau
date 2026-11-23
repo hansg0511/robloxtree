@@ -81,5 +81,86 @@ check("legacy visuals finish at saved deadline",
 	select(2, rules.VisualProgress(legacy, 1045))
 		== select(3, rules.VisualProgress(legacy, planted)))
 
-print("Grove fixed 30-second/2-second-step growth checks passed")
+-- Phase 4 integration uses this EXISTING smoke suite, not a separate
+-- file per Grove source, shop, or material adapter.
+check("Heartwood cannot drop early",
+	not rules.HeartwoodEligible(1,0,0) and not rules.HeartwoodEligible(2,0,0))
+check("third harvest yields Heartwood",
+	rules.HeartwoodEligible(3,0,0))
+check("outstanding Heartwood never blocks the normal log harvest",
+	not rules.HeartwoodEligible(6,1,1))
+check("no infinite Heartwood stockpiling",
+	not rules.HeartwoodEligible(6,0,rules.MAX_HEARTWOOD_HELD))
+check("Heartwood remains available after previous unit is spent",
+	rules.HeartwoodEligible(6,0,0))
+
+local Shop=require(game.ServerScriptService.Grove.SaplingShopRules)
+local Search=require(game.ServerScriptService.Grove.SaplingDiscoveryService)
+local now=2000000000
+local first=Shop.Offers(now)
+local again=Shop.Offers(now)
+check("shop is deterministic within a restock window",
+	first and again and first.Cycle==again.Cycle
+	and first.RestockAt==again.RestockAt
+	and #first.Offers==#again.Offers)
+for i=1,3 do
+	check("normal saplings never rotate out",
+		first.Offers[i] and first.Offers[i].Id==Shop.COMMON[i].Id
+		and first.Offers[i].Rare==false)
+end
+check("restock deadline is a future window",
+	first.RestockAt>now and first.RestockAt<=now+Shop.RESTOCK_SECONDS)
+local sawRare=false
+local sawNoRare=false
+for step=0,24 do
+	local offers=Shop.Offers(now+step*Shop.RESTOCK_SECONDS)
+	if #offers.Offers==4 then
+		sawRare=true
+		check("rare shop only adds one offer",offers.Offers[4].Rare==true
+			and offers.Offers[4].Stock==1)
+	else
+		sawNoRare=true
+		check("normal stock remains when rare is absent",#offers.Offers==3)
+	end
+end
+check("shop cycles produce occasional rare and absent rare rotations",
+	sawRare and sawNoRare)
+check("shop rejects spoofed offer ids",Shop.Find(first,"made-up")==nil)
+check("rare wild trees are genuinely rare",
+	next(Search.RollWildTreeMutations(0.5,0))==nil)
+check("discovery mutation originates on wild spawn",
+	Search.RollWildTreeMutations(0,0).Golden==true
+	and Search.RollWildTreeMutations(0,0.99).Shocked==true)
+check("Giant and other types remain eligible",
+	Search.RollWildTreeMutations(0,0.32).Giant==true)
+
+-- Saved Grove trees and the Heartwood they produced share two legitimate
+-- source IDs. Neither is a duplicate player-owned record, and BOTH must
+-- survive a real profile normalization. No live player data is mutated.
+local Cache=require(game.ServerScriptService.PlayerProfile.ProfileService.ProfileDataCache)
+local synthetic={
+	Saplings={},
+	GroveTrees={{
+		UID="test-grove-tree",SourceSaplingUID="test-original-sapling",
+		SpeciesId="Oak",Mutations={Golden=true},SizePotential=1,
+		CurrentSizeScale=1,HarvestCount=3,
+		LocalX=0,LocalZ=0,Yaw=0,
+		PlantedAt=1000,MaturesAt=1030,
+	}},
+	GroveMaterials={{
+		UID="test-heartwood",MaterialType="Heartwood",
+		SpeciesId="Oak",Mutations={Golden=true},SizePotential=1,
+		SourceGroveTreeUID="test-grove-tree",
+		SourceSaplingUID="test-original-sapling",CreatedAt=1040,
+	}},
+}
+check("Grove normalizer accepts linked records",Cache.NormalizeGroveData(synthetic))
+check("tree and Heartwood persist through reload normalization",
+	#synthetic.GroveTrees==1 and #synthetic.GroveMaterials==1
+	and synthetic.GroveMaterials[1].SourceGroveTreeUID==synthetic.GroveTrees[1].UID)
+check("repeated normalization does not delete linked material",
+	Cache.NormalizeGroveData(synthetic) and #synthetic.GroveTrees==1
+	and #synthetic.GroveMaterials==1)
+
+print("Grove growth + Heartwood + rare wild inheritance + sapling shop rules passed")
 return true
