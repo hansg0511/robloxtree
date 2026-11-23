@@ -245,6 +245,66 @@ local function makeStarterForestTree()
 	return model
 end
 
+-- Two detachable wood sections make each small Sapwood kill yield two
+-- physical-looking log pieces through the existing authored harvest pipeline.
+-- All canopy pieces are simple cuboids, like the rest of World 1.
+local function makeSapwoodTree()
+	local palette = SpeciesVisuals.GetPalette("Sapwood")
+	local model = Instance.new("Model")
+	model.Name = "SapwoodTree"
+
+	-- Unobtrusive carrier holds the hitbox and leafy crown during the fall;
+	-- visible thin trunk sections detach as the two ordinary log rewards.
+	local carrier = makeBrickPart("SapwoodRootCarrier",
+		Vector3.new(0.8, 10, 0.8), Vector3.new(0, 5, 0), palette.Bark, model)
+	carrier.PivotOffset = CFrame.new(0, -5, 0)
+	carrier.Transparency = 1
+	carrier.CanCollide = false
+	carrier.CanTouch = false
+	carrier.CanQuery = false
+	carrier:SetAttribute("AlwaysInvisible", true)
+	model.PrimaryPart = carrier
+
+	local sectionsFolder = Instance.new("Folder")
+	sectionsFolder.Name = "SapwoodHarvestSections"
+	sectionsFolder.Parent = model
+	local sections = {}
+	for index, definition in ipairs({
+		{ Name = "SapwoodLowerTrunk", Size = Vector3.new(1.7, 5, 1.7),
+			Position = Vector3.new(0, 2.5, 0), Color = palette.Bark },
+		{ Name = "SapwoodUpperTrunk", Size = Vector3.new(1.4, 5, 1.4),
+			Position = Vector3.new(0, 7.5, 0), Color = palette.BarkHighlight },
+	}) do
+		local section = Instance.new("Model")
+		section.Name = "SapwoodHarvestSection" .. index
+		section:SetAttribute("AuthoredHarvestSection", true)
+		section:SetAttribute("HarvestSectionIndex", index)
+		section:SetAttribute("SpeciesId", "Sapwood")
+		section.Parent = sectionsFolder
+		local trunk = makeBrickPart(definition.Name, definition.Size,
+			definition.Position, definition.Color, section, carrier, false)
+		trunk.CanTouch = false
+		addBarkStuds(trunk, trunk, palette)
+		section.PrimaryPart = trunk
+		sections[index] = section
+	end
+
+	local leaves = Instance.new("Folder")
+	leaves.Name = "Leaves"
+	leaves.Parent = model
+	addLeafBricks(leaves, carrier, {
+		{ Size = Vector3.new(7.2, 3.4, 7), Position = Vector3.new(0, 11.4, 0),
+			Color = palette.Leaf },
+		{ Size = Vector3.new(5.2, 3.2, 5), Position = Vector3.new(-1.1, 13.2, -0.6),
+			Color = palette.LeafHighlight },
+		{ Size = Vector3.new(4.2, 2.9, 4.5), Position = Vector3.new(1.0, 13.6, 0.7),
+			Color = palette.LeafShadow },
+	}, false)
+	addChopHitbox(model, carrier, Vector3.new(5, 12, 5),
+		Vector3.new(0, 6, 0))
+	return model, sections
+end
+
 local function makeStarterForestHarvestOak(sectionCount)
 	local sectionNamesByCount = {
 		[1] = { "Base" },
@@ -1011,6 +1071,7 @@ end
 local SOURCE_BUILT_MODELS = {
 	BrickPlaceholder = makeBrickPlaceholder,
 	StarterForestTree = makeStarterForestTree,
+	SapwoodTree = makeSapwoodTree,
 	Forest2Tree = makeForest2Tree,
 	BambooClump = makeBambooClump,
 	BarrierTree = makeBarrierTree,
@@ -1323,6 +1384,8 @@ function Tree:Spawn()
 		if not model then
 			model, oakHarvestSections = makeStarterForestHarvestOak(oakHarvestCount)
 		end
+	elseif self.DefinitionId == "SapwoodTree" and hasLogDrop then
+		model, authoredHarvestSections = makeSapwoodTree()
 	elseif self.DefinitionId == "Forest2Tree" and hasLogDrop then
 		local harvestCount = LogService.GetTreeLogYieldCount(self)
 		if harvestCount then
