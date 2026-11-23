@@ -1227,6 +1227,13 @@ function Tree:Spawn()
 	local hasLogDrop = self.YieldsLog
 		and self.Category ~= "Barrier"
 		and hasKnownMaterial
+	-- Wild mutation is a property of THIS tree incarnation, not of a
+	-- randomly discovered sapling. Respawning rerolls it; planted Grove
+	-- trees retain the mutations inherited from their original saplings.
+	if not self.IsPersistentGrove then
+		self.Mutations=if hasLogDrop
+			then SaplingDiscoveryService.RollWildTreeMutations() else {}
+	end
 	self.SizeScale = if self.IsPersistentGrove
 		then self.GroveCurrentSize
 		elseif type(self.FixedSizeScale) == "number" and self.FixedSizeScale > 0
