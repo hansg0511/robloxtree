@@ -1,24 +1,27 @@
 -- Phase 3A/3B upgrade rules. Pure server-owned weapon-slot/recipe logic.
--- Provisional prototype ingredients: NEVER assume logs are sufficient.
--- Change costs by editing this table; the transaction layer remains generic.
+-- The user has NOT decided upgrade costs or non-log ingredients.
+-- Keep the generic multi-resource payment service, but never assume
+-- Heartwood, coins, axe heads, or anything else belongs in these recipes.
 local Forge=require(game.ReplicatedStorage.Shared.ForgeMutationRules)
 local Dispatcher=require(game.ServerScriptService.WeaponEffects.Dispatcher)
+local RunService=game:GetService("RunService")
 local Rules={}
 
 Rules.MIN_FORGE_LEVEL=2
+-- IMPORTANT: this is a Studio-only mechanical test recipe, NOT an economy.
+-- 2/3 mutated logs exercise ability rolling/potency and exact-UID spending.
+-- Awakening's FINAL recipe will need additional materials, still UNDECIDED.
+-- Live upgrades remain disabled until a deliberately approved, server-owned
+-- multi-resource recipe replaces these fixtures.
+Rules.ECONOMY_CONFIGURED=false
+Rules.COST_POLICY="STUDIO_TEST_ONLY"
 Rules.COSTS={
-	Awaken={
-		{Kind="Coins",Amount=500},
-		{Kind="Logs",Count=2,MutationFamily="$selected"},
-		{Kind="Material",Source="GroveMaterials",MaterialType="Heartwood",Count=1},
-	},
-	Infuse={
-		{Kind="Coins",Amount=1500},
-		{Kind="Logs",Count=3,MutationFamily="$selected"},
-		{Kind="Material",Source="GroveMaterials",MaterialType="Heartwood",Count=2},
-		{Kind="Stack",Source="AxeHeads",Id="copper_head",Count=1},
-	},
+	Awaken={{Kind="Logs",Count=2,MutationFamily="$selected"}},
+	Infuse={{Kind="Logs",Count=3,MutationFamily="$selected"}},
 }
+function Rules.CanUseUpgradeRecipe()
+	return Rules.ECONOMY_CONFIGURED==true or RunService:IsStudio()
+end
 local familyIds={}
 for _,family in ipairs(Forge.FAMILIES) do familyIds[family]=true end
 local function finite(n)
