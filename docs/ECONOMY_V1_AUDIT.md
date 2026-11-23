@@ -27,6 +27,7 @@ _2026-11-24 · branch `dev/gameplay-prototype` · Phase 4E.1 in progress_
 - `Trees/TreeDefinitions.luau`: Oak 60 base HP / 3s respawn; Ironwood 180 base HP / 5s; Bamboo 18 HP / five logs; first barrier 600 HP and Copper-tier prerequisite. Actual HP scales by `SizeScale^1.4`.
 - `Inventory/LogService.luau`: ordinary wild logs per tree = 1 if scale <0.7, 2 if <1.3, else 3. Bamboo's configured yield overrides this with 5. Ground pickup / overflow / protected auto-keep rules also constrain realized harvest.
 - `Economy/AxeShopCatalog.luau`: Copper / Iron heads 150 / 750 coins; fixed recipes use one head plus three logs; Forge Lv2 costs 2,000 coins; bag capacity upgrades 10→15 (250), →20 (1,000), →30 (4,000), →40 (15,000) kg.
+- `Economy/ShopHandler.server.luau`: **experimental RNG class forging is Studio-only** (`RunService:IsStudio()` guard in `craftExperimental`). Standard deterministic Copper/Iron craft paths remain. This is a **release-readiness decision** separate from balance: decide what the actual shipping forging path should be before making an economy model for production.
 - `Grove/SaplingShopRules.luau`: common saplings cost 100/250/800 coins; rare example 3,000 or 5,500; shop restock every 600s, with 40% chance of one rare offer per restock. All provisional.
 - `Grove/SaplingDiscoveryService.luau`: 6% wild mutation rate, 10% ordinary sapling discovery, 20% mutated-tree sapling discovery. Mutation appearance is per tree life; expected incidence of a mutated-tree sapling is about **1.2% of eligible wild tree deaths**, conditional on rates/eligibility (6%×20%).
 - `Grove/GroveGrowthRules.luau` and `GroveService.luau`: maturation 30s per tree, maximum planted capacity currently 25, one harvested log/cycle; manual harvest and protected-storage availability can reduce real output. **Grove capacity upgrade is a planned sink, not implemented.**
@@ -44,7 +45,7 @@ At normal size 1.0, each ordinary Oak or Ironwood death yields 2 logs if both dr
 - Forge Lv2 2,000 coins is equivalent to **125 normal-size Oak logs** or **14 normal-size Ironwood logs** sold, ignoring Golden bonuses and size variation. Distance to the sell station, ground-drop retention and storage handling may dominate the time.
 - Verified weapon XP at exact base HP across all hits plus death bonus: **75 XP** for a size-1 Oak, **225 XP** for a size-1 Ironwood, assuming the same eligible weapon received all damage. This is per-tree XP potential, not a measured clear-speed comparison.
 
-These numbers already suggest **transport/carrying friction, ease of level-up, and renewable rare-wood supply** deserve attention before we re-price upgrades or duplicate forest tiers.
+These numbers already suggest **transport/carrying friction, ease of level-up, and renewable rare-wood supply** deserve attention before we re-price upgrades or duplicate forest tiers. **Do not confuse Studio-only forge/upgrade prototypes with a functioning published economy.**
 
 ## Next measurements / decisions — Phase 4E.2
 
