@@ -2,6 +2,7 @@ local Tree = {}
 Tree.__index = Tree
 
 local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
 local ServerStorage = game:GetService("ServerStorage")
 local TweenService = game:GetService("TweenService")
 local SpeciesVisuals = require(ServerStorage:WaitForChild("SpeciesVisuals"))
@@ -11,6 +12,7 @@ local DamageEvent = game.ReplicatedStorage.DamageEvent
 local FXService = require(game.ReplicatedStorage.FXService)
 local HarvestVisualConfig = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("HarvestVisualConfig"))
 local Definitions = require(script.Parent.TreeDefinitions)
+local FirstHitClaimRules = require(script.Parent.FirstHitClaimRules)
 local MutationDefinitions = require(game.ServerScriptService.Grove.MutationDefinitions)
 local WorldProgressService = require(game.ServerScriptService.WorldProgressService)
 local LogService = require(game.ServerScriptService.Inventory.LogService)
@@ -1138,6 +1140,33 @@ function Tree.BuildPreviewModel(kind, context)
 	return model
 end
 
+-- Claims are per tree life, server-only. Expired/abandoned claims lose their
+-- reward contribution, but existing tree damage stays until death/respawn.
+-- This avoids rerolling mutation/size simply by waiting out a claim.
+function Tree:ReleaseFirstHitClaim()
+	self.FirstHitClaimOwnerUserId = nil
+	self.FirstHitClaimOwnerPlayer = nil
+	self.FirstHitClaimLastDamageAt = nil
+	self.DamageContributions = {}
+	if self.model and self.model.Parent then
+		self.model:SetAttribute("FirstHitClaimOwnerUserId", nil)
+		self.model:SetAttribute("FirstHitClaimExpiresAt", nil)
+	end
+end
+
+function Tree:HasActiveFirstHitClaim(now)
+	if not self.FirstHitClaimEnabled or not self.FirstHitClaimOwnerUserId then return false end
+	local owner = self.FirstHitClaimOwnerPlayer
+	if typeof(owner) ~= "Instance" or not owner:IsA("Player")
+		or owner.Parent ~= Players
+		or not FirstHitClaimRules.IsActive(self.FirstHitClaimOwnerUserId,
+			self.FirstHitClaimLastDamageAt, now) then
+		self:ReleaseFirstHitClaim()
+		return false
+	end
+	return true
+end
+
 function Tree.new(options)
 	assert(type(options) == "table", "Tree options required")
 	local definition = Definitions[options.DefinitionId]
@@ -1163,6 +1192,13 @@ function Tree.new(options)
 	self.RespawnSeconds = definition.RespawnSeconds
 	self.OwnerOnly = definition.OwnerOnly
 	self.OwnerUserId = options.OwnerUserId
+	-- Public farming trees claimable by first valid damaging hit.
+	-- Future public-event/treasure definitions can explicitly opt out.
+	self.FirstHitClaimEnabled = definition.FirstHitClaimEnabled ~= false
+		and definition.OwnerOnly ~= true
+	self.FirstHitClaimOwnerUserId = nil
+	self.FirstHitClaimOwnerPlayer = nil
+	self.FirstHitClaimLastDamageAt = nil
 	self.Choppable = definition.Choppable
 	self.ForestId = options.ForestId or definition.ForestId or "Base"
 	self.RequiredStandardAxeTier = definition.RequiredStandardAxeTier
@@ -1246,6 +1282,9 @@ function Tree:Spawn()
 	self.MaxHP = math.max(1, math.floor(self.BaseHP * (self.SizeScale ^ 1.4) + 0.5))
 	self.HP = self.MaxHP
 	self.DamageContributions = {}
+	self.FirstHitClaimOwnerUserId = nil
+	self.FirstHitClaimOwnerPlayer = nil
+	self.FirstHitClaimLastDamageAt = nil
 	self.OakHarvestSections = nil
 	self.HarvestSections = nil
 	local oakHarvestCount
@@ -1406,6 +1445,8 @@ function Tree:CanChop(player)
 	if self.IsPersistentGrove then return false end
 	if not self.Choppable then return false end
 	if self.OwnerOnly and self.OwnerUserId ~= player.UserId then return false end
+	if self:HasActiveFirstHitClaim(os.clock())
+		and self.FirstHitClaimOwnerUserId ~= player.UserId then return false end
 	return true
 end
 
@@ -2014,6 +2055,22 @@ function Tree:TakeDamage(ctx, player)
 
 	local appliedDamage = math.min(math.floor(damage), self.HP)
 	if appliedDamage <= 0 then return false end
+	-- Claim ONLY after positive, server-validated HP damage. This is the
+	-- central gate for primary strikes, Cleave and Chain Lightning alike.
+	if self.FirstHitClaimEnabled then
+		local now = os.clock()
+		if self:HasActiveFirstHitClaim(now) then
+			if self.FirstHitClaimOwnerUserId ~= player.UserId then return false end
+		else
+			self.FirstHitClaimOwnerUserId = player.UserId
+			self.FirstHitClaimOwnerPlayer = player
+			self.DamageContributions = {}
+		end
+		self.FirstHitClaimLastDamageAt = now
+		self.model:SetAttribute("FirstHitClaimOwnerUserId", player.UserId)
+		self.model:SetAttribute("FirstHitClaimExpiresAt",
+			workspace:GetServerTimeNow() + FirstHitClaimRules.CLAIM_IDLE_SECONDS)
+	end
 	self.HP = math.max(0, self.HP - appliedDamage)
 	local isLethalHit = self.HP == 0
 	local contribution = self.DamageContributions[player.UserId]
@@ -2032,6 +2089,8 @@ function Tree:TakeDamage(ctx, player)
 		IsCrit = ctx.IsCrit,
 		HP = self.HP,
 		MaxHP = self.MaxHP,
+		FirstHitClaimOwnerUserId = if self.FirstHitClaimEnabled
+			then self.FirstHitClaimOwnerUserId else nil,
 		-- Never expose Studio diagnostics in published play.
 		EffectId = if RunService:IsStudio()
 			and (ctx.EffectId == "Cleave" or ctx.EffectId == "Thunderstrike")
@@ -2342,6 +2401,7 @@ end
 
 function Tree:Destroy()
 	self.destroyed = true
+	self:ReleaseFirstHitClaim()
 	Tree.ActiveTrees[self] = nil
 	if self.model then
 		self.model:Destroy()
@@ -2349,5 +2409,14 @@ function Tree:Destroy()
 	self.model = nil
 	self.InteractionPart = nil
 end
+
+-- A player leaving cannot hold trees hostage for the remaining idle lease.
+Players.PlayerRemoving:Connect(function(player)
+	for tree in pairs(Tree.ActiveTrees) do
+		if tree.FirstHitClaimOwnerPlayer == player then
+			tree:ReleaseFirstHitClaim()
+		end
+	end
+end)
 
 return Tree
