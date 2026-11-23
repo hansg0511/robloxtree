@@ -120,7 +120,7 @@ local function GetOrCreateHealthBar(target, maxHP)
 	return bar
 end
 
-local function UpdateHealthBar(target, hp, maxHP)
+local function UpdateHealthBar(target, hp, maxHP, claimOwnerUserId)
 	hp = math.max(0, math.floor(tonumber(hp) or 0))
 	maxHP = math.max(1, math.floor(tonumber(maxHP) or 1))
 	local bar = GetOrCreateHealthBar(target, maxHP)
@@ -149,6 +149,12 @@ local function UpdateHealthBar(target, hp, maxHP)
 		target:GetPivot().Position + Vector3.new(0, 10, 0)
 	
 	bar.label.Text = string.format("%d / %d", hp, maxHP)
+	if hp > 0 and type(claimOwnerUserId) == "number" then
+		-- Compact, nonpersistent feedback beside the existing HP indicator.
+		-- Invalid/expired leases are never honored by the server.
+		bar.label.Text ..= if claimOwnerUserId == player.UserId then "  •  YOURS"
+			else "  •  CLAIMED"
+	end
 	
 	bar.lastHP = hp
 	
@@ -182,7 +188,7 @@ DamageEvent.OnClientEvent:Connect(function(damageContext)
 	displayDamage(amount, target, isCrit, damageContext.EffectId)
 	local hp = damageContext.HP
 	local MaxHP = damageContext.MaxHP
-	UpdateHealthBar(target, hp, MaxHP)
+	UpdateHealthBar(target, hp, MaxHP, damageContext.FirstHitClaimOwnerUserId)
 end)
 
 
