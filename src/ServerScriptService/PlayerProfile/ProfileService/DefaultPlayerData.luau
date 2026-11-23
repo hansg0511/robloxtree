@@ -83,6 +83,7 @@ export type PlayerData = {
 	SaplingShop: { RareBoughtCycle: number },
 	QuestProgress: { Stage: number, Count: number },
 	QuestRecurring: { [string]: { WindowId: number, Counts: { [string]: number } } },
+	ChopLeaderboard: { Lifetime: number, WeeklyWindowId: number, WeeklyCount: number },
 	GroveTrees: { GroveTree },
 	GroveMaterials: { Heartwood },
 	-- Future recipe catalysts/essences, counted by server-assigned material ID.
