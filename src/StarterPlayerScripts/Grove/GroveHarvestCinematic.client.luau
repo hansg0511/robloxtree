@@ -122,7 +122,7 @@ local function showReward(payload)
 	end
 	local names = {}
 	if type(payload.Mutations) == "table" then
-		for _, mutation in ipairs({ "Golden", "Giant", "Crystal" }) do
+		for _, mutation in ipairs({ "Golden", "Giant", "Frenzied", "Shocked", "Crystal" }) do
 			if payload.Mutations[mutation] == true then
 				table.insert(names, mutation)
 			end
