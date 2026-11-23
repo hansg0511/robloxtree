@@ -246,13 +246,17 @@ local function renderSaplingShop()
 			else Color3.fromRGB(81,89,83)
 	end
 	local rare=stock._Rare
+	local remaining=if type(shopSnapshot)=="table"
+		and type(shopSnapshot.RestockAt)=="number"
+		then math.max(0,shopSnapshot.RestockAt-os.time()) else 0
+	local restock=string.format(" • RESTOCK ~%dM",math.ceil(remaining/60))
 	if rare then
 		shopRareButton.Text=if rare.SoldOut then
-			"SOLD OUT • "..string.upper(rare.Name)
+			"SOLD OUT • "..string.upper(rare.Name)..restock
 			else string.upper(rare.Name).." • "..tostring(rare.Price).." COINS"
 		shopRareButton.Active=rare.CanBuy==true and not shopPending
 	else
-		shopRareButton.Text="RARE SAPLING: NONE THIS RESTOCK"
+		shopRareButton.Text="RARE SAPLING: NONE THIS RESTOCK"..restock
 		shopRareButton.Active=false
 	end
 	shopRareButton.AutoButtonColor=shopRareButton.Active
