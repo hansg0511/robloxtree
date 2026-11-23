@@ -286,7 +286,7 @@ The data model should have stable fields for forge tier, original log provenance
 
 ## Immediate next action (as of 2026-11-23)
 
-**Latest Grove management code (Phase 4B.1):** run the existing `tests/GroveHarvestPrompt.smoke.luau`, then one manual session: plant two ordinary/mutated saplings, open Manage Planted Trees, select a tree by clicking it or using prev/next, verify the species/mutation/genetic maximum, first-click warning, second-click permanent deletion, count decreases, and no sapling refund. Check the other tree still grows and harvests, plant into the freed slot, and restart Studio to confirm the removed tree does not reappear in the Mock profile (real DataStore durability remains unverified). Do not implement additional Grove economy or Ultra Mastery until separately agreed.
+**Latest Grove management code (Phase 4B.1):** run the existing `tests/GroveHarvestPrompt.smoke.luau`, then one manual session: plant two ordinary/mutated saplings, open Manage Planted Trees, select a tree by clicking it or using prev/next, verify the species/mutation/genetic maximum, first-click warning, second-click permanent deletion, count decreases, and no sapling refund. Check the other tree still grows and harvests, plant into the freed slot, and verify the removal in server-owned Grove state and after a same-server Grove re-restore. A fresh Studio Mock Play session may start from a blank mock profile and is NOT a cross-session persistence test; real DataStore durability remains unverified. Do not implement additional Grove economy or Ultra Mastery until separately agreed.
 
 
 
