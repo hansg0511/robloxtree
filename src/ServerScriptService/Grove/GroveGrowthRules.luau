@@ -17,21 +17,6 @@ Rules.MIN_POTENTIAL = 0.1
 Rules.MAX_POTENTIAL = 2
 Rules.MIN_RELATIVE_SIZE = 0.65
 Rules.MAX_HARVEST_COUNT = 1000000
--- Provisional material pacing: a mature Grove harvest grants one log
--- every cycle, with Heartwood on each third harvest, provided no other
--- Heartwood from that Grove tree is still owned. No per-harvest material RNG.
-Rules.HEARTWOOD_EVERY_HARVESTS = 3
-Rules.MAX_HEARTWOOD_HELD = 25
-
-function Rules.HeartwoodEligible(nextHarvestCount, outstandingFromTree, ownedHeartwoodCount)
-	return type(nextHarvestCount)=="number" and nextHarvestCount%1==0
-		and nextHarvestCount>=1 and nextHarvestCount<=Rules.MAX_HARVEST_COUNT
-		and type(outstandingFromTree)=="number" and outstandingFromTree==0
-		and type(ownedHeartwoodCount)=="number" and ownedHeartwoodCount%1==0
-		and ownedHeartwoodCount>=0 and ownedHeartwoodCount<Rules.MAX_HEARTWOOD_HELD
-		and nextHarvestCount%Rules.HEARTWOOD_EVERY_HARVESTS==0
-end
-
 local function finite(x)
 	return type(x) == "number" and x == x and x > -math.huge and x < math.huge
 end
