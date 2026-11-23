@@ -19,6 +19,7 @@ local LogService = require(game.ServerScriptService.Inventory.LogService)
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
 local SaplingDiscoveryService = require(game.ServerScriptService.Grove.SaplingDiscoveryService)
 local QuestService = require(game.ServerScriptService.Quests.QuestService)
+local ChopLeaderboardService = require(game.ServerScriptService.ChopLeaderboardService)
 local GroveHarvestVisualService = require(game.ServerScriptService.Grove.GroveHarvestVisualService)
 local GroveHarvestPresentation = require(game.ReplicatedStorage.Shared.GroveHarvestPresentation)
 local GroveGrowthRules = require(game.ServerScriptService.Grove.GroveGrowthRules)
@@ -2202,6 +2203,10 @@ function Tree:Die(player)
 		if winner then
 			local ok,err=pcall(QuestService.RecordWildTreeChopped,winner,self)
 			if not ok then warn("[Quests] Wild chop credit failed",err) end
+			-- The same validated death recipient gets leaderboard credit;
+			-- neither partial hits nor Grove prompt harvests can inflate it.
+			local scored,scoreErr=pcall(ChopLeaderboardService.RecordWildTreeChopped,winner,self)
+			if not scored then warn("[ChopLeaderboard] Wild chop credit failed",scoreErr) end
 		end
 	end
 	if self.UnlockForestId then
