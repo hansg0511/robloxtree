@@ -95,11 +95,15 @@ end
 
 function Service.RecordWildTreeChopped(player,treeObject)
 	if type(treeObject)~="table" or treeObject.IsPersistentGrove==true
-		or treeObject.isDead~=true or treeObject.YieldsLog~=true
-		or processedWildTrees[treeObject] then return false end
-	-- TreeObject:Die calls this after it has validated the death and
-	-- resolved the same winner as the server's normal log award path.
-	processedWildTrees[treeObject]=true
+		or treeObject.isDead~=true or treeObject.YieldsLog~=true then return false end
+	-- A TreeObject is reused when the same wild tree respawns, so de-dupe
+	-- each *death generation*, not every future life of that tree.
+	local generation=treeObject.DeathGeneration
+	if type(generation)~="number" or generation%1~=0 or generation<1
+		or processedWildTrees[treeObject]==generation then return false end
+	-- TreeObject:Die resolves the exact same server-approved recipient as
+	-- log and sapling delivery before calling this service.
+	processedWildTrees[treeObject]=generation
 	return creditEvent(player,"WildTreeChopped")
 end
 
