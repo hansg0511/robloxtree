@@ -1011,3 +1011,12 @@ end))
 
 render()
 refreshRemotes()
+refreshSaplingShop()
+-- No client-side authority over stock: periodically refresh the actual
+-- server snapshot so rare restocks and affordability appear automatically.
+task.spawn(function()
+	while not cleanedUp do
+		task.wait(20)
+		if not cleanedUp then refreshSaplingShop() end
+	end
+end)
