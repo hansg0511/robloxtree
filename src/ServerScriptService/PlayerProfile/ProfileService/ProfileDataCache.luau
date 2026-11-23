@@ -7,6 +7,7 @@ local AxeShopCatalog = require(game.ServerScriptService.Economy.AxeShopCatalog)
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
 local MutationDefinitions = require(game.ServerScriptService.Grove.MutationDefinitions)
 local GroveGrowthRules = require(game.ServerScriptService.Grove.GroveGrowthRules)
+local QuestRules = require(game.ServerScriptService.Quests.QuestRules)
 local ItemDataBase = require(game.ServerStorage.Items.ItemDataBase)
 local WeaponProgressionRules = require(game.ServerScriptService.WeaponProgressionRules)
 
