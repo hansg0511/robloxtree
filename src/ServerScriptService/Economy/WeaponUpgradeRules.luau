@@ -51,9 +51,27 @@ function Rules.ReadSlots(weaponData)
 		if #weaponData.MutationSlots==0 and weaponData.MutationAbility~=nil then
 			return nil,"CONFLICTING_LEGACY_MUTATION"
 		end
+		local count=0
+		for index in pairs(weaponData.MutationSlots) do
+			if type(index)~="number" or index%1~=0 or index<1 or index>2 then
+				return nil,"INVALID_SLOTS"
+			end
+			count+=1
+		end
+		if count~=#weaponData.MutationSlots then return nil,"INVALID_SLOTS" end
 		for i,slot in ipairs(weaponData.MutationSlots) do
 			if not validSlot(slot) then return nil,"INVALID_SLOTS" end
 			slots[i]=copy(slot)
+		end
+		local legacy=weaponData.MutationAbility
+		if legacy~=nil then
+			if not validSlot(legacy) or not slots[1]
+				or slots[1].Id~=legacy.Id
+				or slots[1].Family~=legacy.Family then
+				return nil,"CONFLICTING_LEGACY_MUTATION"
+			end
+		elseif #slots>0 then
+			return nil,"MISSING_FIRST_MUTATION"
 		end
 	elseif weaponData.MutationAbility~=nil then
 		if not validSlot(weaponData.MutationAbility) then
