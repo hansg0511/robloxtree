@@ -23,6 +23,7 @@ local purchaseCapacity = economy:WaitForChild("PurchaseCapacityRE")
 local equipAxe = economy:WaitForChild("EquipAxeRE")
 local ascendWeapon = economy:WaitForChild("AscendWeaponRE")
 local upgradeForge = economy:WaitForChild("UpgradeForgeRE")
+local upgradeWeapon = economy:WaitForChild("UpgradeWeaponRE")
 
 local COLORS = {
 	Backdrop = Color3.fromRGB(7, 17, 23),
@@ -791,6 +792,11 @@ local feedbackSequence = 0
 local ascensionPending = false
 local ascensionConfirmUID = nil
 local ascensionConfirmUntil = 0
+local upgradePending = false
+local upgradeConfirmKey = nil
+local upgradeConfirmUntil = 0
+local upgradeSelectedUID = nil
+local upgradeSelectedFamily = "Golden"
 
 local function getBagUiCapacity()
 	local logsData = if type(latestLogsData) == "table" then latestLogsData else {}
@@ -1159,7 +1165,8 @@ local function safeAxeNumber(value)
 	return nil
 end
 
-local function renderAxeDetail(axe)
+local renderAxeDetail
+renderAxeDetail = function(axe)
 	local hasAxe = type(axe) == "table"
 	detailIcon.Visible = true
 	detailLogVisual.Visible = false
@@ -1255,6 +1262,185 @@ local function renderAxeDetail(axe)
 			end)
 		else
 			axeStatNote("Ascension unlocks at this rarity's maximum level.")
+		end
+	end
+
+	-- Phase 3A/3B: compact upgrade controls INSIDE existing Axe INFO.
+	-- Do not create another broad shop screen for this prototype. The server
+	-- owns the recipe and revalidates every UID/price/rate at submission.
+	local upgrade = type(axe.Upgrade)=="table" and axe.Upgrade or nil
+	if upgrade and rarity~="Debug" then
+		local slots=type(upgrade.Slots)=="table" and upgrade.Slots or {}
+		local mode=if #slots==0 then "Awaken" else "Infuse"
+		local definition=type(upgrade[mode])=="table" and upgrade[mode] or nil
+		axeStatSection(if mode=="Awaken" then "WEAPON AWAKENING"
+			else "LEGENDARY INFUSION")
+		for index,slot in ipairs(slots) do
+			axeStatRow("Ability slot "..index,
+				tostring(slot.Id).." • "..string.format("%.1f%%", (slot.Potency or 0)*100))
+		end
+		if definition and definition.Eligible==true then
+			if upgradeSelectedUID~=axe.UID then
+				upgradeSelectedUID=axe.UID
+				upgradeSelectedFamily=if slots[1] and slots[1].Family=="Golden"
+					then "Frenzied" else "Golden"
+				upgradeConfirmKey=nil
+			end
+			local family=upgradeSelectedFamily
+			local familyNames={"Golden","Frenzied","Shocked"}
+			axeStatNote(if mode=="Awaken"
+				then "Adds your first mutation ability without changing rarity, level or stats."
+				else if definition.Replacing
+					then "REPLACES SLOT 2 ONLY. Your original slot 1 stays unchanged."
+					else "Adds a second ability. Your original slot 1 stays unchanged.")
+			axeStatOrder+=1
+			local selector=Instance.new("Frame")
+			selector.Name="UpgradeFamilyPicker"
+			selector.LayoutOrder=axeStatOrder
+			selector.Size=UDim2.new(1,-8,0,39)
+			selector.BorderSizePixel=0
+			selector.BackgroundTransparency=1
+			selector.Parent=axeStatsScroll
+			selector.ZIndex=12
+			for index,familyName in ipairs(familyNames) do
+				local blocked=slots[1] and slots[1].Family==familyName
+				local selected=familyName==family
+				local choose=button(selector,"Family_"..familyName,
+					string.upper(familyName),UDim2.new(1/3,-4,1,0),
+					UDim2.new((index-1)/3,2,0,0),
+					if blocked then COLORS.Disabled
+						else if selected then COLORS.BagAction else COLORS.BagSlot)
+				choose.ZIndex=13
+				choose.TextSize=12
+				choose.Active=not blocked and not upgradePending
+				choose.AutoButtonColor=choose.Active
+				choose.Activated:Connect(function()
+					if not choose.Active then return end
+					upgradeSelectedFamily=familyName
+					upgradeConfirmKey=nil
+					renderAxeDetail(axe)
+				end)
+			end
+			local costs=definition.Costs or {}
+			local wantedLogs=0
+			local wantedMaterials={}
+			local enough=true
+			local eligibleLogs={}
+			for _,record in ipairs(latestShopData and latestShopData.EligibleCraftLogs or {}) do
+				if type(record)=="table" and type(record.Mutations)=="table"
+					and record.Mutations[family]==true
+					and type(record.UID)=="string" then
+					eligibleLogs[#eligibleLogs+1]=record
+				end
+			end
+			table.sort(eligibleLogs,function(left,right)
+				local sizeA=tonumber(left.SizeScale) or 0
+				local sizeB=tonumber(right.SizeScale) or 0
+				if sizeA~=sizeB then return sizeA>sizeB end
+				return left.UID<right.UID
+			end)
+			local materialGroups={}
+			local materialSource=latestShopData and latestShopData.UpgradeMaterials or {}
+			for _,record in ipairs(materialSource) do
+				if type(record)=="table" and type(record.UID)=="string"
+					and type(record.MaterialType)=="string" then
+					local group=materialGroups[record.MaterialType]
+					if not group then group={} materialGroups[record.MaterialType]=group end
+					group[#group+1]=record.UID
+				end
+			end
+			for _,group in pairs(materialGroups) do table.sort(group) end
+			for _,cost in ipairs(costs) do
+				if cost.Kind=="Coins" then
+					local balance=tonumber(latestShopData and latestShopData.Coins) or 0
+					axeStatRow("Coins",formatCoins(balance).." / "..formatCoins(cost.Amount))
+					if balance<cost.Amount then enough=false end
+				elseif cost.Kind=="Logs" then
+					wantedLogs=cost.Count
+					axeStatRow(family.." logs",#eligibleLogs.." / "..cost.Count)
+					if #eligibleLogs<cost.Count then enough=false end
+				elseif cost.Kind=="Material" then
+					local group=materialGroups[cost.MaterialType] or {}
+					wantedMaterials[cost.MaterialType]=cost.Count
+					axeStatRow(cost.MaterialType,#group.." / "..cost.Count)
+					if #group<cost.Count then enough=false end
+				elseif cost.Kind=="Stack" then
+					local quantity=0
+					if cost.Source=="AxeHeads" then
+						for _,head in ipairs(latestShopData and latestShopData.AxeHeads or {}) do
+							if head.Id==cost.Id then quantity=head.Count or 0 end
+						end
+					elseif cost.Source=="MaterialBalances" then
+						local balances=latestShopData and latestShopData.UpgradeBalances
+						quantity=type(balances)=="table" and balances[cost.Id] or 0
+					end
+					axeStatRow(cost.Id,quantity.." / "..cost.Count)
+					if quantity<cost.Count then enough=false end
+				end
+			end
+			local selectedLogs={}
+			local selectedLogRecords={}
+			for i=1,math.min(wantedLogs,#eligibleLogs) do
+				local entry=eligibleLogs[i]
+				selectedLogs[#selectedLogs+1]=entry.UID
+				selectedLogRecords[#selectedLogRecords+1]=entry
+			end
+			local selectedMaterials={}
+			for id,wanted in pairs(wantedMaterials) do
+				selectedMaterials[id]={}
+				for i=1,math.min(wanted,#(materialGroups[id] or {})) do
+					selectedMaterials[id][i]=materialGroups[id][i]
+				end
+			end
+			if #selectedLogRecords==wantedLogs and wantedLogs>0 then
+				local estimate=ForgeMutationRules.Preview(selectedLogRecords,upgrade.ForgeLevel)
+				if estimate and estimate.Family==family then
+					axeStatRow("Ability potency",string.format("%.1f%%",estimate.Potency*100))
+					local summary={}
+					for _,ability in ipairs(estimate.AbilityOdds or {}) do
+						summary[#summary+1]=ability.Id.." "..string.format("%.0f%%",ability.Chance*100)
+					end
+					axeStatNote(table.concat(summary,"  /  "))
+				end
+			end
+			axeStatNote("Auto-selects the largest available mutated logs. Costs are provisional; all ingredients are deducted together.")
+			local ready=enough and upgrade.AtForge==true and not upgradePending
+			axeStatOrder+=1
+			local upgradeButton=button(axeStatsScroll,"UpgradeWeapon",
+				if upgradePending then "UPGRADING..."
+				else if not upgrade.AtForge then "VISIT THE FORGE TO UPGRADE"
+				else if not enough then "MISSING UPGRADE MATERIALS"
+				else if definition.Replacing then "REPLACE SECOND ABILITY"
+				else if mode=="Awaken" then "AWAKEN WEAPON"
+				else "INFUSE SECOND ABILITY",
+				UDim2.new(1,-8,0,47),UDim2.new(),
+				if ready then COLORS.BagAction else COLORS.Disabled)
+			upgradeButton.LayoutOrder=axeStatOrder
+			upgradeButton.ZIndex=14
+			upgradeButton.Active=ready
+			upgradeButton.AutoButtonColor=ready
+			upgradeButton.Activated:Connect(function()
+				if not upgradeButton.Active or upgradePending then return end
+				local requestKey=axe.UID.."|"..mode.."|"..family
+				if upgradeConfirmKey~=requestKey or os.clock()>upgradeConfirmUntil then
+					upgradeConfirmKey=requestKey
+					upgradeConfirmUntil=os.clock()+7
+					upgradeButton.Text="CONFIRM: CONSUME ALL LISTED MATERIALS"
+					return
+				end
+				upgradeConfirmKey=nil
+				upgradePending=true
+				upgradeButton.Active=false
+				upgradeButton.Text="UPGRADING..."
+				upgradeWeapon:FireServer(axe.UID,mode,family,{
+					LogUIDs=selectedLogs,
+					MaterialUIDsByType=selectedMaterials,
+				})
+			end)
+		elseif mode=="Infuse" then
+			axeStatNote("A second mutation slot unlocks at Legendary rarity. Awaken the weapon first if it has no mutation.")
+		else
+			axeStatNote("Requires Forge Level 2 and available upgrade ingredients.")
 		end
 	end
 
