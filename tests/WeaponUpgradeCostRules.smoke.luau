@@ -32,6 +32,11 @@ check("unknown resource kind rejected",not Rules.Validate({
 check("duplicate cost identifier rejected",not Rules.Validate({
 	{Kind="Coins",Amount=1},{Kind="Coins",Amount=2},
 }))
+local sparseCosts=table.create(2)
+sparseCosts[1]={Kind="Coins",Amount=1}
+sparseCosts[2]={Kind="Stack",Source="AxeHeads",Id="copper_head",Count=1}
+sparseCosts[1]=nil
+check("sparse cost rows rejected",not Rules.Validate(sparseCosts))
 check("duplicate material row rejected",not Rules.Validate({
 	{Kind="Material",Source="GroveMaterials",MaterialType="Heartwood",Count=1},
 	{Kind="Material",Source="GroveMaterials",MaterialType="Heartwood",Count=1},
@@ -85,6 +90,13 @@ check("wrong-family mutated logs fail",not Rules.Plan(sample,data,logs,chosen,"S
 check("spoofed ingredient UIDs fail",not Rules.Plan(sample,data,logs,{
 	LogUIDs={"log-g1","spoofed"},MaterialUIDs={"heart-a"},
 },"Golden").CanAfford)
+local sparseLogUIDs=table.create(2)
+sparseLogUIDs[1]="log-g1"
+sparseLogUIDs[2]="log-g2"
+sparseLogUIDs[1]=nil
+check("sparse log UID selection rejected",Rules.Plan(sample,data,logs,{
+	LogUIDs=sparseLogUIDs,MaterialUIDs={"heart-a"},
+},"Golden")==nil)
 check("duplicate UID selection rejected",Rules.Plan(sample,data,logs,{
 	LogUIDs={"log-g1","log-g1"},MaterialUIDs={"heart-a"},
 },"Golden")==nil)
@@ -121,6 +133,16 @@ check("missing second type fails closed",Rules.Plan(multiType,multiData,
 	{LogUIDs={"log-g1"},MaterialUIDsByType={
 		Heartwood={"heart-x"},CrystalCatalyst={"missing-y"},
 	}},"Golden").CanAfford==false)
+-- This intentionally keeps #selection == 2 while index 1 is missing;
+-- previously it could produce a receipt without spending the material.
+local sparseMaterialUIDs=table.create(2)
+sparseMaterialUIDs[1]="heart-a"
+sparseMaterialUIDs[2]="heart-b"
+sparseMaterialUIDs[1]=nil
+check("sparse material regression precondition",#sparseMaterialUIDs==2)
+check("sparse material UID selection rejected",Rules.Plan({
+	{Kind="Material",Source="GroveMaterials",MaterialType="Heartwood",Count=2},
+},data,{}, {MaterialUIDs=sparseMaterialUIDs},nil)==nil)
 check("duplicate cross-type resource UID rejected",Rules.Plan(multiType,multiData,
 	{{UID="log-g1",SizeScale=5,Mutations={Golden=true}}},
 	{LogUIDs={"log-g1"},MaterialUIDsByType={

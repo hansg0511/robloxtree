@@ -31,11 +31,17 @@ local function validId(id)
 end
 local function denseLength(list)
 	if type(list)~="table" then return nil end
-	local n=#list
+	local count=0
+	local maxIndex=0
 	for k in pairs(list) do
-		if not integer(k) or k<1 or k>n then return nil end
+		if not integer(k) or k<1 then return nil end
+		count+=1
+		if k>maxIndex then maxIndex=k end
 	end
-	return n
+	-- Counting present numeric keys rather than trusting Luau's length
+	-- operator rejects table.create(...) arrays with deleted interior entries.
+	if count~=maxIndex then return nil end
+	return maxIndex
 end
 local function copyCost(row)
 	local out={}
