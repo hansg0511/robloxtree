@@ -1445,8 +1445,12 @@ function Tree:CanChop(player)
 	if self.IsPersistentGrove then return false end
 	if not self.Choppable then return false end
 	if self.OwnerOnly and self.OwnerUserId ~= player.UserId then return false end
-	if self:HasActiveFirstHitClaim(os.clock())
-		and self.FirstHitClaimOwnerUserId ~= player.UserId then return false end
+	if self.FirstHitClaimEnabled then
+		local now = os.clock()
+		self:HasActiveFirstHitClaim(now)
+		if not FirstHitClaimRules.CanHit(self.FirstHitClaimOwnerUserId,
+			self.FirstHitClaimLastDamageAt, player.UserId, now) then return false end
+	end
 	return true
 end
 
@@ -2059,9 +2063,10 @@ function Tree:TakeDamage(ctx, player)
 	-- central gate for primary strikes, Cleave and Chain Lightning alike.
 	if self.FirstHitClaimEnabled then
 		local now = os.clock()
-		if self:HasActiveFirstHitClaim(now) then
-			if self.FirstHitClaimOwnerUserId ~= player.UserId then return false end
-		else
+		local active = self:HasActiveFirstHitClaim(now)
+		if not FirstHitClaimRules.CanHit(self.FirstHitClaimOwnerUserId,
+			self.FirstHitClaimLastDamageAt, player.UserId, now) then return false end
+		if not active then
 			self.FirstHitClaimOwnerUserId = player.UserId
 			self.FirstHitClaimOwnerPlayer = player
 			self.DamageContributions = {}
