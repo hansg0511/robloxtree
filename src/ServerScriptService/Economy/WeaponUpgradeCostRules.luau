@@ -5,11 +5,11 @@
 -- transaction must resolve UIDs again against authoritative LogService and
 -- verify all inputs immediately before an all-or-nothing commit.
 --
--- Recipe example (illustrative, NOT finalized game balance):
+-- Schema example ONLY, not a real recipe or approved material source:
 -- {
 --   { Kind = "Coins", Amount = 1000 },
 --   { Kind = "Logs", Count = 3, MutationFamily = "$selected" },
---   { Kind = "Material", Source = "GroveMaterials", MaterialType = "Heartwood", Count = 1 },
+--   { Kind = "Material", Source = "GroveMaterials", MaterialType = "unselected_future_type", Count = 1 },
 --   { Kind = "Stack", Source = "AxeHeads", Id = "copper_head", Count = 1 },
 --   { Kind = "Stack", Source = "MaterialBalances", Id = "future_essence", Count = 2 },
 -- }
