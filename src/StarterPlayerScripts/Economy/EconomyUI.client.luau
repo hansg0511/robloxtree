@@ -1403,13 +1403,15 @@ renderAxeDetail = function(axe)
 					axeStatNote(table.concat(summary,"  /  "))
 				end
 			end
-			axeStatNote("Auto-selects the largest available mutated logs. Costs are provisional; all ingredients are deducted together.")
+			axeStatNote(if upgrade.CostPolicy=="STUDIO_TEST_ONLY" then
+				"STUDIO TEST ONLY: 2/3 mutated logs are temporary inputs. Final upgrade ingredients, amounts and prices are UNDECIDED."
+				else "Auto-selects the largest available mutated logs. All required server-defined ingredients are consumed together.")
 			local ready=enough and upgrade.AtForge==true and not upgradePending
 			axeStatOrder+=1
 			local upgradeButton=button(axeStatsScroll,"UpgradeWeapon",
 				if upgradePending then "UPGRADING..."
 				else if not upgrade.AtForge then "VISIT THE FORGE TO UPGRADE"
-				else if not enough then "MISSING UPGRADE MATERIALS"
+				else if not enough then "NEED ELIGIBLE MUTATED LOGS"
 				else if definition.Replacing then "REPLACE SECOND ABILITY"
 				else if mode=="Awaken" then "AWAKEN WEAPON"
 				else "INFUSE SECOND ABILITY",
@@ -1425,7 +1427,9 @@ renderAxeDetail = function(axe)
 				if upgradeConfirmKey~=requestKey or os.clock()>upgradeConfirmUntil then
 					upgradeConfirmKey=requestKey
 					upgradeConfirmUntil=os.clock()+7
-					upgradeButton.Text="CONFIRM: CONSUME ALL LISTED MATERIALS"
+					upgradeButton.Text=if upgrade.CostPolicy=="STUDIO_TEST_ONLY"
+						then "CONFIRM TEST: CONSUME SELECTED LOGS"
+						else "CONFIRM: CONSUME LISTED MATERIALS"
 					return
 				end
 				upgradeConfirmKey=nil
@@ -2791,7 +2795,8 @@ upgradeWeapon.OnClientEvent:Connect(function(result)
 			AWAKEN_FIRST="AWAKEN FIRST",
 			ALREADY_AWAKENED="WEAPON ALREADY HAS AN ABILITY",
 			DUPLICATE_FAMILY="SELECT A DIFFERENT MUTATION FAMILY",
-			INSUFFICIENT_RESOURCES="NOT ENOUGH LOGS, HEARTWOOD, HEADS OR COINS",
+			INSUFFICIENT_RESOURCES="NOT ENOUGH INGREDIENTS FOR THIS RECIPE",
+			UPGRADE_ECONOMY_PENDING="UPGRADE RECIPES NOT YET AGREED",
 			INVALID_LOG_SELECTION="SELECTED LOGS UNAVAILABLE",
 			WRONG_MUTATED_LOGS="MUTATED LOG FAMILY CHANGED",
 			MATERIALS_CHANGED="UPGRADE MATERIALS CHANGED",
