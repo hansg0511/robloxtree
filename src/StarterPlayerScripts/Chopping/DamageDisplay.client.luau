@@ -152,8 +152,11 @@ local function UpdateHealthBar(target, hp, maxHP, claimOwnerUserId)
 	if hp > 0 and type(claimOwnerUserId) == "number" then
 		-- Compact, nonpersistent feedback beside the existing HP indicator.
 		-- Invalid/expired leases are never honored by the server.
-		bar.label.Text ..= if claimOwnerUserId == player.UserId then "  •  YOURS"
-			else "  •  CLAIMED"
+		if claimOwnerUserId == player.UserId then
+			bar.label.Text = bar.label.Text .. "  •  YOURS"
+		else
+			bar.label.Text = bar.label.Text .. "  •  CLAIMED"
+		end
 	end
 	
 	bar.lastHP = hp
