@@ -171,6 +171,7 @@ local function copySapling(record)
 		SpeciesId = record.SpeciesId,
 		Mutations = copyMutations(record.Mutations),
 		SizePotential = record.SizePotential,
+		GeneticPassive = record.GeneticPassive,
 		CreatedAt = record.CreatedAt,
 	}
 end
@@ -182,6 +183,7 @@ local function copyGroveTree(record, now)
 		SpeciesId = record.SpeciesId,
 		Mutations = copyMutations(record.Mutations),
 		SizePotential = record.SizePotential,
+		GeneticPassive = record.GeneticPassive,
 		CurrentSizeScale = record.CurrentSizeScale,
 		HarvestCount = record.HarvestCount,
 		LocalX = record.LocalX,
@@ -702,6 +704,7 @@ local function plantSapling(player, saplingUID, localX, localZ)
 		SpeciesId = sapling.SpeciesId,
 		Mutations = copyMutations(sapling.Mutations),
 		SizePotential = sapling.SizePotential,
+		GeneticPassive = sapling.GeneticPassive,
 		CurrentSizeScale = rolledSize,
 		HarvestCount = 0,
 		LocalX = localX,
