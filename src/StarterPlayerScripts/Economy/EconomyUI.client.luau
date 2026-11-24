@@ -1790,7 +1790,7 @@ local function renderShop(data)
 		local card = Instance.new("Frame")
 		card.Name = "AxeHeadCard_" .. head.Id
 		card.LayoutOrder = layoutOrder
-		card.Size = UDim2.new(1, -8, 0, compactShopCards and 166 or 118)
+		card.Size = UDim2.new(1, -8, 0, compactShopCards and 212 or 128)
 		card.BackgroundColor3 = layoutOrder % 2 == 0 and COLORS.BagPreview or COLORS.BagSlot
 		card.Parent = shopList
 		round(card, 12)
@@ -1823,41 +1823,56 @@ local function renderShop(data)
 		priceLabel.TextTruncate = Enum.TextTruncate.AtEnd
 		local owned = label(card, "OwnedCount", "OWNED  " .. tostring(count), textWidth, UDim2.new(0, textLeft, 0, compactShopCards and 80 or 84), 14, COLORS.BagMuted, Enum.Font.GothamBold)
 		owned.TextTruncate = Enum.TextTruncate.AtEnd
-		local actionText
-		local actionColor
-		local canBuy = head.CanBuy == true and head.Available == true and countKnown and count == 0
-		if count > 0 then
-			actionText = "OWNED"
-			actionColor = COLORS.Blue
-		elseif head.Available ~= true then
-			actionText = "LOCKED"
-			actionColor = COLORS.Disabled
-		else
-			actionText = "BUY"
-			actionColor = canBuy and COLORS.Gold or COLORS.Disabled
+		-- Existing ownership never disables repeat purchases. The server still
+		-- checks price, proximity, forest access and available funds.
+		local canBuy = head.CanBuy == true and head.Available == true and countKnown and price > 0
+		local maxQuantity = if canBuy then math.clamp(math.floor((data.Coins or 0) / price), 1, 1000) else 1
+		local quantity = 1
+		local purchasePanel = Instance.new("Frame")
+		purchasePanel.Name = "PurchaseControls"
+		purchasePanel.BackgroundTransparency = 1
+		purchasePanel.Size = if compactShopCards then UDim2.new(1, -24, 0, 88) else UDim2.new(0.42, -16, 0, 96)
+		purchasePanel.Position = if compactShopCards then UDim2.new(0, 12, 1, -98) else UDim2.new(0.58, 0, 0.5, -48)
+		purchasePanel.Parent = card
+		local minus = button(purchasePanel, "Minus", "−", UDim2.new(0, 40, 0, 36), UDim2.new(), COLORS.BagFrame)
+		local amount = label(purchasePanel, "Quantity", "1", UDim2.new(1, -136, 0, 36), UDim2.fromOffset(42, 0), 17, COLORS.BagText, Enum.Font.GothamBold)
+		amount.TextXAlignment = Enum.TextXAlignment.Center
+		local plus = button(purchasePanel, "Plus", "+", UDim2.fromOffset(40, 36), UDim2.new(1, -92, 0, 0), COLORS.BagFrame)
+		local max = button(purchasePanel, "Max", "MAX", UDim2.fromOffset(48, 36), UDim2.new(1, -48, 0, 0), COLORS.Blue)
+		local action = button(purchasePanel, "BuyHead", "", UDim2.new(1, 0, 0, 44), UDim2.fromOffset(0, 42), COLORS.Gold)
+		action.TextSize = 16
+		local pending = false
+		local function refreshPurchase()
+			amount.Text = tostring(quantity)
+			action.Text = if head.Available ~= true then "LOCKED" elseif not canBuy then "BUY UNAVAILABLE" else "BUY " .. tostring(quantity) .. " • " .. formatCoins(price * quantity)
+			action.BackgroundColor3 = if canBuy and not pending then COLORS.Gold else COLORS.Disabled
+			action.Active = canBuy and not pending
+			action.AutoButtonColor = action.Active
+			minus.Active = canBuy and not pending and quantity > 1
+			plus.Active = canBuy and not pending and quantity < maxQuantity
+			max.Active = canBuy and not pending
 		end
-		local actionSize = if compactShopCards then UDim2.new(1, -24, 0, 48) else UDim2.new(0.42, -16, 0, 66)
-		local actionPosition = if compactShopCards then UDim2.new(0, 12, 1, -58) else UDim2.new(0.58, 0, 0.5, -33)
-		local action = button(card, "BuyHead", actionText, actionSize, actionPosition, actionColor)
-		action.TextSize = 17
-		action.Active = canBuy
-		action.AutoButtonColor = canBuy
-		action.TextStrokeColor3 = COLORS.BagLine
-		action.TextStrokeTransparency = 0
-		round(action, 12)
-		local actionStroke = action:FindFirstChildOfClass("UIStroke")
-		if actionStroke then
-			actionStroke.Color = COLORS.BagLine
-			actionStroke.Thickness = 3
-		end
+		minus.Activated:Connect(function()
+			if minus.Active then quantity = math.max(1, quantity - 1); refreshPurchase() end
+		end)
+		plus.Activated:Connect(function()
+			if plus.Active then quantity = math.min(maxQuantity, quantity + 1); refreshPurchase() end
+		end)
+		max.Activated:Connect(function()
+			if max.Active then quantity = maxQuantity; refreshPurchase() end
+		end)
+		refreshPurchase()
 		action.Activated:Connect(function()
-			if not canBuy then return end
-			purchaseAxeHead:FireServer(head.Id)
-			task.delay(0.35, function()
+			if not canBuy or pending then return end
+			pending = true
+			refreshPurchase()
+			purchaseAxeHead:FireServer(head.Id, quantity)
+			task.delay(0.45, function()
 				if shopOverlay.Visible then
 					local ok, fresh = pcall(function() return getShopData:InvokeServer() end)
-					if ok then renderShop(fresh) end
+					if ok and type(fresh) == "table" then renderShop(fresh); return end
 				end
+				if card.Parent then pending = false; refreshPurchase() end
 			end)
 		end)
 	end
