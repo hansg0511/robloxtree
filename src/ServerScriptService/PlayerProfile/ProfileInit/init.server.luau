@@ -47,6 +47,7 @@ local ProfileTemplate = {
 			Forest2 = false,
 		},
 	},
+	GroveLevel = 1,
 	CarryCapacityKg = AxeShopCatalog.DEFAULT_CAPACITY_KG,
 	-- Neutral server-owned seam for future character/prestige progression.
 	-- It deliberately has no player-facing progression in this prototype.
