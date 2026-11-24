@@ -50,12 +50,16 @@ function Service.GetState(player)
 	if not offers then return nil end
 	local result={Cycle=offers.Cycle,RestockAt=offers.RestockAt,
 		Coins=data.Coins,OwnedSaplings=#(data.Saplings or {}),Offers={}}
-	local lastRare=type(data.SaplingShop)=="table" and data.SaplingShop.RareBoughtCycle or -1
+	local shop=if type(data.SaplingShop)=="table" then data.SaplingShop else {}
 	for _,offer in ipairs(offers.Offers) do
 		local unlocked=WorldProgress.CanAccessForest(player,offer.Forest)==true
-		local sold=offer.Rare and lastRare==offers.Cycle
+		local remaining=Shop.Remaining(shop,offers.Cycle,offer)
+		local sold=remaining<=0
 		local view=table.clone(offer)
 		view.Mutations=table.clone(offer.Mutations)
+		view.Unlocked=unlocked
+		view.InitialStock=offer.Stock
+		view.Stock=remaining
 		view.Available=unlocked and not sold
 		view.SoldOut=sold==true
 		view.CanBuy=unlocked and not sold
@@ -66,13 +70,14 @@ function Service.GetState(player)
 	end
 	return result
 end
-function Service.Purchase(player,id)
+function Service.Purchase(player,id,expectedCycle)
 	local data=getData(player)
 	if not data or type(data.Saplings)~="table"
 		or type(data.SaplingShop)~="table" then
 		return {Reason="PROFILE_UNAVAILABLE"}
 	end
 	local offers=Shop.Offers(os.time())
+	if not offers or expectedCycle~=offers.Cycle then return {Reason="OFFER_NOT_AVAILABLE"} end
 	local offer=Shop.Find(offers,id)
 	if not offer then return {Reason="OFFER_NOT_AVAILABLE"} end
 	if not WorldProgress.CanAccessForest(player,offer.Forest) then
@@ -84,7 +89,7 @@ function Service.Purchase(player,id)
 	if not validMoney(data.Coins) or data.Coins<offer.Price then
 		return {Reason="NOT_ENOUGH_COINS"}
 	end
-	if offer.Rare and data.SaplingShop.RareBoughtCycle==offers.Cycle then
+	if Shop.Remaining(data.SaplingShop,offers.Cycle,offer)<=0 then
 		return {Reason="SOLD_OUT"}
 	end
 	local uid=newUID(data)
@@ -101,7 +106,10 @@ function Service.Purchase(player,id)
 	}
 	table.insert(data.Saplings,record)
 	data.Coins-=offer.Price
-	if offer.Rare then data.SaplingShop.RareBoughtCycle=offers.Cycle end
+	local shop=data.SaplingShop
+	if shop.Cycle~=offers.Cycle then shop.Cycle=offers.Cycle; shop.Purchased={} end
+	if type(shop.Purchased)~="table" then shop.Purchased={} end
+	shop.Purchased[id]=(shop.Purchased[id] or 0)+1
 	return {Reason="PURCHASED",UID=uid,Name=offer.Name,
 		Coins=data.Coins,Rare=offer.Rare,Cycle=offers.Cycle}
 end
@@ -112,12 +120,12 @@ function Service.Start()
 		if select("#",...)~=0 then return nil end
 		return Service.GetState(player)
 	end
-	buy.OnServerEvent:Connect(function(player,id,...)
-		if select("#",...)~=0 or type(id)~="string" or #id>90 then return end
+	buy.OnServerEvent:Connect(function(player,id,cycle,...)
+		if select("#",...)~=0 or type(id)~="string" or #id>90 or type(cycle)~="number" or cycle%1~=0 then return end
 		local now=os.clock()
 		if now-(lastPurchase[player] or -math.huge)<0.4 then return end
 		lastPurchase[player]=now
-		local ok,result=pcall(function() return Service.Purchase(player,id) end)
+		local ok,result=pcall(function() return Service.Purchase(player,id,cycle) end)
 		if not ok then
 			warn("[SaplingShop] purchase error:",result)
 			buy:FireClient(player,{Reason="SERVER_ERROR"})
