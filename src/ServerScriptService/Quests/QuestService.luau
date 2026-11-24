@@ -6,6 +6,7 @@ local ReplicatedStorage=game:GetService("ReplicatedStorage")
 local Profiles=require(game.ServerScriptService.PlayerProfile.ProfileService.ProfileDataCache)
 local Rules=require(script.Parent.QuestRules)
 local ShopRules=require(game.ServerScriptService.Grove.SaplingShopRules)
+local Passives=require(game.ServerScriptService.Grove.GrovePassiveRules)
 local QuestsFolder=ReplicatedStorage:WaitForChild("Quests")
 local GetQuestStateRF=QuestsFolder:WaitForChild("GetQuestStateRF")
 local QuestStateUpdatedRE=QuestsFolder:WaitForChild("QuestStateUpdatedRE")
@@ -167,6 +168,7 @@ function Service.Claim(player,questId)
 		SpeciesId=reward.SpeciesId,
 		Mutations=table.clone(reward.Mutations),
 		SizePotential=reward.SizePotential,
+		GeneticPassive=Passives.RollGenetic(),
 		CreatedAt=os.time(),
 	}
 	-- Nonyielding commit of exactly ONE reward and the stage transition.
