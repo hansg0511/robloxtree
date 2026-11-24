@@ -104,21 +104,30 @@ for i=1,3 do
 end
 check("restock deadline is a future window",
 	first.RestockAt>now and first.RestockAt<=now+Shop.RESTOCK_SECONDS)
-local sawRare=false
-local sawNoRare=false
+local Quality=require(game.ServerScriptService.Grove.SaplingQualityRules)
+check("jackpot genetic size supported", rules.RollSize(4.9,1)==4.9)
+for _, draw in ipairs({1,850,851,970,971,997,998,1000}) do
+	local rng={NextInteger=function() return draw end,NextNumber=function(_,lo,hi) return hi end}
+	local expected=if draw<=850 then 1.1 elseif draw<=970 then 1.5 elseif draw<=997 then 2.5 else 3.5
+	check("wild size band boundary",Quality.Wild({},rng)==expected)
+	check("Giant uses same band with multiplier",math.abs(Quality.Wild({Giant=true},rng)-expected*1.4)<0.001)
+end
 for step=0,24 do
-	local offers=Shop.Offers(now+step*Shop.RESTOCK_SECONDS)
-	if #offers.Offers==4 then
-		sawRare=true
-		check("rare shop only adds one offer",offers.Offers[4].Rare==true
-			and offers.Offers[4].Stock==1)
-	else
-		sawNoRare=true
-		check("normal stock remains when rare is absent",#offers.Offers==3)
+	local t=now+step*Shop.RESTOCK_SECONDS
+	local offers=Shop.Offers(t)
+	local duplicate=Shop.Offers(t)
+	check("ordinary catalogue never disappears",#offers.Offers>=3)
+	for i,offer in ipairs(offers.Offers) do
+		local same=duplicate.Offers[i]
+		check("global stock and quality deterministic",offer.Id==same.Id and offer.Stock==same.Stock and offer.SizePotential==same.SizePotential)
+		check("numeric stock",type(offer.Stock)=="number" and offer.Stock>=0 and offer.Stock%1==0)
+		if offer.Rare then check("rare listed only if available",offer.Stock>=1 and offer.Stock<=2 and offer.SizePotential<=2.1) end
+		local own={Cycle=offers.Cycle,Purchased={[offer.Id]=offer.Stock}}
+		check("sold out quota persists",Shop.Remaining(own,offers.Cycle,offer)==0)
+		check("another player gets independent stock",Shop.Remaining({},offers.Cycle,offer)==offer.Stock)
+		check("restock resets quota",Shop.Remaining(own,offers.Cycle+1,offer)==offer.Stock)
 	end
 end
-check("shop cycles produce occasional rare and absent rare rotations",
-	sawRare and sawNoRare)
 check("shop rejects spoofed offer ids",Shop.Find(first,"made-up")==nil)
 check("rare wild trees are genuinely rare",
 	next(Search.RollWildTreeMutations(0.5,0))==nil)
