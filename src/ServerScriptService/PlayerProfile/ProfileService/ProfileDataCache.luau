@@ -7,6 +7,7 @@ local AxeShopCatalog = require(game.ServerScriptService.Economy.AxeShopCatalog)
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
 local MutationDefinitions = require(game.ServerScriptService.Grove.MutationDefinitions)
 local GroveGrowthRules = require(game.ServerScriptService.Grove.GroveGrowthRules)
+local GroveUpgrades = require(game.ServerScriptService.Grove.GroveUpgradeRules)
 local GrovePassives = require(game.ServerScriptService.Grove.GrovePassiveRules)
 local QuestRules = require(game.ServerScriptService.Quests.QuestRules)
 local ChopLeaderboardRules = require(game.ServerScriptService.ChopLeaderboardRules)
@@ -222,6 +223,7 @@ function PlayerProfileCache.NormalizeGroveData(data)
 			end
 		end
 	end
+	data.GroveLevel = GroveUpgrades.NormalizeLevel(data.GroveLevel)
 	data.Saplings = saplings
 	data.GroveTrees = groveTrees
 	data.GroveMaterials = groveMaterials
