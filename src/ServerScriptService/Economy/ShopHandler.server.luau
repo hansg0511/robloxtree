@@ -496,8 +496,11 @@ upgradeWeapon.OnServerEvent:Connect(function(player, uid, mode, family, selectio
 	end
 end)
 
-purchaseAxeHead.OnServerEvent:Connect(function(player, headId, ...)
+purchaseAxeHead.OnServerEvent:Connect(function(player, headId, quantity, ...)
 	if select("#", ...) ~= 0 or not takeBudget(player, "PurchaseAxeHead") then return end
+	-- Accept legacy one-head requests; bound each transaction, not total stock.
+	if quantity == nil then quantity = 1 end
+	if not isNonnegativeInteger(quantity) or quantity < 1 or quantity > 1000 then return end
 	if typeof(headId) ~= "string" or #headId < 1 or #headId > 64 then return end
 	if not BaseStationAccess.CanUseAxeShop(player) then return end
 	local profile, data = getProfileData(player)
@@ -510,12 +513,14 @@ purchaseAxeHead.OnServerEvent:Connect(function(player, headId, ...)
 	local count = data.AxeHeads[head.Id]
 	if not isFiniteNumber(count) or count < 0 or count % 1 ~= 0 then return end
 	local coins = data.Coins
-	if not isFiniteNumber(coins) or coins < head.Price then return end
+	local total = head.Price * quantity
+	if not isFiniteNumber(total) or total <= 0 or not isFiniteNumber(coins)
+		or coins < total or count + quantity > 1e12 then return end
 
-	-- Head ownership is material state only. This mutation does not create a
-	-- weapon, change the current-run tier, or unlock another forest.
-	data.Coins = coins - head.Price
-	data.AxeHeads[head.Id] = count + 1
+	-- Atomic all-or-nothing purchase; head ownership is material state only.
+	-- This does not create a weapon, change tier, or unlock another forest.
+	data.Coins = coins - total
+	data.AxeHeads[head.Id] = count + quantity
 	economyUpdated:FireClient(player, "Coins", data.Coins)
 	economyUpdated:FireClient(player, "Progression")
 end)
