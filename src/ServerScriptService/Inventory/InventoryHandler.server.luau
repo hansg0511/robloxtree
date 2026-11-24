@@ -26,6 +26,33 @@ local REMOTE_INTERVALS = {
 	EquipAxe = 0.5,
 }
 
+-- Use the real tier-two mutation definitions, selecting the midpoint of
+-- every ability's probability bucket. Debug-only composition bypasses forge
+-- slot selection, but all effects still pass the ordinary dispatcher rules.
+local function debugMutationEffects()
+	local effects = {}
+	if not game:GetService("RunService"):IsStudio() then return effects end
+	local rules = require(game.ReplicatedStorage.Shared.ForgeMutationRules)
+	local tier = 2
+	for _, family in ipairs(rules.FAMILIES) do
+		local cumulative = 0
+		for _, choice in ipairs(rules.AbilityOdds(family, tier)) do
+			local draw = cumulative + choice.Chance * 0.5
+			local result = rules.Roll({
+				Family = family, Tier = tier, Potency = rules.TIERS[tier].PotencyCap,
+			}, tier, {
+				NextNumber = function() return draw end,
+			})
+			if result and result.Id == choice.Id then
+				result.Effect.Source = "DebugProAxe"
+				table.insert(effects, result.Effect)
+			end
+			cumulative += choice.Chance
+		end
+	end
+	return effects
+end
+
 local DEBUG_PRO_PLAYER_NAME = "ForsakenDemonz"
 local DEBUG_PRO_ALLOWED_USER_IDS = {}
 local debugAllowlistState = "unresolved"
@@ -184,6 +211,7 @@ local function initInventoryData(player: Player): { any }
 					HeadId = "debug_pro_head",
 					CraftedPower = 10000,
 					DebugOnly = true,
+					Effects = debugMutationEffects(),
 					Materials = {},
 				},
 			}
