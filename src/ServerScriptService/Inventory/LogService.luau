@@ -795,6 +795,8 @@ function LogService.ConsumeCraftableLogUIDs(player, speciesId, logUids)
 	return true
 end
 
+local GrovePassives = require(game.ServerScriptService.Grove.GrovePassiveRules)
+
 local function makeSellSummary(player)
 	local data = getPlayerData(player)
 	if not data then return nil end
@@ -813,7 +815,7 @@ local function makeSellSummary(player)
 	local capacityMetrics = calculateCapacityMetrics(data)
 	return {
 		EligibleCount = eligibleCount,
-		TotalValue = totalValue,
+		TotalValue = GrovePassives.SaleValue(totalValue, GrovePassives.Totals(data, os.time())),
 		Coins = data.Coins,
 		ItemCount = capacityMetrics.ItemCount,
 		UsedKg = capacityMetrics.UsedKg,
@@ -3296,7 +3298,7 @@ SellUnlockedLogsRE.OnServerEvent:Connect(function(player, ...)
 
 	-- Commit ownership and coins before any client-only cosmetic animation.
 	data.Logs = remaining
-	EconomyManager.Add(player, "Coins", total)
+	EconomyManager.Add(player, "Coins", GrovePassives.SaleValue(total, GrovePassives.Totals(data, os.time())))
 	LogService.NotifyState(player)
 	local displaySold = {}
 	for index = 1, math.min(#sold, 20) do
