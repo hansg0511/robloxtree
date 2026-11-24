@@ -120,6 +120,7 @@ local function PlayerAdded(player)
 		-- Authoritative Studio-only fixtures: auto-supply funding, metal
 		-- components and quality-varied unique logs for instant forge tests.
 		StudioForgeSandbox.Refill(player, profile.Data)
+		DevelopmentLoadouts.ApplyCombatFixtures(player, profile.Data)
 		profileCache.NormalizeGroveData(profile.Data)
 		profile:ListenToRelease(function()
 			profileCache.Remove(player)
