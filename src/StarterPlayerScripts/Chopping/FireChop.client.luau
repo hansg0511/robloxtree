@@ -45,6 +45,8 @@ local nextLocalSwingAt = 0
 UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then return end
 	if isChopInput(input) then
+		local haste = player:GetAttribute("GroveHaste")
+		local hasteMultiplier = 1 + (if type(haste) == "number" and haste >= 0 and haste < math.huge then haste else 0)
 		local rate
 		local hasAxe = false
 		local fervorStacks, fervorPerStack, fervorExpiresAt
@@ -67,7 +69,7 @@ UserInputService.InputBegan:Connect(function(input, processed)
 			if character and not character:FindFirstChildOfClass("Tool") then
 				local now = os.clock()
 				if now >= nextLocalSwingAt then
-					nextLocalSwingAt = now + 0.4
+					nextLocalSwingAt = now + math.max(0.16, 0.4 / hasteMultiplier)
 					ChopEvent:FireServer()
 				end
 			end
@@ -80,6 +82,7 @@ UserInputService.InputBegan:Connect(function(input, processed)
 			animationBaseRate = math.clamp(rate, 0.5, 1 / 0.3)
 		end
 		local baseInterval = interval
+		interval = math.max(0.16, interval / hasteMultiplier)
 		local speedMultiplier = 1
 		-- Studio/live Fervor updates originate only from successful server
 		-- chops. Use server time, not the client's local os.clock(), so the
