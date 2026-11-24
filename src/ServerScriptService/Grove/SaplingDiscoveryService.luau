@@ -6,6 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LogService = require(game.ServerScriptService.Inventory.LogService)
 local ProfileCache = require(game.ServerScriptService.PlayerProfile.ProfileService.ProfileDataCache)
 local MutationDefinitions = require(script.Parent.MutationDefinitions)
+local Passives = require(script.Parent.GrovePassiveRules)
 
 local SaplingDiscoveryService = {}
 
@@ -147,12 +148,11 @@ function SaplingDiscoveryService.AwardForTreeDeath(tree, contributions, deathGen
 	local hasMutation=next(inherited)~=nil
 	local chance=if hasMutation then SaplingDiscoveryService.Config.MutatedDropChance
 		else SaplingDiscoveryService.Config.DropChance
-	if not winner or random:NextNumber() >= chance then
-		return nil
-	end
-
+	if not winner then return nil end
 	local data = getProfileData(winner)
 	if not data then return nil end
+	chance = math.clamp(chance * (1 + Passives.Totals(data, os.time()).SaplingChance), 0, 1)
+	if random:NextNumber() >= chance then return nil end
 	if type(data.Saplings) ~= "table" then data.Saplings = {} end
 
 	local uid = newSaplingUID(data)
