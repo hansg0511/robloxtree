@@ -46,11 +46,13 @@ UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then return end
 	if isChopInput(input) then
 		local rate
+		local hasAxe = false
 		local fervorStacks, fervorPerStack, fervorExpiresAt
 		local character = player.Character
 		if character then
 			for _, tool in ipairs(character:GetChildren()) do
 				if tool:IsA("Tool") and tool:GetAttribute("EquippedAxe") == true then
+					hasAxe = true
 					rate = tool:GetAttribute("CraftAttackRate")
 					fervorStacks = tool:GetAttribute("FervorStacks")
 					fervorPerStack = tool:GetAttribute("FervorSpeedPerStack")
@@ -58,6 +60,18 @@ UserInputService.InputBegan:Connect(function(input, processed)
 					break
 				end
 			end
+		end
+		if not hasAxe then
+			-- The server selects and animates a valid R6 punch. Never play
+			-- the axe animation on a character without an equipped axe.
+			if character and not character:FindFirstChildOfClass("Tool") then
+				local now = os.clock()
+				if now >= nextLocalSwingAt then
+					nextLocalSwingAt = now + 0.4
+					ChopEvent:FireServer()
+				end
+			end
+			return
 		end
 		local interval = 0.3
 		local animationBaseRate = 1
