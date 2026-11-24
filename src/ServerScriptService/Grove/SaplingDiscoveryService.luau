@@ -112,6 +112,7 @@ local function makeClientRecord(record)
 		SpeciesId = record.SpeciesId,
 		Mutations = MutationDefinitions.CopyKnown(record.Mutations),
 		SizePotential = record.SizePotential,
+		GeneticPassive = record.GeneticPassive,
 	}
 end
 
@@ -162,6 +163,7 @@ function SaplingDiscoveryService.AwardForTreeDeath(tree, contributions, deathGen
 		SpeciesId = speciesId,
 		Mutations = inherited,
 		SizePotential = rollSizePotential(inherited),
+		GeneticPassive = Passives.RollGenetic(),
 		CreatedAt = os.time(),
 	}
 	if type(record.CreatedAt) ~= "number" or record.CreatedAt < 0 then return nil end
