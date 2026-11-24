@@ -40,7 +40,8 @@ local groveMaterials = {}
 local groveTrees = {}
 local selectedSaplingUID
 local selectedGroveTreeUID
-local groveCapacity = 25 -- overwritten by the server snapshot
+local groveCapacity = 3 -- overwritten by the server snapshot
+local passiveTotals = {}
 local managerOpen = false
 local uprootPending = false
 local confirmUprootUID
@@ -365,7 +366,7 @@ groveManagerPanel=Instance.new("Frame")
 groveManagerPanel.Name="SelectedGroveTree"
 groveManagerPanel.AnchorPoint=Vector2.new(0,1)
 groveManagerPanel.Position=UDim2.new(0,401,1,-18)
-groveManagerPanel.Size=UDim2.fromOffset(340,236)
+groveManagerPanel.Size=UDim2.fromOffset(340,354)
 groveManagerPanel.BackgroundColor3=Color3.fromRGB(21,29,25)
 groveManagerPanel.BackgroundTransparency=0.04
 groveManagerPanel.BorderSizePixel=0
@@ -391,13 +392,19 @@ local managerPosition=makeLabel(groveManagerPanel,"TreeIndex",
 	Enum.Font.GothamBold,12,Color3.fromRGB(225,240,220))
 managerPosition.TextXAlignment=Enum.TextXAlignment.Center
 local managerDetails=makeLabel(groveManagerPanel,"TreeDetails",
-	UDim2.fromOffset(12,75),UDim2.fromOffset(314,65),
+	UDim2.fromOffset(12,75),UDim2.fromOffset(314,80),
 	Enum.Font.GothamMedium,13,Color3.fromRGB(231,229,211))
 managerDetails.TextYAlignment=Enum.TextYAlignment.Top
+local managerPassives=makeLabel(groveManagerPanel,"TreePassives",
+	UDim2.fromOffset(12,157),UDim2.fromOffset(314,42),
+	Enum.Font.GothamBold,12,Color3.fromRGB(160,218,158))
+local managerTotals=makeLabel(groveManagerPanel,"TotalPassives",
+	UDim2.fromOffset(12,201),UDim2.fromOffset(314,58),
+	Enum.Font.GothamMedium,12,Color3.fromRGB(225,240,220))
 local uprootButton=makeManagerButton(groveManagerPanel,
-	"UprootTree","UPROOT SELECTED TREE",12,147,314,41,Color3.fromRGB(131,68,57))
+	"UprootTree","UPROOT SELECTED TREE",12,265,314,41,Color3.fromRGB(131,68,57))
 local uprootWarning=makeLabel(groveManagerPanel,"PermanentRemovalWarning",
-	UDim2.fromOffset(12,192),UDim2.fromOffset(314,33),
+	UDim2.fromOffset(12,310),UDim2.fromOffset(314,33),
 	Enum.Font.Gotham,11,Color3.fromRGB(235,177,154))
 
 local function containsSaplingUID(list, uid)
@@ -540,6 +547,25 @@ local function selectManagedTree(uid)
 	return false
 end
 
+local PASSIVE_DISPLAY = {
+	{ Key="Damage", Name="damage", Scale=100, Unit="%" },
+	{ Key="Haste", Name="attack speed", Scale=100, Unit="%" },
+	{ Key="Sale", Name="sale value", Scale=100, Unit="%" },
+	{ Key="SaplingChance", Name="sapling chance (relative)", Scale=100, Unit="%" },
+	{ Key="CritChance", Name="crit chance", Scale=1, Unit=" pp" },
+	{ Key="CritDamage", Name="crit damage", Scale=1, Unit=" pp" },
+}
+local function formatPassives(values)
+	local parts = {}
+	for _, entry in ipairs(PASSIVE_DISPLAY) do
+		local value = type(values) == "table" and values[entry.Key]
+		if type(value) == "number" and value > 0 then
+			table.insert(parts, string.format("+%.1f%s %s", value*entry.Scale, entry.Unit, entry.Name))
+		end
+	end
+	return if #parts > 0 then table.concat(parts, "  •  ") else "None"
+end
+
 renderTreeManager=function()
 	local count=#groveTrees
 	managerToggle.Text=string.format("MANAGE PLANTED TREES  •  %d / %d",count,groveCapacity)
@@ -564,8 +590,11 @@ renderTreeManager=function()
 	local mutations=formatMutationNames(tree.Mutations)
 	local name=if mutations=="" then tostring(tree.SpeciesId)
 		else mutations.." "..tostring(tree.SpeciesId)
-	managerDetails.Text=string.format("%s\nGenetic size potential: %.2fx (maximum)\nStage: %s",
-		name,tonumber(tree.SizePotential) or 1,tostring(tree.Stage or "growing"))
+	managerDetails.Text=string.format("%s\nGenetic potential: %.2fx  •  Current size: %.2fx\nStage: %s",
+		name,tonumber(tree.SizePotential) or 1,tonumber(tree.CurrentSizeScale) or 1,tostring(tree.Stage or "growing"))
+	managerPassives.Text=if tree.Stage == "mature" then "ACTIVE: "..formatPassives(tree.Passives)
+		else "PASSIVE INACTIVE UNTIL MATURE"
+	managerTotals.Text="TOTAL GROVE BONUSES\n"..formatPassives(passiveTotals)
 	local rare=mutations~=""
 	uprootWarning.Text=if rare
 		then "WARNING: Mutated sapling LOST FOREVER. No materials refunded."
@@ -904,6 +933,7 @@ local function applySnapshot(snapshot)
 	end
 
 	stateLoaded = true
+	passiveTotals = if type(snapshot.PassiveTotals) == "table" then snapshot.PassiveTotals else {}
 	hasAssignedGrove = snapshot.HasAssignedGrove == true
 	if type(snapshot.Capacity)=="number" and snapshot.Capacity>=1
 		and snapshot.Capacity%1==0 then
