@@ -100,7 +100,7 @@ local panel = Instance.new("Frame")
 panel.Name = "StatusPanel"
 panel.AnchorPoint = Vector2.new(0, 1)
 panel.Position = UDim2.new(0, 18, 1, -18)
-panel.Size = UDim2.fromOffset(372, 402)
+panel.Size = UDim2.fromOffset(372, 486)
 panel.BackgroundColor3 = Color3.fromRGB(21, 29, 25)
 panel.BackgroundTransparency = 0.08
 panel.BorderSizePixel = 0
@@ -214,76 +214,98 @@ local function setFeedback(message, kind)
 	end
 end
 
--- Shop is a compact strip beneath the EXISTING Grove controls, not
--- another modal to maintain. Normal stock stays present during rare resets.
+-- Global stock catalogue; only offers with positive initial stock appear in
+-- the mutated tab. Bought-out rows remain until the next restock.
 local shopHeading = makeLabel(panel,"SaplingShopHeading",
 	UDim2.fromOffset(13,207),UDim2.new(1,-26,0,16),
 	Enum.Font.GothamBold,12,Color3.fromRGB(232,218,153))
-shopHeading.Text="SAPLING SHOP • COMMON ALWAYS STOCKED"
-local function createShopButton(name,x,y,w)
+local function shopButton(parent,name,x,y,w,h)
 	local b=Instance.new("TextButton")
 	b.Name=name
-	b.Size=UDim2.fromOffset(w,33)
+	b.Size=UDim2.fromOffset(w,h)
 	b.Position=UDim2.fromOffset(x,y)
 	b.BackgroundColor3=Color3.fromRGB(59,106,71)
 	b.TextColor3=Color3.fromRGB(240,255,228)
-	b.TextSize=11
+	b.TextSize=12
 	b.TextWrapped=true
 	b.Font=Enum.Font.GothamBold
 	b.BorderSizePixel=0
-	b.Parent=panel
+	b.Parent=parent
 	local corner=Instance.new("UICorner")
 	corner.CornerRadius=UDim.new(0,6)
 	corner.Parent=b
 	return b
 end
-local shopCommonButtons={
-	common_bamboo=createShopButton("BuyBambooSapling",13,226,111),
-	common_oak=createShopButton("BuyOakSapling",129,226,111),
-	common_ironwood=createShopButton("BuyIronwoodSapling",245,226,111),
-}
-local shopRareButton=createShopButton("BuyRareSapling",13,266,343)
+local ordinaryTab=shopButton(panel,"OrdinaryTab",13,227,169,27)
+ordinaryTab.Text="ORDINARY"
+local mutatedTab=shopButton(panel,"MutatedTab",187,227,169,27)
+mutatedTab.Text="MUTATED"
+local stockList=Instance.new("ScrollingFrame")
+stockList.Name="SaplingStockList"
+stockList.Position=UDim2.fromOffset(13,260)
+stockList.Size=UDim2.fromOffset(343,123)
+stockList.BackgroundTransparency=1
+stockList.BorderSizePixel=0
+stockList.ScrollBarThickness=5
+stockList.ScrollingDirection=Enum.ScrollingDirection.Y
+stockList.AutomaticCanvasSize=Enum.AutomaticSize.Y
+stockList.CanvasSize=UDim2.fromOffset(0,0)
+stockList.Parent=panel
+local stockLayout=Instance.new("UIListLayout")
+stockLayout.Padding=UDim.new(0,4)
+stockLayout.SortOrder=Enum.SortOrder.LayoutOrder
+stockLayout.Parent=stockList
 local shopSnapshot
 local shopPending=false
 local shopBusy=false
+local shopTab="ordinary"
 local refreshSaplingShop
-local function renderSaplingShop()
-	local stock={}
-	if type(shopSnapshot)=="table" then
-		for _,offer in ipairs(shopSnapshot.Offers or {}) do
-			stock[offer.Id]=offer
-			if offer.Rare then stock._Rare=offer end
-		end
-	end
-	for id,b in pairs(shopCommonButtons) do
-		local offer=stock[id]
-		b.Text=if offer then
-			(string.upper(tostring(offer.SpeciesId)).."  "..tostring(offer.Price))
-			else "LOADING..."
-		b.Active=offer~=nil and offer.CanBuy==true and not shopPending
-		b.AutoButtonColor=b.Active
-		b.BackgroundColor3=if b.Active then Color3.fromRGB(59,106,71)
-			else Color3.fromRGB(81,89,83)
-	end
-	local rare=stock._Rare
-	local remaining=if type(shopSnapshot)=="table"
-		and type(shopSnapshot.RestockAt)=="number"
+local buyOffer
+local function renderRestock()
+	local remaining=if type(shopSnapshot)=="table" and type(shopSnapshot.RestockAt)=="number"
 		then math.max(0,shopSnapshot.RestockAt-os.time()) else 0
-	local restock=string.format(" • RESTOCK ~%dM",math.ceil(remaining/60))
-	if rare then
-		shopRareButton.Text=if rare.SoldOut then
-			"SOLD OUT • "..string.upper(rare.Name)..restock
-			else string.upper(rare.Name).." • "..tostring(rare.Price).." COINS"
-		shopRareButton.Active=rare.CanBuy==true and not shopPending
-	else
-		shopRareButton.Text="RARE SAPLING: NONE THIS RESTOCK"..restock
-		shopRareButton.Active=false
-	end
-	shopRareButton.AutoButtonColor=shopRareButton.Active
-	shopRareButton.BackgroundColor3=if shopRareButton.Active
-		then Color3.fromRGB(113,83,165) else Color3.fromRGB(81,89,83)
+	shopHeading.Text=if shopSnapshot then string.format("SAPLING SHOP  •  RESTOCK %02d:%02d",math.floor(remaining/60),remaining%60)
+		else "SAPLING SHOP • LOADING"
 end
-local function buyOffer(id)
+local function renderSaplingShop()
+	renderRestock()
+	ordinaryTab.BackgroundColor3=if shopTab=="ordinary" then Color3.fromRGB(70,122,78) else Color3.fromRGB(64,72,66)
+	mutatedTab.BackgroundColor3=if shopTab=="mutated" then Color3.fromRGB(113,83,165) else Color3.fromRGB(64,72,66)
+	for _,child in ipairs(stockList:GetChildren()) do
+		if child~=stockLayout then child:Destroy() end
+	end
+	local count=0
+	for _,offer in ipairs(type(shopSnapshot)=="table" and shopSnapshot.Offers or {}) do
+		if (offer.Rare==true)~=(shopTab=="mutated") then continue end
+		if offer.Rare and (offer.InitialStock or 0)<=0 then continue end
+		count+=1
+		local row=Instance.new("Frame")
+		row.Name=offer.Id
+		row.Size=UDim2.new(1,-7,0,40)
+		row.BackgroundColor3=Color3.fromRGB(36,48,40)
+		row.BorderSizePixel=0
+		row.LayoutOrder=count
+		row.Parent=stockList
+		local label=makeLabel(row,"Offer",UDim2.fromOffset(6,0),UDim2.new(1,-112,1,0),
+			Enum.Font.GothamMedium,12,Color3.fromRGB(234,236,224))
+		local status=if offer.Stock<=0 then "SOLD OUT" else tostring(offer.Stock).." in stock"
+		label.Text=string.format("%s\n%.2fx  •  %s",offer.Name,offer.SizePotential,status)
+		local buy=shopButton(row,"Buy",0,3,100,34)
+		buy.Position=UDim2.new(1,-103,0,3)
+		buy.Text=if not offer.Unlocked then "FOREST LOCKED" elseif offer.Stock<=0 then "SOLD OUT" else tostring(offer.Price).." COINS"
+		buy.Active=offer.CanBuy==true and not shopPending
+		buy.AutoButtonColor=buy.Active
+		buy.BackgroundColor3=if buy.Active then Color3.fromRGB(59,106,71) else Color3.fromRGB(81,89,83)
+		local id=offer.Id
+		buy.Activated:Connect(function() if buy.Active then buyOffer(id) end end)
+	end
+	if count==0 then
+		local empty=makeLabel(stockList,"Empty",UDim2.fromOffset(0,0),UDim2.new(1,-8,0,44),
+			Enum.Font.GothamMedium,12,Color3.fromRGB(192,209,190))
+		empty.Text=if not shopSnapshot then "Loading saplings..." elseif shopTab=="mutated" then "No mutated saplings this restock." else "No ordinary saplings available."
+	end
+end
+buyOffer=function(id)
 	if shopPending or not shopSnapshot then return end
 	local offer
 	for _,o in ipairs(shopSnapshot.Offers or {}) do
@@ -292,23 +314,24 @@ local function buyOffer(id)
 	if not offer then return end
 	shopPending=true
 	renderSaplingShop()
-	buySaplingRE:FireServer(id)
-	-- Network problems must not leave buttons disabled indefinitely.
+	buySaplingRE:FireServer(id,shopSnapshot.Cycle)
 	task.delay(3,function()
 		if shopPending and not cleanedUp then
 			shopPending=false
 			renderSaplingShop()
+			if refreshSaplingShop then refreshSaplingShop() end
 		end
 	end)
 end
-for id,b in pairs(shopCommonButtons) do
-	b.Activated:Connect(function() buyOffer(id) end)
-end
-shopRareButton.Activated:Connect(function()
-	if type(shopSnapshot)~="table" then return end
-	for _,o in ipairs(shopSnapshot.Offers or {}) do
-		if o.Rare then buyOffer(o.Id) return end
-	end
+ordinaryTab.Activated:Connect(function()
+	shopTab="ordinary"
+	stockList.CanvasPosition=Vector2.zero
+	renderSaplingShop()
+end)
+mutatedTab.Activated:Connect(function()
+	shopTab="mutated"
+	stockList.CanvasPosition=Vector2.zero
+	renderSaplingShop()
 end)
 refreshSaplingShop=function()
 	if shopBusy or cleanedUp then return end
@@ -317,9 +340,7 @@ refreshSaplingShop=function()
 		local ok,result=pcall(function() return shopRF:InvokeServer() end)
 		shopBusy=false
 		if cleanedUp then return end
-		if ok and type(result)=="table" then
-			shopSnapshot=result
-		end
+		if ok and type(result)=="table" then shopSnapshot=result end
 		renderSaplingShop()
 	end)
 end
@@ -328,19 +349,25 @@ keepConnection(buySaplingRE.OnClientEvent:Connect(function(result)
 	if type(result)=="table" and result.Reason=="PURCHASED" then
 		setFeedback("Bought "..tostring(result.Name or "sapling").."! Plant with [G].","success")
 		if refreshState then refreshState() end
+		-- Do not briefly re-enable a stale last copy before the snapshot arrives.
+		for _,o in ipairs(shopSnapshot and shopSnapshot.Offers or {}) do
+			if o.Id==result.OfferId and result.Cycle==shopSnapshot.Cycle then
+				o.Stock=math.max(0,o.Stock-1)
+				o.CanBuy=false
+			end
+		end
 	else
 		local names={
 			NOT_ENOUGH_COINS="Not enough coins for this sapling.",
-			SOLD_OUT="Rare sapling already purchased this restock.",
-			OFFER_NOT_AVAILABLE="Offer rotated. Please check the shop again.",
+			SOLD_OUT="Your stock is sold out until restock.",
+			OFFER_NOT_AVAILABLE="Stock rotated. Please check the shop again.",
 			SAPLING_STORAGE_FULL="Too many unplanted saplings.",
 			FOREST_LOCKED="Unlock this forest before buying its saplings.",
 		}
-		setFeedback(names[result and result.Reason]
-			or "Sapling purchase unavailable. Try again.","error")
+		setFeedback(names[result and result.Reason] or "Sapling purchase unavailable. Try again.","error")
 	end
-	refreshSaplingShop()
 	renderSaplingShop()
+	refreshSaplingShop()
 end))
 renderSaplingShop()
 
@@ -366,8 +393,8 @@ local function makeManagerButton(parent,name,caption,x,y,width,height,color)
 end
 
 local managerToggle=makeManagerButton(panel,"ManagePlantedTrees",
-	"MANAGE PLANTED TREES",13,307,343,31)
-local upgradeButton=makeManagerButton(panel,"UpgradeGrove","GROVE UPGRADE",13,346,343,46,Color3.fromRGB(113,83,165))
+	"MANAGE PLANTED TREES",13,390,343,31)
+local upgradeButton=makeManagerButton(panel,"UpgradeGrove","GROVE UPGRADE",13,429,343,46,Color3.fromRGB(113,83,165))
 local function renderUpgrade()
 	local nextLevel = nextGroveUpgrade
 	upgradeButton.Text = if upgradePending then "UPGRADING..."
@@ -1398,7 +1425,10 @@ refreshSaplingShop()
 -- server snapshot so rare restocks and affordability appear automatically.
 task.spawn(function()
 	while not cleanedUp do
-		task.wait(20)
-		if not cleanedUp then refreshSaplingShop() end
+		task.wait(1)
+		if not cleanedUp then
+			renderRestock()
+			if not shopSnapshot or os.time()>=shopSnapshot.RestockAt or os.time()%10==0 then refreshSaplingShop() end
+		end
 	end
 end)
