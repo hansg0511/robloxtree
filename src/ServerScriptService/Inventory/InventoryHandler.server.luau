@@ -398,6 +398,11 @@ addShopAxeItem.OnInvoke = function(player, itemRecord)
 		rollbackUncommittedShopAxe(player, profile, inv, runtimeItem, persistedRecord)
 		return false
 	end
+	-- The first successfully crafted weapon should immediately replace
+	-- bare hands. Do not auto-swap an established player's equipped weapon.
+	local firstEquipment = profile.Data.Runtime.EquippedWeaponUID == nil
+		and type(profile.Data.Equipped) == "table"
+		and profile.Data.Equipped.Weapon == nil
 	local pendingAdds = deferredShopAxeAddedItems[player]
 	deferredShopAxeAddedItems[player] = nil
 	if pendingAdds then
@@ -405,6 +410,17 @@ addShopAxeItem.OnInvoke = function(player, itemRecord)
 			pcall(function()
 				IMRemotes.NewInventoryItemRE:FireClient(player, pendingAdd.Item, pendingAdd.StackOnAdd)
 			end)
+		end
+	end
+	if firstEquipment then
+		-- Inventory and recipe payment are already committed. An equip/character
+		-- race must never roll the craft back or duplicate its materials.
+		local equipOk, didEquip = pcall(EquipOwnedAxe, player, runtimeItem.ItemUID)
+		if equipOk and didEquip then
+			pcall(function() IMRemotes.SpawnEquippedItemRE:FireClient(player) end)
+		else
+			-- The player still owns the weapon and may equip it normally.
+			warn("[Inventory] First forged weapon saved; automatic equip unavailable")
 		end
 	end
 	return true
@@ -420,6 +436,12 @@ profileBindableEvent.Event:Connect(function(player: Player)
 			itemUID = playerProfile.Data.Equipped.Weapon
 		end
 		local item = itemUID and runtime.Weapon[itemUID]
+		if not item then
+			-- Fresh profiles have no equipped weapon. Do not accidentally use
+			-- an IMS selection (including a developer-only tool) as a fallback.
+			StatsAggregator.Aggregate(player)
+			return
+		end
 		if not EquipItem(player, item) then return end
 		local inv = playerInventories[player]
 		if not inv then return end
