@@ -20,7 +20,7 @@ local ProfileTemplate = {
 	-- Personal Grove ownership is stored as primitive profile records. Runtime
 	-- TreeObjects and world transforms are rebuilt after the player's plot loads.
 	Saplings = {},
-	SaplingShop = { RareBoughtCycle = -1 },
+	SaplingShop = { Cycle = -1, Purchased = {}, RareBoughtCycle = -1 },
 	-- One-time tutorial campaign plus independent recurring task progress.
 	QuestProgress = { Stage = 1, Count = 0 },
 	QuestRecurring = {}, -- UTC window IDs and per-task counts; normalized on load.
