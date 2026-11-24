@@ -9,17 +9,9 @@ local remoteLoaded = game.ReplicatedStorage.Profile.ProfileLoadEvent
 
 local ProfileTemplate = {
 	
-	Inventory = {
-		{
-			ItemID = 101,
-			UID = "starter-basic-axe",
-			Stats = {
-				["Attack"] = 5,
-			},
-			Substat = {},
-			Rarity = "Common",
-		},
-	},
+	-- New players punch starter trees until they forge their first weapon.
+	-- Reconcile must not remove previously owned legacy starter axes.
+	Inventory = {},
 	-- One unique physical log per record; material kg cost is resolved server-side.
 	Logs = {},
 	-- Protected, individually identified crafting materials; outside carry kg.
@@ -62,9 +54,7 @@ local ProfileTemplate = {
 	Coins = 0,
 	Wood = 0,
 	LogInTimes = 0,
-	Equipped = {
-		Weapon = "starter-basic-axe",
-	},
+	Equipped = {},
 	-- Retained because StatsAggregator supports legacy/current pet records. New
 	-- profiles start empty; pets are not part of this rework's feature scope.
 	ActivePets = {}
