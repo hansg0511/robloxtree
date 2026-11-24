@@ -2136,6 +2136,9 @@ local function forgeSelectionStatus(recipe, selectedCount, required, mutationPre
 		return "UPGRADE THE FORGE FOR THIS METAL", COLORS.Orange
 	end
 	if mutationPreview and mutationPreview.InvalidReason then
+		if mutationPreview.InvalidReason == "TOO_MANY_MUTATED_LOGS" then
+			return "MAX " .. tostring(mutationPreview.MaxMutatedLogs) .. " MUTATED LOGS", COLORS.Orange
+		end
 		return "DO NOT MIX GOLDEN / FRENZIED / SHOCKED", COLORS.Orange
 	end
 	if recipe.Experimental == true then
@@ -2202,9 +2205,12 @@ local function renderForge(data)
 	forgeModeStandard.BackgroundColor3 = if forgeModeSelection == "STANDARD" then COLORS.BagAction else COLORS.BagSlot
 	forgeTierCopper.BackgroundColor3 = if forgeMetalSelection == "copper" then COLORS.Gold else COLORS.BagSlot
 	forgeTierIron.BackgroundColor3 = if forgeMetalSelection == "iron" then COLORS.Gold else COLORS.BagSlot
-	forgePanel.Header.Subtitle.Text = if forgeModeSelection == "RNG"
-		then "PICK A METAL + LOGS • SEE ODDS • FORGE"
-		else "CLASSIC FIXED-RECIPE AXES"
+	local forgeConfig = ForgeMutationRules.Tier(forgeLevel)
+	local weights = type(data) == "table" and data.ForgeRarityWeights
+	forgePanel.Header.Subtitle.Text = if forgeConfig and type(weights) == "table"
+		then string.format("%d MUTATED LOGS • %.0f%% POTENCY CAP • ULTRA %.4f%%",
+			forgeConfig.MaxMutatedLogs, forgeConfig.PotencyCap * 100, weights.Ultra / 10000)
+		else "PICK A METAL + LOGS • SEE ODDS • FORGE"
 	-- Render ONLY the currently selected recipe, not four full-size cards.
 	local activeRecipeId = if forgeModeSelection == "RNG"
 		then "experiment_" .. forgeMetalSelection else forgeMetalSelection .. "_axe"
@@ -2291,7 +2297,9 @@ local function renderForge(data)
 			else forgePowerEstimate(recipe, selectedLogUids)
 		local estimateText
 		if mutationPreview and mutationPreview.InvalidReason then
-			estimateText = "MIXED MUTATIONS: CHOOSE ONE ABILITY FAMILY"
+			estimateText = if mutationPreview.InvalidReason == "TOO_MANY_MUTATED_LOGS"
+			then "TOO MANY MUTATED LOGS • LIMIT " .. tostring(mutationPreview.MaxMutatedLogs)
+			else "MIXED MUTATIONS: CHOOSE ONE ABILITY FAMILY"
 		elseif mutationPreview and mutationPreview.Family then
 			estimateText = string.format("%s • POTENCY %.1f%% / %.0f%% CAP • %d ABILITY CHOICE(S)",
 				string.upper(mutationPreview.Family), mutationPreview.Potency * 100,
