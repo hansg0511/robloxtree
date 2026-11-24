@@ -250,6 +250,7 @@ local function buildOwnedAxes(player, profile, eligibleAscensionLogs)
 				Name = debugInfo.Name,
 				Power = catalog.BaseAttack + attack,
 				Rarity = "Debug", -- session-only item has no natural rarity or XP
+				Effects = WeaponEffects.List(debugWeapon.WeaponData),
 				ItemID = debugWeapon.ItemID,
 				UID = debugUID,
 				Owned = true,
