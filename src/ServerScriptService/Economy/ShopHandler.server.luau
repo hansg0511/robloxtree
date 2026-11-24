@@ -410,10 +410,13 @@ local function buildShopSnapshot(player, profile)
 		CapacityUpgrades = upgrades,
 		StandardAxeTier = standardTier,
 		ForgeLevel = forgeLevel,
-		ForgeUpgrade = if forgeLevel == 1 then {
-			ToLevel = catalog.ForgeLevelUpgrade.ToLevel,
-			CoinCost = catalog.ForgeLevelUpgrade.CoinCost,
-			CanUpgrade = atForge and coins >= catalog.ForgeLevelUpgrade.CoinCost,
+		ForgePotencyCap = ForgeMutations.Tier(forgeLevel).PotencyCap,
+		ForgeMutatedLogLimit = ForgeMutations.Tier(forgeLevel).MaxMutatedLogs,
+		ForgeRarityWeights = WeaponRarityRoll.WeightsForLevel(forgeLevel),
+		ForgeUpgrade = if ForgeMutations.NextUpgrade(forgeLevel) then {
+			ToLevel = forgeLevel + 1,
+			CoinCost = ForgeMutations.NextUpgrade(forgeLevel).CoinCost,
+			CanUpgrade = atForge and coins >= ForgeMutations.NextUpgrade(forgeLevel).CoinCost,
 		} else nil,
 		UnlockedForests = unlockedForests,
 	}
@@ -436,8 +439,9 @@ upgradeForge.OnServerEvent:Connect(function(player, ...)
 	local profile, data = getProfileData(player)
 	if not profile or type(data.RunProgress) ~= "table" then return end
 	local progress = data.RunProgress
-	local upgrade = catalog.ForgeLevelUpgrade
-	if progress.ForgeLevel ~= upgrade.ToLevel - 1 then return end
+	if not ForgeMutations.Tier(progress.ForgeLevel) then return end
+	local upgrade = ForgeMutations.NextUpgrade(progress.ForgeLevel)
+	if not upgrade then return end
 	if not isFiniteNumber(data.Coins) or data.Coins < upgrade.CoinCost then return end
 	data.Coins -= upgrade.CoinCost
 	progress.ForgeLevel = upgrade.ToLevel
@@ -634,7 +638,7 @@ local function craftExperimental(player, recipe, selectedLogUids)
 	local power = math.floor(result.Damage * 10 + 0.5) / 10
 	-- Rarity is a SEPARATE server roll, independent of logs/class/quality.
 	-- Roll only after all material checks, restoring logs on failure.
-	local rarity = WeaponRarityRoll.Roll()
+	local rarity = WeaponRarityRoll.Roll(nil, forgeLevel)
 	if not ProgressionRules.IsRarity(rarity) then
 		restoreCraftLogs(player, recipe, removedLogs, sourceByUid)
 		return
@@ -792,7 +796,7 @@ craftRecipe.OnServerEvent:Connect(function(player, recipeId, selectedLogUids, ..
 	local finalPower = math.floor((recipe.HeadBasePower + bonusTotal / #removedLogs) * 10 + 0.5) / 10
 	-- Fixed-output recipes keep their original class/stat formulas. Only
 	-- rarity is rolled, through the same server module as experimental mode.
-	local rarity = WeaponRarityRoll.Roll()
+	local rarity = WeaponRarityRoll.Roll(nil, forgeLevel)
 	if not ProgressionRules.IsRarity(rarity) then
 		restoreCraftLogs(player, recipe, removedLogs, sourceByUid)
 		return
