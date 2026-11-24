@@ -29,12 +29,12 @@ local TreeDefinitions = {
 		InteractionPartName = "ChopHitbox",
 		ChopRadius = 7,
 	},
-	-- Main Forest 1 harvest tree: slim trunk, quick beginner chops,
-	-- two light logs per death (both can fit repeatedly in the starter bag).
+	-- Main Forest 1 harvest tree: eight ordinary 5-damage punches at size 1.
+	-- Reward one-shotting it later through weapon progression.
 	SapwoodTree = {
 		Category = "Grove",
 		ModelName = "SapwoodTree",
-		MaxHP = 20,
+		MaxHP = 40,
 		SpeciesId = "Sapwood",
 		LogYield = 2,
 		YieldsLog = true,
@@ -48,7 +48,9 @@ local TreeDefinitions = {
 	StarterForestTree = {
 		Category = "Grove",
 		ModelName = "StarterForestTree",
-		MaxHP = 60,
+		-- Mature wild Oak is the tougher Forest 1 target: roughly eight
+		-- noncritical hits with the current nominal Copper Axe (23 damage).
+		MaxHP = 175,
 		SpeciesId = "Oak",
 		YieldsLog = true,
 		RespawnSeconds = 3,
@@ -74,7 +76,8 @@ local TreeDefinitions = {
 	BambooClump = {
 		Category = "Grove",
 		ModelName = "BambooClump",
-		MaxHP = 18,
+		-- Also eight punches; avoid bypassing the starter difficulty via Bamboo.
+		MaxHP = 40,
 		SpeciesId = "Bamboo",
 		LogYield = 5,
 		FixedSizeScale = 1,
