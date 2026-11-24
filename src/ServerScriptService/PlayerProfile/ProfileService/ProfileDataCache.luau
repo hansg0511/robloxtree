@@ -29,7 +29,7 @@ end
 local MAX_GROVE_UID_LENGTH = 80
 local MAX_GROVE_COORDINATE = 512
 local MIN_SIZE_POTENTIAL = 0.1
-local MAX_SIZE_POTENTIAL = 2
+local MAX_SIZE_POTENTIAL = GroveGrowthRules.MAX_POTENTIAL
 
 local function isFiniteNumber(value)
 	return type(value) == "number"
@@ -275,17 +275,15 @@ function PlayerProfileCache.NormalizeWeaponData(data)
 end
 
 local function normalizeProgressionData(data)
-	-- One rare sapling per shop restock window. Ordinary sapling purchases
-	-- remain unlimited within inventory capacity. This field is persistent,
-	-- so reopening/rejoining a session cannot reset rare-stock consumption.
-	if type(data.SaplingShop)~="table" then
-		data.SaplingShop={RareBoughtCycle=-1}
+	-- Persistent per-offer purchase counts for the current restock.
+	if type(data.SaplingShop)~="table" then data.SaplingShop={} end
+	local shop=data.SaplingShop
+	if not isNonnegativeInteger(shop.Cycle) or shop.Cycle>1000000000 then shop.Cycle=-1; shop.Purchased={} end
+	if type(shop.Purchased)~="table" then shop.Purchased={} end
+	for id,count in pairs(shop.Purchased) do
+		if type(id)~="string" or #id>90 or not isNonnegativeInteger(count) or count>96 then shop.Purchased[id]=nil end
 	end
-	local boughtCycle=data.SaplingShop.RareBoughtCycle
-	if boughtCycle~=-1 and (not isNonnegativeInteger(boughtCycle)
-		or boughtCycle>1000000000) then
-		data.SaplingShop.RareBoughtCycle=-1
-	end
+	if not isNonnegativeInteger(shop.RareBoughtCycle) or shop.RareBoughtCycle>1000000000 then shop.RareBoughtCycle=-1 end
 	-- Future stackable upgrade ingredients. Keep owned nonnegative counts
 	-- during migration, reject malformed IDs, NaN and negative balances.
 	if type(data.MaterialBalances) ~= "table" then
