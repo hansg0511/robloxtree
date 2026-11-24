@@ -110,7 +110,7 @@ function Service.Purchase(player,id,expectedCycle)
 	if shop.Cycle~=offers.Cycle then shop.Cycle=offers.Cycle; shop.Purchased={} end
 	if type(shop.Purchased)~="table" then shop.Purchased={} end
 	shop.Purchased[id]=(shop.Purchased[id] or 0)+1
-	return {Reason="PURCHASED",UID=uid,Name=offer.Name,
+	return {Reason="PURCHASED",UID=uid,OfferId=id,Name=offer.Name,
 		Coins=data.Coins,Rare=offer.Rare,Cycle=offers.Cycle}
 end
 function Service.Start()
