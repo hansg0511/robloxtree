@@ -36,6 +36,20 @@ local function fixedRoll(draw)
 	return rng
 end
 
+local previous = RarityRoll.WeightsForLevel(1)
+for level = 2, 20 do
+	local weights = RarityRoll.WeightsForLevel(level)
+	local sum = 0
+	for _, rarity in ipairs(Progression.RARITY_ORDER) do
+		sum += weights[rarity]
+		check("rarity weight remains positive", weights[rarity] > 0)
+		if rarity ~= "Common" then check("higher forge improves rarity odds", weights[rarity] > previous[rarity]) end
+	end
+	check("higher forge weights sum to total", sum == total)
+	check("higher forge roll uses current level", RarityRoll.Roll(fixedRoll(weights.Common+1), level) == "Rare")
+	previous = weights
+end
+
 local lower = 1
 for _, entry in ipairs(ordered) do
 	local a, b = fixedRoll(lower), fixedRoll(entry.Upper)
