@@ -1116,11 +1116,11 @@ local function makeGroveMatureOak(seed, sizeScale)
 	local model
 	local visualScale
 	if WorldLayoutConfiguration.PROCEDURAL_STARTER_OAKS_ENABLED == true and StarterOakGenerator then
-		local ok, generated, _sections, generatedScale = pcall(makeProceduralStarterOak, seed, 3, sizeScale)
+		local ok, generated, _sections, generatedScale = pcall(makeProceduralStarterOak, seed, 3, math.min(sizeScale, PROCEDURAL_OAK_MAX_SIZE_SCALE))
 		if ok and generated and generated:IsA("Model")
 			and isFiniteNumber(generatedScale) and generatedScale > 0 then
 			model = generated
-			visualScale = generatedScale
+			visualScale = generatedScale * math.max(1, sizeScale / PROCEDURAL_OAK_MAX_SIZE_SCALE)
 		elseif generated and typeof(generated) == "Instance" then
 			generated:Destroy()
 		end
@@ -1158,7 +1158,7 @@ function Tree.BuildPreviewModel(kind, context)
 	if not GROVE_STAGES[stage] then return nil end
 	local sizePotential = context.SizePotential
 	if sizePotential == nil then sizePotential = 1 end
-	if not isFiniteNumber(sizePotential) or sizePotential < 0.1 or sizePotential > 2 then return nil end
+	if not GroveGrowthRules.ValidPotential(sizePotential) then return nil end
 	local speciesId
 	local model
 	local visualScale
@@ -1302,7 +1302,7 @@ function Tree.new(options)
 		assert(speciesConfig ~= nil and MaterialDefinitions.Get(options.SpeciesId) ~= nil, "Unknown Persistent Grove species")
 		assert(type(speciesConfig.MaxHP) == "number" and speciesConfig.MaxHP > 1, "Invalid Persistent Grove prototype HP")
 		assert(type(speciesConfig.ChopRadius) == "number" and speciesConfig.ChopRadius > 0, "Invalid Persistent Grove chop radius")
-		assert(type(sizePotential) == "number" and sizePotential == sizePotential and sizePotential >= 0.1 and sizePotential <= 2, "Invalid Persistent Grove size potential")
+		assert(GroveGrowthRules.ValidPotential(sizePotential), "Invalid Persistent Grove size potential")
 		assert(type(currentSizeScale) == "number" and currentSizeScale == currentSizeScale and currentSizeScale > 0 and currentSizeScale <= sizePotential, "Invalid Grove current size")
 		assert(type(plantedAt) == "number" and plantedAt == plantedAt and plantedAt >= 0 and plantedAt < math.huge, "Invalid Persistent Grove planting time")
 		assert(type(maturesAt) == "number" and maturesAt > plantedAt and maturesAt < math.huge, "Invalid Persistent Grove maturity time")
