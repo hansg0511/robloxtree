@@ -45,6 +45,11 @@ function WeaponProgressionService.AwardHits(player, weaponUID, hitRecords)
 		return 0, 0
 	end
 
+	-- Keep the Studio cadence comparison reproducible while normal weapons
+	-- continue to gain XP. No gameplay effect outside Studio.
+	if game:GetService("RunService"):IsStudio()
+		and saved.WeaponData.DevCadenceFixture == true then return 0, 0 end
+
 	local xpEarned = 0
 	for _, hit in ipairs(hitRecords) do
 		if type(hit) == "table" then
