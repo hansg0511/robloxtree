@@ -15,7 +15,31 @@ local Bloodrush = require(game.ServerScriptService.WeaponEffects.Bloodrush)
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
 local EconomyUpdated = game.ReplicatedStorage.Economy.EconomyUpdated
 
+local TweenService = game:GetService("TweenService")
 local MIN_CHOP_INTERVAL = 0.3
+local PUNCH_INTERVAL = 0.4
+local PUNCH_DAMAGE = 5
+local PUNCH_REACH = 0.85
+
+-- R6 procedural jab, using replicated Motor6D offsets rather than an
+-- invented/unpublished animation asset. The original shoulder pose is
+-- restored before another punch; combat authority is independent of FX.
+local function playPunch(character)
+	local torso = character:FindFirstChild("Torso")
+	local shoulder = torso and torso:FindFirstChild("Right Shoulder")
+	if not shoulder or not shoulder:IsA("Motor6D") then return end
+	local original = shoulder.C0
+	-- Rotate about the torso-local X axis so the arm reaches forward (-Z).
+	local jab = CFrame.new(original.Position) * CFrame.Angles(math.rad(95), 0, 0)
+		* original.Rotation
+	local out = TweenService:Create(shoulder, TweenInfo.new(0.09, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { C0 = jab })
+	out:Play()
+	task.delay(0.1, function()
+		if not shoulder:IsDescendantOf(character) then return end
+		local back = TweenService:Create(shoulder, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), { C0 = original })
+		back:Play()
+	end)
+end
 -- A Fervor weapon can accelerate below the legacy base interval; other
 -- weapons keep the unchanged 0.3-second minimum.
 local MIN_FERVOR_CHOP_INTERVAL = 0.16
@@ -32,7 +56,39 @@ end
 ChopEvent.OnServerEvent:Connect(function(player)
 	local profile = profileCache.GetProfile(player)
 	if not profile or not profile.Data.Runtime then return end
-	if not hasEquippedAxe(player, profile) then return end
+	if not hasEquippedAxe(player, profile) then
+		-- Fail closed when a weapon is recorded but its runtime Tool is absent.
+		-- A missing/unequipped existing axe is not a way to bypass combat gates.
+		local runtime = profile.Data.Runtime
+		local savedEquipment = profile.Data.Equipped
+		if runtime.EquippedWeaponUID ~= nil
+			or (type(savedEquipment) == "table" and savedEquipment.Weapon ~= nil) then return end
+		local character = player.Character
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		if not humanoid or humanoid.Health <= 0 or humanoid.SeatPart
+			or not root or not character:IsDescendantOf(workspace)
+			or character:FindFirstChildOfClass("Tool") then return end
+		local now = os.clock()
+		if now - (lastChop[player] or -math.huge) < PUNCH_INTERVAL then return end
+		lastChop[player] = now
+
+		-- Only the lightweight public starter resources are punchable.
+		-- Use the existing range, first-hit claim and world-access rules.
+		local tree = TreeObject.GetBestChopTarget(player, function(candidate)
+			return candidate.ForestId == "Forest1"
+				and (candidate.DefinitionId == "SapwoodTree" or candidate.DefinitionId == "BambooClump")
+				and candidate:CanChop(player)
+				and WorldProgressService.CanInteractWithTree(player, candidate)
+		end, PUNCH_REACH)
+		playPunch(character)
+		if tree then
+			-- No weapon progression, crits, mutation/class effects or
+			-- client-supplied damage. TreeObject owns kills and log rewards.
+			tree:TakeDamage({ Damage = PUNCH_DAMAGE, IsCrit = false }, player)
+		end
+		return
+	end
 
 	-- Experimental classes have separately rolled attack speeds. Enforce the
 	-- real interval on the server; replicated Tool attributes are visual only.
