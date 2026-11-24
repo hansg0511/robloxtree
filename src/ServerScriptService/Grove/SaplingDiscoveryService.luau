@@ -7,6 +7,7 @@ local LogService = require(game.ServerScriptService.Inventory.LogService)
 local ProfileCache = require(game.ServerScriptService.PlayerProfile.ProfileService.ProfileDataCache)
 local MutationDefinitions = require(script.Parent.MutationDefinitions)
 local Passives = require(script.Parent.GrovePassiveRules)
+local Quality = require(script.Parent.SaplingQualityRules)
 
 local SaplingDiscoveryService = {}
 
@@ -16,10 +17,6 @@ SaplingDiscoveryService.Config = {
 	DropChance = 0.10, -- ordinary wild tree: ordinary sapling
 	WildMutationChance = 0.06, -- visible rare wild tree per life
 	MutatedDropChance = 0.20, -- rare wild tree -> matching rare sapling
-	SizePotentialMinimum = 0.85,
-	SizePotentialMaximum = 1.15,
-	GiantPotentialMinimum = 1.25,
-	GiantPotentialMaximum = 1.75,
 }
 
 -- Explicit definition-to-species eligibility prevents category-based or Grove
@@ -94,16 +91,7 @@ function SaplingDiscoveryService.RollWildTreeMutations(chanceDraw,kindDraw)
 end
 
 local function rollSizePotential(mutations)
-	local giant=type(mutations)=="table" and mutations.Giant==true
-	local minimum = if giant then SaplingDiscoveryService.Config.GiantPotentialMinimum
-		else SaplingDiscoveryService.Config.SizePotentialMinimum
-	local maximum = if giant then SaplingDiscoveryService.Config.GiantPotentialMaximum
-		else SaplingDiscoveryService.Config.SizePotentialMaximum
-	-- Averaging three uniform samples creates a modest center-weighted roll while
-	-- retaining the explicitly bounded Grove validation range.
-	local normalized = (random:NextNumber() + random:NextNumber() + random:NextNumber()) / 3
-	local value = minimum + (maximum - minimum) * normalized
-	return math.floor(value * 1000 + 0.5) / 1000
+	return Quality.Wild(mutations, random)
 end
 
 local function makeClientRecord(record)
