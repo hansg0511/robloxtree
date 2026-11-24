@@ -11,6 +11,7 @@ local GuiService = game:GetService("GuiService")
 local shopRF = ReplicatedStorage:WaitForChild("Grove"):WaitForChild("GetSaplingShopRF")
 local buySaplingRE = ReplicatedStorage:WaitForChild("Grove"):WaitForChild("BuySaplingRE")
 local uprootGroveTreeRE = ReplicatedStorage:WaitForChild("Grove"):WaitForChild("UprootGroveTreeRE")
+local upgradeGroveRE = ReplicatedStorage:WaitForChild("Grove"):WaitForChild("UpgradeGroveRE")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -41,6 +42,10 @@ local groveTrees = {}
 local selectedSaplingUID
 local selectedGroveTreeUID
 local groveCapacity = 3 -- overwritten by the server snapshot
+local groveLevel = 1
+local groveMaxMutations = 1
+local nextGroveUpgrade
+local upgradePending = false
 local passiveTotals = {}
 local managerOpen = false
 local uprootPending = false
@@ -95,7 +100,7 @@ local panel = Instance.new("Frame")
 panel.Name = "StatusPanel"
 panel.AnchorPoint = Vector2.new(0, 1)
 panel.Position = UDim2.new(0, 18, 1, -18)
-panel.Size = UDim2.fromOffset(372, 348)
+panel.Size = UDim2.fromOffset(372, 402)
 panel.BackgroundColor3 = Color3.fromRGB(21, 29, 25)
 panel.BackgroundTransparency = 0.08
 panel.BorderSizePixel = 0
@@ -362,6 +367,45 @@ end
 
 local managerToggle=makeManagerButton(panel,"ManagePlantedTrees",
 	"MANAGE PLANTED TREES",13,307,343,31)
+local upgradeButton=makeManagerButton(panel,"UpgradeGrove","GROVE UPGRADE",13,346,343,46,Color3.fromRGB(113,83,165))
+local function renderUpgrade()
+	local nextLevel = nextGroveUpgrade
+	upgradeButton.Text = if upgradePending then "UPGRADING..."
+		elseif type(nextLevel)=="table" then string.format("GROVE LV %d → %d • %d COINS\n%d PLANTING SLOTS • %d MAX MUTATIONS (PLANNED)",
+			groveLevel,nextLevel.ToLevel,nextLevel.CoinCost,nextLevel.Capacity,nextLevel.MaxMutations)
+		elseif stateLoaded then "GROVE LV "..tostring(groveLevel).." • MAX LEVEL"
+		else "GROVE UPGRADE • LOADING"
+	upgradeButton.Active = stateLoaded and hasAssignedGrove and type(nextLevel)=="table" and not upgradePending
+	upgradeButton.AutoButtonColor = upgradeButton.Active
+	upgradeButton.BackgroundColor3 = if upgradeButton.Active then Color3.fromRGB(113,83,165) else Color3.fromRGB(81,89,83)
+end
+keepConnection(upgradeButton.Activated:Connect(function()
+	if not upgradeButton.Active then return end
+	upgradePending = true
+	renderUpgrade()
+	upgradeGroveRE:FireServer(groveLevel)
+	task.delay(3,function()
+		if upgradePending and not cleanedUp then
+			upgradePending = false
+			if refreshState then refreshState() end
+			renderUpgrade()
+		end
+	end)
+end))
+keepConnection(upgradeGroveRE.OnClientEvent:Connect(function(result)
+	upgradePending = false
+	if type(result)=="table" and result.Success then
+		setFeedback("Grove upgraded to level "..tostring(result.Level).."!","success")
+	elseif type(result)=="table" and result.Reason=="NOT_ENOUGH_COINS" then
+		setFeedback("Not enough coins for Grove upgrade.","error")
+	else
+		setFeedback("Grove upgrade unavailable. Please refresh.","error")
+	end
+	if refreshState then refreshState() end
+	renderUpgrade()
+	refreshSaplingShop()
+end))
+renderUpgrade()
 groveManagerPanel=Instance.new("Frame")
 groveManagerPanel.Name="SelectedGroveTree"
 groveManagerPanel.AnchorPoint=Vector2.new(0,1)
@@ -705,10 +749,11 @@ render = function()
 		groveStatusLabel.Text = "Grove: assigned area is still loading"
 		groveStatusLabel.TextColor3 = Color3.fromRGB(231, 207, 151)
 	else
-		groveStatusLabel.Text = "Grove: available"
+		groveStatusLabel.Text = string.format("Grove Lv %d • %d planting slots", groveLevel, groveCapacity)
 		groveStatusLabel.TextColor3 = Color3.fromRGB(160, 218, 158)
 	end
 
+	renderUpgrade()
 	local selected = getSelectedSapling()
 	saplingsLabel.Text = string.format("Saplings remaining: %d", #saplings)
 	local mature = 0
@@ -934,6 +979,9 @@ local function applySnapshot(snapshot)
 	end
 
 	stateLoaded = true
+	groveLevel = tonumber(snapshot.GroveLevel) or 1
+	groveMaxMutations = tonumber(snapshot.MaxMutations) or 1
+	nextGroveUpgrade = snapshot.Upgrade
 	passiveTotals = if type(snapshot.PassiveTotals) == "table" then snapshot.PassiveTotals else {}
 	hasAssignedGrove = snapshot.HasAssignedGrove == true
 	if type(snapshot.Capacity)=="number" and snapshot.Capacity>=1
