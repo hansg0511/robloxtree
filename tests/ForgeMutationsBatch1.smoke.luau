@@ -19,7 +19,7 @@ local function log(size, mutations)
 end
 
 check("both initial forge tiers exist", Forge.Tier(1) and Forge.Tier(2))
-check("tier 3 unavailable", Forge.Tier(3) == nil)
+check("forge levels 3–20 available", Forge.Tier(3) and Forge.Tier(20) and Forge.Tier(21) == nil)
 check("tier shift is independent from mutation class", Forge.ClassCount(5,1) == 5
 	and Forge.ClassCount(5,2) == 3)
 check("tier 1 class odds unchanged", near(Experimental.Odds(5).Axe, 0.65))
@@ -35,23 +35,23 @@ check("ordinary wood never grants a mutation", unmutated
 	and Forge.Roll(unmutated,1,Random.new()) == nil)
 local golden = Forge.Preview({log(5,{Golden=true})},1)
 check("one perfect Golden log cannot max potency",
-	golden and golden.Family == "Golden" and near(golden.Potency, 0.22)
+	golden and golden.Family == "Golden" and near(golden.Potency, 0.15)
 		and golden.Potency < golden.PotencyCap)
 local withOrdinary = Forge.Preview({log(5,{Golden=true}),log(5),log(5)},1)
 check("ordinary logs do not dilute mutation potency",
 	near(withOrdinary.Potency,golden.Potency))
-local capped = Forge.Preview({
-	log(5,{Golden=true}),log(5,{Golden=true}),log(5,{Golden=true}),
-	log(5,{Golden=true}),
-},1)
+local three = {log(5,{Golden=true}),log(5,{Golden=true}),log(5,{Golden=true})}
+local capped = Forge.Preview(three,1)
 check("cap and explicit wasted potency", capped.Potency == Forge.Tier(1).PotencyCap
 	and capped.WastedPotency > 0)
-local higher = Forge.Preview({
-	log(5,{Golden=true}),log(5,{Golden=true}),
-	log(5,{Golden=true}),log(5,{Golden=true}),
-},2)
-check("higher tier unlocks more cumulative potency",
-	higher.Potency > capped.Potency and higher.Potency == Forge.Tier(2).PotencyCap)
+local higher = Forge.Preview(three,2)
+check("higher tier extracts more potency", higher.Potency > capped.Potency and near(higher.Potency, 0.45))
+local four = table.clone(three)
+table.insert(four, log(5,{Golden=true}))
+check("three mutated log limit enforced", Forge.Preview(four,2).InvalidReason == "TOO_MANY_MUTATED_LOGS")
+check("level 5 permits fourth mutated log", near(Forge.Preview(four,5).Potency,0.60))
+local iron = Forge.Preview({{SpeciesId="Ironwood",SizeScale=5,Mutations={Golden=true}}},1)
+check("species affects same-size potency", near(iron.Potency,0.22) and iron.Potency > golden.Potency)
 local mixed = Forge.Preview({log(2,{Golden=true}),log(4,{Frenzied=true})},1)
 check("mixed ability mutation families rejected before consumption",
 	mixed.InvalidReason == "MIXED_MUTATION_FAMILIES")
