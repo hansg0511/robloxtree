@@ -592,8 +592,8 @@ renderTreeManager=function()
 		else mutations.." "..tostring(tree.SpeciesId)
 	managerDetails.Text=string.format("%s\nGenetic potential: %.2fx  •  Current size: %.2fx\nStage: %s",
 		name,tonumber(tree.SizePotential) or 1,tonumber(tree.CurrentSizeScale) or 1,tostring(tree.Stage or "growing"))
-	managerPassives.Text=if tree.Stage == "mature" then "ACTIVE: "..formatPassives(tree.Passives)
-		else "PASSIVE INACTIVE UNTIL MATURE"
+	managerPassives.Text=tostring(tree.GeneticPassive or "Unknown").." • "..(if tree.Stage == "mature" then "ACTIVE: "..formatPassives(tree.Passives)
+		else "INACTIVE UNTIL MATURE")
 	managerTotals.Text="TOTAL GROVE BONUSES\n"..formatPassives(passiveTotals)
 	local rare=mutations~=""
 	uprootWarning.Text=if rare
@@ -719,9 +719,10 @@ render = function()
 		#groveTrees, groveCapacity, mature, #groveTrees - mature)
 	if selected then
 		selectedSaplingLabel.Text = string.format(
-			"Selected: %s\nSize: %.2fx",
+			"Selected: %s\nSize: %.2fx • %s",
 			describeSapling(selected),
-			type(selected.SizePotential) == "number" and selected.SizePotential or 1
+			type(selected.SizePotential) == "number" and selected.SizePotential or 1,
+			tostring(selected.GeneticPassive or "Unknown")
 		)
 	else
 		selectedSaplingLabel.Text = "Selected: none"
