@@ -179,6 +179,9 @@ local function buildOwnedAxes(player, profile, eligibleAscensionLogs)
 				or weaponData.DevUpgradeTestLabel=="INFUSE TEST (LEGENDARY)") then
 			experimentalName=weaponData.DevUpgradeTestLabel
 		end
+		if RunService:IsStudio() and weaponData and weaponData.DevCadenceFixture == true then
+			experimentalName = "TEST • " .. tostring(experimentalClass)
+		end
 		table.insert(axes, {
 			Id = recipe and recipe.Id or ("item_" .. tostring(item.ItemID)),
 			Name = experimentalName or info.Name,
