@@ -37,10 +37,11 @@ end
 local function validSlot(slot)
 	if type(slot)~="table" or not familyIds[slot.Family]
 		or type(slot.Id)~="string" or #slot.Id==0
-		or not finite(slot.Potency) or slot.Potency<=0 or slot.Potency>0.7
+		or not finite(slot.Potency) or slot.Potency<=0 
 		or type(slot.ForgeTier)~="number" or slot.ForgeTier%1~=0
 		or not Forge.Tier(slot.ForgeTier) then return false end
-	return table.find(Forge.ABILITIES[slot.Family][slot.ForgeTier],slot.Id)~=nil
+	return slot.Potency <= Forge.Tier(slot.ForgeTier).PotencyCap
+		and table.find(Forge.ABILITIES[slot.Family][slot.ForgeTier],slot.Id)~=nil
 end
 
 -- Treat either legacy MutationAbility (forged during Batch1/2) or the
