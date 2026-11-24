@@ -7,13 +7,13 @@ Rules.Story={
 		Id="first_chops",Category=Rules.Categories.Story,Title="First Steps",
 		Description="Chop 3 wild trees to earn an Oak sapling.",
 		Event="WildTreeChopped",Target=3,
-		Reward={Kind="Sapling",SpeciesId="Oak",Mutations={},SizePotential=1,Label="Oak Sapling"},
+		Reward={Kind="Sapling",SpeciesId="Oak",Mutations={},SizePotential=0.8,Label="Oak Sapling"},
 	},
 	{
 		Id="first_harvest",Category=Rules.Categories.Story,Title="The Grove's First Harvest",
 		Description="Harvest 1 fully grown tree from your personal Grove.",
 		Event="GroveHarvested",Target=1,
-		Reward={Kind="Sapling",SpeciesId="Oak",Mutations={Golden=true},SizePotential=1.1,Label="Golden Oak Sapling"},
+		Reward={Kind="Sapling",SpeciesId="Oak",Mutations={Golden=true},SizePotential=0.8,Label="Golden Oak Sapling"},
 	},
 }
 Rules.CompleteStage=#Rules.Story+1
