@@ -209,6 +209,7 @@ function DevelopmentLoadouts.ApplyGroveSaplings(player, profileData)
 					SpeciesId = definition.SpeciesId,
 					Mutations = {},
 					SizePotential = 1,
+					GeneticPassive = require(game.ServerScriptService.Grove.GrovePassiveRules).RollGenetic(),
 					CreatedAt = createdAt,
 				})
 				changed = true
