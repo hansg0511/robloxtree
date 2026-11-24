@@ -9,6 +9,7 @@ local PlotManager = require(game.ServerStorage.PlotManager)
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
 local MutationDefinitions = require(script.Parent.MutationDefinitions)
 local GroveGrowthRules = require(script.Parent.GroveGrowthRules)
+local Passives = require(script.Parent.GrovePassiveRules)
 local QuestService = require(game.ServerScriptService.Quests.QuestService)
 local LogService = require(game.ServerScriptService.Inventory.LogService)
 local GroveHarvestPresentation = require(ReplicatedStorage.Shared.GroveHarvestPresentation)
@@ -16,7 +17,7 @@ local GroveHarvestPresentation = require(ReplicatedStorage.Shared.GroveHarvestPr
 local GroveService = {}
 
 GroveService.Constants = {
-	Capacity = 25,
+	Capacity = Passives.START_CAPACITY,
 	PlacementMargin = 2,
 	MinimumSpacing = 4.5,
 	MaturitySeconds = GroveGrowthRules.MATURITY_SECONDS, -- 1.0-size prototype baseline only
@@ -189,6 +190,7 @@ local function copyGroveTree(record, now)
 		PlantedAt = record.PlantedAt,
 		MaturesAt = record.MaturesAt,
 		Stage = deriveStage(record, now),
+		Passives = Passives.ForTree(record, now),
 	}
 end
 
@@ -218,6 +220,7 @@ function GroveService.GetState(player)
 		GroveTrees = {},
 		GroveMaterials = {},
 		ActiveGroveTreeUIDs = {},
+		PassiveTotals = Passives.Empty(),
 	}
 	if not data then return state end
 
@@ -227,6 +230,9 @@ function GroveService.GetState(player)
 		end
 	end
 	local now = os.time()
+	state.PassiveTotals = Passives.Totals(data, now)
+	-- Only presentation reads this attribute; combat recomputes on the server.
+	player:SetAttribute("GroveHaste", state.PassiveTotals.Haste)
 	for _, groveTree in ipairs(data.GroveTrees) do
 		if isValidGroveTree(groveTree) then
 			table.insert(state.GroveTrees, copyGroveTree(groveTree, now))
