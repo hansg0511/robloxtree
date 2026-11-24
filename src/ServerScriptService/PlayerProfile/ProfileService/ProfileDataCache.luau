@@ -7,6 +7,7 @@ local AxeShopCatalog = require(game.ServerScriptService.Economy.AxeShopCatalog)
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
 local MutationDefinitions = require(game.ServerScriptService.Grove.MutationDefinitions)
 local GroveGrowthRules = require(game.ServerScriptService.Grove.GroveGrowthRules)
+local GrovePassives = require(game.ServerScriptService.Grove.GrovePassiveRules)
 local QuestRules = require(game.ServerScriptService.Quests.QuestRules)
 local ChopLeaderboardRules = require(game.ServerScriptService.ChopLeaderboardRules)
 local ItemDataBase = require(game.ServerStorage.Items.ItemDataBase)
@@ -160,6 +161,7 @@ function PlayerProfileCache.NormalizeGroveData(data)
 					SpeciesId = record.SpeciesId,
 					Mutations = copyGroveMutations(record.Mutations),
 					SizePotential = record.SizePotential,
+					GeneticPassive = GrovePassives.NormalizeGenetic(record.GeneticPassive, record.UID),
 					CreatedAt = record.CreatedAt,
 				})
 			end
@@ -179,6 +181,7 @@ function PlayerProfileCache.NormalizeGroveData(data)
 					SpeciesId = record.SpeciesId,
 					Mutations = copyGroveMutations(record.Mutations),
 					SizePotential = record.SizePotential,
+					GeneticPassive = GrovePassives.NormalizeGenetic(record.GeneticPassive, record.SourceSaplingUID),
 					CurrentSizeScale = GroveGrowthRules.NormalizeCurrentSize(record.CurrentSizeScale, record.SizePotential),
 					HarvestCount = GroveGrowthRules.NormalizeHarvestCount(record.HarvestCount),
 					LocalX = record.LocalX,
