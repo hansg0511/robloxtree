@@ -24,20 +24,33 @@ local PUNCH_REACH = 0.85
 -- R6 procedural jab, using replicated Motor6D offsets rather than an
 -- invented/unpublished animation asset. The original shoulder pose is
 -- restored before another punch; combat authority is independent of FX.
+local activePunch = setmetatable({}, { __mode = "k" })
 local function playPunch(character)
 	local torso = character:FindFirstChild("Torso")
 	local shoulder = torso and torso:FindFirstChild("Right Shoulder")
 	if not shoulder or not shoulder:IsA("Motor6D") then return end
-	local original = shoulder.C0
-	-- Rotate about the torso-local X axis so the arm reaches forward (-Z).
+
+	-- Preserve the actual rest offset even if a previous delayed tween has
+	-- not completed. An old callback may not overwrite the newer pose.
+	local previous = activePunch[shoulder]
+	local original = previous and previous.Original or shoulder.C0
+	if previous and previous.Tween then previous.Tween:Cancel() end
+	shoulder.C0 = original
+	local state = { Original = original }
+	activePunch[shoulder] = state
 	local jab = CFrame.new(original.Position) * CFrame.Angles(math.rad(95), 0, 0)
 		* original.Rotation
-	local out = TweenService:Create(shoulder, TweenInfo.new(0.09, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { C0 = jab })
-	out:Play()
+	state.Tween = TweenService:Create(shoulder, TweenInfo.new(0.09, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { C0 = jab })
+	state.Tween:Play()
 	task.delay(0.1, function()
-		if not shoulder:IsDescendantOf(character) then return end
-		local back = TweenService:Create(shoulder, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), { C0 = original })
-		back:Play()
+		if activePunch[shoulder] ~= state or not shoulder:IsDescendantOf(character) then return end
+		state.Tween = TweenService:Create(shoulder, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), { C0 = original })
+		state.Tween:Play()
+		task.delay(0.18, function()
+			if activePunch[shoulder] ~= state then return end
+			if shoulder:IsDescendantOf(character) then shoulder.C0 = original end
+			activePunch[shoulder] = nil
+		end)
 	end)
 end
 -- A Fervor weapon can accelerate below the legacy base interval; other
@@ -81,7 +94,8 @@ ChopEvent.OnServerEvent:Connect(function(player)
 				and candidate:CanChop(player)
 				and WorldProgressService.CanInteractWithTree(player, candidate)
 		end, PUNCH_REACH)
-		playPunch(character)
+		-- Presentation failure must never prevent a legitimate tree hit.
+		pcall(playPunch, character)
 		if tree then
 			-- No weapon progression, crits, mutation/class effects or
 			-- client-supplied damage. TreeObject owns kills and log rewards.
