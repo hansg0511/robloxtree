@@ -8,6 +8,7 @@ local Profiles=require(game.ServerScriptService.PlayerProfile.ProfileService.Pro
 local WorldProgress=require(game.ServerScriptService.WorldProgressService)
 local Grove=require(script.Parent.GroveService)
 local Shop=require(script.Parent.SaplingShopRules)
+local Passives=require(script.Parent.GrovePassiveRules)
 
 local remotes=ReplicatedStorage:WaitForChild("Grove")
 local getShop=remotes:WaitForChild("GetSaplingShopRF")
@@ -95,6 +96,7 @@ function Service.Purchase(player,id)
 		UID=uid,SpeciesId=offer.SpeciesId,
 		Mutations=table.clone(offer.Mutations),
 		SizePotential=offer.SizePotential,
+		GeneticPassive=Passives.RollGenetic(),
 		CreatedAt=now,
 	}
 	table.insert(data.Saplings,record)
