@@ -332,7 +332,7 @@ round(bagButton, 16)
 
 -- Shared toast for weapon level-ups, forging and economy notifications.
 -- Use a readable weight/size instead of the former extra-heavy small text.
-local feedback = label(screen, "EconomyFeedback", "", UDim2.new(0.86, 0, 0, 46), UDim2.new(0.5, 0, 0, 74), 18, COLORS.Gold, Enum.Font.GothamBold)
+local feedback = label(screen, "EconomyFeedback", "", UDim2.new(0.86, 0, 0, 46), UDim2.new(0.5, 0, 0, 120), 18, COLORS.Gold, Enum.Font.GothamBold)
 feedback.AnchorPoint = Vector2.new(0.5, 0)
 feedback.BackgroundColor3 = COLORS.Surface
 feedback.BackgroundTransparency = 0.14
