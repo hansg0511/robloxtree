@@ -16,9 +16,11 @@ Rules.CLEAVE_RADIUS_STUDS = 16
 Rules.CLEAVE_MAX_TARGETS = 2
 Rules.WOOD_STRENGTH = { Sapwood = 6, Bamboo = 6, Oak = 10, Ironwood = 16 }
 Rules.CLASS_PROFILES = {
-	Dagger = { Damage = 0.55, AttacksPerSecond = 2.2, Reach = 0.75 },
-	Axe = { Damage = 1.25, AttacksPerSecond = 1.2, Reach = 1 },
-	Battlehammer = { Damage = 3.6, AttacksPerSecond = 0.7, Reach = 1.4 },
+	-- Initial combat-feel baseline: class sets cadence; material quality
+	-- still affects power, reach and effect potency, not swing frequency.
+	Dagger = { Damage = 0.55, AttacksPerSecond = 1 / 0.35, Reach = 0.75 },
+	Axe = { Damage = 1.25, AttacksPerSecond = 1 / 0.60, Reach = 1 },
+	Battlehammer = { Damage = 3.6, AttacksPerSecond = 1 / 1.10, Reach = 1.4 },
 }
 Rules.CLASSES = { "Dagger", "Axe", "Battlehammer" }
 Rules.COUNT_ANCHORS = {
@@ -98,7 +100,12 @@ function Rules.Preview(metalBase, logs, forgeTier)
 		end
 		classRanges[class] = {
 			Damage = statRange(reference * profile.Damage),
-			AttacksPerSecond = statRange(profile.AttacksPerSecond),
+			-- Roll speed independently of material quality. Keep the existing
+			-- small independent +/-10% stat variation.
+			AttacksPerSecond = {
+				Min = profile.AttacksPerSecond * Rules.ROLL_MIN,
+				Max = profile.AttacksPerSecond * Rules.ROLL_MAX,
+			},
 			Reach = statRange(profile.Reach),
 		}
 		if class == "Battlehammer" then
