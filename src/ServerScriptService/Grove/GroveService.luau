@@ -10,6 +10,7 @@ local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDef
 local MutationDefinitions = require(script.Parent.MutationDefinitions)
 local GroveGrowthRules = require(script.Parent.GroveGrowthRules)
 local Passives = require(script.Parent.GrovePassiveRules)
+local Upgrades = require(script.Parent.GroveUpgradeRules)
 local QuestService = require(game.ServerScriptService.Quests.QuestService)
 local LogService = require(game.ServerScriptService.Inventory.LogService)
 local GroveHarvestPresentation = require(ReplicatedStorage.Shared.GroveHarvestPresentation)
@@ -35,6 +36,9 @@ local MAX_SIZE_POTENTIAL = 2
 local GROVE_FOLDER = ReplicatedStorage:WaitForChild("Grove")
 local GetGroveStateRF = GROVE_FOLDER:WaitForChild("GetGroveStateRF")
 local PlantSaplingRE = GROVE_FOLDER:WaitForChild("PlantSaplingRE")
+local UpgradeGroveRE = GROVE_FOLDER:WaitForChild("UpgradeGroveRE")
+local EconomyUpdated = ReplicatedStorage:WaitForChild("Economy"):WaitForChild("EconomyUpdated")
+local LastUpgradeAt = setmetatable({}, { __mode = "k" })
 local UprootGroveTreeRE = GROVE_FOLDER:WaitForChild("UprootGroveTreeRE")
 local GroveStateUpdatedRE = GROVE_FOLDER:WaitForChild("GroveStateUpdatedRE")
 local GroveHarvestFXRE = GROVE_FOLDER:WaitForChild("GroveHarvestFXRE")
@@ -212,10 +216,16 @@ end
 function GroveService.GetState(player)
 	local data = getProfileData(player)
 	local _, _, area = getAssignedGrove(player)
+	local level = Upgrades.NormalizeLevel(data and data.GroveLevel)
+	local current = Upgrades.Current(level)
+	local nextUpgrade = Upgrades.Next(level)
 	local state = {
+		GroveLevel = level,
+		MaxMutations = current.MaxMutations,
+		Upgrade = nextUpgrade,
 		Revision = StateRevisionByPlayer[player] or 0,
 		HasAssignedGrove = data ~= nil and area ~= nil,
-		Capacity = GroveService.Constants.Capacity,
+		Capacity = current.Capacity,
 		MinimumSpacing = GroveService.Constants.MinimumSpacing,
 		PlacementMargin = GroveService.Constants.PlacementMargin,
 		Saplings = {},
@@ -679,7 +689,7 @@ local function plantSapling(player, saplingUID, localX, localZ)
 		or math.abs(localZ) > GROVE_COORDINATE_LIMIT then
 		return false
 	end
-	if #data.GroveTrees >= GroveService.Constants.Capacity
+	if #data.GroveTrees >= Upgrades.Current(data.GroveLevel).Capacity
 		or not isInsidePlacementBounds(area, localX, localZ)
 		or not hasSpacing(data, localX, localZ) then
 		return false
@@ -775,6 +785,33 @@ function GroveService.Start()
 		if select("#", ...) ~= 0 then return nil end
 		return GroveService.GetState(player)
 	end
+	UpgradeGroveRE.OnServerEvent:Connect(function(player, expectedLevel, ...)
+		if select("#", ...) ~= 0 then return end
+		local now = os.clock()
+		if now - (LastUpgradeAt[player] or -math.huge) < 0.5 then return end
+		LastUpgradeAt[player] = now
+		local data = getProfileData(player)
+		local plot = getAssignedGrove(player)
+		local reason = "GROVE_NOT_READY"
+		local success = false
+		if data and plot then
+			local level = Upgrades.NormalizeLevel(data.GroveLevel)
+			local nextUpgrade = Upgrades.Next(level)
+			if expectedLevel ~= level then reason = "STALE_LEVEL"
+			elseif not nextUpgrade then reason = "MAX_LEVEL"
+			elseif not isFiniteNumber(data.Coins) or data.Coins < nextUpgrade.CoinCost then reason = "NOT_ENOUGH_COINS"
+			else
+				-- Non-yielding transaction. Only server configuration controls the price.
+				data.Coins -= nextUpgrade.CoinCost
+				data.GroveLevel = nextUpgrade.ToLevel
+				success = true
+				reason = "UPGRADED"
+				EconomyUpdated:FireClient(player, "Coins", data.Coins)
+			end
+		end
+		publishState(player)
+		UpgradeGroveRE:FireClient(player, { Success = success, Reason = reason, Level = data and data.GroveLevel })
+	end)
 	PlantSaplingRE.OnServerEvent:Connect(function(player, ...)
 		local now = os.clock()
 		if now - (LastPlantRequestAt[player] or -math.huge) < GroveService.Constants.PlantRequestCooldownSeconds then
