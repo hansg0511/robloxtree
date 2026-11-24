@@ -121,5 +121,15 @@ assert(lightPreview and lightPreview.LogCount == 1
 	and lightPreview.Odds.Dagger == 1,
 	"Sapwood must be usable in existing experimental forge previews")
 
+-- Low-quality and maximum-quality wood retain the same speed ranges.
+for class, interval in pairs({ Dagger = 0.35, Axe = 0.60, Battlehammer = 1.10 }) do
+	local low = lightPreview.Ranges[class].AttacksPerSecond
+	local high = preview.Ranges[class].AttacksPerSecond
+	assert(near(low.Min, high.Min) and near(low.Max, high.Max),
+		"Wood quality must not slow attack cadence: " .. class)
+	assert(near((low.Min + low.Max) / 2, 1 / interval),
+		"Class speed midpoint matches combat-feel baseline: " .. class)
+end
+
 print("Battlehammer Cleave: class gate, caps, target filtering, deterministic tie-break and rolls passed")
 return true
