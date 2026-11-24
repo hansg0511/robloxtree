@@ -48,7 +48,34 @@ At normal size 1.0, Sapwood, Oak and Ironwood each yield 2 logs if both drops ca
 
 These numbers already suggest **transport/carrying friction, ease of level-up, and renewable rare-wood supply** deserve attention before we re-price upgrades or duplicate forest tiers. **Do not confuse Studio-only forge/upgrade prototypes with a functioning published economy.**
 
-**Sapwood scope note (2026-11-24):** Sapwood logs use the existing carrying, selling, crafting and mutation flow. The current Sapwood forest tree is not registered as a wild sapling-discovery source and no Sapwood Grove sapling is offered; the established Oak/Bamboo/Ironwood Grove sources are unchanged. Both the new forest visual and live reward integration are source-committed, **not yet Studio-validated**. No bag capacity, existing material weights or future upgrade prices were changed.
+**Sapwood scope note (2026-11-24):** Sapwood logs use the existing carrying, selling, crafting and mutation flow. The current Sapwood forest tree is not registered as a wild sapling-discovery source and no Sapwood Grove sapling is offered; the established Oak/Bamboo/Ironwood Grove sources are unchanged. The revised forest visual was accepted by the user; full harvest/reward regression is not independently verified. No bag capacity, existing material weights or future upgrade prices were changed.
+
+## Phase 4E.2 — initial pacing baseline (2026-11-24)
+
+Sapwood's revised appearance is accepted for now. Economy is the priority. Distinct log shapes/held-log flex are optional art experiments; ground-pile polish is deferred. Tower height should follow actual carried inventory.
+
+### Normal-size, ordinary wood reference
+
+| Species | Base HP | Logs/tree | Coins/log | kg/log | Coins/kg | Logs per 10kg bag | Sale per 10kg bag | Logs per 40kg bag | Sale per 40kg bag |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Sapwood | 20 | 2 | 5 | 0.5 | 10 | 20 | 100 | 80 | 400 |
+| Bamboo | 18 | 5 | 5 | 0.5 | 10 | 20 | 100 | 80 | 400 |
+| Oak | 60 | 2 | 16 | 4 | 4 | 2 | 32 | 10 | 160 |
+| Ironwood | 180 | 2 | 144 | 10 | 14.4 | 1 | 144 | 4 | 576 |
+
+These are one-bag comparisons only: overflow trails, size-squared sale value, auto-kept mutations/large logs, storage transfers, and actual pickup behavior can change realized sale throughput. Oak currently has less than half Sapwood's nominal coins/kg. Bamboo's single clump has a much larger yield per kill than Sapwood; assess whether camping it dominates normal beginner chopping. Do not finalize species weights or prices from these comparisons alone.
+
+### First Copper craft: simple deterministic scenario
+
+- Profile starts with 0 coins, 10kg carry capacity and starter weapon Attack 5; StatsAggregator adds 5 base attack (10 total at Common level 1, no buffs), and DamageService has a 5% base critical chance at 200% damage. Standard chop interval floor is 0.3s, not measured average click/animation/collection time. A normal size-1 Sapwood takes two noncritical hits; Oak six, Bamboo two.
+- Copper head costs 150 coins; fixed Copper craft uses one head plus 3 logs. Selling 30 size-1 Sapwood logs, retaining 3 and rounding to complete 2-log kills implies 17 kills, 34 logs, at least two ordinary bag sale trips, before bonuses/other resources. Assumes no starting funds or other income, all required logs collected and eligible, and 3 craft logs kept instead of sold.
+- Illustrative timing: 17 kills x 2–4 seconds per kill including local movement/collection, four one-way forest/hub travel legs x 12–18 seconds, plus 10–20 seconds for sale/shop/forge interaction = 92–160 seconds. These are scenario assumptions, **not a Roblox measurement**. Actual station geometry: forest 1 trees around x=-160 to -67, z=160–239; sale station x=24,z=108; shop x=-24,z=108; forge x=40,z=108. Real player speed and route need measurement. Fresh spawn and tutorial time may add more.
+- Initial pacing proposal for discussion: first noticeable pickup/stack reward within 10–20 seconds of first tree encounter; first Copper craft around 1.5–2.5 minutes of active early gameplay; Forest 2 around 3–5 minutes; Forge Lv2/first Iron around 5–10 minutes total. These are suggested playtest bands, not agreed tuning. Both first Iron recipes currently require Forge Lv2; head+Forge costs 2750 coins before 3 craft logs. At 144 coins/size-1 Ironwood log, that costs 20 such logs sold (plus three crafting inputs); 10kg bag fits one at a time, so transport risks dominating without capacity investment or overflow recovery.
+- **Realistic playtest warning:** `StudioForgeSandbox.ENABLED = true` automatically refills 1 billion coins, 1000 heads, logs and Forest 2/tier access. `DevelopmentLoadouts` also has a developer Grove sapling grant. A clean early pacing run needs those grant paths disabled for that test session (and a fresh Mock profile), not a global loss of useful development fixtures. Do not confuse a sandbox run with measured progression.
+
+### Next balance decision
+
+Agree first-upgrade pacing and the desired ratio of transport time to active chopping. Then compare a few configurations of sell values, carry weights and capacity steps, respecting heavier later wood and large visible stacks. Make stronger forests worthwhile in coins/minute for a suitably equipped player; do not simply increase the coin value of a log without checking throughput. Only after that adjust prices and analyze rare Grove wood, mutation power, ascension and recurring quest rewards. No new gameplay configuration is approved or changed by this baseline.
 
 ## Next measurements / decisions — Phase 4E.2
 
