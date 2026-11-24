@@ -17,6 +17,7 @@ local EconomyUpdated = game.ReplicatedStorage.Economy.EconomyUpdated
 
 local TweenService = game:GetService("TweenService")
 local MIN_CHOP_INTERVAL = 0.3
+local Passives = require(game.ServerScriptService.Grove.GrovePassiveRules)
 local PUNCH_INTERVAL = 0.4
 local PUNCH_DAMAGE = 5
 local PUNCH_REACH = 0.85
@@ -69,6 +70,8 @@ end
 ChopEvent.OnServerEvent:Connect(function(player)
 	local profile = profileCache.GetProfile(player)
 	if not profile or not profile.Data.Runtime then return end
+	local bonuses = Passives.Totals(profile.Data, os.time())
+	local hasteMultiplier = 1 + bonuses.Haste
 	if not hasEquippedAxe(player, profile) then
 		-- Fail closed when a weapon is recorded but its runtime Tool is absent.
 		-- A missing/unequipped existing axe is not a way to bypass combat gates.
@@ -83,7 +86,7 @@ ChopEvent.OnServerEvent:Connect(function(player)
 			or not root or not character:IsDescendantOf(workspace)
 			or character:FindFirstChildOfClass("Tool") then return end
 		local now = os.clock()
-		if now - (lastChop[player] or -math.huge) < PUNCH_INTERVAL then return end
+		if now - (lastChop[player] or -math.huge) < math.max(MIN_FERVOR_CHOP_INTERVAL, PUNCH_INTERVAL / hasteMultiplier) then return end
 		lastChop[player] = now
 
 		-- Only the lightweight public starter resources are punchable.
@@ -99,7 +102,7 @@ ChopEvent.OnServerEvent:Connect(function(player)
 		if tree then
 			-- No weapon progression, crits, mutation/class effects or
 			-- client-supplied damage. TreeObject owns kills and log rewards.
-			tree:TakeDamage({ Damage = PUNCH_DAMAGE, IsCrit = false }, player)
+			tree:TakeDamage({ Damage = math.floor(PUNCH_DAMAGE * (1 + bonuses.Damage)), IsCrit = false }, player)
 		end
 		return
 	end
@@ -135,6 +138,7 @@ ChopEvent.OnServerEvent:Connect(function(player)
 	if not tree then return end
 	local weaponUID = runtime.EquippedWeaponUID
 	local now = os.clock()
+	interval = math.max(MIN_FERVOR_CHOP_INTERVAL, interval / hasteMultiplier)
 	local fervorParams = WeaponEffects.GetParams(data, "Fervor")
 	if fervorParams then
 		interval = math.max(MIN_FERVOR_CHOP_INTERVAL,
@@ -152,6 +156,9 @@ ChopEvent.OnServerEvent:Connect(function(player)
 
 	local lumberjackStrength = profile.Data.LumberjackStrength
 	local context = DamageService:createDamageContext(player, tree, weaponUID, stats, nil, lumberjackStrength)
+	context.BaseDamage *= 1 + bonuses.Damage
+	context.CritChance = math.clamp(context.CritChance + bonuses.CritChance, 0, 100)
+	context.CritMultiplier += bonuses.CritDamage
 	local _, calculated = DamageService.Calculate(context)
 	-- Damage boost from a PRIOR confirmed kill. This cannot boost the kill
 	-- that first created Rampage, and duration/weapon ownership are checked
