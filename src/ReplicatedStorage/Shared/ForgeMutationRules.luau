@@ -4,12 +4,24 @@
 local Rules = {}
 
 Rules.MAX_LOG_SIZE = 5
-Rules.PER_LOG_POTENCY = 0.22
+Rules.SPECIES_POTENCY = { Sapwood = 0.10, Bamboo = 0.10, Oak = 0.15, Ironwood = 0.22 }
+Rules.MAX_LEVEL = 20
 Rules.FAMILIES = { "Golden", "Frenzied", "Shocked" }
-Rules.TIERS = {
-	[1] = { PotencyCap = 0.35, ClassCountOffset = 0, UpgradeCoins = 0 },
-	[2] = { PotencyCap = 0.70, ClassCountOffset = 2, UpgradeCoins = 2000 },
-}
+Rules.TIERS = {}
+for level = 1, Rules.MAX_LEVEL do
+	local cap = if level >= 20 then 1.0 elseif level >= 10 then 0.90 elseif level >= 5 then 0.80 elseif level >= 2 then 0.70 else 0.35
+	local limit = if level >= 20 then 6 elseif level >= 10 then 5 elseif level >= 5 then 4 else 3
+	Rules.TIERS[level] = {
+		PotencyCap = cap, MaxMutatedLogs = limit,
+		ClassCountOffset = if level >= 2 then 2 else 0,
+		AbilityTier = if level >= 2 then 2 else 1,
+		UpgradeCoins = if level == 1 then 0 else math.floor(2000 * 1.35 ^ (level - 2) / 50 + 0.5) * 50,
+	}
+end
+function Rules.NextUpgrade(level)
+	local nextTier = Rules.TIERS[level + 1]
+	return if nextTier then { ToLevel = level + 1, CoinCost = nextTier.UpgradeCoins } else nil
+end
 -- Order is explicit for deterministic roll boundaries and preview parity.
 -- Tier 1 remains guaranteed. Tier 2 introduces real weighted variety.
 Rules.WEIGHT_POOLS = {
@@ -43,6 +55,14 @@ Rules.ABILITIES = {
 	Frenzied = { [1]={"Fervor"}, [2]={"Fervor","Bloodrush","Rampage"} },
 	Shocked = { [1]={"Thunderstrike"}, [2]={"Thunderstrike","ChainLightning"} },
 }
+
+-- Preserve direct ability lookup for persisted higher-level weapon slots.
+for _, family in ipairs(Rules.FAMILIES) do
+	for level = 3, Rules.MAX_LEVEL do
+		Rules.ABILITIES[family][level] = Rules.ABILITIES[family][2]
+		Rules.WEIGHT_POOLS[family][level] = Rules.WEIGHT_POOLS[family][2]
+	end
+end
 
 local function finite(n)
 	return type(n)=="number" and n==n and n > -math.huge and n < math.huge
@@ -98,16 +118,27 @@ end
 function Rules.Preview(logs, tier)
 	local config = Rules.Tier(tier)
 	if not config or type(logs) ~= "table" or #logs<1 or #logs>96 then return nil end
-	local family, sum, count = nil,0,0
+	local family, sum, count, mutatedCount = nil,0,0,0
 	for _, log in ipairs(logs) do
 		if type(log)~="table" or not finite(log.SizeScale) or log.SizeScale<=0 then return nil end
 		local mutations = log.Mutations
 		if mutations~=nil and type(mutations)~="table" then return nil end
+		-- Count physical ability-bearing logs, not individual mutation tags.
+		local speciesCap = Rules.SPECIES_POTENCY[log.SpeciesId]
+		if not speciesCap then return { InvalidReason = "UNKNOWN_SPECIES" } end
+		local counted = false
 		for _, id in ipairs(Rules.FAMILIES) do
 			if type(mutations)=="table" and mutations[id]==true then
 				if family and family~=id then return { InvalidReason="MIXED_MUTATION_FAMILIES" } end
 				family = id
-				sum += math.clamp(log.SizeScale / Rules.MAX_LOG_SIZE,0,1)*Rules.PER_LOG_POTENCY
+				if not counted then
+					counted = true
+					mutatedCount += 1
+					if mutatedCount > config.MaxMutatedLogs then
+						return { InvalidReason = "TOO_MANY_MUTATED_LOGS", MaxMutatedLogs = config.MaxMutatedLogs }
+					end
+				end
+				sum += math.clamp(log.SizeScale / Rules.MAX_LOG_SIZE,0,1)*speciesCap
 				count += 1
 			end
 		end
@@ -115,6 +146,7 @@ function Rules.Preview(logs, tier)
 	local potency = math.min(sum,config.PotencyCap)
 	return {
 		Family=family, Tier=tier, QualifyingLogs=count,
+		MaxMutatedLogs=config.MaxMutatedLogs,
 		RawPotency=sum, Potency=potency,
 		PotencyCap=config.PotencyCap,
 		WastedPotency=math.max(0,sum-potency),
