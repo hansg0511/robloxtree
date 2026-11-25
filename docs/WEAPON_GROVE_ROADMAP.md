@@ -344,6 +344,15 @@ The data model should have stable fields for forge tier, original log provenance
 
 **Phase 1C exit:** New rarity smoke test passes, prior regression tests still pass and at least one normal craft in each forge mode shows correct server-owned rarity and inventory/combat behavior. Then Phase 1D ascension/pity may begin.
 
+
+## Forest progression design decisions — 2026-11-26
+
+- Forest access should use **natural combat power benchmarks, not mandatory metal ownership or crafted-metal requirements**. A player with an exceptional earlier-tier weapon who can legitimately destroy the progression barrier deserves access. Preserve sequential forest access, server-side damage/ownership checks and the physical barrier unlock; do not dynamically scale HP to negate strong builds. Metal purchases remain reliable standard progression, not compulsory equipment resets. Review existing craft-tier and barrier-tier dependencies together before implementing; no decision yet on whether head crafting must follow every intermediate metal tier.
+- Vary forest density, spacing and durability; favor different weapon/ability builds with dense, sparse, clustered or mixed layouts. Some areas may be better for gold farming than obtaining strong crafting wood. Separate sale value from crafting strength, evaluate actual yield/minute including travel, carrying, respawn and Grove supply. No mandatory relevance for earlier forests.
+- Standard shop axe heads remain predictable primary equipment progression, with wood contributing substantially to weapon power. Adjacent-metal power overlap is a design direction, not a numeric requirement. Special heads and additional head passive systems deferred; revisit later. No new passive system approved.
+- Target average-luck combat progression with meaningful sustained entry fights and earned one-shots as players improve; lucky or heavily invested players can advance faster. Proposed launch target of 6–10 active hours and forest/metal counts remain provisional, not user-approved pacing numbers.
+- RNG-only forge change received positive player playtest feedback. Do not repeat the integration checklist; clean-profile progression and release validation remain outstanding.
+
 ## Latest decision checkpoint — 2026-11-26
 
 - Player reports the integrated gameplay playtest works very well overall. Treat as general player acceptance, not individual verification of every checklist item or multiplayer/persistence correctness. Preserve the checklist for reference; do not require another identical test round.
