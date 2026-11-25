@@ -1002,6 +1002,11 @@ local function buildWorld()
 	local starterForest = forestRoot:FindFirstChild("StarterForest")
 	local barrier = spawnTreeRecord(starterForest, Configuration.BARRIER.ForestId, Configuration.BARRIER)
 	if barrier then table.insert(spawnedTrees, barrier) end
+	local second = Configuration.SECOND_BARRIER
+	if second then
+		local gate = spawnTreeRecord(forestFoldersById[second.ForestId], second.ForestId, second)
+		if gate then table.insert(spawnedTrees, gate) end
+	end
 	buildStudioCleavePatch(forestRoot, pathFolder, spawnedTrees)
 	local kitOk, kitFolder, kitReport = false, nil, nil
 	local kitFailureReason = environmentKitLoadFailure
