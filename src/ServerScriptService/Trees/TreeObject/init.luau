@@ -897,7 +897,7 @@ end
 local function shouldUseProceduralStarterOak(tree)
 	return WorldLayoutConfiguration.PROCEDURAL_STARTER_OAKS_ENABLED == true
 		and tree.DefinitionId == "StarterForestTree"
-		and tree.ForestId == "Forest1"
+		and (tree.ForestId == "Forest3" or tree.ForestId == "Forest1")
 		and tree.SpeciesId == "Oak"
 		and tree.YieldsLog == true
 		and not tree.IsPersistentGrove
