@@ -5,7 +5,7 @@ C.MAX_FORGE_LEVEL=200
 C.TOTAL_RARITY_WEIGHT=1000000
 C.XP={Base=100,PerLevel=25,PerDamage=1,KillPerMaxHP=0.25}
 C.LEVEL_POWER_GROWTH=0.01
-C.FORGE_COST={FirstUpgrade=2000,Scale=10,Exponent=3.5,Round=50}
+C.FORGE_COST={FirstUpgrade=500,Scale=6,Exponent=3.5,Round=50}
 -- Rarity rows in increasing order. Stable Ids are persisted.
 -- Unlock = maximum rarity gate; RetireBelowAt = level this becomes minimum.
 -- AscendChance/Coins/Logs/Pity are costs for leaving this rarity.
@@ -24,6 +24,7 @@ C.RARITIES={
 	{Id="Transcendent",Unlock=200,LevelCap=200,Power=20,Color={255,239,171}},
 }
 C.PITY_FACTOR=1.5
+C.PITY_MAX=30 -- cap scarce-resource worst-case attempts; per-rarity Pity can override
 C.SECOND_SLOT_RARITY="Legendary"
 -- Cumulative probability of at least a rarity as a function of Forge levels
 -- since that rarity unlocked. The previous rarity's tail bounds each tail.

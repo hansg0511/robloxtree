@@ -36,7 +36,7 @@ end
 function Rules.PityLimit(rarity)
 	local step = Rules.STEPS[rarity]
 	if not step then return nil end
-	return step.Pity or math.ceil(Config.PITY_FACTOR / step.Chance)
+	return step.Pity or math.min(Config.PITY_MAX,math.ceil(Config.PITY_FACTOR / step.Chance))
 end
 
 -- All returned values are immutable by convention; do not mutate STEPS.

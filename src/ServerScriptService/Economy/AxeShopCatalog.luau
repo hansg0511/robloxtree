@@ -6,7 +6,7 @@ AxeShopCatalog.AxeHeads = {
 	{
 		Id = "copper_head",
 		Name = "Copper Axe Head",
-		Price = 150,
+		Price = 60, -- first full starter bag can fund a head while retaining three logs
 		RequiredForestId = "Forest1",
 		Tier = 1,
 	},
@@ -80,7 +80,7 @@ end
 -- Prototype one-step workstation upgrade; more forge tiers later.
 AxeShopCatalog.ForgeLevelUpgrade = {
 	ToLevel = 2,
-	CoinCost = 2000,
+	CoinCost = require(game.ReplicatedStorage.Shared.ProgressionConfig).UpgradeCost(2),
 }
 
 AxeShopCatalog.DEFAULT_CAPACITY_KG = 10

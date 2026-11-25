@@ -294,8 +294,16 @@ check("bad values, stale/implausible future windows and old tasks reset",
 local snapshot=QuestRules.RecurringSnapshot(both,"Daily",monday)
 check("client projection has deadlines, counts and no pending fake rewards",
 	snapshot.ResetAt==monday+86400 and #snapshot.Tasks==2
-	and snapshot.Tasks[1].Count==1 and snapshot.RewardsConfigured==false
-	and snapshot.Tasks[1].Reward==nil)
+	and snapshot.Tasks[1].Count==1 and snapshot.RewardsConfigured==true
+	and snapshot.Tasks[1].Reward>0)
+local token="daily_wild_chops:"..tostring(newDaily)
+check("incomplete reward not claimable",QuestRules.ClaimRecurring(both,token,monday)==nil)
+local claimed,amount=QuestRules.ClaimRecurring(capped,token,monday)
+check("completed recurring task grants configured reward",claimed and amount>0 and claimed.Daily.Claimed.daily_wild_chops==true)
+check("duplicate claim rejected",QuestRules.ClaimRecurring(claimed,token,monday)==nil)
+local reloaded=QuestRules.NormalizeRecurring(claimed,monday)
+check("claim persists after normalization",QuestRules.ClaimRecurring(reloaded,token,monday)==nil)
+check("old token rejected at next reset",QuestRules.ClaimRecurring(reloaded,token,monday+86400)==nil)
 local oldSave={QuestProgress=finished}
 check("legacy save gains recurring without touching completed Story",
 	Cache.NormalizeRecurringQuestProgress(oldSave)

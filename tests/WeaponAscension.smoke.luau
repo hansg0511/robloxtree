@@ -39,13 +39,13 @@ for index = 1, #ladder - 1 do
 		step.To == nextRarity and step.Coins > 0 and step.Logs > 0
 			and step.Chance > 0 and step.Chance <= 1)
 	test(rarity .. " pity uses ceil(1.5/p)",
-		pity == (step.Pity or math.ceil(Config.PITY_FACTOR / step.Chance)))
+		pity == (step.Pity or math.min(Config.PITY_MAX,math.ceil(Config.PITY_FACTOR / step.Chance))))
 	test(rarity .. " cannot ascend early",
 		Ascension.Resolve(rarity, { Level = cap - 1 }, 0,maxForge) == nil)
 	local p = Ascension.Preview(rarity, maxed)
 	test(rarity .. " available at level cap and shows cost/pity",
 		p.Ready and p.To == nextRarity and p.PityLimit == pity
-			and p.Coins == step.Coins and p.Logs == step.Logs)
+			and p.Coins == step.Coins and p.Logs == step.Logs and p.Crystals==step.Crystals and p.Crystals>0)
 
 	-- At level cap: fails cost one attempt, never damage the weapon,
 	-- and independently advance this weapon's per-step counter.

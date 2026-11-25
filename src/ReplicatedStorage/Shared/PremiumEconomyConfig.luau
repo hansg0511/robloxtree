@@ -22,4 +22,11 @@ C.FREE_POTENCY_MIN=0.10
 C.FREE_POTENCY_MAX=0.30
 C.STUDIO_PREMIUM_FLOOR=10000
 C.STUDIO_CRYSTAL_FLOOR=1000
+assert(C.CRYSTAL_PRICE%1==0 and C.CRYSTAL_PRICE>0,"invalid crystal exchange price")
+assert(C.FREE_POTENCY_MIN>0 and C.FREE_POTENCY_MAX>=C.FREE_POTENCY_MIN and C.FREE_POTENCY_MAX<=1,"invalid free potency range")
+for _,weight in pairs(C.FREE_FAMILY_WEIGHTS) do assert(type(weight)=="number" and weight>=0 and weight<math.huge,"invalid family weight") end
+for _,reward in pairs(C.QUEST_REWARDS) do assert(type(reward)=="number" and reward%1==0 and reward>0,"invalid quest reward") end
+for _,recipe in ipairs({C.AWAKEN,C.REPLACE}) do
+	assert(recipe.Coins%1==0 and recipe.Coins>0 and recipe.Premium%1==0 and recipe.Premium>0,"invalid upgrade price")
+end
 return C

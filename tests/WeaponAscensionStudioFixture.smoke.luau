@@ -76,6 +76,7 @@ end
 local step=Ascension.STEPS[chosen.Rarity]
 data.RunProgress.ForgeLevel=math.max(data.RunProgress.ForgeLevel or 1,step.RequiredForge)
 data.Coins=math.max(type(data.Coins)=="number" and data.Coins or 0,20000,step.Coins)
+data.MaterialBalances.AscensionCrystal=math.max(data.MaterialBalances.AscensionCrystal or 0,step.Crystals)
 LogService.NotifyState(player)
 print(string.format(
 	"[AscensionFixture] Weapon: %s / %s  rarity=%s  level=%d  pity_failures=%d  ordinary_bag_logs=%d",

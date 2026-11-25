@@ -81,7 +81,9 @@ local function createUpgradeSubject(player,kind)
 		seed.WeaponData.DevUpgradeTestLabel="AWAKEN TEST (RARE)"
 	else
 		seed.Rarity="Legendary"
-		seed.WeaponData.DevUpgradeTestLabel="INFUSE TEST (LEGENDARY)"
+		seed.WeaponData.DevUpgradeTestLabel="REPLACE TEST (LEGENDARY)"
+		local slots=require(game.ServerScriptService.Economy.WeaponUpgradeRules)
+		seed.WeaponData=assert(slots.GrantSecond(seed.WeaponData,seed.Rarity,25,Random.new()))
 	end
 	return seed
 end
@@ -122,7 +124,7 @@ local function start(player)
 			end
 			-- Add exactly two further test subjects through the same verified
 			-- inventory AddShopAxeItem path (existing axes left untouched).
-			for _,kind in ipairs({"Awaken","Infuse"}) do
+			for _,kind in ipairs({"Awaken","Replace"}) do
 				local record=createUpgradeSubject(player,kind)
 				if alreadyOwned(data,record.UID) then
 					success+=1
@@ -146,7 +148,7 @@ local function start(player)
 				end
 			end
 			print(string.format(
-				"[MutationBatch2Fixture] READY %d/7: includes AWAKEN TEST (RARE) and INFUSE TEST (LEGENDARY).",
+				"[MutationBatch2Fixture] READY %d/7: includes AWAKEN TEST (RARE) and REPLACE TEST (LEGENDARY).",
 				success))
 			print("[MutationBatch2Fixture] GoldenJackpot sample uses 50% PROC CHANCE only for short Studio testing.")
 			print("[MutationBatch2Fixture] All five are ordinary equipped Axe tools with saved WeaponData.Effects in Studio Mock only.")

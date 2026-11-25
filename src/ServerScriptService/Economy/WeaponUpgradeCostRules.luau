@@ -16,6 +16,7 @@
 -- Schema supports adding new keyed material inventories via validated adapters
 -- rather than having separate hardcoded awakening-specific cost checks.
 local Rules = {}
+local Forge=require(game.ReplicatedStorage.Shared.ForgeMutationRules)
 
 Rules.MAX_INGREDIENTS = 16
 Rules.MAX_PER_INGREDIENT = 96
@@ -64,8 +65,7 @@ function Rules.Validate(costs)
 		elseif kind=="Logs" then
 			if not integer(c.Count) or c.Count<1 or c.Count>Rules.MAX_PER_INGREDIENT then return false end
 			if c.MutationFamily~=nil and c.MutationFamily~="$selected"
-				and c.MutationFamily~="Golden" and c.MutationFamily~="Frenzied"
-				and c.MutationFamily~="Shocked" then return false end
+				and not table.find(Forge.FAMILIES,c.MutationFamily) then return false end
 			logGroups+=1
 			if logGroups>1 then return false end -- one log selection, one family
 			key="Logs"
@@ -146,8 +146,7 @@ function Rules.Plan(costs, data, eligibleLogs, selections, selectedFamily)
 			local family=if c.MutationFamily=="$selected"
 				then selectedFamily else c.MutationFamily
 			if c.MutationFamily=="$selected"
-				and family~="Golden" and family~="Frenzied"
-				and family~="Shocked" then return nil end
+				and not table.find(Forge.FAMILIES,family) then return nil end
 			local selection=selections.LogUIDs
 			if not validateSelection(selection,c.Count) then return nil end
 			for _,uid in ipairs(selection) do

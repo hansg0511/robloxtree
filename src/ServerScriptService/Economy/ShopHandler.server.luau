@@ -483,7 +483,7 @@ upgradeWeapon.OnServerEvent:Connect(function(player, uid, mode, family, selectio
 	if select("#",...)~=0 or not takeBudget(player,"UpgradeWeapon") then return end
 	if type(uid)~="string" or #uid<1 or #uid>128
 		or (mode~="Awaken" and mode~="Replace")
-		or (family~="Golden" and family~="Frenzied" and family~="Shocked")
+		or not table.find(ForgeMutations.FAMILIES,family)
 		or type(selections)~="table" then return end
 	local ok,result=pcall(function()
 		return WeaponUpgradeService.Attempt(player,uid,mode,family,selections)
@@ -514,8 +514,10 @@ buyCrystals.OnServerEvent:Connect(function(player,quantity,...)
 	if not isNonnegativeInteger(balances[Premium.PREMIUM]) or balances[Premium.PREMIUM]<price then
 		buyCrystals:FireClient(player,{Success=false,Reason="NOT_ENOUGH_PREMIUM"}); return
 	end
+	local owned=balances[Premium.CRYSTAL] or 0
+	if not isNonnegativeInteger(owned) or owned>1e12-quantity then buyCrystals:FireClient(player,{Success=false,Reason="BALANCE_INVALID"}); return end
 	balances[Premium.PREMIUM]-=price
-	balances[Premium.CRYSTAL]=(balances[Premium.CRYSTAL] or 0)+quantity
+	balances[Premium.CRYSTAL]=owned+quantity
 	buyCrystals:FireClient(player,{Success=true,Quantity=quantity})
 	economyUpdated:FireClient(player,"PremiumBalances")
 end)
@@ -710,8 +712,8 @@ local function craftExperimental(player, recipe, selectedLogUids)
 		},
 	}
 
-	local granted=SlotRules.GrantSecond(weapon.WeaponData,rarity,forgeLevel,Random.new())
-	if not granted then restoreCraftLogs(player,recipe,removedLogs,sourceByUid); return end
+	local grantedOk,granted=pcall(SlotRules.GrantSecond,weapon.WeaponData,rarity,forgeLevel,Random.new())
+	if not grantedOk or not granted then restoreCraftLogs(player,recipe,removedLogs,sourceByUid); return end
 	weapon.WeaponData=granted
 	data.AxeHeads[head.Id] = headCount - 1
 	progress.StandardAxeTier = math.max(previousTier, recipe.Tier)
@@ -851,8 +853,8 @@ craftRecipe.OnServerEvent:Connect(function(player, recipeId, selectedLogUids, ..
 		return
 	end
 
-	local granted=SlotRules.GrantSecond(itemRecord.WeaponData,rarity,forgeLevel,Random.new())
-	if not granted then restoreCraftLogs(player,recipe,removedLogs,sourceByUid); return end
+	local grantedOk,granted=pcall(SlotRules.GrantSecond,itemRecord.WeaponData,rarity,forgeLevel,Random.new())
+	if not grantedOk or not granted then restoreCraftLogs(player,recipe,removedLogs,sourceByUid); return end
 	itemRecord.WeaponData=granted
 	-- Keep head and progression writes silent until the output path succeeds.
 	data.AxeHeads[head.Id] = headCount - 1

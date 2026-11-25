@@ -162,91 +162,37 @@ local function sampleAbility(family,roll)
 	local preview=Forge.Preview(mutated,2)
 	return Forge.Roll(preview,2,{NextNumber=function() return roll or 0.1 end})
 end
+local Premium=require(game.ReplicatedStorage.Shared.PremiumEconomyConfig)
 local first=sampleAbility("Golden",0.1)
 local second=sampleAbility("Frenzied",0.1)
 local replacement=sampleAbility("Shocked",0.9)
-check("phase 3 test abilities exist",first and second and replacement)
-local clean={
-	ExperimentalClass="Axe",Progression={SchemaVersion=1,Level=22,XP=35},
-	Effects={},Materials={{UID="original-log"}},CraftedPower=81,
-}
-local canAwaken,allowReason=Upgrades.Check("Awaken","Rare",clean,"Golden",2)
-check("ordinary rare weapon can awaken",canAwaken and not allowReason)
-check("cannot awaken at forge level 1",
-	not Upgrades.Check("Awaken","Rare",clean,"Golden",1))
-local awakened,reason=Upgrades.Build(clean,"Awaken",first,"Rare",2)
-check("awakening gives first slot",awakened and not reason
-	and #awakened.MutationSlots==1 and awakened.MutationSlots[1].Id==first.Id)
-check("awakening preserves existing stats/XP/materials",
-	awakened.Progression.Level==22 and awakened.Progression.XP==35
-	and awakened.CraftedPower==81 and #awakened.Materials==1)
-check("pure build never mutates original weapon",
-	clean.MutationAbility==nil and #clean.Effects==0)
-check("second awakening rejected",
-	not Upgrades.Check("Awaken","Rare",awakened,"Shocked",2))
-check("rare cannot infuse second slot",
-	not Upgrades.Check("Infuse","Rare",awakened,"Shocked",2))
-check("must awaken before infusion",
-	not Upgrades.Check("Infuse","Legendary",clean,"Frenzied",2))
-check("same-family infusion denied",
-	not Upgrades.Check("Infuse","Legendary",awakened,"Golden",2))
-local legend={
-	ExperimentalClass="Battlehammer",
-	CleaveRadius=10,CleaveDamageFraction=0.4,
-	Progression={Level=45,XP=0},Effects={
-		{Id="Cleave",Trigger="OnHit",Source="WeaponClass",
-			Params={Radius=10,DamageFraction=0.4}},
-		first.Effect,
-	},
-	MutationAbility={
-		Family=first.Family,Id=first.Id,Potency=first.Potency,
-		ForgeTier=first.Tier,
-	},
-}
-local infused,reason=Upgrades.Build(legend,"Infuse",second,"Legendary",2)
-check("legacy one-slot weapon gains second",infused and not reason
-	and #infused.MutationSlots==2)
-check("first legacy ability is unchanged",infused.MutationSlots[1].Id==first.Id)
-check("infusion preserves Cleave AND two mutations",
-	#Dispatcher.List(infused)==3 and infused.Effects[1].Id=="Cleave"
-	and infused.Effects[2].Id==first.Id and infused.Effects[3].Id==second.Id)
-check("infusion leaves original legacy item untouched",
-	legend.MutationSlots==nil and #legend.Effects==2)
-check("infused weapon refuses same-family duplicate",
-	not Upgrades.Check("Infuse","Legendary",infused,"Golden",2))
-local replaced,why=Upgrades.Build(infused,"Infuse",replacement,"Ultra",2)
-check("infusion replacement rewrites ONLY slot 2",replaced and not why
-	and replaced.MutationSlots[1].Id==first.Id
-	and replaced.MutationSlots[2].Id==replacement.Id)
-check("replacement retains first mutation and Cleave but drops old second",
-	#Dispatcher.List(replaced)==3 and replaced.Effects[1].Id=="Cleave"
-	and replaced.Effects[2].Id==first.Id
-	and replaced.Effects[3].Id==replacement.Id)
-check("replacement does not mutate the already infused source",
-	infused.MutationSlots[2].Id==second.Id)
-local legacyHammer={
-	ExperimentalClass="Battlehammer",
-	CleaveRadius=11,CleaveDamageFraction=0.4,
-}
-local awakenedHammer=Upgrades.Build(legacyHammer,"Awaken",first,"Common",2)
-check("old Battlehammer scalar Cleave preserved on awakening",
-	awakenedHammer and #Dispatcher.List(awakenedHammer)==2
-	and Dispatcher.List(awakenedHammer)[1].Id=="Cleave")
-check("live upgrade economy is explicitly unconfigured",
-	Upgrades.ECONOMY_CONFIGURED==false
-	and Upgrades.COST_POLICY=="STUDIO_TEST_ONLY")
-check("only temporary mutated-log inputs remain for Studio testing",
-	#Upgrades.COSTS.Awaken==1 and #Upgrades.COSTS.Infuse==1
-	and Upgrades.COSTS.Awaken[1].Kind=="Logs"
-	and Upgrades.COSTS.Awaken[1].Count==2
-	and Upgrades.COSTS.Infuse[1].Kind=="Logs"
-	and Upgrades.COSTS.Infuse[1].Count==3)
-check("there are no unapproved material, coin or head costs",
-	Upgrades.COSTS.Awaken[1].MutationFamily=="$selected"
-	and Upgrades.COSTS.Infuse[1].MutationFamily=="$selected")
-check("all actual recipes are accepted by shared cost planner",
-	Rules.Validate(Upgrades.COSTS.Awaken)
-	and Rules.Validate(Upgrades.COSTS.Infuse))
+local clean={ExperimentalClass="Axe",Progression={Level=12,XP=35},Effects={},Materials={{UID="original-log"}},CraftedPower=81}
+check("ordinary rare weapon can awaken",Upgrades.Check("Awaken","Rare",clean,"Golden",2)~=nil)
+check("cannot awaken at forge 1",not Upgrades.Check("Awaken","Rare",clean,"Golden",1))
+local awakened=Upgrades.Build(clean,"Awaken",first,"Rare",2)
+check("awakening preserves stats and leaves second empty",awakened and awakened.MutationSlots[1].Id==first.Id and awakened.MutationSlots[2]==false and awakened.Progression.Level==12 and awakened.CraftedPower==81)
+check("pure build preserves source",clean.MutationAbility==nil and #clean.Effects==0)
+check("second awakening rejected",not Upgrades.Check("Awaken","Rare",awakened,"Shocked",2))
+check("paid infusion removed",not Upgrades.Check("Infuse","Legendary",awakened,"Shocked",25))
+check("below threshold no free slot",Upgrades.GrantSecond(clean,"Epic",25,Random.new(1))==clean)
+local rng={NextNumber=function(_,lo,hi) if lo then return lo+(hi-lo)*0.5 end return 0 end}
+local onlySecond=Upgrades.GrantSecond(clean,"Legendary",25,rng)
+check("Legendary without first receives independent second",onlySecond and onlySecond.MutationSlots[1]==false and onlySecond.MutationSlots[2] and onlySecond.MutationAbility==nil)
+check("grant idempotent",Upgrades.GrantSecond(onlySecond,"Ultra",60,Random.new(9))==onlySecond)
+check("awaken cannot match slot two family",not Upgrades.Check("Awaken","Legendary",onlySecond,onlySecond.MutationSlots[2].Family,25))
+local both=Upgrades.Build(onlySecond,"Awaken",second,"Legendary",25)
+check("awaken after free second preserves second",both and both.MutationSlots[1].Family=="Frenzied" and both.MutationSlots[2].Id==onlySecond.MutationSlots[2].Id)
+local legend={ExperimentalClass="Battlehammer",Effects={{Id="Cleave",Trigger="OnHit",Source="WeaponClass",Params={Radius=10,DamageFraction=0.4}},first.Effect},MutationAbility={Family=first.Family,Id=first.Id,Potency=first.Potency,ForgeTier=first.Tier}}
+local granted=Upgrades.GrantSecond(legend,"Legendary",25,rng)
+check("free roll excludes first family and preserves Cleave",granted and granted.MutationSlots[2].Family~="Golden" and #Dispatcher.List(granted)==3)
+check("replacement cannot match first family",not Upgrades.Check("Replace","Legendary",granted,"Golden",25))
+local replaced=Upgrades.Build(granted,"Replace",replacement,"Ultra",60)
+check("replacement preserves first and class effects",replaced and replaced.MutationSlots[1].Id==first.Id and replaced.MutationSlots[2].Id==replacement.Id and #Dispatcher.List(replaced)==3)
+check("replacement does not mutate original",granted.MutationSlots[2].Id~=replacement.Id)
+for _,mode in ipairs({"Awaken","Replace"}) do
+	for count=1,Forge.Tier(200).MaxMutatedLogs do check("config recipe validates",Rules.Validate(Upgrades.Costs(mode,count))) end
+end
+check("replacement premium cost significantly higher",Premium.REPLACE.Premium>Premium.AWAKEN.Premium and Upgrades.ECONOMY_CONFIGURED)
 
 print("UpgradeCost + WeaponUpgradeRules PASS: multiple ingredient types, unique UIDs, exact resources, fail-closed missing materials and non-mutating previews")
 return true

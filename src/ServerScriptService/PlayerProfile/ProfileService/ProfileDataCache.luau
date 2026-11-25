@@ -272,7 +272,7 @@ function PlayerProfileCache.NormalizeWeaponData(data)
 			if definition and definition.Type == "Weapon" then
 				WeaponProgressionRules.NormalizeWeaponItem(item)
 				if ProgressionConfig.HasSecondSlot(item.Rarity) then
-					local level=data.RunProgress and data.RunProgress.ForgeLevel or 1
+					local level=type(data.RunProgress)=="table" and data.RunProgress.ForgeLevel or 1
 					if not ProgressionConfig.ValidForge(level) then level=1 end
 					level=math.max(level,ProgressionConfig.RequiredForge(item.Rarity))
 					local granted,reason=SlotRules.GrantSecond(item.WeaponData,item.Rarity,level,Random.new())

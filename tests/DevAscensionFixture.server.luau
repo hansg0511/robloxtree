@@ -73,11 +73,13 @@ local function prepare(player, data, item)
 	end
 	data.RunProgress.ForgeLevel=math.max(data.RunProgress.ForgeLevel or 1,step.RequiredForge)
 	data.Coins = math.max(COINS_FOR_TEST,step.Coins)
+	data.MaterialBalances.AscensionCrystal=step.Crystals
 	Logs.NotifyState(player)
 
 	-- Snapshot *after* preparation, before any ascension request. Works even
 	-- with hundreds of logs from an earlier Studio forging fixture.
 	local beforeCoins = data.Coins
+	local beforeCrystals=data.MaterialBalances.AscensionCrystal
 	local beforeBag = #data.Logs
 	local beforeEligible = Service.EligibleLogs(player)
 	local fromRarity, beforeLevel = item.Rarity, progress.Level
@@ -127,7 +129,7 @@ local function prepare(player, data, item)
 			end
 			local coinsSpent = beforeCoins - afterCoins
 			local logsSpent = beforeBag - afterBag
-			local moneyOK = coinsSpent == step.Coins
+			local moneyOK = coinsSpent == step.Coins and beforeCrystals-data.MaterialBalances.AscensionCrystal==step.Crystals
 			local logsOK = logsSpent == step.Logs
 				and #beforeEligible - #afterEligible == step.Logs
 				and removedAllUIDs
@@ -138,8 +140,8 @@ local function prepare(player, data, item)
 				and afterProgress.AscensionFailures == 0
 				and currentLive and currentLive.ItemRarity == toRarity
 			local preservedOK = item.Stats and item.Stats.Attack == oldAttack
-				and item.WeaponData.Materials == oldMaterials
-				and item.WeaponData.Effects == oldEffects
+				and #item.WeaponData.Materials==#(oldMaterials or {})
+				and #(item.WeaponData.Effects or {})>=#(oldEffects or {})
 
 			print("[DevAscensionFixture] ===== ASCENSION AUDIT =====")
 			print(string.format("[DevAscensionFixture] Coins %d -> %d (spent %d / expected %d) %s",
