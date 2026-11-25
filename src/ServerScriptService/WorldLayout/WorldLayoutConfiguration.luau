@@ -29,23 +29,7 @@ local starterForestTrees = makeTreeRecords("SapwoodTree", {
 	Vector3.new(-88, -0.5, 206),
 	Vector3.new(-69, -0.5, 199),
 })
--- Mature Oaks remain visibly deeper into the SAME forest as a next-power
--- landmark, and retain their existing approved procedural appearance.
-for _, oak in ipairs(makeTreeRecords("StarterForestTree", {
-	Vector3.new(-157, -0.5, 237),
-	Vector3.new(-136, -0.5, 239),
-	Vector3.new(-66, -0.5, 223),
-	Vector3.new(-84, -0.5, 239),
-})) do
-	table.insert(starterForestTrees, oak)
-end
-table.insert(starterForestTrees, {
-	DefinitionId = "BambooClump",
-	-- Keep the older lightweight Bamboo option near the entrance.
-	Position = Vector3.new(-61, -0.5, 157),
-})
-
-local forest2Trees = makeTreeRecords("Forest2Tree", {
+local forest2Trees = makeTreeRecords("BambooClump", {
 	Vector3.new(-157, -0.5, 303),
 	Vector3.new(-137, -0.5, 319),
 	Vector3.new(-159, -0.5, 341),
@@ -58,6 +42,17 @@ local forest2Trees = makeTreeRecords("Forest2Tree", {
 	Vector3.new(-65, -0.5, 365),
 	Vector3.new(-87, -0.5, 386),
 	Vector3.new(-68, -0.5, 343),
+})
+
+local forest3Trees = makeTreeRecords("StarterForestTree", {
+	Vector3.new(-156, -0.5, 443),
+	Vector3.new(-136, -0.5, 465),
+	Vector3.new(-158, -0.5, 489),
+	Vector3.new(-138, -0.5, 513),
+	Vector3.new(-85, -0.5, 445),
+	Vector3.new(-66, -0.5, 471),
+	Vector3.new(-85, -0.5, 498),
+	Vector3.new(-66, -0.5, 520),
 })
 
 local FOREST_DRESSING_DENSITY = 1.0
@@ -74,7 +69,7 @@ local WorldLayoutConfiguration = {
 	PROCEDURAL_STARTER_OAKS_ENABLED = true,
 
 	ROOT_NAME = "SourceWorld",
-	VERSION = 23,
+	VERSION = 24,
 	STATION_USE_DISTANCES = STATION_USE_DISTANCES,
 
 	-- Surface steps stay small: support ground -0.56, forest/base -0.5,
@@ -217,7 +212,7 @@ local WorldLayoutConfiguration = {
 			GroundCenter = Vector3.new(-112, -0.75, 200),
 			GroundSize = Vector3.new(110, 0.5, 104),
 			GroundColor = Color3.fromRGB(104, 151, 87),
-			Sign = { Text = "FOREST 1", Position = Vector3.new(-139, 0, 184) },
+			Sign = { Text = "FOREST 1 - SAPWOOD", Position = Vector3.new(-139, 0, 184) },
 			Trees = starterForestTrees,
 		},
 		{
@@ -229,21 +224,20 @@ local WorldLayoutConfiguration = {
 			GroundCenter = Vector3.new(-112, -0.75, 340),
 			GroundSize = Vector3.new(110, 0.5, 104),
 			GroundColor = Color3.fromRGB(91, 137, 82),
-			Sign = { Text = "FOREST 2", Position = Vector3.new(-139, 0, 324) },
+			Sign = { Text = "FOREST 2 - BAMBOO", Position = Vector3.new(-139, 0, 324) },
 			Trees = forest2Trees,
 		},
 		{
 			Name = "Forest3",
 			ForestId = "Forest3",
-			Status = "Blockout",
 			Dressing = { Seed = 1003, Density = FOREST_DRESSING_DENSITY },
 			Corridor = "A",
 			ApproachFrom = "South",
 			GroundCenter = Vector3.new(-112, -0.75, 480),
 			GroundSize = Vector3.new(110, 0.5, 104),
 			GroundColor = Color3.fromRGB(92, 134, 80),
-			Sign = { Text = "FOREST 3 - BLOCKOUT", Position = Vector3.new(-139, 0, 464) },
-			Trees = {},
+			Sign = { Text = "FOREST 3 - OAK", Position = Vector3.new(-139, 0, 464) },
+			Trees = forest3Trees,
 		},
 		{
 			Name = "Forest4",
@@ -338,6 +332,12 @@ local WorldLayoutConfiguration = {
 		},
 	},
 
+	-- Retain the first gate key for the existing boundary style builder.
+	SECOND_BARRIER = {
+		DefinitionId = "Forest3Barrier",
+		ForestId = "Forest2",
+		Position = Vector3.new(-112, -0.4, 410),
+	},
 	BARRIER = {
 		DefinitionId = "BarrierTree",
 		ForestId = "Forest1",
