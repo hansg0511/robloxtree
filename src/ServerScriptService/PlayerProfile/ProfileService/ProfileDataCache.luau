@@ -344,6 +344,9 @@ local function normalizeProgressionData(data)
 	if unlockedForests.Forest2 == nil or type(unlockedForests.Forest2) ~= "boolean" then
 		unlockedForests.Forest2 = false
 	end
+	if type(unlockedForests.Forest3) ~= "boolean" then
+		unlockedForests.Forest3 = false
+	end
 	for forestId, unlocked in pairs(unlockedForests) do
 		if type(forestId) ~= "string" or type(unlocked) ~= "boolean" then
 			unlockedForests[forestId] = nil
