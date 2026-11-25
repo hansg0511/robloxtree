@@ -16,7 +16,8 @@ for level=1,Config.MAX_FORGE_LEVEL do
 	for index,id in ipairs(Config.Order) do
 		local weight=weights[id]
 		assert(weight>=0 and weight%1==0)
-		if index<floor or index>ceiling then assert(weight==0,"locked rarity rolled") end
+		if index<floor or index>ceiling then assert(weight==0,"locked rarity rolled")
+		else assert(weight>0,"eligible rarity silently retired") end
 		if weight>0 then
 			assert(Roll.Roll(fixed(sum+1),level)==id)
 			assert(Roll.Roll(fixed(sum+weight),level)==id)

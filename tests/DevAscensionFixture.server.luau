@@ -71,7 +71,8 @@ local function prepare(player, data, item)
 			Locked = false, CreatedAt = os.time(), SizeScale = 0.5,
 		})
 	end
-	data.Coins = COINS_FOR_TEST
+	data.RunProgress.ForgeLevel=math.max(data.RunProgress.ForgeLevel or 1,step.RequiredForge)
+	data.Coins = math.max(COINS_FOR_TEST,step.Coins)
 	Logs.NotifyState(player)
 
 	-- Snapshot *after* preparation, before any ascension request. Works even
@@ -95,8 +96,8 @@ local function prepare(player, data, item)
 		item.UID, fromRarity, beforeLevel, beforeCoins, beforeBag, #beforeEligible
 	))
 	print(string.format(
-		"[DevAscensionFixture] EXPECT | %s Lv1 | spend %d coins and %d ordinary bag log(s)",
-		toRarity, step.Coins, step.Logs
+		"[DevAscensionFixture] EXPECT | %s Lv%d | spend %d coins and %d ordinary bag log(s)",
+		toRarity, beforeLevel, step.Coins, step.Logs
 	))
 	print("[DevAscensionFixture] Go near FORGE; open M > AXES > INFO; select this weapon; click ASCEND twice.")
 	print("[DevAscensionFixture] No chopping, selling, or other crafting until the audit completes.")
@@ -133,7 +134,7 @@ local function prepare(player, data, item)
 			local afterProgress = item.WeaponData.Progression
 			local currentLive = data.Runtime.Weapon[item.UID]
 			local rarityOK = item.Rarity == toRarity
-				and afterProgress.Level == 1 and afterProgress.XP == 0
+				and afterProgress.Level == beforeLevel and afterProgress.XP == 0
 				and afterProgress.AscensionFailures == 0
 				and currentLive and currentLive.ItemRarity == toRarity
 			local preservedOK = item.Stats and item.Stats.Attack == oldAttack

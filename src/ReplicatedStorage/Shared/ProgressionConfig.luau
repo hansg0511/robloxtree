@@ -28,7 +28,7 @@ C.SECOND_SLOT_RARITY="Legendary"
 -- Cumulative probability of at least a rarity as a function of Forge levels
 -- since that rarity unlocked. The previous rarity's tail bounds each tail.
 -- Floors force retired rarity weights to zero. Integer rounding preserves total.
-C.RARITY_TAIL={{0,0.001},{5,0.025},{15,0.15},{30,0.55},{55,0.92},{80,1}}
+C.RARITY_TAIL={{0,0.001},{5,0.025},{15,0.15},{30,0.55},{55,0.92},{80,0.98}}
 C.POTENCY={{1,0.35},{2,0.70},{50,0.80},{110,0.90},{200,1}}
 C.MUTATED_LOG_LIMIT={{1,3},{50,4},{110,5},{200,6}}
 C.CLASS_COUNT_OFFSET={{1,0},{2,2},{60,3},{140,4}}
@@ -53,6 +53,7 @@ for i,row in ipairs(C.RARITIES) do
 	C.ById[row.Id]=row
 	lastUnlock,lastCap,lastPower=row.Unlock,row.LevelCap,row.Power
 end
+assert(C.TOTAL_RARITY_WEIGHT%1==0 and C.TOTAL_RARITY_WEIGHT>=#C.RARITIES,"integer weight domain too small")
 assert(C.RARITIES[1].Unlock==1 and C.RARITIES[1].RetireBelowAt==1 and C.ById[C.SECOND_SLOT_RARITY],"missing starting rarity or slot milestone")
 local function validateMilestones(rows,low,high)
 	local lastX,lastY=-1,-math.huge
@@ -113,7 +114,9 @@ function C.RarityWeights(level)
 			local nextRow=C.RARITIES[i+1]
 			local nextTail=0
 			if i<ceiling then
-				nextTail=math.min(tail,math.floor(C.TOTAL_RARITY_WEIGHT*C.At(C.RARITY_TAIL,level-nextRow.Unlock,true)+0.5))
+				-- Reserve one integer weight for every eligible rarity, even if
+				-- adjacent tail milestones coincide after rounding.
+				nextTail=math.clamp(math.floor(C.TOTAL_RARITY_WEIGHT*C.At(C.RARITY_TAIL,level-nextRow.Unlock,true)+0.5),ceiling-i,tail-1)
 			end
 			weights[row.Id]=tail-nextTail
 			tail=nextTail

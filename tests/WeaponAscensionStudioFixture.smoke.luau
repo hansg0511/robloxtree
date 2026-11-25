@@ -43,7 +43,7 @@ if not chosen then
 		end
 	end
 end
-assert(chosen, "Forge a normal Common/Rare/Epic/Legendary weapon first; debug axes cannot ascend")
+assert(chosen, "Forge a weapon below the highest rarity first; debug axes cannot ascend")
 local live = data.Runtime.Weapon[chosen.UID]
 assert(live and live.ItemUID == chosen.UID and type(live.WeaponData) == "table")
 Rules.NormalizeWeaponItem(chosen)
@@ -73,7 +73,9 @@ for _ = 1, extra do
 		Locked = false, SizeScale = 0.5, CreatedAt = os.time(),
 	})
 end
-data.Coins = math.max(type(data.Coins) == "number" and data.Coins or 0, 20000)
+local step=Ascension.STEPS[chosen.Rarity]
+data.RunProgress.ForgeLevel=math.max(data.RunProgress.ForgeLevel or 1,step.RequiredForge)
+data.Coins=math.max(type(data.Coins)=="number" and data.Coins or 0,20000,step.Coins)
 LogService.NotifyState(player)
 print(string.format(
 	"[AscensionFixture] Weapon: %s / %s  rarity=%s  level=%d  pity_failures=%d  ordinary_bag_logs=%d",
