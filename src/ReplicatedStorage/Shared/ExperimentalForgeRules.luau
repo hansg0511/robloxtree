@@ -1,4 +1,4 @@
--- Shared, pure preview / roll rules for STUDIO-ONLY experimental forging.
+-- Shared, pure preview / roll rules for RNG forging.
 -- These are deliberately provisional balance values. Server verifies owned UIDs.
 local Rules = {}
 local ForgeMutations = require(script.Parent.ForgeMutationRules)
