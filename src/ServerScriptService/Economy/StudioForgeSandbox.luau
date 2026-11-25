@@ -101,6 +101,11 @@ function Sandbox.Refill(player, data)
 			data.RunProgress.UnlockedForests.Forest2 = true
 			changed = true
 		end
+		if type(data.RunProgress.UnlockedForests) == "table"
+			and data.RunProgress.UnlockedForests.Forest3 ~= true then
+			data.RunProgress.UnlockedForests.Forest3 = true
+			changed = true
+		end
 	end
 
 	if type(data.StoredLogs) ~= "table" or type(data.Logs) ~= "table" then
