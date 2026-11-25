@@ -11,7 +11,6 @@ local AxeShopCatalog = require(game.ServerScriptService.Economy.AxeShopCatalog)
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
 local LogStorageRules = require(script.Parent.LogStorageRules)
 local StudioForgeSandbox = require(game.ServerScriptService.Economy.StudioForgeSandbox)
-local PremiumConfig=require(game.ReplicatedStorage.Shared.PremiumEconomyConfig)
 local SpeciesVisuals = require(game.ServerStorage:WaitForChild("SpeciesVisuals"))
 local BaseStationAccess = require(game.ServerScriptService.WorldLayout.BaseStationAccess)
 local LogCarryVisualService = require(game.ServerScriptService.Inventory.LogCarryVisualService)
@@ -561,6 +560,7 @@ local function snapshotLog(record)
 end
 
 local function makeClientSnapshot(player)
+	local PremiumConfig=require(game.ReplicatedStorage.Shared.PremiumEconomyConfig)
 	local data = getPlayerData(player)
 	if not data then return nil end
 	local logs, stored = {}, {}
