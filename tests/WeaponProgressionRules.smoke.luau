@@ -7,7 +7,7 @@ local function near(a, b)
 end
 
 assert(Rules.SCHEMA_VERSION == 1)
-assert(#Rules.RARITY_ORDER == 5)
+assert(#Rules.RARITY_ORDER >= 12)
 assert(not Rules.IsRarity("Debug") and not Rules.IsRarity("Secret"),
 	"Secret is not a normal ascendable rarity")
 for index, rarity in ipairs(Rules.RARITY_ORDER) do
@@ -104,8 +104,8 @@ assert(rareMax > rareStart and runtime.ItemStats.Attack == 95,
 runtime.ItemRarity = "Epic"
 runtime.WeaponData.Progression.Level = 1
 local epicStart = Rules.DerivedAttackBonus(runtime, 5)
-assert(epicStart < rareMax,
-	"After ascension Epic Lv1 can be weaker than max-level Rare")
+runtime.WeaponData.Progression.Level=Rules.GetLevelCap("Rare")
+assert(Rules.DerivedAttackBonus(runtime,5)>rareMax,"same level higher rarity improves power")
 runtime.WeaponData.Progression.Level = Rules.GetLevelCap("Epic")
 assert(Rules.DerivedAttackBonus(runtime, 5) > rareMax,
 	"An Epic at its cap should surpass the same base weapon at Rare cap")

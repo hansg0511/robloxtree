@@ -5,9 +5,10 @@
 local Forge=require(game.ReplicatedStorage.Shared.ForgeMutationRules)
 local Dispatcher=require(game.ServerScriptService.WeaponEffects.Dispatcher)
 local RunService=game:GetService("RunService")
+local Config=require(game.ReplicatedStorage.Shared.ProgressionConfig)
 local Rules={}
 
-Rules.MIN_FORGE_LEVEL=2
+Rules.MIN_FORGE_LEVEL=Config.AWAKEN_MIN_FORGE
 -- IMPORTANT: this is a Studio-only mechanical test recipe, NOT an economy.
 -- 2/3 mutated logs exercise ability rolling/potency and exact-UID spending.
 -- Awakening's FINAL recipe will need additional materials, still UNDECIDED.
@@ -39,9 +40,10 @@ local function validSlot(slot)
 		or type(slot.Id)~="string" or #slot.Id==0
 		or not finite(slot.Potency) or slot.Potency<=0 
 		or type(slot.ForgeTier)~="number" or slot.ForgeTier%1~=0
-		or not Forge.Tier(slot.ForgeTier) then return false end
-	return slot.Potency <= Forge.Tier(slot.ForgeTier).PotencyCap
-		and table.find(Forge.ABILITIES[slot.Family][slot.ForgeTier],slot.Id)~=nil
+		or slot.ForgeTier<1 then return false end
+	-- Historical ability rolls remain valid when live caps/unlocks are retuned.
+	local known=Forge.ABILITIES[slot.Family][Forge.MAX_LEVEL]
+	return slot.Potency<=1 and known~=nil and table.find(known,slot.Id)~=nil
 end
 
 -- Treat either legacy MutationAbility (forged during Batch1/2) or the
@@ -108,7 +110,7 @@ function Rules.Check(mode,rarity,weaponData,family,forgeLevel)
 	if mode=="Awaken" then
 		if #slots~=0 then return nil,"ALREADY_AWAKENED" end
 	else
-		if rarity~="Legendary" and rarity~="Ultra" then
+		if not Config.HasSecondSlot(rarity) then
 			return nil,"LEGENDARY_REQUIRED"
 		end
 		if #slots<1 then return nil,"AWAKEN_FIRST" end

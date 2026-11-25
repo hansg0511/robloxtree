@@ -5,6 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local ExperimentalForgeRules = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ExperimentalForgeRules"))
 local ForgeMutationRules = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ForgeMutationRules"))
+local ProgressionConfig=require(ReplicatedStorage.Shared.ProgressionConfig)
 local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
@@ -58,13 +59,10 @@ local COLORS = {
 
 -- Only display colors; the server-owned Rarity field is authoritative.
 -- Colors are secondary cues, with readable rarity names also displayed.
-local RARITY_TEXT_COLORS = {
-	Common = COLORS.BagMuted,
-	Rare = COLORS.Blue,
-	Epic = Color3.fromRGB(220, 171, 255),
-	Legendary = COLORS.Gold,
-	Ultra = COLORS.BagAction,
-}
+local RARITY_TEXT_COLORS={}
+for _,row in ipairs(ProgressionConfig.RARITIES) do
+	RARITY_TEXT_COLORS[row.Id]=Color3.fromRGB(table.unpack(row.Color))
+end
 
 local function round(parent, radius)
 	local corner = Instance.new("UICorner")
@@ -1219,7 +1217,7 @@ renderAxeDetail = function(axe)
 	local ascend = type(axe.Ascension) == "table" and axe.Ascension or nil
 	if rarity ~= "Debug" then
 		if not ascend then
-			axeStatNote("ULTRA: highest normal rarity.")
+			axeStatNote("Highest normal rarity.")
 		elseif ascend.Ready then
 			axeStatSection("ASCENSION")
 			axeStatRow("Next rarity", tostring(ascend.To))
@@ -1233,6 +1231,7 @@ renderAxeDetail = function(axe)
 			axeStatNote("Failures cost coins and ordinary bag logs, but never damage the weapon.")
 			local actionLabel
 			if ascensionPending then actionLabel = "ASCENDING..."
+			elseif ascend.ForgeUnlocked~=true then actionLabel="NEED FORGE LV "..tostring(ascend.RequiredForge)
 			elseif not ascend.AtForge then actionLabel = "VISIT THE FORGE"
 			elseif not ascend.CanAfford then actionLabel = "NEED COINS OR NORMAL BAG LOGS"
 			else actionLabel = "ASCEND TO " .. string.upper(tostring(ascend.To)) end
@@ -2207,9 +2206,12 @@ local function renderForge(data)
 	forgeTierIron.BackgroundColor3 = if forgeMetalSelection == "iron" then COLORS.Gold else COLORS.BagSlot
 	local forgeConfig = ForgeMutationRules.Tier(forgeLevel)
 	local weights = type(data) == "table" and data.ForgeRarityWeights
-	forgePanel.Header.Subtitle.Text = if forgeConfig and type(weights) == "table"
-		then string.format("%d MUTATED LOGS • %.0f%% POTENCY CAP • ULTRA %.4f%%",
-			forgeConfig.MaxMutatedLogs, forgeConfig.PotencyCap * 100, weights.Ultra / 10000)
+	local floor,ceiling=ProgressionConfig.RarityWindow(forgeLevel)
+	local top=ProgressionConfig.Order[ceiling]
+	forgePanel.Header.Subtitle.Text=if forgeConfig and type(weights)=="table"
+		then string.format("%s–%s • TOP %.2f%% • %d MUTATED • %.0f%% CAP",
+			ProgressionConfig.Order[floor],top,(weights[top] or 0)/ProgressionConfig.TOTAL_RARITY_WEIGHT*100,
+			forgeConfig.MaxMutatedLogs,forgeConfig.PotencyCap*100)
 		else "PICK A METAL + LOGS • SEE ODDS • FORGE"
 	-- Render ONLY the currently selected recipe, not four full-size cards.
 	local activeRecipeId = if forgeModeSelection == "RNG"
@@ -2780,7 +2782,8 @@ ascendWeapon.OnClientEvent:Connect(function(result)
 			NOT_MAX_LEVEL = "REACH WEAPON MAX LEVEL FIRST",
 			NOT_ENOUGH_COINS = "NOT ENOUGH COINS",
 			NOT_ENOUGH_LOGS = "NEED UNMUTATED UNLOCKED BAG LOGS",
-			MAX_RARITY = "ULTRA CANNOT ASCEND FURTHER",
+			MAX_RARITY = "HIGHEST RARITY CANNOT ASCEND FURTHER",
+			FORGE_RARITY_LOCKED="UPGRADE FORGE TO UNLOCK NEXT RARITY",
 			INVALID_WEAPON = "WEAPON NO LONGER AVAILABLE",
 			LOGS_UNAVAILABLE = "LOGS CHANGED — TRY AGAIN",
 			PROFILE_UNAVAILABLE = "PROFILE UNAVAILABLE",
@@ -2814,7 +2817,7 @@ upgradeWeapon.OnClientEvent:Connect(function(result)
 		local messages={
 			NOT_AT_FORGE="MOVE CLOSER TO THE FORGE",
 			FORGE_LEVEL_TOO_LOW="UPGRADE FORGE TO LEVEL 2",
-			LEGENDARY_REQUIRED="NEED LEGENDARY OR ULTRA RARITY",
+			LEGENDARY_REQUIRED="NEED LEGENDARY OR HIGHER RARITY",
 			AWAKEN_FIRST="AWAKEN FIRST",
 			ALREADY_AWAKENED="WEAPON ALREADY HAS AN ABILITY",
 			DUPLICATE_FAMILY="SELECT A DIFFERENT MUTATION FAMILY",

@@ -5,17 +5,17 @@ local Rules = {}
 
 Rules.MAX_LOG_SIZE = 5
 Rules.SPECIES_POTENCY = { Sapwood = 0.10, Bamboo = 0.10, Oak = 0.15, Ironwood = 0.22 }
-Rules.MAX_LEVEL = 20
+local Config=require(script.Parent.ProgressionConfig)
+Rules.MAX_LEVEL = Config.MAX_FORGE_LEVEL
 Rules.FAMILIES = { "Golden", "Frenzied", "Shocked" }
 Rules.TIERS = {}
 for level = 1, Rules.MAX_LEVEL do
-	local cap = if level >= 20 then 1.0 elseif level >= 10 then 0.90 elseif level >= 5 then 0.80 elseif level >= 2 then 0.70 else 0.35
-	local limit = if level >= 20 then 6 elseif level >= 10 then 5 elseif level >= 5 then 4 else 3
 	Rules.TIERS[level] = {
-		PotencyCap = cap, MaxMutatedLogs = limit,
-		ClassCountOffset = if level >= 2 then 2 else 0,
-		AbilityTier = if level >= 2 then 2 else 1,
-		UpgradeCoins = if level == 1 then 0 else math.floor(2000 * 1.35 ^ (level - 2) / 50 + 0.5) * 50,
+		PotencyCap = Config.At(Config.POTENCY,level,true),
+		MaxMutatedLogs = Config.At(Config.MUTATED_LOG_LIMIT,level,false),
+		ClassCountOffset = Config.At(Config.CLASS_COUNT_OFFSET,level,false),
+		AbilityTier = Config.At(Config.ABILITY_POOL_TIER,level,false),
+		UpgradeCoins = if level==1 then 0 else Config.UpgradeCost(level),
 	}
 end
 function Rules.NextUpgrade(level)
@@ -56,11 +56,14 @@ Rules.ABILITIES = {
 	Shocked = { [1]={"Thunderstrike"}, [2]={"Thunderstrike","ChainLightning"} },
 }
 
--- Preserve direct ability lookup for persisted higher-level weapon slots.
-for _, family in ipairs(Rules.FAMILIES) do
-	for level = 3, Rules.MAX_LEVEL do
-		Rules.ABILITIES[family][level] = Rules.ABILITIES[family][2]
-		Rules.WEIGHT_POOLS[family][level] = Rules.WEIGHT_POOLS[family][2]
+-- Resolve each Forge level through configurable pool milestones.
+for _,family in ipairs(Rules.FAMILIES) do
+	local pools=table.clone(Rules.WEIGHT_POOLS[family])
+	local abilities=table.clone(Rules.ABILITIES[family])
+	for level=1,Rules.MAX_LEVEL do
+		local pool=Rules.TIERS[level].AbilityTier
+		Rules.WEIGHT_POOLS[family][level]=pools[pool]
+		Rules.ABILITIES[family][level]=abilities[pool]
 	end
 end
 

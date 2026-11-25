@@ -319,10 +319,8 @@ local function normalizeProgressionData(data)
 	end
 	-- Permanent Forge workstation upgrade, separate from existing axe
 	-- progression. Older profiles start at tier 1 with no data loss.
-	if not isNonnegativeInteger(runProgress.ForgeLevel)
-		or runProgress.ForgeLevel < 1 or runProgress.ForgeLevel > require(game.ReplicatedStorage.Shared.ForgeMutationRules).MAX_LEVEL then
-		runProgress.ForgeLevel = 1
-	end
+	if not isNonnegativeInteger(runProgress.ForgeLevel) then runProgress.ForgeLevel=1 end
+	runProgress.ForgeLevel=math.clamp(runProgress.ForgeLevel,1,require(game.ReplicatedStorage.Shared.ForgeMutationRules).MAX_LEVEL)
 	if type(runProgress.UnlockedForests) ~= "table" then
 		runProgress.UnlockedForests = {}
 	end

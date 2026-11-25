@@ -7,21 +7,15 @@ Rules.SCHEMA_VERSION = 1
 Rules.MAX_SAVED_XP = 1e12
 Rules.MAX_ASCENSION_FAILURES = 1000000
 -- Provisional active-chopping XP tune values; adjust via playtesting.
-Rules.XP_PER_DAMAGE = 1
-Rules.KILL_XP_PER_MAX_HP = 0.25
+local Config = require(game.ReplicatedStorage.Shared.ProgressionConfig)
+Rules.XP_PER_DAMAGE = Config.XP.PerDamage
+Rules.KILL_XP_PER_MAX_HP = Config.XP.KillPerMaxHP
 Rules.MAX_TREE_HP_FOR_XP = 10000000
-Rules.RARITY_ORDER = { "Common", "Rare", "Epic", "Legendary", "Ultra" }
-
--- PROTOTYPE TUNING VALUES, not finalized economy design. All rarities may be
--- forged directly in future, and ascension will later reset Level to 1.
--- Growth applies to the forged weapon's base contribution, not to pet buffs.
-Rules.RARITIES = {
-	Common = { LevelCap = 10, BasePowerBonus = 0, GrowthPerLevel = 0.010 },
-	Rare = { LevelCap = 20, BasePowerBonus = 0.03, GrowthPerLevel = 0.013 },
-	Epic = { LevelCap = 30, BasePowerBonus = 0.06, GrowthPerLevel = 0.016 },
-	Legendary = { LevelCap = 45, BasePowerBonus = 0.09, GrowthPerLevel = 0.019 },
-	Ultra = { LevelCap = 65, BasePowerBonus = 0.12, GrowthPerLevel = 0.022 },
-}
+Rules.RARITY_ORDER = Config.Order
+Rules.RARITIES = {}
+for _,row in ipairs(Config.RARITIES) do
+	Rules.RARITIES[row.Id]={LevelCap=row.LevelCap,PowerMultiplier=row.Power,BasePowerBonus=row.Power-1,GrowthPerLevel=Config.LEVEL_POWER_GROWTH}
+end
 
 local function finite(value)
 	return type(value) == "number" and value == value
@@ -51,7 +45,7 @@ function Rules.XPToNextLevel(rarity, level)
 	if not cap or type(level) ~= "number" or level % 1 ~= 0
 		or level < 1 or level >= cap then return nil end
 	-- Placeholder curve; cap-safe integer. Higher rarity has more levels.
-	return 100 + 25 * level
+	return math.max(1, math.floor(Config.XP.Base + Config.XP.PerLevel * level + 0.5))
 end
 
 function Rules.XPForAppliedHit(appliedDamage, maxHP, killed)
@@ -149,7 +143,7 @@ function Rules.DerivedAttackBonus(weapon, playerBaseAttack)
 	if not finite(baseStat) or baseStat < 0 then return 0 end
 	if not finite(playerBaseAttack) or playerBaseAttack < 0 then return 0 end
 	local forgedPower = playerBaseAttack + baseStat
-	local bonusFactor = config.BasePowerBonus + (level - 1) * config.GrowthPerLevel
+	local bonusFactor = config.PowerMultiplier * (1 + (level - 1) * config.GrowthPerLevel) - 1
 	local bonus = forgedPower * bonusFactor
 	-- Guard malformed/extreme saved numbers rather than feeding Inf or unsafe
 	-- integers into StatsAggregator. This is a safety limit, not economy tuning.

@@ -19,7 +19,7 @@ local function log(size, mutations)
 end
 
 check("both initial forge tiers exist", Forge.Tier(1) and Forge.Tier(2))
-check("forge levels 3–20 available", Forge.Tier(3) and Forge.Tier(20) and Forge.Tier(21) == nil)
+check("forge level cap enforced", Forge.Tier(3) and Forge.Tier(Forge.MAX_LEVEL) and Forge.Tier(Forge.MAX_LEVEL+1)==nil)
 check("tier shift is independent from mutation class", Forge.ClassCount(5,1) == 5
 	and Forge.ClassCount(5,2) == 3)
 check("tier 1 class odds unchanged", near(Experimental.Odds(5).Axe, 0.65))
@@ -49,7 +49,7 @@ check("higher tier extracts more potency", higher.Potency > capped.Potency and n
 local four = table.clone(three)
 table.insert(four, log(5,{Golden=true}))
 check("three mutated log limit enforced", Forge.Preview(four,2).InvalidReason == "TOO_MANY_MUTATED_LOGS")
-check("level 5 permits fourth mutated log", near(Forge.Preview(four,5).Potency,0.60))
+check("higher Forge permits fourth mutated log", near(Forge.Preview(four,50).Potency,0.60))
 local iron = Forge.Preview({{SpeciesId="Ironwood",SizeScale=5,Mutations={Golden=true}}},1)
 check("species affects same-size potency", near(iron.Potency,0.22) and iron.Potency > golden.Potency)
 local mixed = Forge.Preview({log(2,{Golden=true}),log(4,{Frenzied=true})},1)

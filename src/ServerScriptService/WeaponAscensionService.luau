@@ -84,12 +84,11 @@ end
 function Service.Preview(player, item, eligibleCount)
 	if type(item) ~= "table" or item.ItemID == 9001
 		or not Progression.IsRarity(item.Rarity) then return nil end
-	local snapshot = Ascension.Preview(
-		item.Rarity, type(item.WeaponData) == "table"
-			and item.WeaponData.Progression or nil)
-	if not snapshot then return nil end
 	local profile = ProfileCache.GetProfile(player)
 	local data = profile and profile.Data
+	local forgeLevel=data and data.RunProgress and data.RunProgress.ForgeLevel or 1
+	local snapshot=Ascension.Preview(item.Rarity,type(item.WeaponData)=="table" and item.WeaponData.Progression or nil,forgeLevel)
+	if not snapshot then return nil end
 	local coins = data and data.Coins
 	local atForge = BaseStationAccess.CanUseForge(player) == true
 	local available = if type(eligibleCount) == "number" then eligibleCount
@@ -98,7 +97,7 @@ function Service.Preview(player, item, eligibleCount)
 	snapshot.CanAfford = isFiniteMoney(coins) and coins >= snapshot.Coins
 		and available >= snapshot.Logs
 	snapshot.AtForge = atForge
-	snapshot.CanAscend = snapshot.Ready and snapshot.CanAfford and atForge
+	snapshot.CanAscend = snapshot.Ready and snapshot.ForgeUnlocked and snapshot.CanAfford and atForge
 	return snapshot
 end
 
@@ -112,9 +111,11 @@ function Service.Attempt(player, uid)
 	end
 	local saved, live = getUniqueWeapon(data, uid)
 	if not saved then return { Reason = "INVALID_WEAPON" } end
-	local preview = Ascension.Preview(saved.Rarity, saved.WeaponData.Progression)
+	local forgeLevel=data.RunProgress and data.RunProgress.ForgeLevel or 1
+	local preview = Ascension.Preview(saved.Rarity, saved.WeaponData.Progression,forgeLevel)
 	if not preview then return { Reason = "MAX_RARITY" } end
 	if not preview.Ready then return { Reason = "NOT_MAX_LEVEL" } end
+	if not preview.ForgeUnlocked then return { Reason="FORGE_RARITY_LOCKED", RequiredForge=preview.RequiredForge } end
 	if BaseStationAccess.CanUseForge(player) ~= true then
 		return { Reason = "NOT_AT_FORGE" }
 	end
@@ -130,7 +131,7 @@ function Service.Attempt(player, uid)
 	-- Resolve the outcome once, prior to charging anything. Pity is checked
 	-- in the pure rules; the client cannot set the draw or request a reroll.
 	local outcome = Ascension.Resolve(saved.Rarity,
-		saved.WeaponData.Progression, rng:NextNumber())
+		saved.WeaponData.Progression, rng:NextNumber(),forgeLevel)
 	if not outcome then return { Reason = "ROLL_FAILED" } end
 
 	local takeOk, removed, sources = pcall(function()
@@ -155,7 +156,7 @@ function Service.Attempt(player, uid)
 		local ok, err = pcall(function() StatsAggregator.Aggregate(player) end)
 		if not ok then warn("[Ascension] equipped stat refresh failed:", err) end
 	end
-	local updated = Ascension.Preview(saved.Rarity, saved.WeaponData.Progression)
+	local updated = Ascension.Preview(saved.Rarity, saved.WeaponData.Progression,forgeLevel)
 	-- The reward is already committed: cosmetic notifications must not
 	-- retroactively turn a success into a free retry.
 	local notifyOk, notifyError = pcall(function() LogService.NotifyState(player) end)

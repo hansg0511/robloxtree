@@ -21,9 +21,11 @@ test("only normal carry-bag logs eligible and cheapest used first",
 	#eligible == 3 and eligible[1].UID == "cheapest"
 		and eligible[2].UID == "smaller" and eligible[3].UID == "bigger")
 
+local Config=require(game.ReplicatedStorage.Shared.ProgressionConfig)
+local maxForge=Config.MAX_FORGE_LEVEL
 local ladder = Progression.RARITY_ORDER
-test("five normal rarities", #ladder == 5 and ladder[5] == "Ultra")
-test("Ultra is terminal", Ascension.Preview("Ultra", Progression.NewProgression()) == nil)
+test("expanded rarity ladder", #ladder==12 and ladder[#ladder]=="Transcendent")
+test("highest rarity is terminal", Ascension.Preview(ladder[#ladder], Progression.NewProgression()) == nil)
 test("Secret is not normal ascension", Ascension.Preview("Secret", {}) == nil)
 
 for index = 1, #ladder - 1 do
@@ -37,9 +39,9 @@ for index = 1, #ladder - 1 do
 		step.To == nextRarity and step.Coins > 0 and step.Logs > 0
 			and step.Chance > 0 and step.Chance <= 1)
 	test(rarity .. " pity uses ceil(1.5/p)",
-		pity == math.ceil(1.5 / step.Chance))
+		pity == (step.Pity or math.ceil(Config.PITY_FACTOR / step.Chance)))
 	test(rarity .. " cannot ascend early",
-		Ascension.Resolve(rarity, { Level = cap - 1 }, 0) == nil)
+		Ascension.Resolve(rarity, { Level = cap - 1 }, 0,maxForge) == nil)
 	local p = Ascension.Preview(rarity, maxed)
 	test(rarity .. " available at level cap and shows cost/pity",
 		p.Ready and p.To == nextRarity and p.PityLimit == pity
@@ -49,7 +51,7 @@ for index = 1, #ladder - 1 do
 	-- and independently advance this weapon's per-step counter.
 	local current = maxed
 	for failureCount = 1, pity - 1 do
-		local outcome = Ascension.Resolve(rarity, current, 0.999999)
+		local outcome = Ascension.Resolve(rarity, current, 0.999999,maxForge)
 		test(rarity .. " failure is non-destructive",
 			outcome and not outcome.Success and outcome.Rarity == rarity
 				and outcome.Progression.Level == cap
@@ -64,10 +66,10 @@ for index = 1, #ladder - 1 do
 	test(rarity .. " final attempt guaranteed",
 		guaranteed.Guaranteed and guaranteed.AttemptNumber == pity
 			and guaranteed.AttemptsUntilGuarantee == 1)
-	local resolved = Ascension.Resolve(rarity, current, nil)
+	local resolved = Ascension.Resolve(rarity, current, nil,maxForge)
 	test(rarity .. " final pity succeeds without RNG draw",
 		resolved and resolved.Success and resolved.Rarity == nextRarity
-			and resolved.Progression.Level == 1
+			and resolved.Progression.Level == cap
 			and resolved.Progression.XP == 0
 			and resolved.Progression.AscensionFailures == 0)
 	test(rarity .. " old weapon state preserved",
@@ -77,10 +79,10 @@ for index = 1, #ladder - 1 do
 	-- level-only stats and the failure counter.
 	local forcedSuccess = Ascension.Resolve(rarity, {
 		Level = cap, XP = 0, AscensionFailures = 1,
-	}, 0)
+	}, 0,maxForge)
 	test(rarity .. " early success resets level and per-step pity",
 		forcedSuccess.Success and forcedSuccess.Rarity == nextRarity
-			and forcedSuccess.Progression.Level == 1
+			and forcedSuccess.Progression.Level == cap
 			and forcedSuccess.Progression.AscensionFailures == 0)
 	local p2 = Ascension.Preview(nextRarity, forcedSuccess.Progression)
 	if p2 then
@@ -92,12 +94,12 @@ end
 local commonCap = Progression.GetLevelCap("Common")
 local maxCommon = { Level = commonCap, XP = 0, AscensionFailures = 0 }
 test("invalid RNG must fail closed",
-	Ascension.Resolve("Common", maxCommon, -0.1) == nil
-		and Ascension.Resolve("Common", maxCommon, 1) == nil
-		and Ascension.Resolve("Common", maxCommon, 0/0) == nil)
+	Ascension.Resolve("Common", maxCommon, -0.1,maxForge) == nil
+		and Ascension.Resolve("Common", maxCommon, 1,maxForge) == nil
+		and Ascension.Resolve("Common", maxCommon, 0/0,maxForge) == nil)
 test("below chance succeeds and above chance fails",
-	Ascension.Resolve("Common", maxCommon, 0.499999).Success
-		and not Ascension.Resolve("Common", maxCommon, 0.5).Success)
+	Ascension.Resolve("Common", maxCommon, 0,maxForge).Success
+		and not Ascension.Resolve("Common", maxCommon, 0.999999,maxForge).Success)
 test("zero rarity upgrade on invalid data",
 	Ascension.Preview("Debug", { Level = 999 }) == nil)
 
@@ -116,7 +118,8 @@ local item = { ItemID = 105, UID = "battlehammer-1",
 	},
 }
 local basePower = Progression.DerivedAttackBonus(item, 5)
-local result = Ascension.Resolve(item.Rarity, item.WeaponData.Progression, 0)
+test("Forge gate enforced",Ascension.Resolve(item.Rarity,item.WeaponData.Progression,0,1)==nil)
+local result = Ascension.Resolve(item.Rarity, item.WeaponData.Progression, 0,maxForge)
 item.Rarity = result.Rarity
 item.WeaponData.Progression = result.Progression
 local newPower = Progression.DerivedAttackBonus(item, 5)
@@ -125,7 +128,7 @@ test("success preserves forged stats, material metadata and Cleave",
 		and item.WeaponData.Materials == materials
 		and item.WeaponData.Effects == effects)
 test("new rarity Level 1 recalculates non-destructive power",
-	newPower ~= basePower and item.WeaponData.Progression.Level == 1)
+	newPower > basePower and item.WeaponData.Progression.Level == commonCap)
 test("pity isolates separate weapons",
 	Ascension.Preview("Common", maxCommon).Failures == 0)
 
