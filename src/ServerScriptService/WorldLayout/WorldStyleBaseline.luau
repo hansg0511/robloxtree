@@ -1454,6 +1454,11 @@ function WorldStyleBaseline.CreateBoundaries(parent, configuration)
 		local flankHeight = flanks.Height or 20
 		createStyledRunX(parent, "Forest2BarrierWestFlank", flanks.LeftStartX, flanks.LeftEndX, barrier.Position.Z, flankDepth, flankHeight, floorY, 1, true)
 		createStyledRunX(parent, "Forest2BarrierEastFlank", flanks.RightStartX, flanks.RightEndX, barrier.Position.Z, flankDepth, flankHeight, floorY, 1, true)
+		local second = configuration.SECOND_BARRIER
+		if second and second.Position then
+			createStyledRunX(parent, "Forest3BarrierWestFlank", flanks.LeftStartX, flanks.LeftEndX, second.Position.Z, flankDepth, flankHeight, floorY, 1, true)
+			createStyledRunX(parent, "Forest3BarrierEastFlank", flanks.RightStartX, flanks.RightEndX, second.Position.Z, flankDepth, flankHeight, floorY, 1, true)
+		end
 	end
 end
 
