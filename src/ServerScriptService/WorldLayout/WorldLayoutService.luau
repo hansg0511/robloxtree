@@ -770,7 +770,7 @@ end
 -- dispatcher. These trees use the normal ChopEvent, TreeObject, eligibility,
 -- damage, log rewards and respawn; no dummy visual models or client hitboxes.
 local function buildStudioCleavePatch(forestRoot, pathFolder, spawnedTrees)
-	if not RunService:IsStudio() then return end
+	if not RunService:IsStudio() or Configuration.STUDIO_CLEAVE_PATCH_ENABLED ~= true then return end
 
 	local patch = createFolder("CleaveTestPatch", forestRoot)
 	patch:SetAttribute("StudioOnly", true)
