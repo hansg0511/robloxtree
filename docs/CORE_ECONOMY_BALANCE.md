@@ -69,6 +69,8 @@ User is away from their PC and has explicitly NOT completed the latest integrati
 
 ### A. Integrated feature check (use developer fixtures for speed)
 
+**Studio developer commands:** type `/dev help` in Roblox's in-game chat during Studio Play; feedback is in server Output. `/dev sandbox on` and `/dev refill` restore the existing developer supplies. To inspect real deductions, `/dev sandbox off`, then set exact test balances with `/dev coins 1000000`, `/dev gems 1000`, `/dev crystals 100`. `/dev forge 25` sets the Forge to Legendary's unlock level; `/dev maxweapon` caps the equipped real non-fixture weapon without modifying rarity or pity. These commands are Studio-only, target the caller's own profile, and the refill toggle is server-session-wide. A clean progression test still requires disabling grants before a fresh profile loads, not merely toggling refill off afterward. Runtime verification pending.
+
 - [ ] Start a synced Studio Play session; confirm economy HUD loads without Luau active-local-limit errors. Check visible coins, bag, Gems and Ascension Crystal balances.
 - [ ] Confirm Grove management/shop does not obstruct the screen by default; open at the west hub Grove Shop stall, close by leaving or closing it, and check planting at the personal plot still works.
 - [ ] Check Grove shop stock/quality, capacity upgrade and mature-tree passive changes on harvest and regrowth.
