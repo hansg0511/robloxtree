@@ -16,6 +16,7 @@ local KNOWN_FORESTS = {
 	Base = true,
 	Forest1 = true,
 	Forest2 = true,
+	Forest3 = true,
 }
 
 local function isCurrentPlayer(player)
@@ -133,11 +134,7 @@ function WorldProgressService.CanInteractWithTree(player, tree)
 	if not WorldProgressService.CanAccessForest(player, tree.ForestId or "Base") then
 		return false
 	end
-	local requiredTier = tree.RequiredStandardAxeTier
-	if requiredTier ~= nil
-		and not WorldProgressService.CanUseEquippedAxeTier(player, requiredTier) then
-		return false
-	end
+	-- Access is earned by defeating fixed-HP gates, not by an equipped metal tier.
 	return true
 end
 
