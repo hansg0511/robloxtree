@@ -1,6 +1,7 @@
 -- Pure save-safe story and recurring quest rules. No rewards for recurring tasks.
 -- All time/window calculations use server-supplied Unix seconds (UTC).
 local Rules={}
+local Premium=require(game.ReplicatedStorage.Shared.PremiumEconomyConfig)
 Rules.Categories={Story="Story",Daily="Daily",Weekly="Weekly"}
 Rules.Story={
 	{
@@ -107,6 +108,8 @@ function Rules.NormalizeRecurring(raw,now)
 		local current=type(source)=="table" and source.WindowId==id
 			and type(counts)=="table"
 		local normalizedCounts={}
+		local claimed={}
+		local previousClaims=if current and type(source.Claimed)=="table" then source.Claimed else {}
 		if not current then changed=true end
 		local allowed={}
 		for _,definition in ipairs(Rules.Recurring[category]) do
@@ -117,13 +120,14 @@ function Rules.NormalizeRecurring(raw,now)
 				count=0
 			end
 			normalizedCounts[definition.Id]=count
+			if previousClaims[definition.Id]==true then claimed[definition.Id]=true end
 		end
 		if current then
 			for key in pairs(counts) do
 				if not allowed[key] then changed=true end
 			end
 		end
-		clean[category]={WindowId=id,Counts=normalizedCounts}
+		clean[category]={WindowId=id,Counts=normalizedCounts,Claimed=claimed}
 	end
 	return clean,changed
 end
@@ -159,9 +163,30 @@ function Rules.RecurringSnapshot(progress,category,now)
 		tasks[#tasks+1]={
 			Id=definition.Id,Title=definition.Title,Description=definition.Description,
 			Count=count,Target=definition.Target,Completed=count>=definition.Target,
+			Claimed=period and period.Claimed and period.Claimed[definition.Id]==true or false,
+			ClaimId=definition.Id..":"..tostring(id),Reward=Premium.QUEST_REWARDS[definition.Id],
 		}
 	end
-	return {WindowId=id,ResetAt=resetAt,Tasks=tasks,RewardsConfigured=false}
+	return {WindowId=id,ResetAt=resetAt,Tasks=tasks,RewardsConfigured=true}
 end
 
+-- Exact current-window claim token; stale claims cannot claim new tasks.
+function Rules.ClaimRecurring(raw,claimId,now)
+	local normalized=Rules.NormalizeRecurring(raw,now)
+	if not normalized then return nil,"INVALID_QUEST" end
+	for _,category in ipairs(recurringCategories) do
+		local period=normalized[category]
+		for _,definition in ipairs(Rules.Recurring[category]) do
+			if claimId==definition.Id..":"..tostring(period.WindowId) then
+				if period.Claimed[definition.Id] then return nil,"ALREADY_CLAIMED" end
+				if period.Counts[definition.Id]<definition.Target then return nil,"NOT_COMPLETE" end
+				local reward=Premium.QUEST_REWARDS[definition.Id]
+				if not nonnegativeInteger(reward) or reward<1 then return nil,"REWARD_NOT_CONFIGURED" end
+				period.Claimed[definition.Id]=true
+				return normalized,reward
+			end
+		end
+	end
+	return nil,"INVALID_QUEST"
+end
 return Rules

@@ -5,6 +5,8 @@ local HttpService=game:GetService("HttpService")
 local ReplicatedStorage=game:GetService("ReplicatedStorage")
 local Profiles=require(game.ServerScriptService.PlayerProfile.ProfileService.ProfileDataCache)
 local Rules=require(script.Parent.QuestRules)
+local Premium=require(ReplicatedStorage.Shared.PremiumEconomyConfig)
+local EconomyUpdated=ReplicatedStorage:WaitForChild("Economy"):WaitForChild("EconomyUpdated")
 local ShopRules=require(game.ServerScriptService.Grove.SaplingShopRules)
 local Passives=require(game.ServerScriptService.Grove.GrovePassiveRules)
 local QuestsFolder=ReplicatedStorage:WaitForChild("Quests")
@@ -48,6 +50,7 @@ local function makeState(player)
 		DailyEnabled=true,
 		WeeklyEnabled=true,
 		ServerTime=now,
+		PremiumBalance=type(data.MaterialBalances)=="table" and data.MaterialBalances[Premium.PREMIUM] or 0,
 		Daily=Rules.RecurringSnapshot(recurring,Rules.Categories.Daily,now),
 		Weekly=Rules.RecurringSnapshot(recurring,Rules.Categories.Weekly,now),
 	}
@@ -146,6 +149,19 @@ function Service.Claim(player,questId)
 	local data=playerData(player)
 	if not data or type(data.Saplings)~="table" then
 		return false,"PROFILE_UNAVAILABLE"
+	end
+	if type(questId)=="string" and questId:find(":",1,true) then
+		local nextRecurring,reward=Rules.ClaimRecurring(data.QuestRecurring,questId,os.time())
+		if not nextRecurring then return false,reward end
+		if type(data.MaterialBalances)~="table" then return false,"PROFILE_UNAVAILABLE" end
+		local balance=data.MaterialBalances[Premium.PREMIUM] or 0
+		if type(balance)~="number" or balance<0 or balance%1~=0 or balance>1e12-reward then return false,"BALANCE_INVALID" end
+		-- Non-yielding commit; claim flag and reward persist together.
+		data.MaterialBalances[Premium.PREMIUM]=balance+reward
+		data.QuestRecurring=nextRecurring
+		publish(player)
+		pcall(function() EconomyUpdated:FireClient(player,"PremiumBalances") end)
+		return true,"CLAIMED",tostring(reward).." "..Premium.LABELS[Premium.PREMIUM]
 	end
 	local progress=Rules.Normalize(data.QuestProgress)
 	local definition=Rules.Story[progress.Stage]

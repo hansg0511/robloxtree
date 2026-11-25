@@ -105,11 +105,13 @@ for i=1,2 do
 	local description=label(recurringPage,"TaskDescription"..i,"",UDim2.fromOffset(13,y+21),
 		UDim2.fromOffset(328,20),Enum.Font.Gotham,12)
 	local count=label(recurringPage,"TaskProgress"..i,"",UDim2.fromOffset(13,y+43),
-		UDim2.fromOffset(328,20),Enum.Font.GothamMedium,12)
-	taskRows[i]={Title=titleRow,Description=description,Progress=count}
+		UDim2.fromOffset(195,20),Enum.Font.GothamMedium,12)
+	local claimRow=button(recurringPage,"ClaimTask"..i,"CLAIM",UDim2.fromOffset(218,y+38),UDim2.fromOffset(122,28))
+	claimRow.TextSize=11
+	taskRows[i]={Title=titleRow,Description=description,Progress=count,Claim=claimRow}
 end
 local recurringFooter=label(recurringPage,"NoRecurringRewards",
-	"Rewards have not been configured yet.",UDim2.fromOffset(13,222),
+	"Complete daily and weekly tasks to earn Gems.",UDim2.fromOffset(13,222),
 	UDim2.fromOffset(332,23),Enum.Font.Gotham,11)
 recurringFooter.TextColor3=Color3.fromRGB(161,179,159)
 
@@ -119,7 +121,7 @@ local objective=label(storyPage,"Objective","",UDim2.fromOffset(13,71),UDim2.fro
 local progress=label(storyPage,"Progress","",UDim2.fromOffset(13,124),UDim2.fromOffset(315,22),Enum.Font.GothamMedium,13)
 local reward=label(storyPage,"Reward","",UDim2.fromOffset(13,146),UDim2.fromOffset(315,24),Enum.Font.GothamMedium,13)
 local claimButton=button(storyPage,"ClaimStoryReward","NOT READY",UDim2.fromOffset(13,176),UDim2.fromOffset(319,38))
-local future=label(storyPage,"FutureTasks","Daily / Weekly: active • Rewards undecided",
+local future=label(storyPage,"FutureTasks","Daily / Weekly: earn Gems",
 	UDim2.fromOffset(13,223),UDim2.fromOffset(315,20),Enum.Font.Gotham,11)
 future.TextColor3=Color3.fromRGB(161,179,159)
 
@@ -167,8 +169,13 @@ local function render()
 			row.Title.Visible=taskState~=nil
 			row.Description.Visible=taskState~=nil
 			row.Progress.Visible=taskState~=nil
+			row.Claim.Visible=taskState~=nil
 			if taskState then
-				row.Title.Text=tostring(taskState.Title or "Task")
+				row.Title.Text=tostring(taskState.Title or "Task").."  •  +"..tostring(taskState.Reward or 0).." Gems"
+				row.Claim.Active=taskState.Completed==true and not taskState.Claimed and not claimPending
+				row.Claim.AutoButtonColor=row.Claim.Active
+				row.Claim.Text=if taskState.Claimed then "CLAIMED" elseif row.Claim.Active then "CLAIM" else "NOT READY"
+				row.Claim.BackgroundColor3=if row.Claim.Active then Color3.fromRGB(65,123,69) else Color3.fromRGB(77,83,78)
 				row.Description.Text=tostring(taskState.Description or "")
 				row.Progress.Text=if taskState.Completed
 					then string.format("COMPLETE  •  %d / %d",taskState.Count or 0,taskState.Target or 1)
@@ -178,7 +185,8 @@ local function render()
 			end
 		end
 	end
-	future.Text=feedbackText or "Daily / Weekly: active • Rewards undecided"
+	recurringFooter.Text=feedbackText or ("GEMS: "..tostring(state and state.PremiumBalance or 0).." • Claim before reset")
+	future.Text=feedbackText or "Daily / Weekly: earn Gems"
 	future.TextColor3=if feedbackText then Color3.fromRGB(251,181,135)
 		else Color3.fromRGB(161,179,159)
 	if not state then
@@ -256,12 +264,23 @@ claimButton.Activated:Connect(function()
 		end
 	end)
 end)
+for i,row in ipairs(taskRows) do
+	row.Claim.Activated:Connect(function()
+		local period=current and current[selectedTab]
+		local taskState=period and period.Tasks and period.Tasks[i]
+		if claimPending or not row.Claim.Active or not taskState or type(taskState.ClaimId)~="string" then return end
+		claimPending=true; feedbackText=nil; render(); claim:FireServer(taskState.ClaimId)
+		task.delay(5,function()
+			if claimPending and not destroyed then claimPending=false; refresh(); render() end
+		end)
+	end)
+end
 updated.OnClientEvent:Connect(applyState)
 claim.OnClientEvent:Connect(function(result)
 	if type(result)~="table" then return end
 	claimPending=false
 	if result.Success==true then
-		feedbackText=nil
+		feedbackText="Claimed "..tostring(result.Reward or "reward").."!"
 		refresh()
 	else
 		-- Failed claims (e.g., full sapling inventory) leave the objective

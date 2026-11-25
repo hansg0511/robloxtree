@@ -71,6 +71,11 @@ function Sandbox.Refill(player, data)
 		changed = true
 	end
 
+	if type(data.MaterialBalances)=="table" then
+		for id,floor in pairs({[Premium.PREMIUM]=Premium.STUDIO_PREMIUM_FLOOR,[Premium.CRYSTAL]=Premium.STUDIO_CRYSTAL_FLOOR}) do
+			if type(data.MaterialBalances[id])~="number" or data.MaterialBalances[id]<floor then data.MaterialBalances[id]=floor; changed=true end
+		end
+	end
 	if type(data.AxeHeads) == "table" then
 		for _, headId in ipairs({ "copper_head", "iron_head" }) do
 			local quantity = data.AxeHeads[headId]

@@ -6,6 +6,7 @@ local RunService = game:GetService("RunService")
 local ExperimentalForgeRules = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ExperimentalForgeRules"))
 local ForgeMutationRules = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ForgeMutationRules"))
 local ProgressionConfig=require(ReplicatedStorage.Shared.ProgressionConfig)
+local Premium=require(ReplicatedStorage.Shared.PremiumEconomyConfig)
 local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
@@ -25,6 +26,7 @@ local equipAxe = economy:WaitForChild("EquipAxeRE")
 local ascendWeapon = economy:WaitForChild("AscendWeaponRE")
 local upgradeForge = economy:WaitForChild("UpgradeForgeRE")
 local upgradeWeapon = economy:WaitForChild("UpgradeWeaponRE")
+local buyCrystals=economy:WaitForChild("BuyAscensionCrystalsRE")
 
 local COLORS = {
 	Backdrop = Color3.fromRGB(7, 17, 23),
@@ -670,11 +672,13 @@ forgeTierIron.TextSize = 15
 local forgeUpgradeButton = button(forgePanel, "UpgradeForge", "FORGE LEVEL 1",
 	UDim2.new(1, -40, 0, 30), UDim2.new(0, 20, 0, 172), COLORS.BagAction)
 forgeUpgradeButton.TextSize = 14
+local crystalButton=button(forgePanel,"BuyCrystals","ASCENSION CRYSTALS",UDim2.new(1,-40,0,30),UDim2.fromOffset(20,207),COLORS.BagAction)
+crystalButton.TextSize=13
 
 local forgeList = Instance.new("ScrollingFrame")
 forgeList.Name = "RecipeList"
-forgeList.Position = UDim2.new(0, 20, 0, 211)
-forgeList.Size = UDim2.new(1, -40, 1, -229)
+forgeList.Position = UDim2.new(0, 20, 0, 244)
+forgeList.Size = UDim2.new(1, -40, 1, -262)
 forgeList.BackgroundColor3 = COLORS.BagBack
 forgeList.BackgroundTransparency = 0
 forgeList.BorderSizePixel = 0
@@ -795,6 +799,9 @@ local upgradeConfirmKey = nil
 local upgradeConfirmUntil = 0
 local upgradeSelectedUID = nil
 local upgradeSelectedFamily = "Golden"
+local upgradeMode="Awaken"
+local upgradeSelectedLogs={}
+local upgradePage=1
 
 local function getBagUiCapacity()
 	local logsData = if type(latestLogsData) == "table" then latestLogsData else {}
@@ -1222,18 +1229,19 @@ renderAxeDetail = function(axe)
 			axeStatSection("ASCENSION")
 			axeStatRow("Next rarity", tostring(ascend.To))
 			axeStatRow("Coin cost", formatCoins(ascend.Coins or 0))
+			axeStatRow("Ascension Crystals",tostring(ascend.CrystalBalance or 0).." / "..tostring(ascend.Crystals or 0))
 			axeStatRow("Normal bag logs", string.format("%d / %d",
 				ascend.EligibleLogs or 0, ascend.Logs or 0))
 			axeStatRow("Success chance", if ascend.Guaranteed then "GUARANTEED"
 				else string.format("%.1f%%", (ascend.Chance or 0) * 100))
 			axeStatRow("Hard pity", string.format("Attempt %d / %d",
 				ascend.AttemptNumber or 1, ascend.PityLimit or 1))
-			axeStatNote("Failures cost coins and ordinary bag logs, but never damage the weapon.")
+			axeStatNote("Every attempt spends crystals, coins and ordinary bag logs. Failure never damages the weapon.")
 			local actionLabel
 			if ascensionPending then actionLabel = "ASCENDING..."
 			elseif ascend.ForgeUnlocked~=true then actionLabel="NEED FORGE LV "..tostring(ascend.RequiredForge)
 			elseif not ascend.AtForge then actionLabel = "VISIT THE FORGE"
-			elseif not ascend.CanAfford then actionLabel = "NEED COINS OR NORMAL BAG LOGS"
+			elseif not ascend.CanAfford then actionLabel = "NEED COINS, LOGS OR CRYSTALS"
 			else actionLabel = "ASCEND TO " .. string.upper(tostring(ascend.To)) end
 			axeStatOrder += 1
 			local action = button(axeStatsScroll, "AscendWeapon", actionLabel,
@@ -1264,187 +1272,114 @@ renderAxeDetail = function(axe)
 		end
 	end
 
-	-- Phase 3A/3B: compact upgrade controls INSIDE existing Axe INFO.
-	-- Do not create another broad shop screen for this prototype. The server
-	-- owns the recipe and revalidates every UID/price/rate at submission.
-	local upgrade = type(axe.Upgrade)=="table" and axe.Upgrade or nil
+	-- Independent slots: Awaken first or replace second. Both may be available.
+	local upgrade=type(axe.Upgrade)=="table" and axe.Upgrade or nil
 	if upgrade and rarity~="Debug" then
 		local slots=type(upgrade.Slots)=="table" and upgrade.Slots or {}
-		local mode=if #slots==0 then "Awaken" else "Infuse"
-		local definition=type(upgrade[mode])=="table" and upgrade[mode] or nil
-		axeStatSection(if mode=="Awaken" then "WEAPON AWAKENING"
-			else "LEGENDARY INFUSION")
-		for index,slot in ipairs(slots) do
-			axeStatRow("Ability slot "..index,
-				tostring(slot.Id).." • "..string.format("%.1f%%", (slot.Potency or 0)*100))
+		axeStatSection("MUTATION ABILITIES")
+		for i=1,2 do
+			local slot=slots[i]
+			axeStatRow("Slot "..i,if type(slot)=="table" then tostring(slot.Id).." • "..string.format("%.1f%%",(slot.Potency or 0)*100) elseif i==2 and not ProgressionConfig.HasSecondSlot(rarity) then "LOCKED" else "EMPTY")
 		end
-		if definition and definition.Eligible==true then
-			if upgradeSelectedUID~=axe.UID then
-				upgradeSelectedUID=axe.UID
-				upgradeSelectedFamily=if slots[1] and slots[1].Family=="Golden"
-					then "Frenzied" else "Golden"
-				upgradeConfirmKey=nil
-			end
-			local family=upgradeSelectedFamily
-			local familyNames={"Golden","Frenzied","Shocked"}
-			axeStatNote(if mode=="Awaken"
-				then "Adds your first mutation ability without changing rarity, level or stats."
-				else if definition.Replacing
-					then "REPLACES SLOT 2 ONLY. Your original slot 1 stays unchanged."
-					else "Adds a second ability. Your original slot 1 stays unchanged.")
+		local available={}
+		for _,candidate in ipairs({"Awaken","Replace"}) do
+			if upgrade[candidate] and upgrade[candidate].Eligible then available[#available+1]=candidate end
+		end
+		if upgradeSelectedUID~=axe.UID then
+			upgradeSelectedUID=axe.UID
+			upgradeMode=available[1] or "Awaken"
+			upgradeSelectedLogs={}; upgradePage=1; upgradeConfirmKey=nil
+		end
+		if not table.find(available,upgradeMode) then upgradeMode=available[1] or "Awaken" end
+		local function detailButton(name,text,active,callback)
 			axeStatOrder+=1
-			local selector=Instance.new("Frame")
-			selector.Name="UpgradeFamilyPicker"
-			selector.LayoutOrder=axeStatOrder
-			selector.Size=UDim2.new(1,-8,0,39)
-			selector.BorderSizePixel=0
-			selector.BackgroundTransparency=1
-			selector.Parent=axeStatsScroll
-			selector.ZIndex=12
-			for index,familyName in ipairs(familyNames) do
-				local blocked=slots[1] and slots[1].Family==familyName
-				local selected=familyName==family
-				local choose=button(selector,"Family_"..familyName,
-					string.upper(familyName),UDim2.new(1/3,-4,1,0),
-					UDim2.new((index-1)/3,2,0,0),
-					if blocked then COLORS.Disabled
-						else if selected then COLORS.BagAction else COLORS.BagSlot)
-				choose.ZIndex=13
-				choose.TextSize=12
-				choose.Active=not blocked and not upgradePending
-				choose.AutoButtonColor=choose.Active
-				choose.Activated:Connect(function()
-					if not choose.Active then return end
-					upgradeSelectedFamily=familyName
-					upgradeConfirmKey=nil
-					renderAxeDetail(axe)
+			local b=button(axeStatsScroll,name,text,UDim2.new(1,-8,0,34),UDim2.new(),if active then COLORS.BagAction else COLORS.Disabled)
+			b.LayoutOrder=axeStatOrder; b.ZIndex=14; b.TextSize=13; b.Active=active; b.AutoButtonColor=active
+			b.Activated:Connect(function() if b.Active then callback(b) end end)
+			return b
+		end
+		local mode=upgradeMode
+		if #available>1 then
+			for _,choice in ipairs(available) do
+				detailButton("Mode"..choice,(if choice==mode then "✓ " else "")..(if choice=="Awaken" then "AWAKEN SLOT 1" else "REPLACE SLOT 2"),not upgradePending,function()
+					upgradeMode=choice; upgradeSelectedLogs={}; upgradePage=1; upgradeConfirmKey=nil; renderAxeDetail(axe)
 				end)
 			end
-			local costs=definition.Costs or {}
-			local wantedLogs=0
-			local wantedMaterials={}
-			local enough=true
-			local eligibleLogs={}
+		end
+		local definition=upgrade[mode]
+		if definition and definition.Eligible then
+			local other=slots[if mode=="Awaken" then 2 else 1]
+			local families={}
+			for _,name in ipairs(ForgeMutationRules.FAMILIES) do if not other or other.Family~=name then families[#families+1]=name end end
+			if not table.find(families,upgradeSelectedFamily) then
+				upgradeSelectedFamily=families[1]; upgradeSelectedLogs={}; upgradePage=1; upgradeConfirmKey=nil
+			end
+			local family=upgradeSelectedFamily
+			axeStatNote(if mode=="Awaken" then "Fill slot 1; preserves slot 2 and all stats." else "Replace slot 2; slot 1 stays unchanged.")
+			for _,name in ipairs(families) do
+				detailButton("Family"..name,(if name==family then "✓ " else "")..name,not upgradePending,function()
+					upgradeSelectedFamily=name; upgradeSelectedLogs={}; upgradePage=1; upgradeConfirmKey=nil; renderAxeDetail(axe)
+				end)
+			end
+			local eligible={}
+			local byUid={}
 			for _,record in ipairs(latestShopData and latestShopData.EligibleCraftLogs or {}) do
-				if type(record)=="table" and type(record.Mutations)=="table"
-					and record.Mutations[family]==true
-					and type(record.UID)=="string" then
-					eligibleLogs[#eligibleLogs+1]=record
-				end
+				if type(record.Mutations)=="table" and record.Mutations[family]==true then eligible[#eligible+1]=record; byUid[record.UID]=record end
 			end
-			table.sort(eligibleLogs,function(left,right)
-				local sizeA=tonumber(left.SizeScale) or 0
-				local sizeB=tonumber(right.SizeScale) or 0
-				if sizeA~=sizeB then return sizeA>sizeB end
-				return left.UID<right.UID
-			end)
-			local materialGroups={}
-			local materialSource=latestShopData and latestShopData.UpgradeMaterials or {}
-			for _,record in ipairs(materialSource) do
-				if type(record)=="table" and type(record.UID)=="string"
-					and type(record.MaterialType)=="string" then
-					local group=materialGroups[record.MaterialType]
-					if not group then group={} materialGroups[record.MaterialType]=group end
-					group[#group+1]=record.UID
-				end
+			table.sort(eligible,function(a,b) if a.SizeScale~=b.SizeScale then return a.SizeScale>b.SizeScale end return a.UID<b.UID end)
+			local maxLogs=definition.MaxLogs or 1
+			local selected={}
+			for uid in pairs(upgradeSelectedLogs) do if byUid[uid] then selected[#selected+1]=uid else upgradeSelectedLogs[uid]=nil end end
+			table.sort(selected)
+			axeStatRow("Selected logs",#selected.." / "..maxLogs.." max")
+			local pages=math.max(1,math.ceil(#eligible/8))
+			upgradePage=math.clamp(upgradePage,1,pages)
+			for i=(upgradePage-1)*8+1,math.min(upgradePage*8,#eligible) do
+				local record=eligible[i]
+				local chosen=upgradeSelectedLogs[record.UID]==true
+				detailButton("Log"..i,(if chosen then "✓ " else "+ ")..tostring(record.SpeciesId).." • "..string.format("%.2fx",record.SizeScale).." • "..tostring(record.Source),not upgradePending and (chosen or #selected<maxLogs),function()
+					upgradeSelectedLogs[record.UID]=if chosen then nil else true
+					upgradeConfirmKey=nil; renderAxeDetail(axe)
+				end)
 			end
-			for _,group in pairs(materialGroups) do table.sort(group) end
-			for _,cost in ipairs(costs) do
+			if pages>1 then
+				detailButton("NextLogs","LOG PAGE "..upgradePage.." / "..pages.." →",not upgradePending,function()
+					upgradePage=upgradePage%pages+1; renderAxeDetail(axe)
+				end)
+			end
+			local enough=#selected>=1 and #selected<=maxLogs
+			for _,cost in ipairs(definition.Costs or {}) do
 				if cost.Kind=="Coins" then
-					local balance=tonumber(latestShopData and latestShopData.Coins) or 0
+					local balance=latestShopData and latestShopData.Coins or 0
 					axeStatRow("Coins",formatCoins(balance).." / "..formatCoins(cost.Amount))
 					if balance<cost.Amount then enough=false end
-				elseif cost.Kind=="Logs" then
-					wantedLogs=cost.Count
-					axeStatRow(family.." logs",#eligibleLogs.." / "..cost.Count)
-					if #eligibleLogs<cost.Count then enough=false end
-				elseif cost.Kind=="Material" then
-					local group=materialGroups[cost.MaterialType] or {}
-					wantedMaterials[cost.MaterialType]=cost.Count
-					axeStatRow(cost.MaterialType,#group.." / "..cost.Count)
-					if #group<cost.Count then enough=false end
 				elseif cost.Kind=="Stack" then
-					local quantity=0
-					if cost.Source=="AxeHeads" then
-						for _,head in ipairs(latestShopData and latestShopData.AxeHeads or {}) do
-							if head.Id==cost.Id then quantity=head.Count or 0 end
-						end
-					elseif cost.Source=="MaterialBalances" then
-						local balances=latestShopData and latestShopData.UpgradeBalances
-						quantity=type(balances)=="table" and balances[cost.Id] or 0
-					end
-					axeStatRow(cost.Id,quantity.." / "..cost.Count)
-					if quantity<cost.Count then enough=false end
+					local balance=latestShopData and latestShopData.UpgradeBalances and latestShopData.UpgradeBalances[cost.Id] or 0
+					axeStatRow(Premium.LABELS[cost.Id] or cost.Id,tostring(balance).." / "..cost.Count)
+					if balance<cost.Count then enough=false end
 				end
 			end
-			local selectedLogs={}
-			local selectedLogRecords={}
-			for i=1,math.min(wantedLogs,#eligibleLogs) do
-				local entry=eligibleLogs[i]
-				selectedLogs[#selectedLogs+1]=entry.UID
-				selectedLogRecords[#selectedLogRecords+1]=entry
-			end
-			local selectedMaterials={}
-			for id,wanted in pairs(wantedMaterials) do
-				selectedMaterials[id]={}
-				for i=1,math.min(wanted,#(materialGroups[id] or {})) do
-					selectedMaterials[id][i]=materialGroups[id][i]
-				end
-			end
-			if #selectedLogRecords==wantedLogs and wantedLogs>0 then
-				local estimate=ForgeMutationRules.Preview(selectedLogRecords,upgrade.ForgeLevel)
-				if estimate and estimate.Family==family then
+			if #selected>0 then
+				local records={}
+				for _,uid in ipairs(selected) do records[#records+1]=byUid[uid] end
+				local estimate=ForgeMutationRules.Preview(records,upgrade.ForgeLevel)
+				if estimate and estimate.Family==family and not estimate.InvalidReason then
 					axeStatRow("Ability potency",string.format("%.1f%%",estimate.Potency*100))
-					local summary={}
-					for _,ability in ipairs(estimate.AbilityOdds or {}) do
-						summary[#summary+1]=ability.Id.." "..string.format("%.0f%%",ability.Chance*100)
-					end
-					axeStatNote(table.concat(summary,"  /  "))
-				end
+					local odds={}
+					for _,choice in ipairs(estimate.AbilityOdds or {}) do odds[#odds+1]=choice.Id.." "..string.format("%.0f%%",choice.Chance*100) end
+					axeStatNote(table.concat(odds," / "))
+				else enough=false end
 			end
-			axeStatNote(if upgrade.CostPolicy=="STUDIO_TEST_ONLY" then
-				"STUDIO TEST ONLY: 2/3 mutated logs are temporary inputs. Final upgrade ingredients, amounts and prices are UNDECIDED."
-				else "Auto-selects the largest available mutated logs. All required server-defined ingredients are consumed together.")
 			local ready=enough and upgrade.AtForge==true and not upgradePending
-			axeStatOrder+=1
-			local upgradeButton=button(axeStatsScroll,"UpgradeWeapon",
-				if upgradePending then "UPGRADING..."
-				else if not upgrade.AtForge then "VISIT THE FORGE TO UPGRADE"
-				else if not enough then "NEED ELIGIBLE MUTATED LOGS"
-				else if definition.Replacing then "REPLACE SECOND ABILITY"
-				else if mode=="Awaken" then "AWAKEN WEAPON"
-				else "INFUSE SECOND ABILITY",
-				UDim2.new(1,-8,0,47),UDim2.new(),
-				if ready then COLORS.BagAction else COLORS.Disabled)
-			upgradeButton.LayoutOrder=axeStatOrder
-			upgradeButton.ZIndex=14
-			upgradeButton.Active=ready
-			upgradeButton.AutoButtonColor=ready
-			upgradeButton.Activated:Connect(function()
-				if not upgradeButton.Active or upgradePending then return end
-				local requestKey=axe.UID.."|"..mode.."|"..family
-				if upgradeConfirmKey~=requestKey or os.clock()>upgradeConfirmUntil then
-					upgradeConfirmKey=requestKey
-					upgradeConfirmUntil=os.clock()+7
-					upgradeButton.Text=if upgrade.CostPolicy=="STUDIO_TEST_ONLY"
-						then "CONFIRM TEST: CONSUME SELECTED LOGS"
-						else "CONFIRM: CONSUME LISTED MATERIALS"
-					return
+			detailButton("UpgradeWeapon",if upgradePending then "UPGRADING..." elseif not upgrade.AtForge then "VISIT THE FORGE" elseif not enough then "SELECT LOGS / NEED RESOURCES" elseif mode=="Awaken" then "AWAKEN WEAPON" else "REPLACE SECOND ABILITY",ready,function(b)
+				local key=axe.UID.."|"..mode.."|"..family.."|"..table.concat(selected,",")
+				if upgradeConfirmKey~=key or os.clock()>upgradeConfirmUntil then
+					upgradeConfirmKey=key; upgradeConfirmUntil=os.clock()+7; b.Text="CONFIRM: SPEND LISTED RESOURCES"; return
 				end
-				upgradeConfirmKey=nil
-				upgradePending=true
-				upgradeButton.Active=false
-				upgradeButton.Text="UPGRADING..."
-				upgradeWeapon:FireServer(axe.UID,mode,family,{
-					LogUIDs=selectedLogs,
-					MaterialUIDsByType=selectedMaterials,
-				})
+				upgradeConfirmKey=nil; upgradePending=true; b.Active=false; b.Text="UPGRADING..."
+				upgradeWeapon:FireServer(axe.UID,mode,family,{LogUIDs=selected})
 			end)
-		elseif mode=="Infuse" then
-			axeStatNote("A second mutation slot unlocks at Legendary rarity. Awaken the weapon first if it has no mutation.")
-		else
-			axeStatNote("Requires Forge Level 2 and available upgrade ingredients.")
-		end
+		elseif #available==0 then axeStatNote("Requires the appropriate rarity, empty first slot or existing second slot, and an upgraded Forge.") end
 	end
 
 	axeStatSection("WEAPON STATS")
@@ -2191,6 +2126,13 @@ end
 local function renderForge(data)
 	clearForgeRows()
 	local forgeLevel = type(data) == "table" and data.ForgeLevel or 1
+	local balances=type(data)=="table" and data.UpgradeBalances or {}
+	local gems=balances and balances[Premium.PREMIUM] or 0
+	local crystals=balances and balances[Premium.CRYSTAL] or 0
+	crystalButton.Text=string.format("GEMS %d • CRYSTALS %d • BUY 1 (%d GEMS)",gems,crystals,Premium.CRYSTAL_PRICE)
+	crystalButton.Active=forgeSnapshotFresh and gems>=Premium.CRYSTAL_PRICE
+	crystalButton.AutoButtonColor=crystalButton.Active
+	crystalButton.BackgroundColor3=if crystalButton.Active then COLORS.BagAction else COLORS.Disabled
 	local upgrade = type(data) == "table" and data.ForgeUpgrade or nil
 	forgeUpgradeButton.Text = if type(upgrade) == "table"
 		then string.format("FORGE LV %d  •  UPGRADE TO LV %d FOR %s COINS",
@@ -2575,6 +2517,15 @@ forgeModeStandard.Activated:Connect(function()
 	forgeList.CanvasPosition = Vector2.zero
 	if latestShopData then renderForge(latestShopData) end
 end)
+crystalButton.Activated:Connect(function()
+	if not crystalButton.Active then return end
+	crystalButton.Active=false; buyCrystals:FireServer(1)
+	task.delay(1,function() if forgeOverlay.Visible then refreshShop() end end)
+end)
+buyCrystals.OnClientEvent:Connect(function(result)
+	if result and result.Success then showFeedback("ASCENSION CRYSTAL PURCHASED",COLORS.Gold,2) else showFeedback("NOT ENOUGH GEMS",COLORS.Orange,2) end
+	refreshShop()
+end)
 forgeUpgradeButton.Activated:Connect(function()
 	local upgrade = latestShopData and latestShopData.ForgeUpgrade
 	if not forgeUpgradeButton.Active or type(upgrade) ~= "table"
@@ -2769,7 +2720,7 @@ ascendWeapon.OnClientEvent:Connect(function(result)
 	if result.Reason == "ATTEMPT_RESOLVED" then
 		if result.Success then
 			showFeedback("ASCENDED TO " .. string.upper(tostring(result.Rarity))
-				.. "!  LV 1", COLORS.Gold, 3.5)
+				.. "!  LV "..tostring(result.Level), COLORS.Gold, 3.5)
 		else
 			showFeedback(string.format("ASCENSION FAILED • PITY IN %d ATTEMPTS",
 				result.AttemptsUntilGuarantee or 0), COLORS.Orange, 3.5)
@@ -2782,6 +2733,7 @@ ascendWeapon.OnClientEvent:Connect(function(result)
 			NOT_MAX_LEVEL = "REACH WEAPON MAX LEVEL FIRST",
 			NOT_ENOUGH_COINS = "NOT ENOUGH COINS",
 			NOT_ENOUGH_LOGS = "NEED UNMUTATED UNLOCKED BAG LOGS",
+			NOT_ENOUGH_CRYSTALS="NEED ASCENSION CRYSTALS • BUY AT FORGE",
 			MAX_RARITY = "HIGHEST RARITY CANNOT ASCEND FURTHER",
 			FORGE_RARITY_LOCKED="UPGRADE FORGE TO UNLOCK NEXT RARITY",
 			INVALID_WEAPON = "WEAPON NO LONGER AVAILABLE",
@@ -2800,6 +2752,7 @@ end)
 upgradeWeapon.OnClientEvent:Connect(function(result)
 	upgradePending=false
 	upgradeConfirmKey=nil
+	upgradeSelectedLogs={}
 	if type(result)~="table" then
 		showFeedback("WEAPON UPGRADE UNAVAILABLE",COLORS.Orange,3)
 		refreshShop()
@@ -2905,7 +2858,7 @@ if legacyEconomyUpdated then
 				showFeedback("WEAPON LEVEL UP!  +" .. tostring(payload.LevelsGained), COLORS.Gold)
 			end
 		end
-		if currency == "Coins" or currency == "Progression" then
+		if currency == "Coins" or currency == "Progression" or currency=="PremiumBalances" then
 			refreshLogs()
 			if shopOverlay.Visible or forgeOverlay.Visible or (bagOverlay.Visible and activeBagTab == "Axes") then refreshShop() end
 			if sellOverlay.Visible then refreshSellSummary() end
