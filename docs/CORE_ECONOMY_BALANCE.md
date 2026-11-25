@@ -90,3 +90,7 @@ User is away from their PC and has explicitly NOT completed the latest integrati
 - [ ] Review early income, bag pressure and attack feel using actual gameplay, not theoretical travel/cooldown assumptions.
 
 Production RNG forge rollout, true DataStore persistence and deferred two-player ownership verification are separate release work. No runtime validation has been performed by this assistant.
+
+## RNG-only forge update — 2026-11-26
+
+The user approved RNG-only forging. Fixed recipes are no longer craftable; fixed-recipe arithmetic above is historical, not a current player path. RNG recipes retain existing material/class/rarity rules and minimum one log, with server validation and existing head/metal/forest/Forge gates. Clean-profile pacing is still pending; no balance numbers changed. User reported the earlier integration playtest worked very well overall; individual checklist outcomes were not separately recorded. Preserve the prior checklist as a reference rather than requiring another identical round.
