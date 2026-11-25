@@ -14,7 +14,7 @@ AxeShopCatalog.AxeHeads = {
 		Id = "iron_head",
 		Name = "Iron Axe Head",
 		Price = 750,
-		RequiredForestId = "Forest2",
+		RequiredForestId = "Forest3",
 		Tier = 2,
 	},
 }
@@ -40,7 +40,7 @@ AxeShopCatalog.StandardAxeRecipes = {
 		Tier = 2,
 		RequiredLogCount = 3,
 		HeadBasePower = 17,
-		RequiredForestId = "Forest2",
+		RequiredForestId = "Forest3",
 	},
 }
 
@@ -63,7 +63,7 @@ AxeShopCatalog.ExperimentalForgeRecipes = {
 		HeadId = "iron_head",
 		Tier = 2,
 		HeadBasePower = 55,
-		RequiredForestId = "Forest2",
+		RequiredForestId = "Forest3",
 		Outputs = { Dagger = 101, Axe = 103, Battlehammer = 105 },
 	},
 }
