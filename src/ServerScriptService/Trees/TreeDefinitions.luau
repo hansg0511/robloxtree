@@ -34,6 +34,7 @@ local TreeDefinitions = {
 	SapwoodTree = {
 		Category = "Grove",
 		ModelName = "SapwoodTree",
+		VisualScaleMultiplier = 0.55,
 		MaxHP = 40,
 		SpeciesId = "Sapwood",
 		LogYield = 2,
@@ -48,15 +49,14 @@ local TreeDefinitions = {
 	StarterForestTree = {
 		Category = "Grove",
 		ModelName = "StarterForestTree",
-		-- Mature wild Oak is the tougher Forest 1 target: roughly eight
-		-- noncritical hits with the current nominal Copper Axe (23 damage).
+		-- Mature wild Oak is the Forest 3 target; balance remains provisional.
 		MaxHP = 175,
 		SpeciesId = "Oak",
 		YieldsLog = true,
 		RespawnSeconds = 3,
 		OwnerOnly = false,
 		Choppable = true,
-		ForestId = "Forest1",
+		ForestId = "Forest3",
 		InteractionPartName = "ChopHitbox",
 		ChopRadius = 7,
 	},
@@ -76,8 +76,9 @@ local TreeDefinitions = {
 	BambooClump = {
 		Category = "Grove",
 		ModelName = "BambooClump",
-		-- Also eight punches; avoid bypassing the starter difficulty via Bamboo.
-		MaxHP = 40,
+		-- Provisional Forest 2 durability; tune in a clean playtest.
+		VisualScaleMultiplier = 1.2,
+		MaxHP = 100,
 		SpeciesId = "Bamboo",
 		LogYield = 5,
 		FixedSizeScale = 1,
@@ -85,7 +86,7 @@ local TreeDefinitions = {
 		RespawnSeconds = 3,
 		OwnerOnly = false,
 		Choppable = true,
-		ForestId = "Forest1",
+		ForestId = "Forest2",
 		InteractionPartName = "ChopHitbox",
 		ChopRadius = 5,
 	},
@@ -98,10 +99,21 @@ local TreeDefinitions = {
 		OwnerOnly = false,
 		Choppable = true,
 		ForestId = "Forest1",
-		-- The barrier is a current-run milestone: a crafted Copper Axe is required.
-		RequiredStandardAxeTier = 1,
 		-- Temporary server-side progression seam; the valid final hitter gets this unlock.
 		UnlockForestId = "Forest2",
+		InteractionPartName = "ChopHitbox",
+		ChopRadius = 10,
+	},
+	Forest3Barrier = {
+		Category = "Barrier",
+		ModelName = "BarrierTree",
+		MaxHP = 1400,
+		YieldsLog = false,
+		RespawnSeconds = 20,
+		OwnerOnly = false,
+		Choppable = true,
+		ForestId = "Forest2",
+		UnlockForestId = "Forest3",
 		InteractionPartName = "ChopHitbox",
 		ChopRadius = 10,
 	},
