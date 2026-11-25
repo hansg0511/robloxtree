@@ -1,0 +1,64 @@
+# Core economy — first quantitative pass
+
+Source-derived arithmetic checked against the current Luau configuration (commit 0376e8b). This is not a Roblox playtest or complete player simulation. Assumptions: size-1 logs/trees unless stated, no travel, pickup, bag-sale time, crits, buffs or player skill; all four recurring quests claimed every week; no Gem payouts from leaderboards or purchases. Existing `tools/crafting_balance_sim.py` models an older prototype and must not be used as the authoritative current economy.
+
+## Changes made
+- Copper head 150 → 60 coins, allowing one ordinary 10 kg Sapwood bag to fund a head and retain three crafting logs (17 sold = 85 coins at size 1). Actual sales require locking the retained logs.
+- Forge first upgrade 2,000 → 500 coins. Polynomial scale 10 → 6 preserves a steep later gold sink. Later forest income is not defined yet.
+- Default ascension pity cap 30 attempts rather than unbounded ceil(1.5/chance). Keep per-rarity override. Crystals are consumed on all resolved attempts, so an uncapped 1% final tier previously risked 150 attempts / 2,400 Gems / 54.5 weeks of full quest income. It now has a maximum of 30 attempts.
+- All numerical changes are provisional and in authoritative balance modules.
+
+## Forge and rarity
+All 200 Forge levels checked: weights are integer, positive for eligible rarities, zero outside the configured floor/ceiling, and sum to 1,000,000. A newly unlocked top rarity is intentionally rare.
+
+| Forge | Min | Max | Top chance | Upgrade to level | Cumulative gold |
+|---:|---|---|---:|---:|---:|
+| 2 | Common | Common | 100.000% | 500 | 500 |
+| 3 | Common | Uncommon | 0.100% | 850 | 1,350 |
+| 7 | Common | Rare | 0.100% | 4,150 | 11,900 |
+| 15 | Common | Epic | 0.100% | 28,250 | 133,400 |
+| 25 | Common | Legendary | 0.100% | 124,100 | 862,700 |
+| 60 | Rare | Ultra | 0.100% | 1,981,850 | 29,185,850 |
+| 110 | Legendary | Celestial | 0.100% | 14,948,850 | 386,216,250 |
+| 200 | Ultra | Transcendent | 0.100% | 114,589,850 | 5,252,198,750 |
+
+At Forge 25, the first Legendary has 0.1% natural craft odds (1,000 crafts on average if level stays fixed); upgrading beyond the unlock changes the odds. At Forge 200 the newly unlocked Transcendent likewise remains at 0.1%, with no further Forge levels to improve it. This is an explicit endgame balancing decision to revisit, not a validated target. The last level costs 114,589,850 and the cumulative cost is 5,252,198,750. Only two current production forests exist, so this is NOT attainable on a reasonable playtime curve using present Ironwood alone. Add future forest income, then calibrate the Forge cost curve; don't pretend current two-forest throughput supports 200 levels.
+
+## Time-gated economy
+Full recurring task income: 44 Gems/week, 22 crystals/week if all Gems are exchanged. At-least-one-success expected attempts with hard pity N: (1-(1-p)^N)/p. Below, gold/logs/Gems consumed on failures and success; excludes XP and Forge gates.
+
+| From → To | Chance | Pity | Crystals / attempt | Expected attempts | Expected Gems | Max Gems | Expected weeks |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Common → Uncommon | 85% | 2 | 1 | 1.15 | 2.3 | 4 | 0.05 |
+| Uncommon → Rare | 70% | 3 | 1 | 1.39 | 2.8 | 6 | 0.06 |
+| Rare → Epic | 50% | 3 | 1 | 1.75 | 3.5 | 6 | 0.08 |
+| Epic → Legendary | 35% | 5 | 2 | 2.53 | 10.1 | 20 | 0.23 |
+| Legendary → Mythical | 20% | 8 | 2 | 4.16 | 16.6 | 32 | 0.38 |
+| Mythical → Ultra | 12% | 13 | 3 | 6.75 | 40.5 | 78 | 0.92 |
+| Ultra → Divine | 8% | 19 | 3 | 9.94 | 59.6 | 114 | 1.35 |
+| Divine → Celestial | 5% | 30 | 4 | 15.71 | 125.7 | 240 | 2.86 |
+| Celestial → Eternal | 3% | 30 | 5 | 19.97 | 199.7 | 300 | 4.54 |
+| Eternal → Primordial | 2% | 30 | 6 | 22.73 | 272.7 | 360 | 6.20 |
+| Primordial → Transcendent | 1% | 30 | 8 | 26.03 | 416.5 | 480 | 9.47 |
+
+Ascending through every tier instead of replacing a weapon via crafting costs ~1,150 Gems in expectation (26.1 weeks) and at most 1,640 Gems (37.3 weeks). Final step alone: ~416.5 Gems (9.5 weeks), maximum 480 Gems (10.9 weeks). Crafting can skip ascension expenses, intentionally. Awakening 30 Gems ≈ 4.8 days; replacement 100 Gems ≈ 2.27 weeks. Competing sinks lengthen progression. This is an initial time-gate, not a promise of final pacing.
+
+## Forest/wood baseline
+| Species | kg/log | size-1 coins/log | Full 10kg bag sale (size 1) |
+|---|---:|---:|---:|
+| Sapwood | 0.5 | 5 | 100 |
+| Bamboo | 0.5 | 5 | 100 |
+| Oak | 4 | 16 | 32 |
+| Ironwood | 10 | 144 | 144 |
+Sapwood/Bamboo base HP 40, Oak 175, Ironwood 180, Forest 2 barrier 600. Starter fists damage 5 = eight noncrit hits at size 1. Fixed copper with three normal Sapwood logs nominal power 14 = three hits on Sapwood, thirteen on Oak, forty-three on barrier. Fixed iron with Ironwood logs nominal power 26 = seven hits on Ironwood. Actual rarity, levels, size (HP scales as size^1.4), crits and buffs change this. No fixed tree-kill time claimed without measuring actual weapon cooldown in Studio.
+
+Standard crafting consumes one head and 3 logs. Experimental RNG mode is still Studio-only; at size 1 quality factor is 0.6, Copper + Oak reference 35 yields approximate dagger 11.55 damage / 0.35 s, axe 26.25 / 0.60 s, hammer 75.6 / 1.10 s before +/-10% rolls and progression. Against 175 HP, ideal continuous swing time ~5.6 s, 4.2 s, 3.3 s respectively; hammer also hits up to 2 nearby targets with reduced damage. Class count and material consumption differ, so these are isolated combat comparisons. Measure travel and collection overhead before declaring an optimal class.
+
+## Grove and mutations
+- Wild eligible trees: ordinary sapling 9.4%, any mutated sapling 1.2% per tree, before Grove passives. Jackpot size band 0.3% conditional on sapling; a particular one of four equally weighted mutated families at jackpot size is ~1 in 111,111 eligible trees. Sapwood is excluded.
+- Grove regrowth is 30 s with 65–100% size roll; 3 slots can produce at most 6 logs/min and 10 slots 20/min excluding chopping time. All Grove upgrades cost 62,000 gold. Grove output is protected storage, not automatic passive sale income; actual collection/sale flow and inventory pressure matter.
+- Sell value scales as size squared, capacity is fixed by species. At 4.9× size a log is ~24× ordinary value, while HP is ~9.25× at the same species. Rare high-size trees can therefore substantially accelerate ordinary income. At 1×, 10 Golden Grove trees provide +50% sale bonus; if all have Prosperity genetics this becomes +100%, and scales linearly with actual size. Do not infer a stable late-game coin rate from maximum theoretical buffs.
+- Golden Touch extra kill payout is 20% + 85% × potency of one species base log value (not total log yield); Golden Rush maximum stacks = 4 × (10% + 32% × potency); Golden Jackpot expectation = (10% + 15% × potency) × (4 + 4 × potency). At full potency, ~105%, 168%, 200% extra base-log value respectively before rounding/caps. Duplicate families blocked. AoE can trigger verified kills but not recursively chain effects. Measure clustered-forest throughput before changing these values.
+
+## Studio validation required
+Disable `StudioForgeSandbox.ENABLED` to observe resource spending (it refills coins, heads, logs, Gems and crystals). Existing tests updated, not executed in Roblox Studio. No new smoke runner. Check the first craft, actual Forge progression, second-slot-only Legendary, Awakening after slot 2, paid replacement with exact log UIDs, successful/failed crystal ascensions, daily/weekly repeat/rejoin protection and legacy weapon migration. Use real play-session telemetry for forest income, time-to-kill, bag trips, resource bottlenecks and QoL. Leaderboard event rewards, future premium perks/monetization, additional forests, acquired mutation/treasure systems remain deferred rather than pretending they are complete.

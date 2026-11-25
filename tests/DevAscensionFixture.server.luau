@@ -140,7 +140,7 @@ local function prepare(player, data, item)
 				and afterProgress.AscensionFailures == 0
 				and currentLive and currentLive.ItemRarity == toRarity
 			local preservedOK = item.Stats and item.Stats.Attack == oldAttack
-				and #item.WeaponData.Materials==#(oldMaterials or {})
+				and #(item.WeaponData.Materials or {})==#(oldMaterials or {})
 				and #(item.WeaponData.Effects or {})>=#(oldEffects or {})
 
 			print("[DevAscensionFixture] ===== ASCENSION AUDIT =====")
