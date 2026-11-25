@@ -13,6 +13,9 @@ local QuestRules = require(game.ServerScriptService.Quests.QuestRules)
 local ChopLeaderboardRules = require(game.ServerScriptService.ChopLeaderboardRules)
 local ItemDataBase = require(game.ServerStorage.Items.ItemDataBase)
 local WeaponProgressionRules = require(game.ServerScriptService.WeaponProgressionRules)
+local SlotRules=require(game.ServerScriptService.Economy.WeaponUpgradeRules)
+local ProgressionConfig=require(game.ReplicatedStorage.Shared.ProgressionConfig)
+local Premium=require(game.ReplicatedStorage.Shared.PremiumEconomyConfig)
 
 local PlayerProfileCache = {}
 
@@ -268,6 +271,13 @@ function PlayerProfileCache.NormalizeWeaponData(data)
 			local definition = ItemDataBase.Info[item.ItemID]
 			if definition and definition.Type == "Weapon" then
 				WeaponProgressionRules.NormalizeWeaponItem(item)
+				if ProgressionConfig.HasSecondSlot(item.Rarity) then
+					local level=data.RunProgress and data.RunProgress.ForgeLevel or 1
+					if not ProgressionConfig.ValidForge(level) then level=1 end
+					level=math.max(level,ProgressionConfig.RequiredForge(item.Rarity))
+					local granted,reason=SlotRules.GrantSecond(item.WeaponData,item.Rarity,level,Random.new())
+					if granted then item.WeaponData=granted else warn("[Mutation migration]",item.UID,reason) end
+				end
 			end
 		end
 	end
@@ -296,6 +306,9 @@ local function normalizeProgressionData(data)
 		end
 	end
 
+	for _,id in ipairs({Premium.PREMIUM,Premium.CRYSTAL}) do
+		if data.MaterialBalances[id]==nil then data.MaterialBalances[id]=0 end
+	end
 	if type(data.AxeHeads) ~= "table" then
 		data.AxeHeads = {}
 	end

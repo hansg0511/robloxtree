@@ -82,7 +82,7 @@ export type PlayerData = {
 	Saplings: { Sapling },
 	SaplingShop: { RareBoughtCycle: number },
 	QuestProgress: { Stage: number, Count: number },
-	QuestRecurring: { [string]: { WindowId: number, Counts: { [string]: number } } },
+	QuestRecurring: { [string]: { WindowId: number, Counts: { [string]: number }, Claimed: { [string]: boolean } } },
 	ChopLeaderboard: { Lifetime: number, WeeklyWindowId: number, WeeklyCount: number },
 	GroveTrees: { GroveTree },
 	GroveMaterials: { Heartwood },

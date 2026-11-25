@@ -7,11 +7,12 @@ local Rules = {}
 -- Provisional balancing only: no player-facing cost or rate is finalized.
 -- Ascension always advances exactly ONE step, never Secret.
 local Config=require(game.ReplicatedStorage.Shared.ProgressionConfig)
+local Economy=require(game.ReplicatedStorage.Shared.PremiumEconomyConfig)
 Rules.STEPS={}
 for i,row in ipairs(Config.RARITIES) do
 	local nextRow=Config.RARITIES[i+1]
 	if nextRow then
-		Rules.STEPS[row.Id]={To=nextRow.Id,Chance=row.AscendChance,Coins=row.Coins,Logs=row.Logs,Pity=row.Pity,RequiredForge=nextRow.Unlock}
+		Rules.STEPS[row.Id]={To=nextRow.Id,Chance=row.AscendChance,Coins=row.Coins,Logs=row.Logs,Crystals=Economy.ASCENSION_CRYSTALS[row.Id],Pity=row.Pity,RequiredForge=nextRow.Unlock}
 	end
 end
 
@@ -26,7 +27,7 @@ for i, rarity in ipairs(Progression.RARITY_ORDER) do
 		assert(step and step.To == Progression.RARITY_ORDER[i + 1]
 			and type(step.Chance) == "number" and step.Chance > 0 and step.Chance <= 1
 			and validInteger(step.Coins) and step.Coins > 0
-			and validInteger(step.Logs) and step.Logs > 0, "Invalid ascension config " .. rarity)
+			and validInteger(step.Logs) and step.Logs > 0 and validInteger(step.Crystals) and step.Crystals>0, "Invalid ascension config " .. rarity)
 	else
 		assert(step == nil, "Highest rarity must have no normal ascension step")
 	end
@@ -54,6 +55,7 @@ function Rules.Preview(rarity, progression, forgeLevel)
 		ForgeUnlocked = Config.ValidForge(forgeLevel) and forgeLevel >= step.RequiredForge,
 		Coins = step.Coins,
 		Logs = step.Logs,
+		Crystals=step.Crystals,
 		Chance = step.Chance,
 		PityLimit = limit,
 		Failures = current.AscensionFailures,

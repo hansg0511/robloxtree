@@ -8,6 +8,7 @@ local MaterialDefinitions = require(script.Parent.MaterialDefinitions)
 local LogStorageRules = require(game.ServerScriptService.Inventory.LogStorageRules)
 
 local Sandbox = {}
+local Premium=require(game.ReplicatedStorage.Shared.PremiumEconomyConfig)
 
 -- Flip this to false if you need to test normal progression in Roblox Studio.
 Sandbox.ENABLED = true

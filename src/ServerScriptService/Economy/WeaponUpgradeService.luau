@@ -70,21 +70,24 @@ function Service.Preview(player,saved)
 		Slots=slots,
 		CostPolicy=Rules.COST_POLICY,
 		EconomyConfigured=Rules.ECONOMY_CONFIGURED,
-		Awaken=nil,Infuse=nil,
+		Awaken=nil,Replace=nil,
 	}
-	for _,mode in ipairs({"Awaken","Infuse"}) do
+	for _,mode in ipairs({"Awaken","Replace"}) do
 		-- Family is a chosen input only at action time. Preview uses a
 		-- permitted family to determine whether this mode is unlocked.
-		local exampleFamily=if #slots>0 then
-			(if slots[1].Family=="Golden" then "Frenzied" else "Golden")
-			else "Golden"
+		local other=slots[if mode=="Awaken" then 2 else 1]
+		local exampleFamily=Forge.FAMILIES[1]
+		for _,candidate in ipairs(Forge.FAMILIES) do
+			if not other or candidate~=other.Family then exampleFamily=candidate break end
+		end
 		local allowed,why=Rules.Check(mode,saved.Rarity,saved.WeaponData,
 			exampleFamily,level)
 		status[mode]={
 			Eligible=allowed~=nil and Rules.CanUseUpgradeRecipe(),
 			Reason=if not Rules.CanUseUpgradeRecipe() then "UPGRADE_ECONOMY_PENDING" else why,
 			Replacing=allowed and allowed.Replacing or false,
-			Costs=CostRules.Describe(Rules.COSTS[mode]),
+			Costs=CostRules.Describe(Rules.Costs(mode,1)),
+			MaxLogs=Forge.Tier(level) and Forge.Tier(level).MaxMutatedLogs or 0,
 		}
 	end
 	return status
@@ -137,15 +140,14 @@ function Service.Attempt(player,uid,mode,family,selections)
 	local check,why=Rules.Check(mode,saved.Rarity,saved.WeaponData,family,level)
 	if not check then return {Reason=why} end
 	if type(selections)~="table" then return {Reason="INVALID_SELECTION"} end
-	local requiredLogCount
-	for _,cost in ipairs(check.Costs) do
-		if cost.Kind=="Logs" then requiredLogCount=cost.Count break end
-	end
+	local requiredLogCount=type(selections.LogUIDs)=="table" and #selections.LogUIDs or 0
+	if requiredLogCount<1 or requiredLogCount>check.MaxLogs then return {Reason="INVALID_LOG_SELECTION"} end
+	local recipe=Rules.Costs(mode,requiredLogCount)
 	local logs=selectedLogs(player,selections,requiredLogCount)
 	if not logs then return {Reason="INVALID_LOG_SELECTION"} end
 	local preview=Forge.Preview(logs,level)
 	if not preview or preview.InvalidReason or preview.Family~=family
-		or type(preview.Potency)~="number" or preview.Potency<=0 then
+		or preview.QualifyingLogs~=#logs or type(preview.Potency)~="number" or preview.Potency<=0 then
 		return {Reason="WRONG_MUTATED_LOGS"}
 	end
 	-- Prepare a valid ability and next weapon record BEFORE spending a cent.
@@ -168,7 +170,7 @@ function Service.Attempt(player,uid,mode,family,selections)
 	local allowed,reason2=Rules.Check(mode,saved.Rarity,saved.WeaponData,
 		family,level)
 	if not allowed then return {Reason=reason2} end
-	local receipt,costReason=Costs.Take(player,check.Costs,selections,family)
+	local receipt,costReason=Costs.Take(player,recipe,selections,family)
 	if not receipt then return {Reason=costReason or "PAYMENT_FAILED"} end
 
 	-- Only replace WeaponData; rarity, XP/level, forged stats and class stay

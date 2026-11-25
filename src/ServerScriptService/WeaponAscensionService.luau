@@ -7,6 +7,10 @@ local ItemDataBase = require(game.ServerStorage.Items.ItemDataBase)
 local StatsAggregator = require(game.ServerStorage.Items.StatsAggregator)
 local Progression = require(game.ServerScriptService.WeaponProgressionRules)
 local Ascension = require(game.ServerScriptService.WeaponAscensionRules)
+local Slots=require(game.ServerScriptService.Economy.WeaponUpgradeRules)
+local Economy=require(game.ReplicatedStorage.Shared.PremiumEconomyConfig)
+local Costs=require(game.ServerScriptService.Economy.WeaponUpgradeCostService)
+local Config=require(game.ReplicatedStorage.Shared.ProgressionConfig)
 
 local Service = {}
 local rng = Random.new()
@@ -94,8 +98,9 @@ function Service.Preview(player, item, eligibleCount)
 	local available = if type(eligibleCount) == "number" then eligibleCount
 		else #Service.EligibleLogs(player)
 	snapshot.EligibleLogs = available
+	snapshot.CrystalBalance=data and data.MaterialBalances and data.MaterialBalances[Economy.CRYSTAL] or 0
 	snapshot.CanAfford = isFiniteMoney(coins) and coins >= snapshot.Coins
-		and available >= snapshot.Logs
+		and available >= snapshot.Logs and snapshot.CrystalBalance>=snapshot.Crystals
 	snapshot.AtForge = atForge
 	snapshot.CanAscend = snapshot.Ready and snapshot.ForgeUnlocked and snapshot.CanAfford and atForge
 	return snapshot
@@ -123,6 +128,7 @@ function Service.Attempt(player, uid)
 		return { Reason = "NOT_ENOUGH_COINS" }
 	end
 
+	if not data.MaterialBalances or (data.MaterialBalances[Economy.CRYSTAL] or 0)<preview.Crystals then return {Reason="NOT_ENOUGH_CRYSTALS"} end
 	local available = Service.EligibleLogs(player)
 	if #available < preview.Logs then return { Reason = "NOT_ENOUGH_LOGS" } end
 	local selectedUIDs = {}
@@ -134,23 +140,38 @@ function Service.Attempt(player, uid)
 		saved.WeaponData.Progression, rng:NextNumber(),forgeLevel)
 	if not outcome then return { Reason = "ROLL_FAILED" } end
 
-	local takeOk, removed, sources = pcall(function()
-		return LogService.TakeCraftLogUIDs(player, selectedUIDs, preview.Logs)
+	-- Generate before charging. Both failure and success consume crystals.
+	local nextData=table.clone(saved.WeaponData)
+	nextData.Progression=outcome.Progression
+	if outcome.Success and Config.HasSecondSlot(outcome.Rarity) then
+		local granted,reason=Slots.GrantSecond(nextData,outcome.Rarity,forgeLevel,rng)
+		if not granted then return {Reason=reason or "ROLL_FAILED"} end
+		nextData=granted
+	end
+	local recipe={{Kind="Coins",Amount=preview.Coins},{Kind="Logs",Count=preview.Logs},
+		{Kind="Stack",Source="MaterialBalances",Id=Economy.CRYSTAL,Count=preview.Crystals}}
+	local receipt,reason=Costs.Take(player,recipe,{LogUIDs=selectedUIDs})
+	if not receipt then return {Reason=reason or "LOGS_UNAVAILABLE"} end
+	local oldRarity,oldSaved,oldLive,oldItem=saved.Rarity,saved.WeaponData,live.WeaponData,live.ItemWeaponData
+	local function copy(v)
+		if type(v)~="table" then return v end
+		local t={} for k,x in pairs(v) do t[k]=copy(x) end return t
+	end
+	local ok,err=pcall(function()
+		saved.Rarity=outcome.Rarity
+		saved.WeaponData=nextData
+		live.ItemRarity=outcome.Rarity
+		live.WeaponData=copy(nextData)
+		if type(oldItem)=="table" then live.ItemWeaponData=copy(nextData) end
 	end)
-	if not takeOk or type(removed) ~= "table" or #removed ~= preview.Logs then
-		return { Reason = "LOGS_UNAVAILABLE" }
+	if not ok then
+		saved.Rarity=oldRarity; saved.WeaponData=oldSaved
+		live.ItemRarity=oldRarity; live.WeaponData=oldLive; live.ItemWeaponData=oldItem
+		Costs.Rollback(receipt)
+		warn("[Ascension] update failed",err)
+		return {Reason="WEAPON_UPDATE_FAILED"}
 	end
-
-	-- Synchronous commit (no waits/yields): a failed attempt consumes the
-	-- cost but NEVER destroys or down-levels the weapon.
-	data.Coins -= preview.Coins
-	saved.Rarity = outcome.Rarity
-	saved.WeaponData.Progression = outcome.Progression
-	live.ItemRarity = outcome.Rarity
-	live.WeaponData.Progression = table.clone(outcome.Progression)
-	if type(live.ItemWeaponData) == "table" then
-		live.ItemWeaponData.Progression = table.clone(outcome.Progression)
-	end
+	Costs.Finalize(receipt)
 
 	if data.Runtime.EquippedWeaponUID == uid then
 		local ok, err = pcall(function() StatsAggregator.Aggregate(player) end)
@@ -170,6 +191,7 @@ function Service.Attempt(player, uid)
 		Rarity = saved.Rarity,
 		Level = outcome.Progression.Level,
 		CoinsSpent = preview.Coins,
+		CrystalsSpent=preview.Crystals,
 		LogsSpent = preview.Logs,
 		Failures = outcome.Progression.AscensionFailures,
 		AttemptsUntilGuarantee = updated and updated.AttemptsUntilGuarantee or 0,

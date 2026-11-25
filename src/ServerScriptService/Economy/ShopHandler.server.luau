@@ -9,6 +9,8 @@ local WeaponEffects = require(game.ServerScriptService.WeaponEffects.Dispatcher)
 local ProgressionRules = require(game.ServerScriptService.WeaponProgressionRules)
 local WeaponAscensionService = require(game.ServerScriptService.WeaponAscensionService)
 local WeaponUpgradeService = require(script.Parent.WeaponUpgradeService)
+local SlotRules=require(script.Parent.WeaponUpgradeRules)
+local Premium=require(ReplicatedStorage.Shared.PremiumEconomyConfig)
 local WeaponRarityRoll = require(game.ServerScriptService.WeaponRarityRoll)
 local ServerScriptService = game:GetService("ServerScriptService")
 
@@ -25,6 +27,7 @@ local BaseStationAccess = require(ServerScriptService.WorldLayout.BaseStationAcc
 
 local economyRemotes = ReplicatedStorage:WaitForChild("Economy")
 local getShopData = economyRemotes:WaitForChild("GetShopDataRF")
+local buyCrystals=economyRemotes:WaitForChild("BuyAscensionCrystalsRE")
 local purchaseAxeHead = economyRemotes:WaitForChild("PurchaseAxeHeadRE")
 local craftRecipe = economyRemotes:WaitForChild("CraftRecipeRE")
 local purchaseCapacity = economyRemotes:WaitForChild("PurchaseCapacityRE")
@@ -479,7 +482,7 @@ end)
 upgradeWeapon.OnServerEvent:Connect(function(player, uid, mode, family, selections, ...)
 	if select("#",...)~=0 or not takeBudget(player,"UpgradeWeapon") then return end
 	if type(uid)~="string" or #uid<1 or #uid>128
-		or (mode~="Awaken" and mode~="Infuse")
+		or (mode~="Awaken" and mode~="Replace")
 		or (family~="Golden" and family~="Frenzied" and family~="Shocked")
 		or type(selections)~="table" then return end
 	local ok,result=pcall(function()
@@ -498,6 +501,23 @@ upgradeWeapon.OnServerEvent:Connect(function(player, uid, mode, family, selectio
 		end
 		economyUpdated:FireClient(player,"Progression")
 	end
+end)
+
+-- Premium exchange is independent of gold; all prices server-owned.
+buyCrystals.OnServerEvent:Connect(function(player,quantity,...)
+	if select("#",...)~=0 or not takeBudget(player,"UpgradeWeapon") then return end
+	if type(quantity)~="number" or quantity%1~=0 or quantity<1 or quantity>Premium.MAX_CRYSTAL_PURCHASE then return end
+	local profile,data=getProfileData(player)
+	if not profile or type(data.MaterialBalances)~="table" then return end
+	local balances=data.MaterialBalances
+	local price=quantity*Premium.CRYSTAL_PRICE
+	if not isNonnegativeInteger(balances[Premium.PREMIUM]) or balances[Premium.PREMIUM]<price then
+		buyCrystals:FireClient(player,{Success=false,Reason="NOT_ENOUGH_PREMIUM"}); return
+	end
+	balances[Premium.PREMIUM]-=price
+	balances[Premium.CRYSTAL]=(balances[Premium.CRYSTAL] or 0)+quantity
+	buyCrystals:FireClient(player,{Success=true,Quantity=quantity})
+	economyUpdated:FireClient(player,"PremiumBalances")
 end)
 
 purchaseAxeHead.OnServerEvent:Connect(function(player, headId, quantity, ...)
@@ -690,6 +710,9 @@ local function craftExperimental(player, recipe, selectedLogUids)
 		},
 	}
 
+	local granted=SlotRules.GrantSecond(weapon.WeaponData,rarity,forgeLevel,Random.new())
+	if not granted then restoreCraftLogs(player,recipe,removedLogs,sourceByUid); return end
+	weapon.WeaponData=granted
 	data.AxeHeads[head.Id] = headCount - 1
 	progress.StandardAxeTier = math.max(previousTier, recipe.Tier)
 	local ok, added = pcall(function()
@@ -828,6 +851,9 @@ craftRecipe.OnServerEvent:Connect(function(player, recipeId, selectedLogUids, ..
 		return
 	end
 
+	local granted=SlotRules.GrantSecond(itemRecord.WeaponData,rarity,forgeLevel,Random.new())
+	if not granted then restoreCraftLogs(player,recipe,removedLogs,sourceByUid); return end
+	itemRecord.WeaponData=granted
 	-- Keep head and progression writes silent until the output path succeeds.
 	data.AxeHeads[head.Id] = headCount - 1
 	progress.StandardAxeTier = math.max(previousTier, recipe.Tier)

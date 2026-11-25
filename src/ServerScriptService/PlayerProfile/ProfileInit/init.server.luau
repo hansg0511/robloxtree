@@ -30,7 +30,7 @@ local ProfileTemplate = {
 	GroveMaterials = {},
 	-- Expandable server-owned stackable upgrade-material balances.
 	-- No materials are granted here; new items need an acquisition source.
-	MaterialBalances = {},
+	MaterialBalances = {PremiumCurrency=0,AscensionCrystal=0},
 	ActiveGroveTreeUIDs = {},
 	-- Axe heads are crafting materials, never equipable Tools.
 	AxeHeads = {
