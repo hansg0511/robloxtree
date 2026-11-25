@@ -284,8 +284,7 @@ local function buildShopSnapshot(player, profile)
 		local count = head and headCounts[head.Id] or 0
 		if not isNonnegativeInteger(count) then count = 0 end
 		local unlocked = WorldProgressService.CanAccessForest(player, recipe.RequiredForestId)
-		local progressionValid = recipe.Tier <= standardTier
-			or recipe.Tier == standardTier + 1
+		local progressionValid = true -- no mandatory intermediate crafted metal
 		recipes[#recipes + 1] = {
 			Id = recipe.Id, Name = recipe.Name, Experimental = true,
 			Tier = recipe.Tier,
@@ -546,7 +545,7 @@ local function craftRng(player, recipe, selectedLogUids)
 	if type(progress) ~= "table"
 		or not isNonnegativeInteger(progress.StandardAxeTier) then return end
 	local previousTier = progress.StandardAxeTier
-	if recipe.Tier > previousTier + 1 or not isNonnegativeInteger(progress.ForgeLevel)
+	if not isNonnegativeInteger(progress.ForgeLevel)
 		or progress.ForgeLevel < recipe.Tier then return end
 	if not WorldProgressService.CanAccessForest(player, recipe.RequiredForestId) then return end
 	local head = catalog.FindAxeHead(recipe.HeadId)
