@@ -34,6 +34,14 @@ This is the canonical list for *polish*, separate from new mechanics. Update it 
 - [ ] Planting ghost/preview consistency with real species and stage models.
 - [ ] Visual performance and streaming with many Grove trees and observers.
 
+## Forge — Crafting cutscene (user requested 2026-11-25)
+
+- [ ] Add a dedicated forging cutscene as a core crafting presentation milestone, similar in importance to the Grove harvest cinematic. Crafting a weapon should feel exciting, not simply like receiving an inventory item.
+- [ ] **Suggested presentation, not locked design:** show materials entering the forge, a short hammering/sparks sequence, a suspense beat, then reveal the actual rolled weapon with its class, rarity and mutation/potency where relevant. Reserve more spectacular effects for exceptional outcomes.
+- [ ] **Open design:** camera framing, exact sequence and duration, skip/fast-forward behavior for repeated crafting, rarity reveal treatment, audio and what nearby players see. Avoid making frequent ordinary crafts tedious; do not add a paid skip or gameplay crafting timer by implication.
+- [ ] Preserve server-owned forging/payment/results; the cinematic presents an already-authoritative result, must not reroll/duplicate or lose it if skipped, interrupted or disconnected. Test camera/control restoration and mobile performance when implemented.
+- [ ] Defer implementation to presentation polish unless the user explicitly reprioritizes it; no gameplay or balance changes authorized by this entry.
+
 ## Other existing prototype systems
 
 - [ ] Chop / falling-wood / pickup smoothness, collision, latency and feedback across low-end devices.
