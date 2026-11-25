@@ -689,32 +689,24 @@ view.forgeSizeConstraint = forgePanel:FindFirstChildOfClass("UISizeConstraint")
 if view.forgeSizeConstraint then
 	view.forgeSizeConstraint.MaxSize = Vector2.new(1060, 820)
 end
--- Only ONE recipe is presented at a time; switching mode/tier preserves
--- each recipe's chosen log UIDs without multiplying enormous cards.
-local forgeModeRng = button(forgePanel, "ModeRng", "RNG FORGE",
-	UDim2.new(0.5, -24, 0, 36), UDim2.fromOffset(20, 86), COLORS.BagAction)
-forgeModeRng.TextSize = 16
-forgeModeRng.Visible = RunService:IsStudio()
-local forgeModeStandard = button(forgePanel, "ModeStandard", "STANDARD",
-	UDim2.new(0.5, -24, 0, 36), UDim2.new(0.5, 4, 0, 86), COLORS.BagSlot)
-forgeModeStandard.TextSize = 16
+-- One RNG recipe per selected metal; preserve selected log UIDs per recipe.
 local forgeTierCopper = button(forgePanel, "TierCopper", "COPPER",
-	UDim2.new(0.5, -24, 0, 34), UDim2.fromOffset(20, 129), COLORS.BagAction)
+	UDim2.new(0.5, -24, 0, 34), UDim2.fromOffset(20, 86), COLORS.BagAction)
 forgeTierCopper.TextSize = 15
 local forgeTierIron = button(forgePanel, "TierIron", "IRON",
-	UDim2.new(0.5, -24, 0, 34), UDim2.new(0.5, 4, 0, 129), COLORS.BagSlot)
+	UDim2.new(0.5, -24, 0, 34), UDim2.new(0.5, 4, 0, 86), COLORS.BagSlot)
 forgeTierIron.TextSize = 15
 
 local forgeUpgradeButton = button(forgePanel, "UpgradeForge", "FORGE LEVEL 1",
-	UDim2.new(1, -40, 0, 30), UDim2.new(0, 20, 0, 172), COLORS.BagAction)
+	UDim2.new(1, -40, 0, 30), UDim2.new(0, 20, 0, 129), COLORS.BagAction)
 forgeUpgradeButton.TextSize = 14
-local crystalButton=button(forgePanel,"BuyCrystals","ASCENSION CRYSTALS",UDim2.new(1,-40,0,30),UDim2.fromOffset(20,207),COLORS.BagAction)
+local crystalButton=button(forgePanel,"BuyCrystals","ASCENSION CRYSTALS",UDim2.new(1,-40,0,30),UDim2.fromOffset(20,164),COLORS.BagAction)
 crystalButton.TextSize=13
 
 local forgeList = Instance.new("ScrollingFrame")
 forgeList.Name = "RecipeList"
-forgeList.Position = UDim2.new(0, 20, 0, 244)
-forgeList.Size = UDim2.new(1, -40, 1, -262)
+forgeList.Position = UDim2.new(0, 20, 0, 201)
+forgeList.Size = UDim2.new(1, -40, 1, -219)
 forgeList.BackgroundColor3 = COLORS.BagBack
 forgeList.BackgroundTransparency = 0
 forgeList.BorderSizePixel = 0
@@ -815,7 +807,6 @@ local forgeEligibleLogsByUid = {}
 local forgeEligibleLogs = {}
 local forgeEligibleLogsAvailable = false
 local forgeSnapshotFresh = false
-local forgeModeSelection = if RunService:IsStudio() then "RNG" else "STANDARD"
 local forgeMetalSelection = "copper"
 local forgeShowStatRanges = false
 local activeBagTab = "Logs"
@@ -2124,7 +2115,7 @@ local function forgeSelectionStatus(recipe, selectedCount, required, mutationPre
 			return "ADD AT LEAST ONE LOG TO FORGE", COLORS.BagMuted
 		end
 		if selectedCount > (recipe.MaxLogCount or 0) then
-			return "TOO MANY LOGS FOR THIS TEST", COLORS.Orange
+			return "TOO MANY LOGS FOR THIS FORGE", COLORS.Orange
 		end
 	elseif selectedCount ~= required then
 		local missingCount = math.max(0, required - selectedCount)
@@ -2186,8 +2177,6 @@ local function renderForge(data)
 	forgeUpgradeButton.AutoButtonColor = forgeUpgradeButton.Active
 	forgeUpgradeButton.BackgroundColor3 = if forgeUpgradeButton.Active
 		then COLORS.BagAction else COLORS.Disabled
-	forgeModeRng.BackgroundColor3 = if forgeModeSelection == "RNG" then COLORS.BagAction else COLORS.BagSlot
-	forgeModeStandard.BackgroundColor3 = if forgeModeSelection == "STANDARD" then COLORS.BagAction else COLORS.BagSlot
 	forgeTierCopper.BackgroundColor3 = if forgeMetalSelection == "copper" then COLORS.Gold else COLORS.BagSlot
 	forgeTierIron.BackgroundColor3 = if forgeMetalSelection == "iron" then COLORS.Gold else COLORS.BagSlot
 	local forgeConfig = ForgeMutationRules.Tier(forgeLevel)
@@ -2200,8 +2189,7 @@ local function renderForge(data)
 			forgeConfig.MaxMutatedLogs,forgeConfig.PotencyCap*100)
 		else "PICK A METAL + LOGS • SEE ODDS • FORGE"
 	-- Render ONLY the currently selected recipe, not four full-size cards.
-	local activeRecipeId = if forgeModeSelection == "RNG"
-		then "experiment_" .. forgeMetalSelection else forgeMetalSelection .. "_axe"
+	local activeRecipeId = "experiment_" .. forgeMetalSelection
 	if type(data) ~= "table" then
 		forgeEmptyState.Text = "FORGE DATA UNAVAILABLE"
 		forgeEmptyState.Visible = true
@@ -2519,7 +2507,7 @@ local function renderForge(data)
 
 		local canCraft = canSubmitForgeRecipe(recipe) and forgeCraftPendingByRecipe[recipe.Id] ~= true
 		action.Text = if forgeCraftPendingByRecipe[recipe.Id] then "CRAFTING..."
-			else if recipe.Experimental == true then "FORGE RNG" else "CRAFT AXE"
+			else "FORGE WEAPON"
 		action.BackgroundColor3 = if canCraft then COLORS.BagAction else COLORS.Disabled
 		action.Active = canCraft
 		action.AutoButtonColor = canCraft
@@ -2546,21 +2534,7 @@ local function renderForge(data)
 	forgeEmptyState.Visible = renderedCount == 0
 end
 
--- UI navigation only: each tab selects one existing server-provided recipe.
--- Crafting still sends exactly the chosen recipe ID plus real owned log UIDs.
-forgeModeRng.Activated:Connect(function()
-	if not RunService:IsStudio() then return end
-	forgeModeSelection = "RNG"
-	forgeShowStatRanges = false
-	forgeList.CanvasPosition = Vector2.zero
-	if latestShopData then renderForge(latestShopData) end
-end)
-forgeModeStandard.Activated:Connect(function()
-	forgeModeSelection = "STANDARD"
-	forgeShowStatRanges = false
-	forgeList.CanvasPosition = Vector2.zero
-	if latestShopData then renderForge(latestShopData) end
-end)
+-- Crafting sends the selected metal recipe ID and owned log UIDs.
 crystalButton.Activated:Connect(function()
 	if not crystalButton.Active then return end
 	crystalButton.Active=false; buyCrystals:FireServer(1)
@@ -2593,10 +2567,6 @@ forgeTierIron.Activated:Connect(function()
 	forgeList.CanvasPosition = Vector2.zero
 	if latestShopData then renderForge(latestShopData) end
 end)
-if not RunService:IsStudio() then
-	forgeModeStandard.Position = UDim2.fromOffset(20, 86)
-	forgeModeStandard.Size = UDim2.new(1, -40, 0, 36)
-end
 
 local function refreshLogs()
 	if isRefreshingLogs then
