@@ -1,5 +1,5 @@
--- Prototype progression configuration. Standard axes are deterministic recipes;
--- special/RNG crafting is intentionally outside this catalog for now.
+-- Forge progression configuration. RNG is the only active craft path.
+-- Legacy fixed recipe definitions remain solely for saved-item compatibility.
 local AxeShopCatalog = {}
 
 AxeShopCatalog.AxeHeads = {
@@ -44,14 +44,13 @@ AxeShopCatalog.StandardAxeRecipes = {
 	},
 }
 
--- STUDIO-ONLY RNG forging. Reuse the owned component IDs as temporary
--- metal blanks: no account migration or new shop currency is required.
--- Existing fixed Copper/Iron Axe recipes remain unchanged for regression.
+-- Active RNG recipes. Keep component IDs and recipe IDs stable for existing saves.
+-- Legacy fixed recipes above are not exposed or accepted by the forge.
 -- OutputItemID values refer to existing Tool models, not final dagger/hammer art.
 AxeShopCatalog.ExperimentalForgeRecipes = {
 	{
 		Id = "experiment_copper",
-		Name = "COPPER BLANK • EXPERIMENTAL FORGE",
+		Name = "COPPER BLANK • FORGE",
 		HeadId = "copper_head",
 		Tier = 1,
 		HeadBasePower = 25,
@@ -60,7 +59,7 @@ AxeShopCatalog.ExperimentalForgeRecipes = {
 	},
 	{
 		Id = "experiment_iron",
-		Name = "IRON BLANK • EXPERIMENTAL FORGE",
+		Name = "IRON BLANK • FORGE",
 		HeadId = "iron_head",
 		Tier = 2,
 		HeadBasePower = 55,
