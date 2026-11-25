@@ -1284,6 +1284,7 @@ function Tree.new(options)
 	self.Choppable = definition.Choppable
 	self.ForestId = options.ForestId or definition.ForestId or "Base"
 	self.RequiredStandardAxeTier = definition.RequiredStandardAxeTier
+	self.VisualScaleMultiplier = definition.VisualScaleMultiplier or 1
 	self.UnlockForestId = definition.UnlockForestId
 	self.InteractionPartName = definition.InteractionPartName
 	self.ChopRadius = definition.ChopRadius
@@ -1378,7 +1379,7 @@ function Tree:Spawn()
 	local model
 	local oakHarvestSections
 	local authoredHarvestSections
-	local modelScale = self.SizeScale
+	local modelScale = self.SizeScale * (if self.IsPersistentGrove then 1 else self.VisualScaleMultiplier)
 	if self.IsPersistentGrove and self.SpeciesId == "Oak" then
 		model, modelScale = makeGroveMatureOak(getStableProceduralOakSeed(self), self.SizeScale)
 		modelScale = modelScale or self.SizeScale
