@@ -62,3 +62,29 @@ Standard crafting consumes one head and 3 logs. Experimental RNG mode is still S
 
 ## Studio validation required
 Disable `StudioForgeSandbox.ENABLED` to observe resource spending (it refills coins, heads, logs, Gems and crystals). Existing tests updated, not executed in Roblox Studio. No new smoke runner. Check the first craft, actual Forge progression, second-slot-only Legendary, Awakening after slot 2, paid replacement with exact log UIDs, successful/failed crystal ascensions, daily/weekly repeat/rejoin protection and legacy weapon migration. Use real play-session telemetry for forest income, time-to-kill, bag trips, resource bottlenecks and QoL. Leaderboard event rewards, future premium perks/monetization, additional forests, acquired mutation/treasure systems remain deferred rather than pretending they are complete.
+
+## Pending player playtest — saved 2026-11-25
+
+User is away from their PC and has explicitly NOT completed the latest integration tests. Keep these pending for their next Studio session; design discussion can continue in the meantime. Do not mark these as passed or require new smoke suites.
+
+### A. Integrated feature check (use developer fixtures for speed)
+
+- [ ] Start a synced Studio Play session; confirm economy HUD loads without Luau active-local-limit errors. Check visible coins, bag, Gems and Ascension Crystal balances.
+- [ ] Confirm Grove management/shop does not obstruct the screen by default; open at the west hub Grove Shop stall, close by leaving or closing it, and check planting at the personal plot still works.
+- [ ] Check Grove shop stock/quality, capacity upgrade and mature-tree passive changes on harvest and regrowth.
+- [ ] Check Story/Daily/Weekly quest progress and recurring Gem claims; confirm completed claims cannot be claimed twice.
+- [ ] Check Forge upgrades and rarity floor/ceiling previews against current Forge level; test a forged weapon's rarity and XP.
+- [ ] Temporarily disable StudioForgeSandbox auto-refill when verifying deductions (it otherwise replenishes balances); use existing fixtures or deliberate test resources rather than new test systems.
+- [ ] Exchange Gems for Ascension Crystals; verify displayed balances update.
+- [ ] Test successful and failed ascension attempts, including crystal/coin/log deductions, pity, destination Forge gate and retained level on success.
+- [ ] Craft or ascend to Legendary+; confirm exactly one free second ability, independent of slot 1, no duplicate families and no reroll on further ascensions.
+- [ ] Awaken an empty first slot, including when slot 2 is populated; replace slot 2 using selected mutated logs. Verify costs, family restrictions and original weapon stats/level/other slot preservation.
+
+### B. Clean new-player pacing check (separate session)
+
+- [ ] Disable StudioForgeSandbox and other development loadout/sapling/combat fixture grants for a dedicated fresh Mock profile; restore normal dev convenience afterward.
+- [ ] Start unarmed; chop Sapwood/Bamboo, collect a stack, reserve crafting logs, sell, purchase a Copper head (current 60 coins), and craft/equip the first weapon. Test both quick-travel buttons during ordinary gameplay.
+- [ ] Record time to first stack, sale, craft, Grove planting/first harvest, Forest 2 access and Forge Lv2/first Iron progression. Note any tedious steps or unclear objectives; compare first weapon to fists.
+- [ ] Review early income, bag pressure and attack feel using actual gameplay, not theoretical travel/cooldown assumptions.
+
+Production RNG forge rollout, true DataStore persistence and deferred two-player ownership verification are separate release work. No runtime validation has been performed by this assistant.
