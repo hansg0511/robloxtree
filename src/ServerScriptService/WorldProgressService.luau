@@ -32,12 +32,12 @@ local function getRunProgress(player)
 	if type(data.RunProgress) ~= "table" then
 		data.RunProgress = {
 			StandardAxeTier = 0,
-			UnlockedForests = { Base = true, Forest1 = true, Forest2 = false },
+			UnlockedForests = { Base = true, Forest1 = true, Forest2 = false, Forest3 = false },
 		}
 	end
 	local runProgress = data.RunProgress
 	if type(runProgress.UnlockedForests) ~= "table" then
-		runProgress.UnlockedForests = { Base = true, Forest1 = true, Forest2 = false }
+		runProgress.UnlockedForests = { Base = true, Forest1 = true, Forest2 = false, Forest3 = false }
 	end
 	return runProgress
 end
