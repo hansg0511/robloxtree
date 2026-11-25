@@ -65,8 +65,10 @@ local STATION_USE_DISTANCES = {
 }
 
 local WorldLayoutConfiguration = {
-	-- Preserve the approved procedural Oak visual path for Forest 1.
+	-- Preserve the approved procedural Oak visual path, now in Forest 3.
 	PROCEDURAL_STARTER_OAKS_ENABLED = true,
+	-- Opt-in only: keep ordinary Studio runs representative of the actual forests.
+	STUDIO_CLEAVE_PATCH_ENABLED = false,
 
 	ROOT_NAME = "SourceWorld",
 	VERSION = 24,
