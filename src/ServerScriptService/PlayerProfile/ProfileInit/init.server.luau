@@ -45,6 +45,7 @@ local ProfileTemplate = {
 			Base = true,
 			Forest1 = true,
 			Forest2 = false,
+			Forest3 = false,
 		},
 	},
 	GroveLevel = 1,
