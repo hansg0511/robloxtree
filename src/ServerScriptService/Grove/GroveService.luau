@@ -779,6 +779,7 @@ local function updateRuntimeStages()
 end
 
 function GroveService.Start()
+	local station=require(game.ServerScriptService.WorldLayout.BaseStationAccess)
 	if Started then return end
 	Started = true
 	GetGroveStateRF.OnServerInvoke = function(player, ...)
@@ -790,6 +791,10 @@ function GroveService.Start()
 		local now = os.clock()
 		if now - (LastUpgradeAt[player] or -math.huge) < 0.5 then return end
 		LastUpgradeAt[player] = now
+		if not station.CanUseGroveShop(player) then
+			UpgradeGroveRE:FireClient(player,{Success=false,Reason="NOT_AT_GROVE_SHOP"})
+			return
+		end
 		local data = getProfileData(player)
 		local plot = getAssignedGrove(player)
 		local reason = "GROVE_NOT_READY"
@@ -834,6 +839,10 @@ function GroveService.Start()
 			return
 		end
 		LastUprootRequestAt[player] = now
+		if not station.CanUseGroveShop(player) then
+			UprootGroveTreeRE:FireClient(player,{UID=uid,Success=false,Reason="NOT_AT_GROVE_SHOP"})
+			return
+		end
 		local ok, success, reason = pcall(GroveService.UprootTree, player, uid)
 		if not ok then
 			warn("[Grove] Uproot request failed:", success)

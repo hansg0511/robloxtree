@@ -330,6 +330,41 @@ bagButton.LayoutOrder = 3
 bagButton.TextSize = 14
 round(bagButton, 16)
 
+-- Persistent, compact balances on a second HUD row. Do not require
+-- GetShopData (and its Studio refill) just to view currencies.
+local currencyHud=Instance.new("Frame")
+currencyHud.Name="PremiumHud"
+currencyHud.Position=UDim2.fromOffset(12,70)
+currencyHud.Size=UDim2.new(0.94,0,0,32)
+currencyHud.BackgroundTransparency=1
+currencyHud.Parent=screen
+local currencyConstraint=Instance.new("UISizeConstraint")
+currencyConstraint.MaxSize=Vector2.new(330,32)
+currencyConstraint.Parent=currencyHud
+local function currencyPill(name,position,color)
+	local pill=Instance.new("Frame")
+	pill.Name=name.."Pill"
+	pill.Size=UDim2.new(0.5,-3,1,0)
+	pill.Position=position
+	pill.BackgroundColor3=COLORS.Surface
+	pill.Parent=currencyHud
+	round(pill,10)
+	outline(pill,color,2)
+	local value=label(pill,name,name.." —",UDim2.new(1,-12,1,0),UDim2.fromOffset(6,0),13,COLORS.Ink,Enum.Font.GothamBold)
+	value.TextScaled=true
+	local limit=Instance.new("UITextSizeConstraint")
+	limit.MaxTextSize=14
+	limit.MinTextSize=9
+	limit.Parent=value
+	return value
+end
+local hudGems=currencyPill("GEMS",UDim2.new(),Color3.fromRGB(120,206,245))
+local hudCrystals=currencyPill("CRYSTALS",UDim2.new(0.5,3,0,0),Color3.fromRGB(191,146,246))
+local function renderPremiumBalances(gems,crystals)
+	if type(gems)=="number" then hudGems.Text="GEMS  "..formatCoins(gems) end
+	if type(crystals)=="number" then hudCrystals.Text="CRYSTALS  "..formatCoins(crystals) end
+end
+
 -- Shared toast for weapon level-ups, forging and economy notifications.
 -- Use a readable weight/size instead of the former extra-heavy small text.
 local feedback = label(screen, "EconomyFeedback", "", UDim2.new(0.86, 0, 0, 46), UDim2.new(0.5, 0, 0, 120), 18, COLORS.Gold, Enum.Font.GothamBold)
@@ -1637,6 +1672,7 @@ end
 local function renderLogs(data)
 	if type(data) ~= "table" then return end
 	latestLogsData = data
+	renderPremiumBalances(data.PremiumBalance,data.CrystalBalance)
 	local logs = sortedLogs(data)
 	local usedKg, carryCapacityKg, remainingKg = getCapacitySnapshot(data, latestShopData and latestShopData.CarryCapacityKg)
 	local coins = typeof(data.Coins) == "number" and data.Coins or 0
@@ -1696,6 +1732,13 @@ end
 local function renderShop(data)
 	if type(data) ~= "table" then return end
 	latestShopData = data
+	local balances=data.UpgradeBalances
+	if type(balances)=="table" then
+		local gems=balances[Premium.PREMIUM] or 0
+		local crystals=balances[Premium.CRYSTAL] or 0
+		renderPremiumBalances(gems,crystals)
+		if latestLogsData then latestLogsData.PremiumBalance=gems; latestLogsData.CrystalBalance=crystals end
+	end
 	local usedKg, carryCapacityKg = getBagUiCapacity()
 	updateBagTabs(usedKg, carryCapacityKg, #ownedAxes(data))
 	clearShopRows()
@@ -2129,7 +2172,7 @@ local function renderForge(data)
 	local balances=type(data)=="table" and data.UpgradeBalances or {}
 	local gems=balances and balances[Premium.PREMIUM] or 0
 	local crystals=balances and balances[Premium.CRYSTAL] or 0
-	crystalButton.Text=string.format("GEMS %d • CRYSTALS %d • BUY 1 (%d GEMS)",gems,crystals,Premium.CRYSTAL_PRICE)
+	crystalButton.Text=string.format("BUY ASCENSION CRYSTAL • %d GEMS EACH",Premium.CRYSTAL_PRICE)
 	crystalButton.Active=forgeSnapshotFresh and gems>=Premium.CRYSTAL_PRICE
 	crystalButton.AutoButtonColor=crystalButton.Active
 	crystalButton.BackgroundColor3=if crystalButton.Active then COLORS.BagAction else COLORS.Disabled

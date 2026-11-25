@@ -66,6 +66,7 @@ local STATION_USE_DISTANCES = {
 	AxeShopStation = 14,
 	HomeEconomyStation = 14,
 	ForgeStation = 14,
+	GroveShopStation = 10,
 }
 
 local WorldLayoutConfiguration = {
@@ -73,7 +74,7 @@ local WorldLayoutConfiguration = {
 	PROCEDURAL_STARTER_OAKS_ENABLED = true,
 
 	ROOT_NAME = "SourceWorld",
-	VERSION = 22,
+	VERSION = 23,
 	STATION_USE_DISTANCES = STATION_USE_DISTANCES,
 
 	-- Surface steps stay small: support ground -0.56, forest/base -0.5,
@@ -202,6 +203,9 @@ local WorldLayoutConfiguration = {
 	FORGE_STATION = {
 		Position = Vector3.new(40, -0.4, 108),
 	},
+
+	-- Grove prototype management stall, opposite the existing Forge side.
+	GROVE_SHOP_STATION = { Position = Vector3.new(-42, -0.4, 90) },
 
 	FORESTS = {
 		{

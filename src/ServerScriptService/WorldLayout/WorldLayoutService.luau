@@ -571,6 +571,82 @@ local function createAxeShopStation(parent)
 	return station
 end
 
+local function createGroveShopStation(parent)
+	local station = Instance.new("Model")
+	station.Name = "GroveShopStation"
+	station:SetAttribute("WorldLayoutOwned", true)
+	station:SetAttribute("UseDistance", Configuration.STATION_USE_DISTANCES.GroveShopStation)
+	station.Parent = parent
+
+	local position = Configuration.GROVE_SHOP_STATION.Position
+	local counter = createPart(
+		"Counter",
+		Vector3.new(10, 3.5, 3.5),
+		CFrame.new(position + Vector3.new(0, 1.75, 0)),
+		Color3.fromRGB(106, 155, 80),
+		Enum.Material.WoodPlanks,
+		station
+	)
+	counter:SetAttribute("WorldLayoutOwned", true)
+
+	local counterTop = createPart(
+		"CounterTop",
+		Vector3.new(11, 0.6, 4.2),
+		CFrame.new(position + Vector3.new(0, 3.8, 0)),
+		Color3.fromRGB(160, 218, 108),
+		Enum.Material.Plastic,
+		station
+	)
+	counterTop:SetAttribute("WorldLayoutOwned", true)
+	counterTop.TopSurface = Enum.SurfaceType.Studs
+
+	local signPost = createPart(
+		"SignPost",
+		Vector3.new(0.6, 3.4, 0.6),
+		CFrame.new(position + Vector3.new(0, 5.5, 0)),
+		Color3.fromRGB(92, 137, 80),
+		Enum.Material.Plastic,
+		station
+	)
+	signPost:SetAttribute("WorldLayoutOwned", true)
+
+	createStationSign(
+		station,
+		"GroveShop",
+		"Grove Shop",
+		"Saplings & management",
+		position + Vector3.new(0, 6.2, 0),
+		Color3.fromRGB(68, 191, 104),
+		Color3.fromRGB(255, 249, 219)
+	)
+
+	local interaction = createPart(
+		"Interaction",
+		Vector3.new(10, 6, 5),
+		CFrame.new(position + Vector3.new(0, 3, -3.5)),
+		Color3.fromRGB(88, 164, 92),
+		Enum.Material.Plastic,
+		station
+	)
+	interaction.Transparency = 1
+	interaction.CanCollide = false
+	interaction.CanTouch = false
+	interaction.CanQuery = false
+	interaction:SetAttribute("WorldLayoutOwned", true)
+	interaction:SetAttribute("UseDistance", Configuration.STATION_USE_DISTANCES.GroveShopStation)
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "GroveShopPrompt"
+	prompt.ActionText = "Open Grove"
+	prompt.ObjectText = "Grove Shop"
+	prompt.MaxActivationDistance = Configuration.STATION_USE_DISTANCES.GroveShopStation
+	prompt.RequiresLineOfSight = false
+	prompt.HoldDuration = 0
+	prompt.Parent = interaction
+
+	return station
+end
+
 local function createForgeStation(parent)
 	local station = Instance.new("Model")
 	station.Name = "ForgeStation"
@@ -829,6 +905,7 @@ local function buildWorld()
 	if existing
 		and existing:GetAttribute("WorldLayoutVersion") == Configuration.VERSION
 		and (existing:GetAttribute("ProceduralStarterOaksEnabled") == true) == proceduralStarterOaksEnabled
+		and existing:FindFirstChild("GroveShopStation")
 		and existing:FindFirstChild("HomeEconomyStation")
 		and existing.HomeEconomyStation:FindFirstChild("ProcessorIntake")
 		and (not RunService:IsStudio() or (
@@ -852,6 +929,7 @@ local function buildWorld()
 	createHomeEconomyStation(root)
 	createAxeShopStation(root)
 	createForgeStation(root)
+	createGroveShopStation(root)
 
 	createGround(
 		terrain,

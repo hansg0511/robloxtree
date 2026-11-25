@@ -8,6 +8,7 @@ local UserInputService = game:GetService("UserInputService")
 local ContextActionService = game:GetService("ContextActionService")
 local RunService = game:GetService("RunService")
 local GuiService = game:GetService("GuiService")
+local ProximityPromptService=game:GetService("ProximityPromptService")
 local shopRF = ReplicatedStorage:WaitForChild("Grove"):WaitForChild("GetSaplingShopRF")
 local buySaplingRE = ReplicatedStorage:WaitForChild("Grove"):WaitForChild("BuySaplingRE")
 local uprootGroveTreeRE = ReplicatedStorage:WaitForChild("Grove"):WaitForChild("UprootGroveTreeRE")
@@ -48,6 +49,7 @@ local nextGroveUpgrade
 local upgradePending = false
 local passiveTotals = {}
 local managerOpen = false
+local stallOpen=false
 local uprootPending = false
 local confirmUprootUID
 local confirmUprootUntil = 0
@@ -106,16 +108,49 @@ panel.BackgroundTransparency = 0.08
 panel.BorderSizePixel = 0
 panel.Parent = screenGui
 
--- The Grove prototype HUD must not sit on top of Bag/Shop/Forge details.
--- It returns automatically when the last economy panel closes.
+-- Debug management panel is strictly contextual. Leaving the stall or
+-- opening another economy modal closes it, never automatically reopens it.
+local function nearGroveStall()
+	local world=Workspace:FindFirstChild("SourceWorld")
+	local station=world and world:FindFirstChild("GroveShopStation")
+	local interaction=station and station:FindFirstChild("Interaction")
+	local root=player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+	if not interaction or not interaction:IsA("BasePart") or not root then return false end
+	local distance=interaction:GetAttribute("UseDistance")
+	if type(distance)~="number" or distance<=0 then return false end
+	local pos=interaction.CFrame:PointToObjectSpace(root.Position)
+	local half=interaction.Size*0.5
+	local closest=Vector3.new(math.clamp(pos.X,-half.X,half.X),math.clamp(pos.Y,-half.Y,half.Y),math.clamp(pos.Z,-half.Z,half.Z))
+	return (pos-closest).Magnitude<=distance
+end
 local function syncGrovePanelWithEconomy()
-	panel.Visible = playerGui:GetAttribute("EconomyModalOpen") ~= true
-	if groveManagerPanel then
-		groveManagerPanel.Visible = managerOpen and panel.Visible
+	if playerGui:GetAttribute("EconomyModalOpen")==true or not nearGroveStall() then stallOpen=false end
+	panel.Visible=stallOpen
+	if not stallOpen then
+		managerOpen=false
+		confirmUprootUID=nil
+		confirmUprootUntil=0
+		if selectionHighlight then selectionHighlight.Enabled=false end
 	end
+	if groveManagerPanel then groveManagerPanel.Visible=stallOpen and managerOpen end
+end
+local function closeStall()
+	stallOpen=false
+	syncGrovePanelWithEconomy()
 end
 keepConnection(playerGui:GetAttributeChangedSignal("EconomyModalOpen"):Connect(syncGrovePanelWithEconomy))
 syncGrovePanelWithEconomy()
+local closeButton=Instance.new("TextButton")
+closeButton.Name="CloseGroveShop"
+closeButton.Size=UDim2.fromOffset(30,26)
+closeButton.Position=UDim2.new(1,-36,0,5)
+closeButton.Text="×"
+closeButton.TextSize=21
+closeButton.Font=Enum.Font.GothamBold
+closeButton.TextColor3=Color3.fromRGB(235,240,225)
+closeButton.BackgroundColor3=Color3.fromRGB(64,91,67)
+closeButton.Parent=panel
+keepConnection(closeButton.Activated:Connect(closeStall))
 
 local panelCorner = Instance.new("UICorner")
 panelCorner.CornerRadius = UDim.new(0, 8)
@@ -136,7 +171,8 @@ local titleLabel = makeLabel(
 	14,
 	Color3.fromRGB(225, 240, 220)
 )
-titleLabel.Text = "PERSONAL GROVE"
+titleLabel.Text = "GROVE SHOP • PROTOTYPE"
+titleLabel.Size=UDim2.new(1,-52,0,20)
 
 local groveStatusLabel = makeLabel(
 	panel,
@@ -334,7 +370,7 @@ mutatedTab.Activated:Connect(function()
 	renderSaplingShop()
 end)
 refreshSaplingShop=function()
-	if shopBusy or cleanedUp then return end
+	if shopBusy or cleanedUp or not panel.Visible then return end
 	shopBusy=true
 	task.spawn(function()
 		local ok,result=pcall(function() return shopRF:InvokeServer() end)
@@ -358,6 +394,7 @@ keepConnection(buySaplingRE.OnClientEvent:Connect(function(result)
 		end
 	else
 		local names={
+			NOT_AT_GROVE_SHOP="Return to the Grove shop.",
 			NOT_ENOUGH_COINS="Not enough coins for this sapling.",
 			SOLD_OUT="Your stock is sold out until restock.",
 			OFFER_NOT_AVAILABLE="Stock rotated. Please check the shop again.",
@@ -1334,14 +1371,16 @@ keepConnection(UserInputService.InputBegan:Connect(function(input, gameProcessed
 		selectClickedGroveTree()
 		return
 	end
-	if input.KeyCode == Enum.KeyCode.G then
-		setPlantingMode(not plantingMode, true)
-	elseif input.KeyCode == Enum.KeyCode.Q then
+	if input.KeyCode == Enum.KeyCode.G and (panel.Visible or plantingMode) then
+		local wasPlanting=plantingMode
+		if setPlantingMode(not plantingMode,true) and not wasPlanting then closeStall() end
+	elseif input.KeyCode == Enum.KeyCode.Q and (panel.Visible or plantingMode) then
 		cycleSapling(-1)
-	elseif input.KeyCode == Enum.KeyCode.E then
+	elseif input.KeyCode == Enum.KeyCode.E and (panel.Visible or plantingMode) then
 		cycleSapling(1)
 	elseif input.KeyCode == Enum.KeyCode.Escape then
-		setPlantingMode(false, true)
+		setPlantingMode(false,true)
+		closeStall()
 	end
 end))
 
@@ -1381,9 +1420,11 @@ keepConnection(Workspace.DescendantAdded:Connect(function(descendant)
 end))
 keepConnection(player:GetAttributeChangedSignal("PlotNumber"):Connect(render))
 keepConnection(player.CharacterRemoving:Connect(function()
+	closeStall()
 	setPlantingMode(false, false)
 end))
 keepConnection(player.CharacterAdded:Connect(function()
+	closeStall()
 	setPlantingMode(false, false)
 end))
 keepConnection(script.Destroying:Connect(function()
@@ -1418,15 +1459,34 @@ keepConnection(script.Destroying:Connect(function()
 	end
 end))
 
+-- Bind dynamically to survive world rebuilds and streaming.
+keepConnection(ProximityPromptService.PromptTriggered:Connect(function(prompt,who)
+	if who~=player or prompt.Name~="GroveShopPrompt" or not nearGroveStall() then return end
+	local station=prompt.Parent and prompt.Parent.Parent
+	local world=Workspace:FindFirstChild("SourceWorld")
+	if not station or station.Parent~=world or station.Name~="GroveShopStation" then return end
+	if playerGui:GetAttribute("EconomyModalOpen")==true then return end
+	setPlantingMode(false,false)
+	stallOpen=true
+	syncGrovePanelWithEconomy()
+	render()
+	if refreshState then refreshState() end
+	refreshSaplingShop()
+end))
+task.spawn(function()
+	while not cleanedUp do
+		task.wait(0.2)
+		if stallOpen then syncGrovePanelWithEconomy() end
+	end
+end)
 render()
 refreshRemotes()
-refreshSaplingShop()
 -- No client-side authority over stock: periodically refresh the actual
 -- server snapshot so rare restocks and affordability appear automatically.
 task.spawn(function()
 	while not cleanedUp do
 		task.wait(1)
-		if not cleanedUp then
+		if not cleanedUp and panel.Visible then
 			renderRestock()
 			if not shopSnapshot or os.time()>=shopSnapshot.RestockAt or os.time()%10==0 then refreshSaplingShop() end
 		end

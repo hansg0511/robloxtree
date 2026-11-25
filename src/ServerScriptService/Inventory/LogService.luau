@@ -11,6 +11,7 @@ local AxeShopCatalog = require(game.ServerScriptService.Economy.AxeShopCatalog)
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
 local LogStorageRules = require(script.Parent.LogStorageRules)
 local StudioForgeSandbox = require(game.ServerScriptService.Economy.StudioForgeSandbox)
+local PremiumConfig=require(game.ReplicatedStorage.Shared.PremiumEconomyConfig)
 local SpeciesVisuals = require(game.ServerStorage:WaitForChild("SpeciesVisuals"))
 local BaseStationAccess = require(game.ServerScriptService.WorldLayout.BaseStationAccess)
 local LogCarryVisualService = require(game.ServerScriptService.Inventory.LogCarryVisualService)
@@ -584,6 +585,8 @@ local function makeClientSnapshot(player)
 		RemainingKg = metrics.RemainingKg,
 		HasUnknownMaterial = metrics.HasUnknownMaterial,
 		Coins = data.Coins,
+		PremiumBalance = data.MaterialBalances and data.MaterialBalances[PremiumConfig.PREMIUM] or 0,
+		CrystalBalance = data.MaterialBalances and data.MaterialBalances[PremiumConfig.CRYSTAL] or 0,
 	}
 end
 

@@ -8,6 +8,7 @@ local Profiles=require(game.ServerScriptService.PlayerProfile.ProfileService.Pro
 local WorldProgress=require(game.ServerScriptService.WorldProgressService)
 local Grove=require(script.Parent.GroveService)
 local Shop=require(script.Parent.SaplingShopRules)
+local Station=require(game.ServerScriptService.WorldLayout.BaseStationAccess)
 local Passives=require(script.Parent.GrovePassiveRules)
 
 local remotes=ReplicatedStorage:WaitForChild("Grove")
@@ -71,6 +72,7 @@ function Service.GetState(player)
 	return result
 end
 function Service.Purchase(player,id,expectedCycle)
+	if not Station.CanUseGroveShop(player) then return {Reason="NOT_AT_GROVE_SHOP"} end
 	local data=getData(player)
 	if not data or type(data.Saplings)~="table"
 		or type(data.SaplingShop)~="table" then
