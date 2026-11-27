@@ -133,6 +133,37 @@ local function consumeRemoteBudget(player, action)
 	return true
 end
 
+-- Scale a fresh unparented Tool clone about its handle; never mutate the
+-- template or resize an already-equipped tool. Preserve relative rotations.
+local MaterialGeometry = require(game.ReplicatedStorage.Shared.MaterialGeometry)
+local function scaleCraftedTool(tool, scale)
+	if type(scale) ~= "number" or scale ~= scale or scale <= 0 or scale == math.huge then return end
+	scale = math.clamp(scale, MaterialGeometry.WEAPON_MIN_SCALE, MaterialGeometry.WEAPON_MAX_SCALE)
+	local handle = tool:FindFirstChild("Handle")
+	if not handle or not handle:IsA("BasePart") then return end
+	local origin = handle.CFrame
+	local descendants = tool:GetDescendants()
+	-- Set joint offsets as well as part transforms, so authored rigid welds
+	-- and attachments stay aligned with the scaled geometry.
+	for _, part in ipairs(descendants) do
+		if part:IsA("BasePart") then
+			local relative = origin:ToObjectSpace(part.CFrame)
+			part.Size *= scale
+			part.CFrame = origin * CFrame.new(relative.Position * scale) * relative.Rotation
+		elseif part:IsA("JointInstance") then
+			part.C0 = CFrame.new(part.C0.Position * scale) * part.C0.Rotation
+			part.C1 = CFrame.new(part.C1.Position * scale) * part.C1.Rotation
+		elseif part:IsA("Attachment") then
+			part.Position *= scale
+		elseif part:IsA("SpecialMesh") then
+			part.Offset *= scale
+			if part.MeshType == Enum.MeshType.FileMesh then part.Scale *= scale end
+		end
+	end
+	tool.Grip = CFrame.new(tool.Grip.Position * scale) * tool.Grip.Rotation
+	tool:SetAttribute("CraftWeaponScale", scale)
+end
+
 local function prepareToolAssembly(tool)
 	local handle = tool:FindFirstChild("Handle")
 	if not handle or not handle:IsA("BasePart") then return false end
@@ -274,6 +305,9 @@ local function EquipItem(player, item)
 	if not backpack then return false end
 
 	local tool = toolTemplate:Clone()
+	if type(item.WeaponData) == "table" then
+		scaleCraftedTool(tool, item.WeaponData.WeaponScale)
+	end
 	if not prepareToolAssembly(tool) then
 		tool:Destroy()
 		return false
