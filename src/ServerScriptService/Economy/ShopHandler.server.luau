@@ -181,6 +181,8 @@ local function buildOwnedAxes(player, profile, eligibleAscensionLogs)
 			Experimental = experimentalName ~= nil,
 			WeaponKind = weaponData and weaponData.WeaponKind,
 			MaterialQuality = weaponData and weaponData.MaterialQuality,
+			ForgedQuality = weaponData and weaponData.ForgedQuality,
+			QuantityQualityMultiplier = weaponData and weaponData.QuantityQualityMultiplier,
 			AttacksPerSecond = weaponData and weaponData.AttacksPerSecond,
 			Reach = weaponData and weaponData.Reach,
 			GoldenQuality = weaponData and weaponData.GoldenQuality,
@@ -644,6 +646,9 @@ local function craftRng(player, recipe, selectedLogUids)
 			HeadId = recipe.HeadId,
 			CraftedPower = power,
 			MaterialQuality = result.MaterialQuality,
+			ForgedQuality = result.ForgedQuality,
+			QuantityQualityMultiplier = result.QuantityQualityMultiplier,
+			AverageEffectiveWoodStrength = result.AverageEffectiveWoodStrength,
 			GoldenQuality = result.GoldenQuality,
 			AverageWoodStrength = result.AverageWoodStrength,
 			AttacksPerSecond = result.AttacksPerSecond,
@@ -680,6 +685,7 @@ local function craftRng(player, recipe, selectedLogUids)
 		Rarity = rarity,
 		Power = power + ProgressionRules.DerivedAttackBonus(weapon, catalog.BaseAttack),
 		Quality = result.MaterialQuality,
+		ForgedQuality = result.ForgedQuality,
 		AbilityId = mutationAbility and mutationAbility.Id or nil,
 	})
 	economyUpdated:FireClient(player, "Progression")
