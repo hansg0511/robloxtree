@@ -11,12 +11,13 @@ Geometry.BASE_DIMENSIONS = {
 -- Weights sum to 1; exact maximum is a separate rare outcome, so 100%
 -- quality is actually obtainable rather than a continuous RNG endpoint.
 Geometry.WILD_SIZE_BANDS = {
-	{ Weight = 0.81, Min = 0.7, Max = 1.3 },
-	{ Weight = 0.09, Min = 0.45, Max = 0.7 },
-	{ Weight = 0.09, Min = 1.3, Max = 1.7 },
-	{ Weight = 0.009, Min = 1.7, Max = 3 },
-	{ Weight = 0.0009, Min = 3, Max = 4.99 },
-	{ Weight = 0.0001, Min = 5, Max = 5 },
+	{ Weight = 0.44, Min = 0.7, Max = 1.3 },
+	{ Weight = 0.05, Min = 0.45, Max = 0.7 },
+	{ Weight = 0.25, Min = 1.3, Max = 1.7 },
+	{ Weight = 0.2, Min = 1.7, Max = 3 },
+	{ Weight = 0.05, Min = 3, Max = 4 },
+	{ Weight = 0.0095, Min = 4, Max = 4.99 },
+	{ Weight = 0.0005, Min = 5, Max = 5 },
 }
 Geometry.WEAPON_REFERENCE_LINEAR_SIZE = 1
 Geometry.WEAPON_SCALE_EXPONENT = 0.6
