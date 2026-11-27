@@ -3,11 +3,11 @@
 local Rules = {}
 local ForgeMutations = require(script.Parent.ForgeMutationRules)
 
-Rules.MAX_LOG_SIZE = 5
+local Geometry = require(script.Parent.MaterialGeometry)
+Rules.MAX_LOG_SIZE = Geometry.MAX_LOG_SIZE
 Rules.MAX_OFFERED_LOGS = 96 -- defensive transaction bound, not game economy design
 Rules.QUANTITY_QUALITY_RATE = 0.01
 Rules.MAX_SPEED_QUALITY = 1.20 -- provisional; stays within existing server cadence cap
-Rules.QUALITY_FLOOR = 0.5 -- legacy reach only, until geometry integration
 Rules.ROLL_MIN = 0.9
 Rules.ROLL_MAX = 1.1
 Rules.GOLDEN_MAX_BONUS = 0.30 -- prototype metadata only; no combat effect yet
@@ -83,13 +83,15 @@ end
 function Rules.Preview(metalBase, logs, forgeTier)
 	if not finite(metalBase) or metalBase <= 0
 		or type(logs) ~= "table" or not Rules.ValidateCount(#logs) then return nil end
-	local sumQuality, sumStrength, sumEffectiveStrength, sumGolden = 0, 0, 0, 0
+	local sumQuality, sumStrength, sumEffectiveStrength, sumGolden, sumVolume = 0, 0, 0, 0, 0
 	for index = 1, #logs do
 		local record = logs[index]
 		if type(record) ~= "table" then return nil end
 		local quality = Rules.LogQuality(record.SizeScale)
 		local strength = Rules.WOOD_STRENGTH[record.SpeciesId]
-		if not quality or not strength then return nil end
+		local volume = Geometry.Volume(record.SpeciesId, record.SizeScale)
+		if not quality or not strength or not volume then return nil end
+		sumVolume += volume
 		sumQuality += quality
 		sumStrength += strength
 		sumEffectiveStrength += strength * quality
@@ -99,7 +101,8 @@ function Rules.Preview(metalBase, logs, forgeTier)
 	end
 	local quality = sumQuality / #logs
 	local goldenQuality = sumGolden / #logs
-	local factor = Rules.QUALITY_FLOOR + (1 - Rules.QUALITY_FLOOR) * quality
+	local averageVolume = sumVolume / #logs
+	local weaponScale = Geometry.WeaponScale(averageVolume)
 	local quantityBonus = 1 + Rules.QUANTITY_QUALITY_RATE * (#logs - 1)
 	local forgedQuality = quality * quantityBonus
 	local averageEffectiveStrength = sumEffectiveStrength / #logs
@@ -113,14 +116,11 @@ function Rules.Preview(metalBase, logs, forgeTier)
 	local classRanges = {}
 	for _, class in ipairs(Rules.CLASSES) do
 		local profile = Rules.CLASS_PROFILES[class]
-		local function statRange(base)
-			return { Min = base * factor * Rules.ROLL_MIN, Max = base * factor * Rules.ROLL_MAX }
-		end
 		classRanges[class] = {
 			Damage = exact(reference * profile.Damage),
 			AttacksPerSecond = exact(lerp(profile.MinAPS, profile.MaxAPS,
 				math.min(forgedQuality, Rules.MAX_SPEED_QUALITY))),
-			Reach = statRange(profile.Reach),
+			Reach = exact(Geometry.Reach(weaponScale)),
 		}
 		if class == "Battlehammer" then
 			classRanges[class].CleaveDamageFraction = exact(math.min(
@@ -135,6 +135,8 @@ function Rules.Preview(metalBase, logs, forgeTier)
 		LogCount = #logs,
 		MaterialQuality = quality,
 		ForgedQuality = forgedQuality,
+		AverageLogVolume = averageVolume,
+		WeaponScale = weaponScale,
 		QuantityQualityMultiplier = quantityBonus,
 		AverageEffectiveWoodStrength = averageEffectiveStrength,
 		GoldenQuality = goldenQuality,
@@ -170,6 +172,8 @@ function Rules.Roll(metalBase, logs, rng, forgeTier)
 		Class = class,
 		MaterialQuality = preview.MaterialQuality,
 		ForgedQuality = preview.ForgedQuality,
+		AverageLogVolume = preview.AverageLogVolume,
+		WeaponScale = preview.WeaponScale,
 		QuantityQualityMultiplier = preview.QuantityQualityMultiplier,
 		AverageEffectiveWoodStrength = preview.AverageEffectiveWoodStrength,
 		GoldenQuality = preview.GoldenQuality,
