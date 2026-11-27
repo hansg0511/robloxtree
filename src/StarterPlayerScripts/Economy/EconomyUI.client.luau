@@ -1199,6 +1199,19 @@ local function safeAxeNumber(value)
 	return nil
 end
 
+-- Presentation only: material quality is independent of rarity and the
+-- quantity-enhanced forged quality. A rounded 99.99% is never called perfect.
+local function qualityPresentation(value)
+	if not safeAxeNumber(value) or value < 0 or value > 1 then return nil end
+	local percent = if value == 1 then "100%" else string.format("%.1f%%", math.floor(value * 1000) / 10)
+	local name = if value == 1 then "Perfect" elseif value >= 0.95 then "Masterwork"
+		elseif value >= 0.8 then "Exceptional" elseif value >= 0.6 then "Excellent"
+		elseif value >= 0.4 then "Good" else "Ordinary"
+	-- Keep a consistent quality-specific teal-to-gold ramp, not rarity colors.
+	local color = Color3.fromRGB(86, 182, 176):Lerp(Color3.fromRGB(250, 210, 109), value)
+	return {Percent=percent, Name=name, Color=color, Fraction=value, Masterwork=value>=0.95}
+end
+
 local renderAxeDetail
 renderAxeDetail = function(axe)
 	local hasAxe = type(axe) == "table"
@@ -1233,6 +1246,48 @@ renderAxeDetail = function(axe)
 	local rarity = type(axe.Rarity) == "string" and axe.Rarity or "Common"
 	local rarityValueLabel = axeStatRow("Rarity", rarity)
 	rarityValueLabel.TextColor3 = RARITY_TEXT_COLORS[rarity] or COLORS.BagText
+	local quality = qualityPresentation(axe.MaterialQuality)
+	if quality then
+		axeStatOrder += 1
+		local panel = Instance.new("Frame")
+		panel.Name = "MaterialQualityBar"
+		panel.LayoutOrder = axeStatOrder
+		panel.Size = UDim2.new(1, -8, 0, 62)
+		panel.BackgroundColor3 = COLORS.BagSlot
+		panel.BorderSizePixel = 0
+		panel.ZIndex = 12
+		panel.Parent = axeStatsScroll
+		round(panel, 6)
+		local heading = label(panel, "QualityName", "Material quality", UDim2.new(0.65,-8,0,20),
+			UDim2.new(0,8,0,3), 13, COLORS.BagMuted, Enum.Font.GothamBold)
+		heading.TextTruncate = Enum.TextTruncate.AtEnd
+		heading.ZIndex = 13
+		local value = label(panel, "QualityPercent", quality.Percent, UDim2.new(0.35,-8,0,20),
+			UDim2.new(0.65,0,0,3), 14, quality.Color, Enum.Font.GothamBold)
+		value.TextXAlignment = Enum.TextXAlignment.Right
+		value.ZIndex = 13
+		local track = Instance.new("Frame")
+		track.Name = "Track"
+		track.Size = UDim2.new(1,-16,0,8)
+		track.Position = UDim2.new(0,8,0,27)
+		track.BackgroundColor3 = COLORS.BagPreview
+		track.BorderSizePixel = 0
+		track.ClipsDescendants = true
+		track.ZIndex = 13
+		track.Parent = panel
+		round(track,4)
+		local fill = Instance.new("Frame")
+		fill.Name = "Fill"
+		fill.Size = UDim2.new(quality.Fraction,0,1,0)
+		fill.BackgroundColor3 = quality.Color
+		fill.BorderSizePixel = 0
+		fill.ZIndex = 14
+		fill.Parent = track
+		round(fill,4)
+		local grade = label(panel,"QualityGrade",quality.Name.." craftsmanship",
+			UDim2.new(1,-16,0,20),UDim2.new(0,8,0,38),12,quality.Color,Enum.Font.GothamBold)
+		grade.ZIndex = 13
+	end
 	if rarity == "Debug" then
 		axeStatNote("Session-only debug weapon; no rarity or XP progression.")
 	else
@@ -1480,12 +1535,12 @@ renderAxeDetail = function(axe)
 		end
 	end
 	axeStatSection("MATERIALS")
-	local quality = safeAxeNumber(axe.MaterialQuality)
-	if quality then
-		axeStatRow("Average log quality",
-			string.format("%.1f%%", math.clamp(quality, 0, 1) * 100))
-	else
+	if not quality then
 		axeStatRow("Average log quality", "Not recorded")
+	end
+	local forgedQuality = safeAxeNumber(axe.ForgedQuality)
+	if forgedQuality and forgedQuality >= 0 then
+		axeStatRow("Effective forged quality", string.format("%.1f%%", forgedQuality * 100))
 	end
 	local materialCount = safeAxeNumber(axe.MaterialCount)
 	if materialCount and materialCount > 0 then
@@ -2907,7 +2962,16 @@ if legacyEconomyUpdated then
 					payload.Class:upper(), string.upper(ability))
 				else string.format("%s %s FORGED!  %.1f PWR",
 					rarity:upper(), payload.Class:upper(), payload.Power)
-			showFeedback(toast, RARITY_TEXT_COLORS[rarity] or COLORS.Gold, if ability then 3 else nil)
+			local quality = qualityPresentation(payload.Quality)
+			if quality then
+				local prefix = if quality.Name == "Perfect" then "PERFECT CRAFT!"
+					elseif quality.Masterwork then "MASTERWORK CRAFTED!" else "QUALITY"
+				toast = toast .. "\n" .. prefix .. " " .. quality.Percent
+			end
+			-- Keep the rarity reveal color even for a masterwork; quality has
+			-- its own text cue and its own bar in the inventory.
+			showFeedback(toast, RARITY_TEXT_COLORS[rarity] or COLORS.Gold,
+				if quality and quality.Masterwork then 4 elseif ability or quality then 3 else nil)
 		end
 		if currency == "WeaponProgression" and type(payload) == "table"
 			and type(payload.UID) == "string" then
