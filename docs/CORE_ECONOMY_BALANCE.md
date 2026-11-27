@@ -1,5 +1,31 @@
 # Core economy — first quantitative pass
 
+## Current balance addendum — 2026-11-28 (supersedes obsolete fixed-recipe/HP/forest assumptions below)
+
+Source changes: Bamboo 0.5 kg/5 coins -> 1 kg/16; Oak 4 kg/16 -> 2 kg/60. Sapwood 0.5 kg/5 unchanged. Ironwood 10 kg/144 remains legacy, not an active World 1 wild forest, and will need a new species/economy assignment later. All physical logs resolve weight and sale price through MaterialDefinitions, including older stored logs; no inventory record migration. Geometry, wood strength, log yield, capacity tiers, gold sinks, premium costs unchanged.
+
+### Starter and first three forests
+
+Current copper head 60; iron head 750 (requires Forest3 access). Bag 10 kg; upgrades 15/20/30/40 kg for 250/1000/4000/15000. RNG forge consumes head + at least one log; five logs at Forge1 produce 35% dagger/65% axe, not guaranteed axe. At size 1, 12 sold Sapwood logs fund Copper; reserve 5 more separately, requiring 17 logs total (9 two-log trees). Full 20-log bag minus 5 retained = 75 coins. 15-damage fists at 0.4s interval, 70 base HP, 5 noncrit punches at 1x (7 at 1.3x). Conservative example: 9 trees x (1.6s first-to-last swings + 4s movement/pickup) + 25s round-trip/sale/forge overhead = ~75s for a craft when all logs are usable and sale-eligible. This is a scenario, not a verified 1–2 minute completion promise; travel and inventory UX remain unmeasured. Default auto-keep preserves size >=1.5 or mutated logs, so protected cargo can be craft material but not immediate cash. Selling/storage routing matters; no compulsory full bag sale or premium payment.
+
+| Forest | Base coins/kg | 10kg bag at size 1 | Trees per bag (ceil) | Assumed handling+combat per tree | Assumed round-trip/sale overhead | Gross coins/min |
+|---|---:|---:|---:|---:|---:|---:|
+| Sapwood | 10 | 100 | 10 | 6s | 25s | 71 |
+| Bamboo | 16 | 160 | 2 | 6.4s | 40s | 182 |
+| Oak | 30 | 300 | 3 | 6.4s | 55s | 243 |
+
+Representative equipped farming example uses size-1 sale-eligible logs, fixed yields 2/5/2, 10kg capacity, rounded bag count; no claim of actual observed rates. Travel assumptions unmeasured, no skill/crit/cleave/buffs, no reserve/auto-keep deductions, no overflow sales. Oak yield rises to 3 for >=1.3. Exact size-sale factor is size squared: across the current unconditioned size bands E[size^2] ~=2.9904, but under 1.5 threshold only 61.5% of tree rolls qualify before mutations and conditional E[size^2] ~=1.1633. Do NOT use unconditional average as realized coin income; the larger logs are preferentially stored by default. Players can alter auto-keep or selectively sell storage. Size-1 example makes comparison transparent, not a simulation of auto-keep.
+
+- First guardian 2600/45s =57.78 average DPS, second 4000/60s =66.67. Existing thresholds unchanged. A representative Copper Axe 41 damage x1.3872/s ~=56.87 noncrit nominal DPS (baseline crit and levels bring it above first threshold); early dagger or low quality may need a little leveling, another craft or passive. Second gate encourages stronger Bamboo Copper craft and leveling; no Iron needed before Forest3. Actual server cadence is unknown pending Studio, and no XP during attempts.
+- Copper target 1–2m; Forest2 entry 3–5m; Forest3 entry 5–10m; first Iron 10–15m (cumulative targets). With the illustrative Bamboo rate, 750 coins = ~4.1m of gross farming from zero, or 3.1m of Oak gross rate after access. No guarantee since competing sinks and retained logs matter.
+- Keep existing 250 coin first bag, 500 Forge2, 850 Forge3, 750 Iron prices for this pass. Iron should be reachable without buying Forge2/3 or a bag first; none of these are mandatory gate requirements. A 15kg Oak bag can carry seven logs (420 coins at size 1) vs five currently. Later re-evaluate if bag pressure dominates chopping.
+- Current Forge cumulative costs: F2 500, F3 1350, F5 4750, F7 11900, F8 17550, F12 62600, F15 133400, F20 373650, F25 862700, F30 1746050. These still imply strong later income growth or a changed cost curve to meet world targets; do not blindly extrapolate current Oak income. Rarity odds remain unchanged for this pass. Revisit early rarity unlock odds and total Forge expenditure together with F4–10 income; don't require a rare craft or time-gated gems for ordinary progression.
+- Deferred Studio validation: actual clean-start first craft time, collected vs protected log counts, sale-trip time, effective coins/min, first guardian across classes/quality, second guardian and Iron timing, bag upgrades and Forge spending tradeoffs. No new smoke runner. No runtime validation performed.
+
+---
+
+## Historical first quantitative pass (retained for context)
+
 Source-derived arithmetic checked against the current Luau configuration (commit 0376e8b). This is not a Roblox playtest or complete player simulation. Assumptions: size-1 logs/trees unless stated, no travel, pickup, bag-sale time, crits, buffs or player skill; all four recurring quests claimed every week; no Gem payouts from leaderboards or purchases. Existing `tools/crafting_balance_sim.py` models an older prototype and must not be used as the authoritative current economy.
 
 ## Changes made

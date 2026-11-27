@@ -13,14 +13,14 @@ local DEFINITIONS = {
 		CraftPowerBonus = 1,
 	},
 	Bamboo = {
-		CapacityKg = 0.5,
-		SellValue = 5,
+		CapacityKg = 1,
+		SellValue = 16,
 		CarryVisualScale = 0.45,
 		CraftPowerBonus = 1,
 	},
 	Oak = {
-		CapacityKg = 4,
-		SellValue = 16,
+		CapacityKg = 2,
+		SellValue = 60,
 		CarryVisualScale = 1,
 		CraftPowerBonus = 3,
 	},
