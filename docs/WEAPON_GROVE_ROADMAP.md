@@ -498,13 +498,13 @@ Progression approach: establish early player milestones, baseline damage/time-to
 
 ### World 1 ordinary tree HP — first balance pass 2026-11-28
 
-User delegated numerical balancing, emphasizing that the first crafted weapon should still feel like chopping, not mowing. Use hit count at entry and after local equipment upgrades as the primary metric; continuous DPS is secondary. Keep existing size^1.4 HP scaling, existing class profiles and existing 5-damage/0.4s fist mechanics. A one-shot of a very small tree is fine; ordinary one-shots should be earned by returning with stronger gear.
+User delegated numerical balancing, emphasizing that the first crafted weapon should still feel like chopping, not mowing. Use hit count at entry and after local equipment upgrades as the primary metric; continuous DPS is secondary. Keep existing size^1.4 HP scaling, existing class profiles and existing 0.4s fist cadence; revised unarmed damage 15 per the following user correction. A one-shot of a very small tree is fine; ordinary one-shots should be earned by returning with stronger gear.
 
 Representative no-bonus Axe with five 30%-quality logs (quantity factor 1.04, 1.3872 attacks/s), class damage 1.3125, provisional rarity/level pairs F1 Common1, F2 Common5, F3 Common1, F4 Uncommon8, F5 Uncommon12, F6 Rare10, F7 Rare1, F8 Rare12, F9 Epic10, F10 Epic20. These are post-local-upgrade scenario inputs, not guaranteed drops/level timings or access requirements. Entry uses preceding scenario weapon; F1 fists. Floor nominal damage for conservative noncritical estimates, round tree HP; exclude crit, Grove, mutation and passive bonuses, actual animation/network/travel time. Size 1.3 is close to the median wild roll, size 2.5 is a large tree. Count hits rather than implying fractional swings.
 
 | Forest | Base HP | Entry hit damage | Upgraded hit damage | 1.3x entry hits | 1.3x upgraded hits | 2.5x upgraded hits | 5x upgraded hits |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| 1 | 70 | 5 | 41 | 21 | 3 | 7 | 17 |
+| 1 | 70 | 15 | 41 | 7 | 3 | 7 | 17 |
 | 2 | 125 | 41 | 46 | 5 | 4 | 10 | 26 |
 | 3 | 210 | 46 | 90 | 7 | 4 | 9 | 23 |
 | 4 | 310 | 90 | 108 | 5 | 5 | 11 | 28 |
@@ -515,10 +515,14 @@ Representative no-bonus Axe with five 30%-quality logs (quantity factor 1.04, 1.
 | 9 | 1450 | 280 | 326 | 8 | 7 | 17 | 43 |
 | 10 | 1900 | 326 | 384 | 9 | 8 | 18 | 48 |
 
-- Source-implemented F1 Sapwood 70, F2 Bamboo 125, F3 Oak 210 (previous 40/100/175). F4–10 are planned values only, pending actual species/forest implementation. Grove HP, legacy Ironwood, size distribution, logs, prices, weapon growth and barriers unchanged. Existing saved weapon values are not rerolled. First unarmed size-1 tree now 14 punches (rather than eight); size 0.7 is about nine punches. First craft pacing requires revisiting starting income/head cost if necessary rather than restoring instant normal-tree kills.
+- Source-implemented F1 Sapwood 70, F2 Bamboo 125, F3 Oak 210 (previous 40/100/175). F4–10 are planned values only, pending actual species/forest implementation. Grove HP, legacy Ironwood, size distribution, logs, prices, weapon growth and barriers unchanged. Existing saved weapon values are not rerolled. First unarmed size-1 tree now five punches; size 1.3 requires seven punches after the user rejected 21 punches as too slow. First craft pacing requires revisiting starting income/head cost if necessary rather than restoring instant normal-tree kills.
 - Local metal unlocks cause a clear relief in hit count, but baseline challenge and grind increase over World 1. Final optimized builds can be stronger than this scenario. No attempt to enforce minimum hit count artificially.
 - [ ] Deferred Studio validation: actual hit counts/cadence at entry and after upgrade, first crafting affordability/time, size extremes, quest/Grove interactions, XP gain and bag/coin pressure. User requested backlog rather than immediate testing.
 - Next: barrier effort and integrated income/Forge/crafting/XP pacing. Ordinary HP values alone do not enforce 3–6 active hours; no forced metal/rarity requirements at gates. Revisit Oak's weak coins/kg and initial unarmed purchasing loop. No economy changes yet.
+
+### Starter punching correction — 2026-11-28
+
+User wants about seven punches per ordinary starter tree, not 20+. Keep Sapwood at 70 base HP and increase server-only PUNCH_DAMAGE from 5 to 15, leaving 0.4s interval, reach, weapon-only barriers and species eligibility intact. At 1.3x size, rounded HP 101 requires seven punches or three hits with the representative 41-damage Copper Axe. All other forest hit counts use Axe class; dagger and hammer have different hit counts/cadences. Fist DPS is now 37.5 nominal; evaluate first craft feel and first-craft time on deferred clean Studio playtest. No player base Attack or crafted weapon values changed.
 
 ## Historical next action (as of 2026-11-24)
 

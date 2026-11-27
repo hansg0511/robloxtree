@@ -29,7 +29,7 @@ local TreeDefinitions = {
 		InteractionPartName = "ChopHitbox",
 		ChopRadius = 7,
 	},
-	-- Main Forest 1 harvest tree: fourteen ordinary 5-damage punches at size 1.
+	-- Main Forest 1 harvest tree: five ordinary 15-damage punches at size 1.
 	-- Reward one-shotting it later through weapon progression.
 	SapwoodTree = {
 		Category = "Grove",

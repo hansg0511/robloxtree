@@ -19,7 +19,7 @@ local TweenService = game:GetService("TweenService")
 local MIN_CHOP_INTERVAL = 0.3
 local Passives = require(game.ServerScriptService.PassiveStats)
 local PUNCH_INTERVAL = 0.4
-local PUNCH_DAMAGE = 5
+local PUNCH_DAMAGE = 15 -- Seven hits on a representative 1.3x Sapwood tree.
 local PUNCH_REACH = 0.85
 
 -- R6 procedural jab, using replicated Motor6D offsets rather than an
