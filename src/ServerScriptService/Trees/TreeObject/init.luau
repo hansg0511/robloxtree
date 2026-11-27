@@ -1528,6 +1528,9 @@ function Tree:CanChop(player)
 	if self.IsPersistentGrove then return false end
 	if not self.Choppable then return false end
 	if self.OwnerOnly and self.OwnerUserId ~= player.UserId then return false end
+	if self.IsChallengeTarget then
+		return type(self.ChallengeCanChop)=="function" and self.ChallengeCanChop(player)==true
+	end
 	if self.FirstHitClaimEnabled then
 		local now = os.clock()
 		self:HasActiveFirstHitClaim(now)
@@ -2150,6 +2153,15 @@ function Tree:TakeDamage(ctx, player)
 	end
 	local appliedDamage = math.min(math.floor(damage), self.HP)
 	if appliedDamage <= 0 then return false end
+	if self.IsChallengeTarget then
+		-- Personal HP; never invoke the shared visual death/harvest/unlock path.
+		self.HP=math.max(0,self.HP-appliedDamage)
+		local lethal=self.HP==0
+		ChopFX:FireClient(player,"playHit",{model=self.model})
+		DamageEvent:FireClient(player,{Target=self.model,Damage=appliedDamage,IsCrit=ctx.IsCrit,HP=self.HP,MaxHP=self.MaxHP})
+		self.ChallengeOnHit(player)
+		return true,appliedDamage,lethal
+	end
 	-- Claim ONLY after positive, server-validated HP damage. This is the
 	-- central gate for primary strikes, Cleave and Chain Lightning alike.
 	if self.FirstHitClaimEnabled then

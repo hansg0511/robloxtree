@@ -71,7 +71,7 @@ local WorldLayoutConfiguration = {
 	STUDIO_CLEAVE_PATCH_ENABLED = false,
 
 	ROOT_NAME = "SourceWorld",
-	VERSION = 24,
+	VERSION = 25,
 	STATION_USE_DISTANCES = STATION_USE_DISTANCES,
 
 	-- Surface steps stay small: support ground -0.56, forest/base -0.5,

@@ -2,6 +2,7 @@
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 local TreeObject = require(game.ServerScriptService.Trees.TreeObject)
+local Challenges = require(script.Parent.TreeChallengeService)
 local TreeDefinitions = require(game.ServerScriptService.Trees.TreeDefinitions)
 local Configuration = require(script.Parent.WorldLayoutConfiguration)
 local WorldStyleBaseline = require(script.Parent.WorldStyleBaseline)
@@ -1001,11 +1002,17 @@ local function buildWorld()
 
 	local starterForest = forestRoot:FindFirstChild("StarterForest")
 	local barrier = spawnTreeRecord(starterForest, Configuration.BARRIER.ForestId, Configuration.BARRIER)
-	if barrier then table.insert(spawnedTrees, barrier) end
+	if barrier then
+		assert(Challenges.RegisterGuardian(barrier),"First guardian registration failed")
+		table.insert(spawnedTrees, barrier)
+	end
 	local second = Configuration.SECOND_BARRIER
 	if second then
 		local gate = spawnTreeRecord(forestFoldersById[second.ForestId], second.ForestId, second)
-		if gate then table.insert(spawnedTrees, gate) end
+		if gate then
+			assert(Challenges.RegisterGuardian(gate),"Second guardian registration failed")
+			table.insert(spawnedTrees, gate)
+		end
 	end
 	buildStudioCleavePatch(forestRoot, pathFolder, spawnedTrees)
 	local kitOk, kitFolder, kitReport = false, nil, nil

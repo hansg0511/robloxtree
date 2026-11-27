@@ -14,13 +14,14 @@ Rules.SPECIES_PASSIVE_MULTIPLIERS = {
 }
 Rules.GENETICS = {
 	Strength = { Damage = 0.03 },
+	Bossbane = { BossDamage = 0.05 },
 	Seedfinder = { SaplingChance = 0.10 },
 	Impact = { CritDamage = 10 },
 	Prosperity = { Sale = 0.05 },
 	Haste = { Haste = 0.05 },
 	Precision = { CritChance = 2 },
 }
-Rules.GENETIC_IDS = { "Strength", "Seedfinder", "Impact", "Prosperity", "Haste", "Precision" }
+Rules.GENETIC_IDS = { "Strength", "Seedfinder", "Impact", "Prosperity", "Haste", "Precision", "Bossbane" }
 local rng = Random.new()
 function Rules.RollGenetic()
 	return Rules.GENETIC_IDS[rng:NextInteger(1, #Rules.GENETIC_IDS)]
@@ -39,7 +40,7 @@ Rules.MUTATIONS = {
 	Shocked = { CritChance = 2 },
 }
 function Rules.Empty()
-	return { Damage = 0, SaplingChance = 0, CritDamage = 0, Sale = 0, Haste = 0, CritChance = 0 }
+	return { Damage = 0, BossDamage = 0, SaplingChance = 0, CritDamage = 0, Sale = 0, Haste = 0, CritChance = 0 }
 end
 local function finite(x)
 	return type(x) == "number" and x == x and x > -math.huge and x < math.huge

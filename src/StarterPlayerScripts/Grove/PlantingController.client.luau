@@ -662,6 +662,7 @@ local PASSIVE_DISPLAY = {
 	{ Key="SaplingChance", Name="sapling chance (relative)", Scale=100, Unit="%" },
 	{ Key="CritChance", Name="crit chance", Scale=1, Unit=" pp" },
 	{ Key="CritDamage", Name="crit damage", Scale=1, Unit=" pp" },
+	{ Key="BossDamage", Name="boss damage", Scale=100, Unit="%" },
 }
 local function formatPassives(values)
 	local parts = {}

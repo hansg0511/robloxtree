@@ -174,7 +174,7 @@ ChopEvent.OnServerEvent:Connect(function(player)
 	-- that prevents level-up stat growth from affecting this same swing.
 	local hitRecords = {}
 	local function recordHit(target, applied, killed, maxHPBeforeHit)
-		if #hitRecords >= 9 or type(target) ~= "table" then return end
+		if #hitRecords >= 9 or type(target) ~= "table" or target.IsChallengeTarget then return end
 		local maxHP = maxHPBeforeHit or target.MaxHP
 		if type(maxHP) ~= "number" or maxHP ~= maxHP or maxHP <= 0
 			or maxHP == math.huge or type(applied) ~= "number"
@@ -222,7 +222,8 @@ ChopEvent.OnServerEvent:Connect(function(player)
 			end
 		end else nil,
 		EligibleSecondary = function(candidate)
-			return candidate:CanChop(player)
+			return not tree.IsChallengeTarget and not candidate.IsChallengeTarget
+				and candidate:CanChop(player)
 				and WorldProgressService.CanInteractWithTree(player, candidate)
 		end,
 	}
