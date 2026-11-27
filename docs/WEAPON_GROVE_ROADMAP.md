@@ -1,5 +1,5 @@
 # Weapon + Grove Progression — Implementation Roadmap
-_Last reviewed: 2026-11-24. Current design decisions override earlier hypothetical economy notes._
+_Last reviewed: 2026-11-27. Current design decisions override earlier hypothetical economy notes._
 
 > **Status:** Design decisions recorded here are **not** a claim that the functionality is implemented. Keep this file updated as decisions or implementation status change.
 >
@@ -35,6 +35,8 @@ Ship a fun playable **chop → collect logs → forge weapons → level weapons 
 - Do not remove functioning experimental forging or Cleave before equivalent functionality is integrated and tested.
 
 ## Locked / agreed design
+
+> The current weapon forging redesign checkpoint dated 2026-11-27 below supersedes older conflicting material, quality, passive and class-balance design notes. It is design-only.
 
 ### A. Weapons, logs and forge
 1. Classes have different base combat profiles. Weapon class is **RNG rolled from the number of logs offered**, not selected via a fixed mold. More logs bias toward heavier classes; per-tier curves may differ.
@@ -370,6 +372,45 @@ The data model should have stable fields for forge tier, original log provenance
 ### RNG-only forge decision — 2026-11-26
 
 User explicitly approved retaining the existing RNG forging system and retiring standard fixed crafting. Source implementation now exposes the RNG recipes in all environments, rejects old fixed-recipe craft requests, and removes the UI mode selector. Keep legacy recipe/output metadata, persisted IDs and old weapons for backward compatibility; no rerolls, changes to material formulas, costs, rarity, mutation potency or class mechanics. Existing Studio sandbox and developer commands remain Studio-only. Pending: focused fresh-profile first Copper craft and Forest2/Iron progression check, with developer grants disabled before profile load. No full regression suite requested. Runtime and published-server validation remain outstanding. Older roadmap references to Studio-only RNG and dual recipes are historical.
+
+## Current weapon forging redesign — agreed design checkpoint 2026-11-27
+
+**Design only; gameplay implementation not yet started.** This checkpoint takes precedence over earlier proposed stat formulas, class balance, material-size assumptions and historical next-action notes. Existing RNG-only forge, rarity/level/ascension and mutation systems remain in place until a deliberate implementation pass. Keep all tunable numbers in configuration.
+
+### Material properties, base damage and geometry
+
+- Each species has a configurable maximum effective wood strength `S_i`, baseline log dimensions `L_i,W_i,H_i` and fixed bag weight per log (independent of size). A log's relative **linear** size multiplier `s_i` scales all three dimensions. Planned maximum size is 5x (125x baseline volume), potentially obtainable even in Forest 1, but exceptionally rare. Size distribution and species dimensions/strengths remain untuned; existing wild rolls do not yet implement this distribution.
+- Material log quality `q_i = clamp(s_i / maxSize, 0, 1)`. Average material quality `Q_material = sum(q_i)/N`, for all submitted ordinary and mutated logs. Effective wood strength of each log is `S_i*q_i`; use the mean of those products, NOT mean species strength multiplied by mean quality when mixing species.
+- Agreed pre-quantity base damage formula: `D_forge = (metalStrength + mean(S_i*q_i))*classDamageMultiplier`. Remove the independent +/-10% damage roll and old quality floor; do not penalize metal strength for low-quality wood. **Whether/how the quantity bonus modifies damage is still open**, not an instruction to double-count quality. Existing level/rarity damage progression remains unless subsequently revised.
+- Actual physical log volume uses bounding cuboid approximation `V_i=L_i*W_i*H_i*s_i^3` even for stylized/irregular shapes. Ground log geometry should reflect the dimensions; keep carried visuals compressed. Weapon visual scale is a configurable function of `cbrt(mean(V_i))`, applied to the class geometry; tune the curve by eye, not realism. Physical size and relative quality are different.
+- No ordinary wood archetypes or species-dependent secondary-stat roll pools for now. Standard axe heads are reliable damage progression, not new passive sources.
+
+### Quantity bonus — agreed
+
+- More logs continue to bias RNG class odds toward heavier weapons. Preserve existing Forge-tier class-odds behavior unless separately revised.
+- Additionally reward material quantity with a quality ceiling increase of **0.01 per additional log after the first**, a configurable rate. For `N>=1`, `Q_ceiling=1+quantityQualityRate*(N-1)`, `Q_forged=Q_material*Q_ceiling`. One log has a 100% ceiling, ten 109%, twenty 119%. Adding a low-quality log can dilute the average more than it raises the ceiling. Quantity is not a flat additive quality award.
+- Keep normalized material quality and potentially >100% forged quality as distinct values. No separate arbitrary quantity-bonus cap agreed yet; existing max offered log count still applies until explicitly changed. Playtest and tune rate/limits if necessary.
+- **NEXT DESIGN DECISION:** map forged quality above 100% to individual stats, especially damage versus the previously agreed bounded base attack speed and quality-scaled cleave. Do not assume unrestricted extrapolation, a hard cap at 100% for all stats, or a new damage formula before agreement.
+
+### Class identity and core characteristics
+
+- Base attack speed determined by class-specific min/max and quality, no independent random roll. At normalized quality Q, interpolate `APS=minAPS+Q*(maxAPS-minAPS)`. No automatic base attack speed ceiling increases across metal/world progression; maximum normal base speed attainable in Forest 1. Mutation, Grove and passive bonuses can raise effective speed. Treatment of forged quality above 100% remains open.
+- Reach is a modest size-dependent visual-consistency adjustment with narrow configurable limits, **not a build objective**. Exclude Reach % from passive rolls.
+- Battlehammer always has innate Cleave, no mutation/passive slot consumed. Quality influences cleave damage fraction and radius; maximum secondary target count stays fixed. Exact ranges remain open.
+- Dagger fast/low per-hit damage; Axe all-rounder; Battlehammer slow/high per-hit damage with strong multi-target ceiling. At comparable materials, quality and rarity without passives or mutations, target Dagger > Axe > Battlehammer for single-target DPS, roughly 5–10% Dagger advantage over Battlehammer; Battlehammer strictly better in suitable dense-tree scenarios. More high-quality logs needed to reliably perfect heavier classes justifies higher multi-target potential. Do not force a bespoke mechanic on every current/future class. Exact class coefficients and cleave numbers are not approved balance.
+- Baseline critical chance/damage values and whether class-specific baselines are appropriate remain to be finalized; do not add material-quality-driven crit scaling or wood archetypes by default.
+
+### Random passive substats — agreed direction
+
+- Independent of wood species, material quality and class: universal random substat pool and roll probabilities. Roll each slot's identity and level-1 base value; **duplicates allowed** (same stat can occupy multiple slots). Rarity determines slot count; exact rarity-to-count table is provisional. Higher weapon levels increase values from the original base rolls using tunable per-stat growth; define appropriate final caps and stacking rules. No additional rarity-based roll-strength boost agreed.
+- Initial pool direction: damage %, attack speed %, critical chance, critical damage, coin gain %, weapon XP gain %, extra log drop chance. Economic passives share the combat pool. Exclude reach, ability-specific cleave, mutation drop rate and log quality for now. Final list, weights, base ranges, growth and caps require tuning/confirmation.
+- On ascension preserve existing substat identities and original rolls; if rarity grants a new slot, grant a random substat free and scale it to current weapon level. No reroll of other slots.
+- Individual slot rerolling is an intentionally **very expensive premium-currency optimization**, not normal progression. Approved direction: select one slot, roll both identity and level-1 value randomly, choose old or new; charge regardless of choice, preserve all other slots. Exact costs and transaction/UI details open. Do not implement economy values or assume a new currency.
+- Mutation ability rules/potency remain separate and unchanged; earlier decision to keep acquired potency fixed through weapon leveling/ascension still stands. No duplicate mutation families (distinct from allowed duplicate passive substats).
+
+### Implementation and balance follow-up
+
+After the >100% forged-quality decision, settle baseline crit/stacking and any remaining core formula questions. Audit existing forge/stat aggregation, persisted weapons, combat and physical log visuals before implementation. Preserve existing saved weapons and functioning mutation/rarity/Grove flows; migration strategy for new payloads remains to be designed. Tune actual class coefficients, species data, size roll distribution, substat counts/ranges/growth/caps, quantity bonus and costs in configurable data. Validate with practical focused Studio playtests rather than expanding the smoke-test suite by default. This checkpoint does not authorize new gameplay implementation or pricing.
 
 ## Historical next action (as of 2026-11-24)
 
