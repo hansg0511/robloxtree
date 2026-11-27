@@ -1426,6 +1426,14 @@ renderAxeDetail = function(axe)
 		axeStatRow("Metal tier", tostring(math.floor(axe.Tier)))
 	end
 
+	axeStatSection("PASSIVE SUBSTATS")
+	local passiveSlots=type(axe.PassiveSubstats)=="table" and axe.PassiveSubstats or {}
+	if #passiveSlots==0 then axeStatNote("No passive substats rolled.") end
+	for _, slot in ipairs(passiveSlots) do
+		if type(slot.Label)=="string" and safeAxeNumber(slot.Value) and safeAxeNumber(slot.BaseValue) then
+			axeStatRow(slot.Label,string.format("+%.2f%% (base %.1f%%)",slot.Value,slot.BaseValue))
+		end
+	end
 	axeStatSection("MATERIALS")
 	local quality = safeAxeNumber(axe.MaterialQuality)
 	if quality then
@@ -2853,7 +2861,7 @@ if legacyEconomyUpdated then
 			for _, axe in ipairs(latestShopData and latestShopData.Axes or {}) do
 				if axe.UID == payload.UID then
 					for _, field in ipairs({ "Level", "LevelCap", "XP",
-						"XPToNextLevel", "Rarity", "Power" }) do
+						"XPToNextLevel", "Rarity", "Power", "PassiveSubstats" }) do
 						if payload[field] ~= nil then axe[field] = payload[field] end
 					end
 					-- XPToNextLevel becomes nil at the level cap.

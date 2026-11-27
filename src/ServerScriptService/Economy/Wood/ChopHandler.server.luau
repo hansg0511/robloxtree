@@ -17,7 +17,7 @@ local EconomyUpdated = game.ReplicatedStorage.Economy.EconomyUpdated
 
 local TweenService = game:GetService("TweenService")
 local MIN_CHOP_INTERVAL = 0.3
-local Passives = require(game.ServerScriptService.Grove.GrovePassiveRules)
+local Passives = require(game.ServerScriptService.PassiveStats)
 local PUNCH_INTERVAL = 0.4
 local PUNCH_DAMAGE = 5
 local PUNCH_REACH = 0.85
@@ -70,7 +70,7 @@ end
 ChopEvent.OnServerEvent:Connect(function(player)
 	local profile = profileCache.GetProfile(player)
 	if not profile or not profile.Data.Runtime then return end
-	local bonuses = Passives.Totals(profile.Data, os.time())
+	local bonuses = Passives.ForPlayer(player, profile.Data, os.time())
 	local hasteMultiplier = 1 + bonuses.Haste
 	if not hasEquippedAxe(player, profile) then
 		-- Fail closed when a weapon is recorded but its runtime Tool is absent.
@@ -334,6 +334,7 @@ ChopEvent.OnServerEvent:Connect(function(player)
 		end
 	end
 	if coinDelta>0 then
+		coinDelta=Passives.ScaleReward(coinDelta,bonuses.CoinGain)
 		local coins=profile.Data.Coins
 		if type(coins)=="number" and coins==coins and coins>=0
 			and coins<1e12 then

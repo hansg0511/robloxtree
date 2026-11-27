@@ -75,6 +75,10 @@ UserInputService.InputBegan:Connect(function(input, processed)
 			end
 			return
 		end
+		local weaponHaste = player:GetAttribute("WeaponPassiveHaste")
+		if type(weaponHaste)=="number" and weaponHaste>=0 and weaponHaste<math.huge then
+			hasteMultiplier += weaponHaste
+		end
 		local interval = 0.3
 		local animationBaseRate = 1
 		if type(rate) == "number" and rate == rate and rate >= 0.1 and rate <= 10 then

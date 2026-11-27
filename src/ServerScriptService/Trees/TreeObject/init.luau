@@ -2362,7 +2362,9 @@ function Tree:Die(player)
 
 					local callbackOk, callbackError = pcall(function()
 						local rewardCount = awardSnapshot and LogService.GetTreeLogYieldCount(awardSnapshot)
-						if awardSnapshot and rewardCount then
+						-- Additional logs use the standard physical-drop path; authored
+						-- sections were built for the original yield at spawn time.
+						if awardSnapshot and rewardCount and rewardCount==awardSnapshot.BaseLogYield then
 							preparedVisuals, sourcePivots, inFlightCFrames, targetCFrames, preparationFailure = createPreparedAuthoredHarvestLogs(
 								impactModel,
 								harvestSections,

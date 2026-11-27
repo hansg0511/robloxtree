@@ -4,6 +4,8 @@ local ProfileCache = require(game.ServerScriptService.PlayerProfile.ProfileServi
 local WorldProgressService = require(game.ServerScriptService.WorldProgressService)
 local ProgressionRules = require(game.ServerScriptService.WeaponProgressionRules)
 local StatsAggregator = require(game.ServerStorage.Items.StatsAggregator)
+local Passives = require(game.ServerScriptService.PassiveStats)
+local Substats = require(game.ServerScriptService.WeaponSubstatRules)
 
 local EconomyUpdated = game.ReplicatedStorage.Economy:WaitForChild("EconomyUpdated")
 local WeaponProgressionService = {}
@@ -57,6 +59,7 @@ function WeaponProgressionService.AwardHits(player, weaponUID, hitRecords)
 				hit.AppliedDamage, hit.TreeMaxHP, hit.Killed)
 		end
 	end
+	xpEarned=Passives.ScaleReward(xpEarned,Passives.Totals(data,equipped,os.time()).WeaponXP)
 	if xpEarned < 1 then return 0, 0 end
 
 	local current = ProgressionRules.NormalizeProgression(
@@ -96,6 +99,7 @@ function WeaponProgressionService.AwardHits(player, weaponUID, hitRecords)
 		XPToNextLevel = ProgressionRules.XPToNextLevel(saved.Rarity, level),
 		LevelsGained = levelsGained,
 		Power = 5 + baseAttack + bonus,
+		PassiveSubstats = Substats.Snapshot(saved),
 	})
 	return xpEarned, levelsGained
 end

@@ -6,6 +6,7 @@ local BaseStationAccess = require(game.ServerScriptService.WorldLayout.BaseStati
 local ItemDataBase = require(game.ServerStorage.Items.ItemDataBase)
 local StatsAggregator = require(game.ServerStorage.Items.StatsAggregator)
 local Progression = require(game.ServerScriptService.WeaponProgressionRules)
+local Substats = require(game.ServerScriptService.WeaponSubstatRules)
 local Ascension = require(game.ServerScriptService.WeaponAscensionRules)
 local Slots=require(game.ServerScriptService.Economy.WeaponUpgradeRules)
 local Economy=require(game.ReplicatedStorage.Shared.PremiumEconomyConfig)
@@ -148,6 +149,7 @@ function Service.Attempt(player, uid)
 		if not granted then return {Reason=reason or "ROLL_FAILED"} end
 		nextData=granted
 	end
+	if outcome.Success then nextData=Substats.GrantSlots(nextData,outcome.Rarity,rng) end
 	local recipe={{Kind="Coins",Amount=preview.Coins},{Kind="Logs",Count=preview.Logs},
 		{Kind="Stack",Source="MaterialBalances",Id=Economy.CRYSTAL,Count=preview.Crystals}}
 	local receipt,reason=Costs.Take(player,recipe,{LogUIDs=selectedUIDs})

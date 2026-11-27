@@ -26,7 +26,7 @@ local MAX_CAPACITY_KG = AxeShopCatalog.MAX_CAPACITY_KG
 -- 80 Bamboo records at 0.5 kg each; spare room keeps the limit forward-safe.
 local MAX_OWNED_LOGS = 96
 local MAX_STORED_LOGS = LogStorageRules.MAX_STORED_LOGS
-local MAX_HARVEST_LOGS = 6
+local MAX_HARVEST_LOGS = require(ReplicatedStorage.Shared.WeaponSubstatConfig).MaxHarvestLogs
 local MAX_STANDARD_TREE_LOGS = 3
 -- Uncollected rewards are bounded by model count, not the player's kg bag.
 local MAX_GROUND_LOG_DROPS_PER_PLAYER = 96
@@ -798,7 +798,8 @@ function LogService.ConsumeCraftableLogUIDs(player, speciesId, logUids)
 	return true
 end
 
-local GrovePassives = require(game.ServerScriptService.Grove.GrovePassiveRules)
+local Passives = require(game.ServerScriptService.PassiveStats)
+local extraLogRng = Random.new()
 
 local function makeSellSummary(player)
 	local data = getPlayerData(player)
@@ -818,7 +819,7 @@ local function makeSellSummary(player)
 	local capacityMetrics = calculateCapacityMetrics(data)
 	return {
 		EligibleCount = eligibleCount,
-		TotalValue = GrovePassives.SaleValue(totalValue, GrovePassives.Totals(data, os.time())),
+		TotalValue = Passives.SaleValue(player,data,totalValue,os.time()),
 		Coins = data.Coins,
 		ItemCount = capacityMetrics.ItemCount,
 		UsedKg = capacityMetrics.UsedKg,
@@ -3180,10 +3181,21 @@ function LogService.CaptureTreeLogAward(tree, contributions, fallRotation)
 		end
 	end
 
+	-- Snapshot the extra-log roll once at death, not during visual retries.
+	local baseCount=LogService.GetTreeLogYieldCount(tree)
+	if not baseCount then return nil end
+	local winner=LogService.GetTreeAwardWinner(contributionSnapshot)
+	local data=winner and getPlayerData(winner)
+	local extra=0
+	if data then
+		extra=Passives.RollExtraLogs(Passives.ForPlayer(winner,data,os.time()).ExtraLogs,extraLogRng)
+	end
+	local rewardCount=math.min(MAX_HARVEST_LOGS,baseCount+extra)
 	return {
 		YieldsLog = tree.YieldsLog,
+		BaseLogYield = baseCount,
 		SpeciesId = tree.SpeciesId,
-		LogYield = tree.LogYield,
+		LogYield = rewardCount,
 		SizeScale = tree.SizeScale,
 		-- A wild tree's logs inherit the same server-owned mutation visible
 		-- on the tree. Sapling discovery remains an independent rare reward;
@@ -3332,7 +3344,7 @@ SellUnlockedLogsRE.OnServerEvent:Connect(function(player, ...)
 
 	-- Commit ownership and coins before any client-only cosmetic animation.
 	data.Logs = remaining
-	EconomyManager.Add(player, "Coins", GrovePassives.SaleValue(total, GrovePassives.Totals(data, os.time())))
+	EconomyManager.Add(player, "Coins", Passives.SaleValue(player,data,total,os.time()))
 	LogService.NotifyState(player)
 	local displaySold = {}
 	for index = 1, math.min(#sold, 20) do

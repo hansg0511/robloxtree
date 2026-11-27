@@ -7,6 +7,7 @@ local ExperimentalForgeRules = require(ReplicatedStorage.Shared.ExperimentalForg
 local ForgeMutations = require(ReplicatedStorage.Shared.ForgeMutationRules)
 local WeaponEffects = require(game.ServerScriptService.WeaponEffects.Dispatcher)
 local ProgressionRules = require(game.ServerScriptService.WeaponProgressionRules)
+local Substats = require(game.ServerScriptService.WeaponSubstatRules)
 local WeaponAscensionService = require(game.ServerScriptService.WeaponAscensionService)
 local WeaponUpgradeService = require(script.Parent.WeaponUpgradeService)
 local SlotRules=require(script.Parent.WeaponUpgradeRules)
@@ -178,6 +179,8 @@ local function buildOwnedAxes(player, profile, eligibleAscensionLogs)
 			XP = progression.XP,
 			XPToNextLevel = ProgressionRules.XPToNextLevel(rarity, level),
 			Ascension = ascension,
+			PassiveSubstats = Substats.Snapshot(item),
+			PassiveSlotCount = Substats.SlotCount(rarity),
 			Experimental = experimentalName ~= nil,
 			WeaponKind = weaponData and weaponData.WeaponKind,
 			MaterialQuality = weaponData and weaponData.MaterialQuality,
@@ -669,7 +672,7 @@ local function craftRng(player, recipe, selectedLogUids)
 
 	local grantedOk,granted=pcall(SlotRules.GrantSecond,weapon.WeaponData,rarity,forgeLevel,Random.new())
 	if not grantedOk or not granted then restoreCraftLogs(player,recipe,removedLogs,sourceByUid); return end
-	weapon.WeaponData=granted
+	weapon.WeaponData=Substats.GrantSlots(granted,rarity,Random.new())
 	data.AxeHeads[head.Id] = headCount - 1
 	progress.StandardAxeTier = math.max(previousTier, recipe.Tier)
 	local ok, added = pcall(function()
@@ -690,6 +693,7 @@ local function craftRng(player, recipe, selectedLogUids)
 		Power = power + ProgressionRules.DerivedAttackBonus(weapon, catalog.BaseAttack),
 		Quality = result.MaterialQuality,
 		ForgedQuality = result.ForgedQuality,
+		PassiveSubstats = Substats.Snapshot(weapon),
 		AbilityId = mutationAbility and mutationAbility.Id or nil,
 	})
 	economyUpdated:FireClient(player, "Progression")
