@@ -5,22 +5,30 @@ local ForgeMutations = require(script.Parent.ForgeMutationRules)
 
 Rules.MAX_LOG_SIZE = 5
 Rules.MAX_OFFERED_LOGS = 96 -- defensive transaction bound, not game economy design
-Rules.QUALITY_FLOOR = 0.5
+Rules.QUANTITY_QUALITY_RATE = 0.01
+Rules.MAX_SPEED_QUALITY = 1.20 -- provisional; stays within existing server cadence cap
+Rules.QUALITY_FLOOR = 0.5 -- legacy reach only, until geometry integration
 Rules.ROLL_MIN = 0.9
 Rules.ROLL_MAX = 1.1
 Rules.GOLDEN_MAX_BONUS = 0.30 -- prototype metadata only; no combat effect yet
 -- First passive prototype: only freshly forged Battlehammers have Cleave.
 -- Hits up to two additional server-eligible trees per successful primary hit.
-Rules.CLEAVE_DAMAGE_FRACTION = 0.40
-Rules.CLEAVE_RADIUS_STUDS = 16
+Rules.CLEAVE_MIN_DAMAGE_FRACTION = 0.15
+Rules.CLEAVE_DAMAGE_FRACTION = 0.65 -- at 100% forged quality
+Rules.CLEAVE_MAX_DAMAGE_FRACTION = 0.75 -- matches server effect resolver
+Rules.CLEAVE_MIN_RADIUS_STUDS = 8
+Rules.CLEAVE_RADIUS_STUDS = 20 -- at 100% forged quality
+Rules.CLEAVE_MAX_RADIUS_STUDS = 24 -- matches server effect resolver
 Rules.CLEAVE_MAX_TARGETS = 2
 Rules.WOOD_STRENGTH = { Sapwood = 6, Bamboo = 6, Oak = 10, Ironwood = 16 }
 Rules.CLASS_PROFILES = {
-	-- Initial combat-feel baseline: class sets cadence; material quality
-	-- still affects power, reach and effect potency, not swing frequency.
-	Dagger = { Damage = 0.55, AttacksPerSecond = 1 / 0.35, Reach = 0.75 },
-	Axe = { Damage = 1.25, AttacksPerSecond = 1 / 0.60, Reach = 1 },
-	Battlehammer = { Damage = 3.6, AttacksPerSecond = 1 / 1.10, Reach = 1.4 },
+	-- Provisional equal-quality single-target DPS: Dagger 10% above Hammer;
+	-- Axe ~5% above Hammer. No material-independent damage/speed roll.
+	-- MaxAPS is the value at normal 100% quality; MAX_SPEED_QUALITY
+	-- controls limited extrapolation for quantity-enhanced quality.
+	Dagger = { Damage = 0.825, MinAPS = 2, MaxAPS = 3, AttacksPerSecond = 3, Reach = 0.75 },
+	Axe = { Damage = 1.3125, MinAPS = 1.2, MaxAPS = 1.8, AttacksPerSecond = 1.8, Reach = 1 },
+	Battlehammer = { Damage = 25 / 12, MinAPS = 0.72, MaxAPS = 1.08, AttacksPerSecond = 1.08, Reach = 1.4 },
 }
 Rules.CLASSES = { "Dagger", "Axe", "Battlehammer" }
 Rules.COUNT_ANCHORS = {
@@ -75,7 +83,7 @@ end
 function Rules.Preview(metalBase, logs, forgeTier)
 	if not finite(metalBase) or metalBase <= 0
 		or type(logs) ~= "table" or not Rules.ValidateCount(#logs) then return nil end
-	local sumQuality, sumStrength, sumGolden = 0, 0, 0
+	local sumQuality, sumStrength, sumEffectiveStrength, sumGolden = 0, 0, 0, 0
 	for index = 1, #logs do
 		local record = logs[index]
 		if type(record) ~= "table" then return nil end
@@ -84,6 +92,7 @@ function Rules.Preview(metalBase, logs, forgeTier)
 		if not quality or not strength then return nil end
 		sumQuality += quality
 		sumStrength += strength
+		sumEffectiveStrength += strength * quality
 		if type(record.Mutations) == "table" and record.Mutations.Golden == true then
 			sumGolden += quality
 		end
@@ -91,7 +100,16 @@ function Rules.Preview(metalBase, logs, forgeTier)
 	local quality = sumQuality / #logs
 	local goldenQuality = sumGolden / #logs
 	local factor = Rules.QUALITY_FLOOR + (1 - Rules.QUALITY_FLOOR) * quality
-	local reference = metalBase + sumStrength / #logs
+	local quantityBonus = 1 + Rules.QUANTITY_QUALITY_RATE * (#logs - 1)
+	local forgedQuality = quality * quantityBonus
+	local averageEffectiveStrength = sumEffectiveStrength / #logs
+	local reference = metalBase + averageEffectiveStrength * quantityBonus
+	local function exact(value)
+		return { Min = value, Max = value }
+	end
+	local function lerp(minimum, maximum, q)
+		return minimum + (maximum - minimum) * q
+	end
 	local classRanges = {}
 	for _, class in ipairs(Rules.CLASSES) do
 		local profile = Rules.CLASS_PROFILES[class]
@@ -99,23 +117,26 @@ function Rules.Preview(metalBase, logs, forgeTier)
 			return { Min = base * factor * Rules.ROLL_MIN, Max = base * factor * Rules.ROLL_MAX }
 		end
 		classRanges[class] = {
-			Damage = statRange(reference * profile.Damage),
-			-- Roll speed independently of material quality. Keep the existing
-			-- small independent +/-10% stat variation.
-			AttacksPerSecond = {
-				Min = profile.AttacksPerSecond * Rules.ROLL_MIN,
-				Max = profile.AttacksPerSecond * Rules.ROLL_MAX,
-			},
+			Damage = exact(reference * profile.Damage),
+			AttacksPerSecond = exact(lerp(profile.MinAPS, profile.MaxAPS,
+				math.min(forgedQuality, Rules.MAX_SPEED_QUALITY))),
 			Reach = statRange(profile.Reach),
 		}
 		if class == "Battlehammer" then
-			classRanges[class].CleaveDamageFraction = statRange(Rules.CLEAVE_DAMAGE_FRACTION)
-			classRanges[class].CleaveRadius = statRange(Rules.CLEAVE_RADIUS_STUDS)
+			classRanges[class].CleaveDamageFraction = exact(math.min(
+				Rules.CLEAVE_MAX_DAMAGE_FRACTION, lerp(Rules.CLEAVE_MIN_DAMAGE_FRACTION,
+					Rules.CLEAVE_DAMAGE_FRACTION, forgedQuality)))
+			classRanges[class].CleaveRadius = exact(math.min(
+				Rules.CLEAVE_MAX_RADIUS_STUDS, lerp(Rules.CLEAVE_MIN_RADIUS_STUDS,
+					Rules.CLEAVE_RADIUS_STUDS, forgedQuality)))
 		end
 	end
 	return {
 		LogCount = #logs,
 		MaterialQuality = quality,
+		ForgedQuality = forgedQuality,
+		QuantityQualityMultiplier = quantityBonus,
+		AverageEffectiveWoodStrength = averageEffectiveStrength,
 		GoldenQuality = goldenQuality,
 		AverageWoodStrength = sumStrength / #logs,
 		Odds = Rules.Odds(#logs, forgeTier or 1),
@@ -142,11 +163,15 @@ function Rules.Roll(metalBase, logs, rng, forgeTier)
 	end
 	local ranges = preview.Ranges[class]
 	local function stat(range)
+		if range.Min == range.Max then return range.Min end
 		return range.Min + (range.Max - range.Min) * rng:NextNumber()
 	end
 	return {
 		Class = class,
 		MaterialQuality = preview.MaterialQuality,
+		ForgedQuality = preview.ForgedQuality,
+		QuantityQualityMultiplier = preview.QuantityQualityMultiplier,
+		AverageEffectiveWoodStrength = preview.AverageEffectiveWoodStrength,
 		GoldenQuality = preview.GoldenQuality,
 		AverageWoodStrength = preview.AverageWoodStrength,
 		Damage = stat(ranges.Damage),
