@@ -3,6 +3,15 @@
 local Growth = require(script.Parent.GroveGrowthRules)
 local Rules = {}
 Rules.START_CAPACITY = 3
+-- Neutral placeholders until joint weapon/Grove/economy balancing.
+-- Later forest species should receive progressively stronger passives.
+-- This is independent of material strength, sale price and growth duration.
+Rules.SPECIES_PASSIVE_MULTIPLIERS = {
+	Sapwood = 1,
+	Bamboo = 1,
+	Oak = 1,
+	Ironwood = 1,
+}
 Rules.GENETICS = {
 	Strength = { Damage = 0.03 },
 	Seedfinder = { SaplingChance = 0.10 },
@@ -46,9 +55,11 @@ function Rules.ForTree(record, now)
 		or record.CurrentSizeScale > record.SizePotential then return result end
 	local genetic = Rules.GENETICS[record.GeneticPassive]
 	if not genetic then return result end
+	local speciesMultiplier = Rules.SPECIES_PASSIVE_MULTIPLIERS[record.SpeciesId] or 1
+	local passiveScale = record.CurrentSizeScale * speciesMultiplier
 	local function add(source)
 		for stat, value in pairs(source) do
-			result[stat] += value * record.CurrentSizeScale
+			result[stat] += value * passiveScale
 		end
 	end
 	add(genetic)
