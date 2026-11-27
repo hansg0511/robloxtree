@@ -39,14 +39,9 @@ local WorldLayoutConfiguration = require(game.ServerScriptService.WorldLayout:Wa
 
 local treeRandom = Random.new()
 
+local MaterialGeometry = require(game.ReplicatedStorage.Shared.MaterialGeometry)
 local function rollTreeScale()
-	local roll = treeRandom:NextNumber()
-	if roll < 0.82 then
-		return treeRandom:NextNumber(0.7, 1.3)
-	elseif roll < 0.91 then
-		return treeRandom:NextNumber(0.45, 0.7)
-	end
-	return treeRandom:NextNumber(1.3, 1.7)
+	return MaterialGeometry.RollWildSize(treeRandom)
 end
 
 local function makeBrickPart(name, size, position, color, parent, root, canCollide)
@@ -404,7 +399,8 @@ end
 local PROCEDURAL_OAK_LEGACY_BASE_HEIGHT = 18
 local PROCEDURAL_OAK_NORMAL_MEAN_HEIGHT = 14.5
 local PROCEDURAL_OAK_MIN_SIZE_SCALE = 0.45
-local PROCEDURAL_OAK_MAX_SIZE_SCALE = 1.7
+local PROCEDURAL_OAK_MAX_SIZE_SCALE = 1.7 -- legacy Grove generation envelope
+local PROCEDURAL_OAK_WILD_MAX_SIZE_SCALE = MaterialGeometry.MAX_LOG_SIZE
 
 local function isFiniteNumber(value)
 	return type(value) == "number"
@@ -446,7 +442,7 @@ local function getProceduralOakVisualScale(coreHeight, sizeScale)
 	-- existing production scale envelope; HP and yield still use SizeScale.
 	local normalizedScale = sizeScale * PROCEDURAL_OAK_LEGACY_BASE_HEIGHT / PROCEDURAL_OAK_NORMAL_MEAN_HEIGHT
 	local minimumHeight = PROCEDURAL_OAK_LEGACY_BASE_HEIGHT * PROCEDURAL_OAK_MIN_SIZE_SCALE
-	local maximumHeight = PROCEDURAL_OAK_LEGACY_BASE_HEIGHT * PROCEDURAL_OAK_MAX_SIZE_SCALE
+	local maximumHeight = PROCEDURAL_OAK_LEGACY_BASE_HEIGHT * PROCEDURAL_OAK_WILD_MAX_SIZE_SCALE
 	return math.clamp(normalizedScale, minimumHeight / coreHeight, maximumHeight / coreHeight)
 end
 
