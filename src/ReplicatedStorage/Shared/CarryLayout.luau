@@ -24,7 +24,7 @@ local function getScale(scales, index)
 	if type(value) ~= "number" or value ~= value or value <= 0 or value == math.huge then
 		return 1
 	end
-	return math.clamp(value, 0.05, 4)
+	return math.clamp(value, 0.05, 16) -- accommodates compressed 5x physical logs
 end
 
 function CarryLayout.GetAnchorRelativeSlotCFrame(stackName, stackIndex, visualScales)
