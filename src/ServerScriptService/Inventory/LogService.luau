@@ -1513,11 +1513,12 @@ local function getFallPathPosition(fallPlacement, index, totalCount)
 		+ fallPlacement.Perpendicular * lateralOffset
 end
 
-local function createLogVisualModel(name, logRecord, visualScale, hidden)
+local function createLogVisualModel(name, logRecord, visualScale, hidden, physicalDimensions)
 	local model = Instance.new("Model")
 	model.Name = name
-	model:SetAttribute(STANDARD_GROUND_VISUAL_ATTRIBUTE, true)
-	local handle, caps = SpeciesVisuals.CreateLogParts(logRecord, "LogHandle", visualScale)
+	model:SetAttribute(STANDARD_GROUND_VISUAL_ATTRIBUTE, not physicalDimensions)
+	model:SetAttribute("PhysicalLogDimensions", physicalDimensions == true)
+	local handle, caps = SpeciesVisuals.CreateLogParts(logRecord, "LogHandle", visualScale, physicalDimensions)
 	local revealTransparencyByPart = {}
 	handle.Parent = model
 	for _, cap in ipairs(caps) do
@@ -1810,10 +1811,11 @@ local function ensureOverflowGroundRegistration(pickup)
 				"DroppedLog",
 				registeredEntry.LogRecord,
 				GROUND_DROP_VISUAL_SCALE,
-				hidden
+				hidden,
+				registeredEntry.State == "Fresh"
 			)
 			registeredEntry.Model = newModel
-			registeredEntry.StandardGroundVisual = true
+			registeredEntry.StandardGroundVisual = registeredEntry.State ~= "Fresh"
 			registeredEntry.RevealPartTransparencies = nil
 			registeredEntry.TransitPartTransparencies = if hidden then transparencies else nil
 			model = newModel
@@ -2621,6 +2623,34 @@ local function enableGroundLogBatchAfter(harvestBatchId, delaySeconds)
 						if entry.State == "Fresh"
 							and entry.PickupEnabled == false
 							and isActiveGroundDropEntry(bundle, drop, uid, entry) then
+							-- Let the authored trunk breakup finish before replacing the
+							-- harvested segment with its standardized physical log.
+							-- Preserve the same UID, entry and reservation; no new reward.
+							if entry.Model:GetAttribute("PhysicalLogDimensions") ~= true then
+								local oldModel = entry.Model
+								local oldPivot = oldModel:GetPivot()
+								local newModel, handle = createLogVisualModel(
+									"DroppedLog", entry.LogRecord, 1, false, true)
+								local right = oldPivot.RightVector
+								local direction = Vector3.new(right.X, 0, right.Z)
+								if direction.Magnitude < 0.001 then direction = Vector3.xAxis end
+								direction = direction.Unit
+								local p = oldPivot.Position
+								local cf = CFrame.fromMatrix(Vector3.new(p.X,
+									getGroundHeight(p) + handle.Size.Y * 0.5 + 0.08, p.Z),
+									direction, Vector3.yAxis, direction:Cross(Vector3.yAxis))
+								for name, value in pairs(oldModel:GetAttributes()) do
+									newModel:SetAttribute(name, value)
+								end
+								newModel:SetAttribute(STANDARD_GROUND_VISUAL_ATTRIBUTE, false)
+								newModel:SetAttribute("PhysicalLogDimensions", true)
+								newModel:PivotTo(cf)
+								newModel.Parent = bundle
+								entry.Model = newModel
+								entry.GroundCFrame = cf
+								entry.StandardGroundVisual = false
+								oldModel:Destroy()
+							end
 							entry.PickupEnabled = true
 							entry.Model:SetAttribute("PickupEnabled", true)
 							enabledCount += 1
@@ -3012,7 +3042,8 @@ local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, harvestB
 				"DroppedLog",
 				logRecord,
 				GROUND_DROP_VISUAL_SCALE,
-				hiddenUntilReveal
+				hiddenUntilReveal,
+				true
 			)
 			local revealIndex = (firstIndex or 1) + index - 1
 			local revealCount = batchCount or #logRecords
@@ -3059,7 +3090,7 @@ local function spawnGroundDrops(logRecords, ownerUserId, fallPlacement, harvestB
 			ReservedUntil = createdAt + OWNER_RESERVATION_SECONDS,
 			ExpiresAt = createdAt + GROUND_LOG_LIFETIME_SECONDS,
 			State = "Fresh",
-			StandardGroundVisual = not isPreparedVisual,
+			StandardGroundVisual = false, -- fresh physical drops are distinct from compressed overflow models
 			PileId = nil,
 			PileSlot = nil,
 			GroundCFrame = groundCFrame,
