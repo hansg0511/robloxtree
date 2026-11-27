@@ -5,7 +5,8 @@ C.MAX_FORGE_LEVEL=200
 C.TOTAL_RARITY_WEIGHT=1000000
 C.XP={Base=100,PerLevel=25,PerDamage=1,KillPerMaxHP=0.25}
 C.LEVEL_POWER_GROWTH=0.01
-C.FORGE_COST={FirstUpgrade=500,Scale=6,Exponent=3.5,Round=50}
+-- World 1 discount tapers into the original late-game marginal curve.
+C.FORGE_COST={FirstUpgrade=500,Scale=6,Exponent=3.5,World1Exponent=3.1,World1End=30,Round=50}
 -- Rarity rows in increasing order. Stable Ids are persisted.
 -- Unlock = maximum rarity gate; RetireBelowAt = level this becomes minimum.
 -- AscendChance/Coins/Logs/Pity are costs for leaving this rarity.
@@ -30,6 +31,13 @@ C.SECOND_SLOT_RARITY="Legendary"
 -- since that rarity unlocked. The previous rarity's tail bounds each tail.
 -- Floors force retired rarity weights to zero. Integer rounding preserves total.
 C.RARITY_TAIL={{0,0.001},{5,0.025},{15,0.15},{30,0.55},{55,0.92},{80,0.98}}
+-- Lower rarity milestones should be rewarding during ordinary World 1 play.
+-- Each curve is still a cumulative tail, bounded by the preceding rarity.
+C.RARITY_TAIL_BY_ID={
+	Uncommon={{0,0.05},{5,0.25},{15,0.65},{30,0.82},{55,0.95},{80,0.98}},
+	Rare={{0,0.02},{5,0.12},{15,0.45},{30,0.70},{55,0.92},{80,0.98}},
+	Epic={{0,0.005},{5,0.05},{15,0.25},{30,0.55},{55,0.92},{80,0.98}},
+}
 C.POTENCY={{1,0.35},{2,0.70},{50,0.80},{110,0.90},{200,1}}
 C.MUTATED_LOG_LIMIT={{1,3},{50,4},{110,5},{200,6}}
 C.CLASS_COUNT_OFFSET={{1,0},{2,2},{60,3},{140,4}}
@@ -64,6 +72,10 @@ local function validateMilestones(rows,low,high)
 	end
 end
 validateMilestones(C.RARITY_TAIL,0,1)
+for id,rows in pairs(C.RARITY_TAIL_BY_ID) do
+	assert(C.ById[id],"unknown rarity tail override")
+	validateMilestones(rows,0,1)
+end
 validateMilestones(C.POTENCY,0,1)
 validateMilestones(C.MUTATED_LOG_LIMIT,1,96)
 validateMilestones(C.CLASS_COUNT_OFFSET,0,96)
@@ -101,7 +113,18 @@ function C.HasSecondSlot(rarity)
 end
 function C.UpgradeCost(target)
 	local p=C.FORGE_COST
-	return math.max(p.Round,math.floor(p.FirstUpgrade*(1+(target-2)/p.Scale)^p.Exponent/p.Round+0.5)*p.Round)
+	local function raw(level,exponent)
+		return p.FirstUpgrade*(1+(level-2)/p.Scale)^exponent
+	end
+	local value
+	if target<=p.World1End then
+		value=raw(target,p.World1Exponent)
+	else
+		-- No sudden price jump after the early curve; preserve the original
+		-- late-game absolute marginal increases. Future worlds can tune this.
+		value=raw(p.World1End,p.World1Exponent)+raw(target,p.Exponent)-raw(p.World1End,p.Exponent)
+	end
+	return math.max(p.Round,math.floor(value/p.Round+0.5)*p.Round)
 end
 function C.RarityWeights(level)
 	if not C.ValidForge(level) then level=1 end
@@ -117,7 +140,7 @@ function C.RarityWeights(level)
 			if i<ceiling then
 				-- Reserve one integer weight for every eligible rarity, even if
 				-- adjacent tail milestones coincide after rounding.
-				nextTail=math.clamp(math.floor(C.TOTAL_RARITY_WEIGHT*C.At(C.RARITY_TAIL,level-nextRow.Unlock,true)+0.5),ceiling-i,tail-1)
+				nextTail=math.clamp(math.floor(C.TOTAL_RARITY_WEIGHT*C.At(C.RARITY_TAIL_BY_ID[nextRow.Id] or C.RARITY_TAIL,level-nextRow.Unlock,true)+0.5),ceiling-i,tail-1)
 			end
 			weights[row.Id]=tail-nextTail
 			tail=nextTail

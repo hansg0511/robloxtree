@@ -1,6 +1,70 @@
 # Core economy — first quantitative pass
 
-## Current balance addendum — 2026-11-28 (supersedes obsolete fixed-recipe/HP/forest assumptions below)
+## World 1 integrated working balance — 2026-11-28 (latest)
+
+User approved 3–6 active hours and delegated numeric balancing. Target scenario 280 minutes (4h40m), with F10 entry at 220m. These are design inputs and affordability arithmetic, NOT predicted median completion or a simulated optimal player. Guardians are the only progression power checks, not mandatory Forge/rarity/metal tiers; an exceptional build may clear much sooner. No rare roll, ascension or Gems required.
+
+### Income and budget
+
+Existing F1–3 material values remain active. F4–10 are numbered placeholders pending species/art/layout implementation; do not silently assign legacy Ironwood. Later proposed kg/log and size-1 sale prices are below. Fixed yield 2 for F1, 5 for F2, size-1 yield 2 for F3+ (future yield assumption). Keep size-squared sale, auto-keep and current 10/15/20/30/40 kg capacity ladder. Estimated round-trip/sale overhead includes travel/quick travel assumptions, NOT measured. Gross full-bag sale uses floor(bag/kg) logs, ceil(logs/yield) trees, four seconds handling per tree and (ceil(baseHP/representative Axe integer damage)-1)/1.3872 seconds from first to last hit; rate = 60*bagValue/(tree time+trip seconds). F1 rate is equipped farming, not fresh fist rate. Real rates depend on travel, actual yields/size/crit, pickup and storage, contention, tool class and passive bonuses. Budget assumes only 65% of active minutes earn the modeled size-1 gross rate, allowing other activity and log reserves; it is an explicit arbitrary utilization scenario, not an independently validated estimate. Bag upgrades are budgeted in the same forest as use; initial funds must be earned first. Forge target is on exit, not entry.
+
+| Forest | Minutes | kg/log | Coins/log | Bag kg | Trip s | Gross coins/min while farming | Budgeted income | Exit Forge | Forge spend | Head spend | Bag spend | Grove spend | End balance |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 4 | 0.5 | 5 | 10 | 25 | 83 | 216 | 1 | 0 | 60 | 0 | 0 | 156 |
+| 2 | 4 | 1 | 16 | 10 | 40 | 189 | 491 | 2 | 500 | 60 | 0 | 0 | 87 |
+| 3 | 12 | 2 | 60 | 15 | 55 | 328 | 2558 | 3 | 800 | 750 | 250 | 0 | 845 |
+| 4 | 15 | 2 | 100 | 15 | 60 | 514 | 5012 | 5 | 2950 | 1500 | 0 | 500 | 907 |
+| 5 | 20 | 2.5 | 200 | 20 | 65 | 1071 | 13923 | 7 | 5700 | 2250 | 1000 | 0 | 5880 |
+| 6 | 30 | 3 | 360 | 20 | 70 | 1465 | 28568 | 10 | 16700 | 3000 | 0 | 1500 | 13248 |
+| 7 | 40 | 3 | 600 | 30 | 80 | 3249 | 84474 | 15 | 64450 | 12000 | 4000 | 5000 | 12272 |
+| 8 | 45 | 4 | 1000 | 30 | 85 | 3830 | 112028 | 18 | 73250 | 18000 | 0 | 0 | 33050 |
+| 9 | 50 | 4 | 1600 | 40 | 95 | 7418 | 241085 | 22 | 157750 | 24000 | 15000 | 15000 | 62385 |
+| 10 | 60 | 5 | 2400 | 40 | 105 | 8692 | 338988 | 26 | 251750 | 36000 | 0 | 0 | 113623 |
+
+Budgeted total 827343 coins, Forge 573850, heads 97620, bags 20250, Grove 22000, remaining 113623. Head assumptions: Copper 60 and Iron 750 unchanged, future Steel 6000 each (not implemented), 2/3/4/6 Steel crafts in F7/8/9/10; 1–4 Iron crafts in each F3–6. Grove upgrade budgets use existing costs through 8 plots, no assumption maxed Grove. Residual is not a compulsory sink: additional crafts/saplings, missed efficiency, and optional upgrades can absorb it. No reward for challenges, boss rewards, premium currency or optimized storage sales assumed. 50% utilization gives ~636k gross before sinks (Forge26 may be unaffordable); 80% ~1.02m. Re-evaluate targets/rates against actual clean play before changing gates.
+
+### Forge cost and rarity — source-implemented
+
+Early cost exponent 3.5 -> 3.1 through target level 30, first upgrade stays 500, scale 6, round 50. From 31 onward cost = new raw cost(30) + old raw cost(target) - old raw cost(30), preserving original late marginal increases without a discontinuous price jump. Late-world economy is still unknown. No retroactive refund or existing weapon changes. Cumulative cost to Forge 5 4250, 10 26650, 15 91100, 20 233300, 25 500450, 26 573850, 30 951600, 200 5232982750. Previously 25 862700, 30 1746050. Forge still caps at 200, not 30.
+
+Per-rarity cumulative tail overrides give newly unlocked Uncommon 5%, Rare 2%, Epic 0.5%; Legendary and higher retain old 0.1% initial tail and default curve. Same unlocks and retirement floors, class probabilities and power multipliers. At +5 levels Uncommon tail 25%, Rare 12%, Epic 5%; at +15 65%,45%,25%. Actual exact rarity = tail minus next rarity tail (respect previous tail bound/rounding). Exact probabilities as percent:
+| Forge | Common | Uncommon | Rare | Epic | Legendary |
+|---:|---:|---:|---:|---:|---:|
+| 3 | 95 | 5 | 0 | 0 | 0 |
+| 5 | 87 | 13 | 0 | 0 | 0 |
+| 7 | 79 | 19 | 2 | 0 | 0 |
+| 10 | 67 | 25 | 8 | 0 | 0 |
+| 15 | 47 | 31.1 | 21.4 | 0.5 | 0 |
+| 18 | 35 | 33.2 | 28.6 | 3.2 | 0 |
+| 22 | 30.4667 | 24.5333 | 36 | 9 | 0 |
+| 25 | 27.0667 | 22.9333 | 35 | 14.9 | 0.1 |
+| 26 | 25.9333 | 22.4 | 34.6667 | 16.42 | 0.58 |
+| 30 | 21.4 | 20.2667 | 33.3333 | 22.5 | 2.5 |
+At Forge26 Epic+ tail 17%, six independent crafts at that Forge level have ~67% chance of at least one Epic+; this is an illustrative probability, not a guarantee or assumption every craft is at the final level. Legendary at unlock stays aspirational, increases with Forge advancement. Early rarity unlocks should feel meaningful, while high quality/levels/Grove remain routes for common weapons. Verify client preview uses same config (no duplicate chances). Existing rarity smoke invariants independently translated to arithmetic and checked across 1–200; no Luau runtime executed.
+
+### Guardian and World Boss targets (F3+ design only)
+
+First two retain existing config. Later thresholds account for normal crit expectation (5% chance x2), local metal and wood, level caps, quality and Grove/substat bonuses. Compare common cap10 Axe five logs at 30% vs 50% quality, no passive/ability bonuses, continuous nominal DPS. Representative integer damage/real hit cadence may differ. Common weapons with sufficiently good logs and modest boss specialization should remain viable; not a rarity requirement. Thresholds deliberately not a hard playtime lock.
+
+| Forest cleared | Base tree HP | Metal strength | Wood strength | Guardian HP | Seconds | Required DPS | Common cap 30% DPS | Common cap 50% DPS |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 70 | 25 | 20 | 2600 | 45 | 57.8 | 65 | 80 |
+| 2 | 125 | 25 | 30 | 4000 | 60 | 66.7 | 72 | 92 |
+| 3 | 210 | 55 | 45 | 6750 | 45 | 150.0 | 144 | 178 |
+| 4 | 310 | 55 | 60 | 8750 | 50 | 175.0 | 154 | 196 |
+| 5 | 400 | 55 | 80 | 11275 | 55 | 205.0 | 167 | 219 |
+| 6 | 500 | 55 | 100 | 14700 | 60 | 245.0 | 180 | 243 |
+| 7 | 760 | 125 | 120 | 23400 | 60 | 390.0 | 338 | 426 |
+| 8 | 1050 | 125 | 150 | 28200 | 60 | 470.0 | 358 | 461 |
+| 9 | 1450 | 125 | 185 | 33900 | 60 | 565.0 | 381 | 502 |
+| 10 | 1900 | 125 | 230 | 126000 | 180 | 700.0 | 410 | 556 |
+F10 encounter is World Boss (180s), not a tenth Guardian. 700 DPS is provisional; high-quality Common with +26% combined effective boost over 50% quality baseline can meet this, or Rare/Epic with levels and moderate passives. No attack/minions. No exact gate timings claimed until runtime and player testing. The modeled 280m includes repeat crafts, upgrades, Grove activity and challenge attempts, not forced elapsed time. Major limitation: players may rush with higher-quality wood and inexpensive Grove Bossbane/other passives, so actual playtest may show substantial skips. Do not add artificial rarity/Forge requirements to fix that; adjust gate/economy jointly after observing builds. Ordinary HP unchanged.
+
+Next: choose future species and layout, implement Forests 4–10, Steel and actual Guardian/World Boss configurations in stages. Deferred Studio validation: actual early and late income, rarity rolls/previews, forge cost consistency and saved progression, class hit cadence and practical boss DPS, time-to-clear across ordinary/lucky builds. No new smoke suite; no runtime test.
+
+---
+
+## Prior balance addendum — 2026-11-28 (early forest values remain current; later Forge costs and odds superseded above)
 
 Source changes: Bamboo 0.5 kg/5 coins -> 1 kg/16; Oak 4 kg/16 -> 2 kg/60. Sapwood 0.5 kg/5 unchanged. Ironwood 10 kg/144 remains legacy, not an active World 1 wild forest, and will need a new species/economy assignment later. All physical logs resolve weight and sale price through MaterialDefinitions, including older stored logs; no inventory record migration. Geometry, wood strength, log yield, capacity tiers, gold sinks, premium costs unchanged.
 
