@@ -20,7 +20,8 @@ Rules.CLEAVE_MIN_RADIUS_STUDS = 8
 Rules.CLEAVE_RADIUS_STUDS = 20 -- at 100% forged quality
 Rules.CLEAVE_MAX_RADIUS_STUDS = 24 -- matches server effect resolver
 Rules.CLEAVE_MAX_TARGETS = 2
-Rules.WOOD_STRENGTH = { Sapwood = 6, Bamboo = 6, Oak = 10, Ironwood = 16 }
+-- World 1 first-pass material balance; Ironwood retained until its forest is assigned.
+Rules.WOOD_STRENGTH = { Sapwood = 20, Bamboo = 30, Oak = 45, Ironwood = 16 }
 Rules.CLASS_PROFILES = {
 	-- Provisional equal-quality single-target DPS: Dagger 10% above Hammer;
 	-- Axe ~5% above Hammer. No material-independent damage/speed roll.
