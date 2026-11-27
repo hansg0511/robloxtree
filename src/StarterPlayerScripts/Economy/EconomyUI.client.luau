@@ -26,6 +26,7 @@ local equipAxe = economy:WaitForChild("EquipAxeRE")
 local ascendWeapon = economy:WaitForChild("AscendWeaponRE")
 local upgradeForge = economy:WaitForChild("UpgradeForgeRE")
 local upgradeWeapon = economy:WaitForChild("UpgradeWeaponRE")
+local rerollSubstat = economy:WaitForChild("RerollSubstatRE")
 local buyCrystals=economy:WaitForChild("BuyAscensionCrystalsRE")
 
 local COLORS = {
@@ -829,6 +830,7 @@ local upgradeSelectedFamily = "Golden"
 local upgradeMode="Awaken"
 local upgradeSelectedLogs={}
 local upgradePage=1
+local rerollState={Busy=false,Confirm=nil}
 
 local function getBagUiCapacity()
 	local logsData = if type(latestLogsData) == "table" then latestLogsData else {}
@@ -1429,9 +1431,52 @@ renderAxeDetail = function(axe)
 	axeStatSection("PASSIVE SUBSTATS")
 	local passiveSlots=type(axe.PassiveSubstats)=="table" and axe.PassiveSubstats or {}
 	if #passiveSlots==0 then axeStatNote("No passive substats rolled.") end
+	local reroll=type(axe.PassiveReroll)=="table" and axe.PassiveReroll or nil
+	local function rerollButton(name,caption,active,callback)
+		axeStatOrder+=1
+		local b=button(axeStatsScroll,name,caption,UDim2.new(1,-8,0,34),UDim2.new(),if active then COLORS.BagAction else COLORS.Disabled)
+		b.LayoutOrder=axeStatOrder; b.ZIndex=14; b.TextSize=13; b.Active=active; b.AutoButtonColor=active
+		b.Activated:Connect(function() if b.Active and not rerollState.Busy then callback(b) end end)
+	end
+	local function sendReroll(mode,a,b)
+		rerollState.Busy=true; rerollState.Confirm=nil
+		rerollSubstat:FireServer(axe.UID,mode,a,b)
+		-- Lost response recovery: snapshot refresh is safe; no automatic resend.
+		task.delay(8,function() if rerollState.Busy then rerollState.Busy=false; refreshShop() end end)
+		renderAxeDetail(axe)
+	end
 	for _, slot in ipairs(passiveSlots) do
 		if type(slot.Label)=="string" and safeAxeNumber(slot.Value) and safeAxeNumber(slot.BaseValue) then
-			axeStatRow(slot.Label,string.format("+%.2f%% (base %.1f%%)",slot.Value,slot.BaseValue))
+			axeStatRow(tostring(slot.Index or "?")..". "..slot.Label,string.format("+%.2f%% (base %.1f%%)",slot.Value,slot.BaseValue))
+			if reroll and not reroll.Pending and safeAxeNumber(slot.Index) then
+				local ready=reroll.AtForge and reroll.Balance>=reroll.Price and not rerollState.Busy
+				rerollButton("Reroll"..slot.Index,if not reroll.AtForge then "REROLL AT FORGE" elseif rerollState.Busy then "WAITING..." else "REROLL • "..formatCoins(reroll.Price).." GEMS",ready,function(b)
+					local key=axe.UID..":"..slot.Index..":"..reroll.Sequence
+					if rerollState.Confirm~=key or os.clock()>(rerollState.Until or 0) then
+						rerollState.Confirm=key; rerollState.Until=os.clock()+10; b.Text="CONFIRM • GEMS ARE SPENT"; return
+					end
+					sendReroll("Roll",slot.Index,reroll.Sequence)
+				end)
+			end
+		end
+	end
+	if reroll and #passiveSlots>0 then
+		if reroll.Pending then
+			local p=reroll.Pending
+			axeStatSection("PENDING REROLL")
+			if p.Invalid then axeStatNote("Saved reroll needs review. No additional gems will be spent.")
+			else
+				local function describe(s)
+					return string.format("%s +%.2f%% (base %.1f%%)",s.Label,s.Value,s.BaseValue)
+				end
+				axeStatNote("Slot "..p.Slot.." • "..formatCoins(p.Cost).." gems already spent.")
+				axeStatNote("OLD: "..describe(p.Old))
+				axeStatNote("NEW: "..describe(p.Candidate))
+				rerollButton("KeepSubstat","KEEP ORIGINAL",not rerollState.Busy,function() sendReroll("Choose",p.Token,"Keep") end)
+				rerollButton("AcceptSubstat","ACCEPT NEW ROLL",not rerollState.Busy,function() sendReroll("Choose",p.Token,"Accept") end)
+			end
+		else
+			axeStatNote("Rerolls change both stat and base value. Gems are spent even if you keep the original.")
 		end
 	end
 	axeStatSection("MATERIALS")
@@ -2767,6 +2812,17 @@ ascendWeapon.OnClientEvent:Connect(function(result)
 		showFeedback(errors[result.Reason] or "ASCENSION UNAVAILABLE", COLORS.Orange, 3)
 		refreshShop()
 	end
+end)
+
+rerollSubstat.OnClientEvent:Connect(function(result)
+	rerollState.Busy=false; rerollState.Confirm=nil
+	local reason=type(result)=="table" and result.Reason or "SERVER_ERROR"
+	local messages={ROLLED="NEW ROLL READY • CHOOSE OLD OR NEW",ACCEPTED="SUBSTAT REPLACED",KEPT="ORIGINAL SUBSTAT KEPT",
+		NOT_AT_FORGE="VISIT THE FORGE",PENDING_CHOICE="RESOLVE THE EXISTING ROLL",INSUFFICIENT_RESOURCES="NOT ENOUGH GEMS",
+		STALE_REQUEST="WEAPON UPDATED • TRY AGAIN",RATE_LIMIT="PLEASE TRY AGAIN"}
+	local success=reason=="ROLLED" or reason=="ACCEPTED" or reason=="KEPT"
+	showFeedback(messages[reason] or "REROLL UNAVAILABLE",if success then COLORS.Gold else COLORS.Orange,3)
+	refreshShop()
 end)
 
 -- The server validates every ingredient and performs the weapon upgrade.

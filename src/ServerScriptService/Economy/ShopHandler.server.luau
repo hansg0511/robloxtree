@@ -8,6 +8,7 @@ local ForgeMutations = require(ReplicatedStorage.Shared.ForgeMutationRules)
 local WeaponEffects = require(game.ServerScriptService.WeaponEffects.Dispatcher)
 local ProgressionRules = require(game.ServerScriptService.WeaponProgressionRules)
 local Substats = require(game.ServerScriptService.WeaponSubstatRules)
+local Rerolls = require(script.Parent.WeaponSubstatRerollService)
 local WeaponAscensionService = require(game.ServerScriptService.WeaponAscensionService)
 local WeaponUpgradeService = require(script.Parent.WeaponUpgradeService)
 local SlotRules=require(script.Parent.WeaponUpgradeRules)
@@ -36,6 +37,7 @@ local economyUpdated = economyRemotes:WaitForChild("EconomyUpdated")
 local ascendWeapon = economyRemotes:WaitForChild("AscendWeaponRE")
 local upgradeForge = economyRemotes:WaitForChild("UpgradeForgeRE")
 local upgradeWeapon = economyRemotes:WaitForChild("UpgradeWeaponRE")
+local rerollSubstat = economyRemotes:WaitForChild("RerollSubstatRE")
 
 -- The existing inventory owns all finished weapons. This server-only function
 -- validates and inserts a weapon through the same runtime/profile path as shop axes.
@@ -181,6 +183,7 @@ local function buildOwnedAxes(player, profile, eligibleAscensionLogs)
 			Ascension = ascension,
 			PassiveSubstats = Substats.Snapshot(item),
 			PassiveSlotCount = Substats.SlotCount(rarity),
+			PassiveReroll = Rerolls.Preview(player,item),
 			Experimental = experimentalName ~= nil,
 			WeaponKind = weaponData and weaponData.WeaponKind,
 			MaterialQuality = weaponData and weaponData.MaterialQuality,
@@ -455,6 +458,17 @@ upgradeWeapon.OnServerEvent:Connect(function(player, uid, mode, family, selectio
 		end
 		economyUpdated:FireClient(player,"Progression")
 	end
+end)
+
+rerollSubstat.OnServerEvent:Connect(function(player,uid,mode,indexOrToken,expectedOrChoice,...)
+	if select("#",...)~=0 then return end
+	if not takeBudget(player,"RerollSubstat") then
+		rerollSubstat:FireClient(player,{Reason="RATE_LIMIT"}); return
+	end
+	local ok,result=pcall(Rerolls.Attempt,player,uid,mode,indexOrToken,expectedOrChoice)
+	if not ok then warn("[SubstatReroll]",result); result={Reason="SERVER_ERROR"} end
+	rerollSubstat:FireClient(player,result)
+	if result.Reason=="ROLLED" then economyUpdated:FireClient(player,"PremiumBalances") end
 end)
 
 -- Premium exchange is independent of gold; all prices server-owned.

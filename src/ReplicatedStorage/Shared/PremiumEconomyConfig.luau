@@ -12,6 +12,10 @@ C.QUEST_REWARDS={
 }
 C.AWAKEN={Coins=5000,Premium=30}
 C.REPLACE={Coins=20000,Premium=100}
+-- Luxury optimization, not a normal progression cost. Earned gems only
+-- until a separate compliant monetization design is approved.
+C.SUBSTAT_REROLL={Uncommon=250,Rare=300,Epic=400,Legendary=500,Mythical=650,
+	Ultra=800,Divine=1000,Celestial=1250,Eternal=1500,Primordial=2000,Transcendent=2500}
 C.ASCENSION_CRYSTALS={
 	Common=1,Uncommon=1,Rare=1,Epic=2,Legendary=2,Mythical=3,
 	Ultra=3,Divine=4,Celestial=5,Eternal=6,Primordial=8,
@@ -29,4 +33,5 @@ for _,reward in pairs(C.QUEST_REWARDS) do assert(type(reward)=="number" and rewa
 for _,recipe in ipairs({C.AWAKEN,C.REPLACE}) do
 	assert(recipe.Coins%1==0 and recipe.Coins>0 and recipe.Premium%1==0 and recipe.Premium>0,"invalid upgrade price")
 end
+for _,price in pairs(C.SUBSTAT_REROLL) do assert(price%1==0 and price>0 and price<=1000000,"invalid reroll price") end
 return C
