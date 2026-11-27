@@ -92,7 +92,8 @@ local function snapshotRecords(logRecords)
 				UID = logRecord.UID,
 				ItemType = "Log",
 				SpeciesId = logRecord.SpeciesId,
-				CarryVisualScale = SpeciesVisuals.GetCarryVisualScale(logRecord.SpeciesId),
+				SizeScale = logRecord.SizeScale or 1,
+				CarryVisualScale = SpeciesVisuals.GetBackpackLayoutScale(logRecord),
 				IsRare = SpeciesVisuals.IsRareLog(logRecord),
 			}
 			seenUids[logRecord.UID] = true
