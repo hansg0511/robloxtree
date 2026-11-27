@@ -22,6 +22,7 @@ Geometry.WEAPON_REFERENCE_LINEAR_SIZE = 1
 Geometry.WEAPON_SCALE_EXPONENT = 0.6
 Geometry.WEAPON_MIN_SCALE = 0.75
 Geometry.WEAPON_MAX_SCALE = 2.5
+Geometry.BACKPACK_COMPRESSION = 0.4 -- uniform across all species and sizes
 Geometry.REACH_MIN = 0.9
 Geometry.REACH_MAX = 1.15
 
