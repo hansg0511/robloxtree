@@ -3,6 +3,7 @@
 -- always supplied by server-owned tree/log records.
 local SpeciesVisuals = {}
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
+local MaterialGeometry = require(game.ReplicatedStorage.Shared.MaterialGeometry)
 local replicatedStorage = game:GetService("ReplicatedStorage")
 local OakLogAppearance = require(replicatedStorage:WaitForChild("Shared"):WaitForChild("OakLogAppearance"))
 
@@ -189,7 +190,7 @@ end
 -- visualScale affects only this disposable model; inventory records deliberately
 -- have no presentation-scale field.
 -- Returns a direct-child Handle plus the direct-child decorative end caps.
-function SpeciesVisuals.CreateLogParts(logRecord, handleName, visualScale)
+function SpeciesVisuals.CreateLogParts(logRecord, handleName, visualScale, physicalDimensions)
 	assert(type(logRecord) == "table", "A server-owned log record is required")
 	local palette = SpeciesVisuals.GetPalette(logRecord.SpeciesId)
 	local modelMultiplier = if type(visualScale) == "number" and visualScale > 0 then visualScale else 1
@@ -199,13 +200,21 @@ function SpeciesVisuals.CreateLogParts(logRecord, handleName, visualScale)
 	-- dimensions exactly four times the unchanged back-stack dimensions.
 	local length = CARRY_LOG_LENGTH * geometryScale
 	local diameter = CARRY_LOG_DIAMETER * geometryScale
+	local height = diameter
+	if physicalDimensions then
+		local l, w, h = MaterialGeometry.Dimensions(logRecord.SpeciesId, logRecord.SizeScale)
+		if l then
+			length, diameter, height = l, w, h
+			geometryScale = diameter / CARRY_LOG_DIAMETER
+		end
+	end
 	local isOak = logRecord.SpeciesId == "Oak"
 
 	local handle = configurePart(Instance.new("Part"))
 	handle.Name = handleName or "Handle"
 	-- Oak uses the smooth layered treatment approved for standardized logs;
 	-- existing non-Oak surface styles and the matching cut ends are preserved.
-	handle.Size = Vector3.new(length, diameter, diameter)
+	handle.Size = Vector3.new(length, height, diameter)
 	handle.CFrame = CFrame.new()
 	handle.Color = palette.Bark
 	handle.Material = Enum.Material.Plastic
