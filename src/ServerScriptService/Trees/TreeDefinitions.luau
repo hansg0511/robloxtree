@@ -81,7 +81,6 @@ local TreeDefinitions = {
 		MaxHP = 100,
 		SpeciesId = "Bamboo",
 		LogYield = 5,
-		FixedSizeScale = 1,
 		YieldsLog = true,
 		RespawnSeconds = 3,
 		OwnerOnly = false,
