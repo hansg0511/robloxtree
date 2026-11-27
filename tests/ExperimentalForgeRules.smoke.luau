@@ -1,5 +1,6 @@
 -- Studio SERVER Command Bar. Pure forge math, no player profiles touched.
 local Rules = require(game.ReplicatedStorage.Shared.ExperimentalForgeRules)
+local Geometry = require(game.ReplicatedStorage.Shared.MaterialGeometry)
 local function check(name, condition)
 	assert(condition, name .. " failed")
 end
@@ -79,12 +80,18 @@ local function fixedRng(values)
 end
 local result = Rules.Roll(25, {
 	{ SpeciesId = "Oak", SizeScale = 5, Mutations = { Golden = true } },
-}, fixedRng({ 0.2, 0.5, 0.5 }))
+}, fixedRng({ 0.2, 0.5 }))
 check("class is deterministic at one log", result.Class == "Dagger")
 check("one perfect log has no quantity bonus", near(result.ForgedQuality, 1))
 check("damage is deterministic", near(result.Damage, (25 + 10) * Rules.CLASS_PROFILES.Dagger.Damage))
 check("100% normal quality attack speed", near(result.AttacksPerSecond, 3))
-check("legacy reach still has its own roll", near(result.Reach, 0.75))
+check("reach is derived from volume-based weapon scale", near(result.Reach, Geometry.Reach(result.WeaponScale)))
+check("5x log volume scales cubically", near(Geometry.Volume("Oak", 5), 125 * Geometry.Volume("Oak", 1)))
+check("mixed volumes use average absolute volume",
+	near(mixed.AverageLogVolume, (Geometry.Volume("Oak", 1) + Geometry.Volume("Ironwood", 4)) / 2))
+check("maximum quality reachable in wild", Geometry.RollWildSize(fixedRng({0.99999})) == 5)
+check("equal size logs of different species can produce different weapon scales",
+	Geometry.WeaponScale(Geometry.Volume("Oak", 1)) > Geometry.WeaponScale(Geometry.Volume("Sapwood", 1)))
 check("legacy Golden metadata gets its own roll", near(result.GoldenBonus, 0.30))
 
 local noMutation = Rules.Roll(25,
