@@ -29,13 +29,13 @@ local TreeDefinitions = {
 		InteractionPartName = "ChopHitbox",
 		ChopRadius = 7,
 	},
-	-- Main Forest 1 harvest tree: eight ordinary 5-damage punches at size 1.
+	-- Main Forest 1 harvest tree: fourteen ordinary 5-damage punches at size 1.
 	-- Reward one-shotting it later through weapon progression.
 	SapwoodTree = {
 		Category = "Grove",
 		ModelName = "SapwoodTree",
 		VisualScaleMultiplier = 0.65,
-		MaxHP = 40,
+		MaxHP = 70,
 		SpeciesId = "Sapwood",
 		LogYield = 2,
 		YieldsLog = true,
@@ -49,8 +49,8 @@ local TreeDefinitions = {
 	StarterForestTree = {
 		Category = "Grove",
 		ModelName = "StarterForestTree",
-		-- Mature wild Oak is the Forest 3 target; balance remains provisional.
-		MaxHP = 175,
+		-- Forest 3 entry with Copper, then a substantial Iron upgrade.
+		MaxHP = 210,
 		SpeciesId = "Oak",
 		YieldsLog = true,
 		RespawnSeconds = 3,
@@ -78,7 +78,7 @@ local TreeDefinitions = {
 		ModelName = "BambooClump",
 		-- Provisional Forest 2 durability; tune in a clean playtest.
 		VisualScaleMultiplier = 1.2,
-		MaxHP = 100,
+		MaxHP = 125,
 		SpeciesId = "Bamboo",
 		LogYield = 5,
 		YieldsLog = true,
