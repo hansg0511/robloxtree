@@ -15,6 +15,8 @@ local Definitions = require(script.Parent.TreeDefinitions)
 local FirstHitClaimRules = require(script.Parent.FirstHitClaimRules)
 local MutationDefinitions = require(game.ServerScriptService.Grove.MutationDefinitions)
 local WorldProgressService = require(game.ServerScriptService.WorldProgressService)
+local PassiveStats = require(game.ServerScriptService.PassiveStats)
+local ProfileCache = require(game.ServerScriptService.PlayerProfile.ProfileService.ProfileDataCache)
 local LogService = require(game.ServerScriptService.Inventory.LogService)
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
 local SaplingDiscoveryService = require(game.ServerScriptService.Grove.SaplingDiscoveryService)
@@ -2138,6 +2140,14 @@ function Tree:TakeDamage(ctx, player)
 	local damage = ctx.Damage
 	if type(damage) ~= "number" or damage ~= damage or damage <= 0 or damage == math.huge then return false end
 
+	-- Boss bonuses apply to the actual destination of each verified hit.
+	-- Ordinary trees and Grove harvests never receive this multiplier.
+	if PassiveStats.IsBossTarget(self) then
+		local data = ProfileCache.GetData(player)
+		if type(data) ~= "table" then return false end
+		local bonuses = PassiveStats.ForPlayer(player,data,os.time())
+		damage = PassiveStats.ScaleBossDamage(self,damage,bonuses.BossDamage)
+	end
 	local appliedDamage = math.min(math.floor(damage), self.HP)
 	if appliedDamage <= 0 then return false end
 	-- Claim ONLY after positive, server-validated HP damage. This is the

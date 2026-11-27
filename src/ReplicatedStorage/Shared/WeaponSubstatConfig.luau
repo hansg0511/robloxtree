@@ -7,6 +7,7 @@ Config.Slots = {
 }
 Config.Stats = {
 	{ Id="Damage", Label="Bonus damage", Min=3, Max=10, Growth=0.02, Weight=1 },
+	{ Id="BossDamage", Label="Boss damage", Min=5, Max=15, Growth=0.02, Weight=1 },
 	{ Id="Haste", Label="Attack speed", Min=2, Max=6, Growth=0.02, Weight=1 },
 	{ Id="CritChance", Label="Critical chance", Min=1, Max=5, Growth=0.02, Weight=1, Points=true },
 	{ Id="CritDamage", Label="Critical damage", Min=5, Max=15, Growth=0.02, Weight=1, Points=true },
