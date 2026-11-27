@@ -263,22 +263,33 @@ function SpeciesVisuals.CreateLogParts(logRecord, handleName, visualScale, physi
 	return handle, caps
 end
 
--- Small, standardized cosmetic log for the character's back cargo. It stays a
--- consistent size across species and has no inventory-driven presentation
--- scale. The caller positions and welds the body and cut-end roots to its
--- character-local cargo anchor; Oak bark and grain parts follow those roots.
+-- Physical dimensions compressed uniformly for back cargo. The caller
+-- positions and welds the roots to the cargo anchor; Oak details follow.
+function SpeciesVisuals.GetBackpackDimensions(logRecord)
+	local length, width, height = MaterialGeometry.Dimensions(logRecord.SpeciesId, logRecord.SizeScale or 1)
+	if not length then
+		local scale = SpeciesVisuals.GetCarryVisualScale(logRecord.SpeciesId)
+		return CARRY_LOG_LENGTH * scale, CARRY_LOG_DIAMETER * scale, CARRY_LOG_DIAMETER * scale
+	end
+	local compression = MaterialGeometry.BACKPACK_COMPRESSION
+	return length * compression, width * compression, height * compression
+end
+
+function SpeciesVisuals.GetBackpackLayoutScale(logRecord)
+	local _, width, height = SpeciesVisuals.GetBackpackDimensions(logRecord)
+	return math.max(width, height) / CARRY_LOG_DIAMETER
+end
 function SpeciesVisuals.CreateCarryLogParts(logRecord)
 	assert(type(logRecord) == "table", "A server-owned log record is required")
 	local palette = SpeciesVisuals.GetPalette(logRecord.SpeciesId)
-	local carryScale = SpeciesVisuals.GetCarryVisualScale(logRecord.SpeciesId)
-	local length = CARRY_LOG_LENGTH * carryScale
-	local diameter = CARRY_LOG_DIAMETER * carryScale
-	local capThickness = CARRY_CAP_THICKNESS * carryScale
+	local length, diameter, height = SpeciesVisuals.GetBackpackDimensions(logRecord)
+	local carryScale = SpeciesVisuals.GetBackpackLayoutScale(logRecord)
+	local capThickness = CARRY_CAP_THICKNESS * diameter / CARRY_LOG_DIAMETER
 	local isOak = logRecord.SpeciesId == "Oak"
 
 	local body = configurePart(Instance.new("Part"))
 	body.Name = "CarryLogBody"
-	body.Size = Vector3.new(length, diameter, diameter)
+	body.Size = Vector3.new(length, height, diameter)
 	body.CFrame = CFrame.new()
 	body.Color = palette.Bark
 	body.Material = Enum.Material.Plastic
