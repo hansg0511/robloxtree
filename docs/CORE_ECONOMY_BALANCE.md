@@ -1,6 +1,27 @@
 # Core economy — first quantitative pass
 
-## Revised World 1 duration target — 2026-11-28 (current)
+## Current World 1 pacing target — 10 active hours (2026-11-28)
+
+User revised the target from 12 to approximately 10 active hours for an average progressing player. Keep early onboarding, ten forests, optional gear mastery and freedom to progress faster with a strong build. Working pacing allocation (not timers or validated predictions):
+
+| Forest | Residence minutes | Cumulative exit minutes |
+|---:|---:|---:|
+| 1 | 4 | 4 |
+| 2 | 4 | 8 |
+| 3 | 12 | 20 |
+| 4 | 30 | 50 |
+| 5 | 45 | 95 |
+| 6 | 70 | 165 |
+| 7 | 95 | 260 |
+| 8 | 105 | 365 |
+| 9 | 110 | 475 |
+| 10 | 125 | 600 |
+
+Steel unlock at F7 entry around 165 minutes (2h45m). Prior hypothetical income rates at 65% farming utilization imply 1,809,909 gross coins before sinks; this is scenario arithmetic only, not a calibrated economy. Rebalance later Forge progression, gear investment and Guardian thresholds jointly; no artificial time locks, mandatory rarity, premium spend or tedious ordinary tree HP inflation. Existing source configuration unchanged. No runtime validation.
+
+---
+
+## Prior World 1 duration target — 12 hours (superseded by 10 hours)
 
 User superseded 3–6h with approximately 12 active hours for an average progressing player, to allow longer intervals between content updates. Keep the first craft 1–2m, Forest2/3 entry ~4/8m, first Iron 10–15m. Stretch mid/late progression rather than onboarding. Proposed pacing allocation (not timers, hard locks, or measured estimates):
 
