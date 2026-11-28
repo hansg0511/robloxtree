@@ -1,4 +1,4 @@
--- Pure save-safe story and recurring quest rules. No rewards for recurring tasks.
+-- Pure save-safe Main Quest and recurring quest rules.
 -- All time/window calculations use server-supplied Unix seconds (UTC).
 local Rules={}
 local Premium=require(game.ReplicatedStorage.Shared.PremiumEconomyConfig)
@@ -27,8 +27,8 @@ Rules.Recurring={
 		{Id="daily_grove_harvest",Title="Grove Care",Description="Harvest 1 mature Grove tree.",Event="GroveHarvested",Target=1},
 	},
 	Weekly={
-		{Id="weekly_wild_chops",Title="Weekly Forest Clearing",Description="Chop 25 wild trees.",Event="WildTreeChopped",Target=25},
-		{Id="weekly_grove_harvest",Title="Weekly Grove Keeper",Description="Harvest 5 mature Grove trees.",Event="GroveHarvested",Target=5},
+		{Id="weekly_wild_chops",Title="Weekly Lumberjack",Description="Complete Daily Lumberjack on 7 different days this week.",DailyTaskId="daily_wild_chops",Target=7},
+		{Id="weekly_grove_harvest",Title="Weekly Grove Keeper",Description="Complete Grove Care on 7 different days this week.",DailyTaskId="daily_grove_harvest",Target=7},
 	},
 }
 Rules.DAILY_SECONDS=86400
@@ -94,7 +94,27 @@ function Rules.Window(category,now)
 	return nil,nil
 end
 
--- Save shape: {Daily={WindowId=int, Counts={taskId=count}}, Weekly=...}.
+-- Weekly counts are derived from unique completed UTC daily windows.
+-- Existing claim IDs stay stable to prevent double payment across migration.
+local function creditDailyCompletions(progress)
+	local daily,weekly=progress.Daily,progress.Weekly
+	local changed=false
+	for _,definition in ipairs(Rules.Recurring.Weekly) do
+		for _,task in ipairs(Rules.Recurring.Daily) do
+			if task.Id==definition.DailyTaskId and daily.Counts[task.Id]>=task.Target
+				and weekly.Counts[definition.Id]<definition.Target
+				and (weekly.LastDailyWindowId[definition.Id] or -math.huge)<daily.WindowId then
+				weekly.LastDailyWindowId[definition.Id]=daily.WindowId
+				weekly.Counts[definition.Id]+=1
+				changed=true
+			end
+		end
+	end
+	return changed
+end
+
+-- Save shape: Daily={WindowId,Counts,Claimed};
+-- Weekly={WindowId,Counts,Claimed,LastDailyWindowId}.
 -- Only current known IDs and integer counts within each target are retained.
 -- A stale/future/invalid window is replaced rather than carrying old credit.
 function Rules.NormalizeRecurring(raw,now)
@@ -109,6 +129,7 @@ function Rules.NormalizeRecurring(raw,now)
 			and type(counts)=="table"
 		local normalizedCounts={}
 		local claimed={}
+		local lastDays={}
 		local previousClaims=if current and type(source.Claimed)=="table" then source.Claimed else {}
 		if not current then changed=true end
 		local allowed={}
@@ -119,8 +140,20 @@ function Rules.NormalizeRecurring(raw,now)
 				if count~=nil then changed=true end
 				count=0
 			end
-			normalizedCounts[definition.Id]=count
 			if previousClaims[definition.Id]==true then claimed[definition.Id]=true end
+			if category==Rules.Categories.Weekly then
+				local last=current and type(source.LastDailyWindowId)=="table" and source.LastDailyWindowId[definition.Id] or nil
+				local firstDay=id*7-3
+				local today=Rules.Window(Rules.Categories.Daily,now)
+				local validLast=nonnegativeInteger(last) and last>=firstDay and last<=today
+				-- Legacy raw-chop counts are not evidence of distinct completed days.
+				local corrected=if claimed[definition.Id] then definition.Target
+					elseif validLast then math.min(count,last-firstDay+1) else 0
+				if corrected~=count or (last~=nil and not validLast) then changed=true end
+				count=corrected
+				if validLast then lastDays[definition.Id]=last end
+			end
+			normalizedCounts[definition.Id]=count
 		end
 		if current then
 			for key in pairs(counts) do
@@ -128,7 +161,9 @@ function Rules.NormalizeRecurring(raw,now)
 			end
 		end
 		clean[category]={WindowId=id,Counts=normalizedCounts,Claimed=claimed}
+		if category==Rules.Categories.Weekly then clean[category].LastDailyWindowId=lastDays end
 	end
+	if creditDailyCompletions(clean) then changed=true end
 	return clean,changed
 end
 
@@ -139,15 +174,14 @@ function Rules.AdvanceRecurring(raw,event,now)
 	if not nextProgress then return nil,false,false end
 	local credited=false
 	if type(event)~="string" then return nextProgress,changed,false end
-	for _,category in ipairs(recurringCategories) do
-		local counts=nextProgress[category].Counts
-		for _,definition in ipairs(Rules.Recurring[category]) do
-			if definition.Event==event and counts[definition.Id]<definition.Target then
-				counts[definition.Id]+=1
-				credited=true
-			end
+	local counts=nextProgress.Daily.Counts
+	for _,definition in ipairs(Rules.Recurring.Daily) do
+		if definition.Event==event and counts[definition.Id]<definition.Target then
+			counts[definition.Id]+=1
+			credited=true
 		end
 	end
+	if creditDailyCompletions(nextProgress) then credited=true end
 	return nextProgress,changed or credited,credited
 end
 

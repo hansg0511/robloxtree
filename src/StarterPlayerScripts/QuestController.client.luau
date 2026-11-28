@@ -74,7 +74,7 @@ local mainHeading=label(panel,"MainHeading","QUESTS",UDim2.fromOffset(13,10),
 	UDim2.fromOffset(330,22),Enum.Font.GothamBold,16)
 local tabs={}
 for index,category in ipairs({"Story","Daily","Weekly"}) do
-	local b=button(panel,"Tab"..category,string.upper(category),
+	local b=button(panel,"Tab"..category,if category=="Story" then "MAIN QUEST" else string.upper(category),
 		UDim2.fromOffset(13+(index-1)*115,38),UDim2.fromOffset(108,30))
 	b.TextSize=12
 	tabs[category]=b
@@ -205,9 +205,9 @@ local function render()
 		claimButton.Text="ALL CLAIMED"
 		claimButton.Active=false
 	else
-		heading.Text=string.format("STORY QUESTS  •  %d / %d",
+		heading.Text=string.format("MAIN QUEST  •  %d / %d",
 			state.Stage or 1,state.TotalStages or 2)
-		title.Text=tostring(state.Title or "Story quest")
+		title.Text=tostring(state.Title or "Main quest")
 		objective.Text=tostring(state.Description or "")
 		progress.Text=string.format("PROGRESS: %d / %d",
 			state.Count or 0,state.Target or 1)

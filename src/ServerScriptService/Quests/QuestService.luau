@@ -1,5 +1,5 @@
--- Server-authoritative Story and recurring quest progress.
--- Only verified gameplay events credit objectives; recurring rewards are deferred.
+-- Server-authoritative Main Quest and recurring quest progress.
+-- Only verified gameplay events credit objectives.
 local Players=game:GetService("Players")
 local HttpService=game:GetService("HttpService")
 local ReplicatedStorage=game:GetService("ReplicatedStorage")
@@ -46,7 +46,7 @@ local function makeState(player)
 		Stage=progress.Stage,
 		TotalStages=#Rules.Story,
 		Completed=definition==nil,
-		-- Progress is live; there are deliberately no recurring rewards yet.
+		-- Recurring claims use server-owned reward configuration.
 		DailyEnabled=true,
 		WeeklyEnabled=true,
 		ServerTime=now,
