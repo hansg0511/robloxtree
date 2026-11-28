@@ -18,7 +18,9 @@ Rules.STUMP_SECONDS = Rules.SECONDS_PER_VISUAL_STEP * 2
 Rules.SAPLING_FRACTION = 0.25
 Rules.MIN_POTENTIAL = 0.1
 Rules.MAX_POTENTIAL = require(script.Parent.SaplingQualityRules).MAX_POTENTIAL
-Rules.MIN_RELATIVE_SIZE = 0.65
+Rules.MIN_RELATIVE_SIZE = 0.50
+-- Inverse-CDF power: 1 is uniform, 0.9 gives a gentle upper-size bias.
+Rules.SIZE_ROLL_EXPONENT = 0.9
 Rules.MAX_HARVEST_COUNT = 1000000
 local function finite(x)
 	return type(x) == "number" and x == x and x > -math.huge and x < math.huge
@@ -62,7 +64,7 @@ end
 function Rules.RollSize(potential, roll)
 	if not Rules.ValidPotential(potential) then return nil end
 	if not finite(roll) or roll < 0 or roll > 1 then return nil end
-	local fraction = Rules.MIN_RELATIVE_SIZE + (1 - Rules.MIN_RELATIVE_SIZE) * roll
+	local fraction = Rules.MIN_RELATIVE_SIZE + (1 - Rules.MIN_RELATIVE_SIZE) * roll^Rules.SIZE_ROLL_EXPONENT
 	local raw = potential * fraction
 	return math.min(potential, math.max(Rules.MIN_POTENTIAL * Rules.MIN_RELATIVE_SIZE,
 		math.floor(raw * 1000 + 0.5) / 1000))

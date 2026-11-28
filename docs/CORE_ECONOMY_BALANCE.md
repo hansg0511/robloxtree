@@ -1,5 +1,11 @@
 # Core economy — first quantitative pass
 
+## Grove mature-size roll revision (current)
+
+User requested a wider size roll, slightly skewed toward larger outcomes. For a sapling with fixed genetic potential P, each new planting/regrowth draws independent U uniform on [0,1], then size = P*(0.5+0.5*U^0.9), rounded to existing three decimal places and capped at P. Range 50–100% (previously uniform 65–100%), mean before rounding 76.3158% of P (uniform new range would be 75%). Probability above 75% is ~53.7%, above 90% ~22.0%. Universal cycle distribution across species; sapling potential distribution, genetic passive, mutations, species, and existing mature/growing size rolls unchanged. Existing minimum size checks derive from the new 0.5 constant; minimum supported mature size 0.05 matches log storage. No growth-time or species-specific genetic distribution changes here; duration equality (initial = regrowth) remains an agreed correction pending a separately selected species table. Existing smoke suite updated for bounds and bias, no runtime execution.
+
+---
+
 ## Grove parallel progression — source balance (2026-11-28)
 
 Goal: Grove develops alongside equipment, breaks up farming, and supplies renewable exact-species/mutation logs at the cost of temporarily losing mature passives. No mandatory waiting or new currencies.
