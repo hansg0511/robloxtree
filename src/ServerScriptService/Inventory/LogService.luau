@@ -3348,6 +3348,7 @@ SellUnlockedLogsRE.OnServerEvent:Connect(function(player, ...)
 	-- Commit ownership and coins before any client-only cosmetic animation.
 	data.Logs = remaining
 	EconomyManager.Add(player, "Coins", Passives.SaleValue(player,data,total,os.time()))
+	require(game.ServerScriptService.LifetimeStatsRules).RecordSale(data,#sold)
 	LogService.NotifyState(player)
 	local displaySold = {}
 	for index = 1, math.min(#sold, 20) do
