@@ -4,7 +4,7 @@ local Rules = {}
 
 Rules.MAX_STORED_LOGS = 240
 Rules.MIN_SIZE_SCALE = 0.05 -- Supports small-genetics Grove crops without losing exact size
-Rules.MAX_SIZE_SCALE = 5
+Rules.MAX_SIZE_SCALE = require(game.ReplicatedStorage.Shared.MaterialGeometry).MAX_PHYSICAL_LOG_SIZE
 Rules.DEFAULT_THRESHOLD = 1.5
 Rules.MIN_THRESHOLD = 1
 Rules.MAX_THRESHOLD = 3

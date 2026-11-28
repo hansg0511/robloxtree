@@ -1,4 +1,5 @@
 -- Shared server-owned acquisition quality; all numeric tuning provisional.
+local Geometry = require(game.ReplicatedStorage.Shared.MaterialGeometry)
 local Rules = {}
 Rules.BANDS = {
 	{ Weight=850, Min=0.70, Max=1.10 },
@@ -23,24 +24,25 @@ for _,weights in pairs(Rules.WEIGHTS_BY_SPECIES) do
 	end
 	assert(total==1000,"size weights must total 1000")
 end
-Rules.GIANT_MULTIPLIER = 1.4
-Rules.MAX_POTENTIAL = 5
+Rules.GIANT_MULTIPLIER = Geometry.GIANT_SIZE_MULTIPLIER
+Rules.BASE_MAX_POTENTIAL = Geometry.MAX_LOG_SIZE
+Rules.MAX_POTENTIAL = Geometry.MAX_PHYSICAL_LOG_SIZE
 Rules.PERFECT_ROLL_DENOMINATOR = 10000
 Rules.PERFECT_WEIGHT = 1
 Rules.GIANT_PERFECT_WEIGHT = 4
 function Rules.WithMutation(base, mutations)
 	local giant=type(mutations)=="table" and mutations.Giant==true
 	local multiplier=if giant then Rules.GIANT_MULTIPLIER else 1
-	-- Giant is allowed to reach the absolute cap via its multiplier.
+	-- Giant scales the full ordinary range, including a perfect 5x base.
 	-- Non-Giant perfect potential still requires the explicit jackpot.
-	local cap=if giant then Rules.MAX_POTENTIAL else Rules.MAX_POTENTIAL-0.001
+	local cap=if giant then Rules.MAX_POTENTIAL else Rules.BASE_MAX_POTENTIAL-0.001
 	return math.min(cap, math.floor(base*multiplier*1000+0.5)/1000)
 end
 function Rules.Wild(mutations, rng, speciesId)
 	local giant=type(mutations)=="table" and mutations.Giant==true
 	local perfectWeight=if giant then Rules.GIANT_PERFECT_WEIGHT else Rules.PERFECT_WEIGHT
 	if rng:NextInteger(1,Rules.PERFECT_ROLL_DENOMINATOR)<=perfectWeight then
-		return Rules.MAX_POTENTIAL
+		return if giant then Rules.MAX_POTENTIAL else Rules.BASE_MAX_POTENTIAL
 	end
 	local draw = rng:NextInteger(1,1000)
 	local sum = 0

@@ -1,7 +1,9 @@
 -- Shared tunable material geometry and wild size rolls. No inventory weight,
 -- mutation potency, or Grove genetics policy belongs here.
 local Geometry = {}
-Geometry.MAX_LOG_SIZE = 5
+Geometry.MAX_LOG_SIZE = 5 -- unmutated size and 100% material-quality reference
+Geometry.GIANT_SIZE_MULTIPLIER = 1.4
+Geometry.MAX_PHYSICAL_LOG_SIZE = Geometry.MAX_LOG_SIZE * Geometry.GIANT_SIZE_MULTIPLIER
 Geometry.BASE_DIMENSIONS = {
 	Sapwood = { Length = 2.5, Width = 0.65, Height = 0.65 },
 	Bamboo = { Length = 4, Width = 0.45, Height = 0.45 },
@@ -44,7 +46,7 @@ function Geometry.Dimensions(speciesId, size)
 	local base = Geometry.BASE_DIMENSIONS[speciesId]
 	if not base or type(size) ~= "number" or size ~= size or size <= 0
 		or size == math.huge then return nil end
-	size = math.min(size, Geometry.MAX_LOG_SIZE)
+	size = math.min(size, Geometry.MAX_PHYSICAL_LOG_SIZE)
 	return base.Length * size, base.Width * size, base.Height * size
 end
 

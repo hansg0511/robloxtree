@@ -1,6 +1,14 @@
 # Core economy — first quantitative pass
 
-## Species-specific Grove balance — current source (2026-11-28)
+## Giant physical size cap — current source (2026-11-28)
+
+User clarified Giant may exceed 5x. Unmutated genetic maximum and 100% material-quality reference remain 5x. Giant multiplier 1.4 gives maximum genetic potential and physical Grove/log size 7x. Explicit 1/2500 Giant jackpot now yields 7x (previously 5x); non-Giant jackpot unchanged at 1/10000 -> 5x. Ordinary non-jackpot bands unchanged, hence non-jackpot Giant maximum still 4.9x today. Existing save validator derives 7x max potential; log storage/grants and shared physical dimensions now support 7x. Existing records unchanged. Forge material quality and mutation potency remain capped at 100% of their existing reference provisionally, not an approved above-100% quality rule. Wild tree base-size roll and wild Giant presentation/size behavior unchanged in this Grove-focused correction; revisit wild Giant scaling separately. Existing size-based sale value and Grove passive formulas continue to use actual size; e.g. 7x vs 5x yields 1.96x sale value and 1.4x Grove passive at equal other properties. No runtime validation.
+
+Combined acquisition+growth distribution approximations (continuous within bands, ignore 0.001 rounding; random wild-discovered sapling and one growth, conditional on species and Giant status, no selection or harvesting cadence weighting). Mean mature size Bamboo/Oak/Ironwood non-Giant 0.7524/0.7784/0.8044; Giant 1.0547/1.0910/1.1274. Non-Giant P(size>=1) 10.9556/14.1508/17.3460%, P(size>=2) 0.5393/0.7778/1.0162%, exact 5x 0.00005%. Giant P(size>=1) 49.4031/52.0396/54.6761%, P(size>=2) 2.0108/3.1912/4.3717%, P(size>=5) 0.0244754%, exact 7x 0.0002%. In a selected 7x sapling, probability of size>=5 is about 61.19%; repeated harvesting is conditional on the same fixed potential, not fresh sapling discovery. No other economic changes.
+
+---
+
+## Species-specific Grove balance — current source (2026-11-28; Giant cap superseded above)
 
 User clarified Giant CAN hit 5x via its 1.4x multiplier (capped at 5); non-Giant perfect still explicit jackpot. Current ordinary non-jackpot max 3.5x means Giant non-jackpot max still 4.9x; if future bands extend above 5/1.4, recompute total Giant perfect probability including cap outcomes. No change to explicit jackpots or exact-potential growth chance.
 
