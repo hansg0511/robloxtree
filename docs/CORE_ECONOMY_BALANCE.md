@@ -1,6 +1,23 @@
 # Core economy — first quantitative pass
 
-## Perfect Grove saplings — source implemented (2026-11-28)
+## Species-specific Grove balance — current source (2026-11-28)
+
+User clarified Giant CAN hit 5x via its 1.4x multiplier (capped at 5); non-Giant perfect still explicit jackpot. Current ordinary non-jackpot max 3.5x means Giant non-jackpot max still 4.9x; if future bands extend above 5/1.4, recompute total Giant perfect probability including cap outcomes. No change to explicit jackpots or exact-potential growth chance.
+
+Initial growth and regrowth now use exactly the same species duration (stump included). Size-independent. Wild sapling acquisition rolls the species-specific band distribution once; re-growth uses universal existing mature-size roll. Species weights below are conditional on non-jackpot; shop stock/potential and guaranteed objective saplings unchanged.
+
+| Species | Growth and regrowth | 0.7–1.1x | 1.1–1.5x | 1.5–2.5x | 2.5–3.5x | Mean potential non-Giant/non-jackpot | Passive multiplier |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Sapwood (fallback; not discovered in wild yet) | 90s | 85% | 12% | 2.7% | 0.3% | 0.984 | 1 |
+| Bamboo | 2m | 85% | 12% | 2.7% | 0.3% | 0.984 | 1 |
+| Oak | 3m | 80% | 15% | 4.7% | 0.3% | 1.018 | 1.15 |
+| Ironwood (legacy availability) | 4m | 75% | 18% | 6.7% | 0.3% | 1.052 | 1.15 |
+
+Conservative early differences rather than extreme production-rate gaps. Bamboo at most 30 logs/slot/hour, Oak 20, Ironwood 15, assuming immediate harvest and no travel; actual rates lower. Slow species have better potential odds and later species receive passive scale upgrades independent of growth profile. Genetics pool shared. The above durations and weights are provisional balance choices; do not force every later forest into a strict increasing duration. When later species are assigned, aim roughly 4–8m mid-world and 10–20m late-world, tight neighboring ratios (about 1.25–1.5x), fast/slow tradeoffs, preserve 0.3% rare band and explicit perfect odds initially, revisit against actual quality/forge/material economy. These later values are guidelines only, not content implemented. Existing trees retain saved size/potential/maturity; subsequent cycles use new species duration. Existing smoke suite adapted, no Studio execution. Next: non-narrative progression objectives and remaining forest content.
+
+---
+
+## Perfect Grove saplings — source implemented (2026-11-28; Giant cap and species bands superseded above)
 
 Wild saplings have an explicit 5x genetic-potential jackpot, conditional on a successful discovery: 1/10000 for non-Giant (including other mutations), 4/10000 for Giant. Separate draw first, then existing size bands conditional on non-jackpot. Those bands remain unchanged: non-jackpot ordinary max 3.5x, Giant max 4.9x. Mutation transform capped at 4.999x defensively so future probability changes cannot accidentally create perfect saplings. Shop/quest awards unchanged, no jackpot in shop. Profile max genetic potential now 5x; log storage already supports 5x. With existing 94% ordinary wild lives at 10% sapling drop, 6% mutated lives at 20% drop, and 1/4 of mutations Giant, base perfect probability per eligible tree = .103*.0001+.003*.0004=.0000115 (~1 in 86,957 eligible kills, before seedfinder). 
 

@@ -90,8 +90,8 @@ function SaplingDiscoveryService.RollWildTreeMutations(chanceDraw,kindDraw)
 	return {}
 end
 
-local function rollSizePotential(mutations)
-	return Quality.Wild(mutations, random)
+local function rollSizePotential(mutations,speciesId)
+	return Quality.Wild(mutations, random,speciesId)
 end
 
 local function makeClientRecord(record)
@@ -150,7 +150,7 @@ function SaplingDiscoveryService.AwardForTreeDeath(tree, contributions, deathGen
 		UID = uid,
 		SpeciesId = speciesId,
 		Mutations = inherited,
-		SizePotential = rollSizePotential(inherited),
+		SizePotential = rollSizePotential(inherited,speciesId),
 		GeneticPassive = Passives.RollGenetic(),
 		CreatedAt = os.time(),
 	}

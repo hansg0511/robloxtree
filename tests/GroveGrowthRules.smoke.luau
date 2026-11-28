@@ -75,15 +75,15 @@ check("rolled sizes still differ", cycleSmall.CurrentSizeScale < cycleLarge.Curr
 check("lineage isn't modified", cycleSmall.SourceSaplingUID == nil)
 check("harvest count increments once", cycleSmall.HarvestCount == 3)
 check("invalid cycle rejected", rules.NextCycle({ SizePotential = 0 }, 2000, 0.5) == nil)
-for _,spec in ipairs({{"Bamboo",45,120},{"Oak",60,180},{"Ironwood",120,300}}) do
-	local species,initial,regrowth=spec[1],spec[2],spec[3]
-	check("species initial growth "..species,rules.DurationForSize(1,species,false)==initial)
-	check("species large growth "..species,rules.DurationForSize(4.9,species,false)==initial)
+for _,spec in ipairs({{"Sapwood",90},{"Bamboo",120},{"Oak",180},{"Ironwood",240}}) do
+	local species,duration=spec[1],spec[2]
+	check("species initial growth "..species,rules.DurationForSize(1,species)==duration)
+	check("species large growth "..species,rules.DurationForSize(5,species)==duration)
 	local cycle=rules.NextCycle({SpeciesId=species,SizePotential=1,HarvestCount=1},2000,0.5)
-	check("species regrowth "..species,cycle and cycle.MaturesAt==2000+regrowth)
-	check("species deadline authoritative "..species,rules.Stage(cycle,2000+regrowth-1)~="mature" and rules.Stage(cycle,2000+regrowth)=="mature")
+	check("species regrowth equals initial "..species,cycle and cycle.MaturesAt==2000+duration)
+	check("species deadline authoritative "..species,rules.Stage(cycle,2000+duration-1)~="mature" and rules.Stage(cycle,2000+duration)=="mature")
 end
-check("unknown species fails closed",rules.DurationForSize(1,"Unknown",false)==nil)
+check("unknown species fails closed",rules.DurationForSize(1,"Unknown")==nil)
 
 -- Legacy persisted cycle deadlines remain authoritative; we do not
 -- rewrite or restart a tree that is already partway through growth.
@@ -129,12 +129,21 @@ check("ordinary jackpot exact 5x",Quality.Wild({},jackpotRng(1))==5)
 check("ordinary jackpot boundary",Quality.Wild({},jackpotRng(2))==3.5)
 check("Giant jackpot exact 5x",Quality.Wild({Giant=true},jackpotRng(4))==5)
 check("Giant jackpot boundary",Quality.Wild({Giant=true},jackpotRng(5))==4.9)
-check("mutation transform cannot round up to perfect",Quality.WithMutation(5,{Giant=true})<5)
+check("Giant transform can reach perfect",Quality.WithMutation(3.6,{Giant=true})==5)
+check("non-Giant transform cannot round up to perfect",Quality.WithMutation(5,{})<5)
 for _, draw in ipairs({1,850,851,970,971,997,998,1000}) do
 	local rng={NextInteger=function(_,lo,hi) return if hi==10000 then 10000 else draw end,NextNumber=function(_,lo,hi) return hi end}
 	local expected=if draw<=850 then 1.1 elseif draw<=970 then 1.5 elseif draw<=997 then 2.5 else 3.5
 	check("wild size band boundary",Quality.Wild({},rng)==expected)
 	check("Giant uses same band with multiplier",math.abs(Quality.Wild({Giant=true},rng)-expected*1.4)<0.001)
+end
+for _,spec in ipairs({{"Bamboo",850,970},{"Oak",800,950},{"Ironwood",750,930}}) do
+	local species,first,second=spec[1],spec[2],spec[3]
+	for _,draw in ipairs({1,first,first+1,second,second+1,997,998,1000}) do
+		local rng={NextInteger=function(_,lo,hi) return if hi==10000 then 10000 else draw end,NextNumber=function(_,lo,hi) return hi end}
+		local expected=if draw<=first then 1.1 elseif draw<=second then 1.5 elseif draw<=997 then 2.5 else 3.5
+		check("species band boundary "..species,Quality.Wild({},rng,species)==expected)
+	end
 end
 for step=0,24 do
 	local t=now+step*Shop.RESTOCK_SECONDS

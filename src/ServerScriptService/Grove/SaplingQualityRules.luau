@@ -6,18 +6,37 @@ Rules.BANDS = {
 	{ Weight=27, Min=1.50, Max=2.50 },
 	{ Weight=3, Min=2.50, Max=3.50 },
 }
+-- Conditional non-jackpot band weights. Faster growth trades quality
+-- odds for harvest frequency. The extreme band and jackpot stay scarce.
+Rules.WEIGHTS_BY_SPECIES = {
+	Sapwood = {850,120,27,3},
+	Bamboo = {850,120,27,3},
+	Oak = {800,150,47,3},
+	Ironwood = {750,180,67,3},
+}
+for _,weights in pairs(Rules.WEIGHTS_BY_SPECIES) do
+	local total=0
+	assert(#weights==#Rules.BANDS,"size band mismatch")
+	for _,weight in ipairs(weights) do
+		assert(weight>=0 and weight%1==0,"invalid size weight")
+		total+=weight
+	end
+	assert(total==1000,"size weights must total 1000")
+end
 Rules.GIANT_MULTIPLIER = 1.4
 Rules.MAX_POTENTIAL = 5
 Rules.PERFECT_ROLL_DENOMINATOR = 10000
 Rules.PERFECT_WEIGHT = 1
 Rules.GIANT_PERFECT_WEIGHT = 4
 function Rules.WithMutation(base, mutations)
-	local multiplier = if type(mutations)=="table" and mutations.Giant==true then Rules.GIANT_MULTIPLIER else 1
-	-- Only the explicit wild jackpot can create exactly 5x potential,
-	-- even if future ordinary size bands exceed today's 3.5x maximum.
-	return math.min(Rules.MAX_POTENTIAL-0.001, math.floor(base*multiplier*1000+0.5)/1000)
+	local giant=type(mutations)=="table" and mutations.Giant==true
+	local multiplier=if giant then Rules.GIANT_MULTIPLIER else 1
+	-- Giant is allowed to reach the absolute cap via its multiplier.
+	-- Non-Giant perfect potential still requires the explicit jackpot.
+	local cap=if giant then Rules.MAX_POTENTIAL else Rules.MAX_POTENTIAL-0.001
+	return math.min(cap, math.floor(base*multiplier*1000+0.5)/1000)
 end
-function Rules.Wild(mutations, rng)
+function Rules.Wild(mutations, rng, speciesId)
 	local giant=type(mutations)=="table" and mutations.Giant==true
 	local perfectWeight=if giant then Rules.GIANT_PERFECT_WEIGHT else Rules.PERFECT_WEIGHT
 	if rng:NextInteger(1,Rules.PERFECT_ROLL_DENOMINATOR)<=perfectWeight then
@@ -25,8 +44,9 @@ function Rules.Wild(mutations, rng)
 	end
 	local draw = rng:NextInteger(1,1000)
 	local sum = 0
-	for _, band in ipairs(Rules.BANDS) do
-		sum += band.Weight
+	local weights=Rules.WEIGHTS_BY_SPECIES[speciesId]
+	for i, band in ipairs(Rules.BANDS) do
+		sum += if weights then weights[i] else band.Weight
 		if draw <= sum then
 			return Rules.WithMutation(rng:NextNumber(band.Min,band.Max), mutations)
 		end

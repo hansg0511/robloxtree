@@ -8,10 +8,10 @@ Rules.SECONDS_PER_VISUAL_STEP = 2
 Rules.MATURITY_SECONDS = 30
 Rules.TOTAL_CYCLE_STEPS = Rules.MATURITY_SECONDS / Rules.SECONDS_PER_VISUAL_STEP
 Rules.SPECIES_GROWTH = {
-	Sapwood = { Initial=45, Regrowth=120 },
-	Bamboo = { Initial=45, Regrowth=120 },
-	Oak = { Initial=60, Regrowth=180 },
-	Ironwood = { Initial=120, Regrowth=300 },
+	Sapwood = 90,
+	Bamboo = 120,
+	Oak = 180,
+	Ironwood = 240,
 }
 -- The stump/cinematic hold is INCLUDED in the saved regrowth deadline.
 Rules.STUMP_SECONDS = Rules.SECONDS_PER_VISUAL_STEP * 2
@@ -29,16 +29,14 @@ end
 
 -- Bigger saplings are a reward, not a longer wait. Saved MaturesAt
 -- remains authoritative. Unknown species fail closed in real planting.
-function Rules.DurationForSize(currentSize, speciesId, isRegrowth)
+function Rules.DurationForSize(currentSize, speciesId)
 	if not finite(currentSize) or currentSize <= 0 then return nil end
 	if speciesId==nil then return Rules.MATURITY_SECONDS end -- legacy callers/fixtures
-	local spec=Rules.SPECIES_GROWTH[speciesId]
-	if not spec then return nil end
-	return if isRegrowth then spec.Regrowth else spec.Initial
+	return Rules.SPECIES_GROWTH[speciesId]
 end
 
-function Rules.StepsForSize(currentSize, speciesId, isRegrowth)
-	local duration=Rules.DurationForSize(currentSize,speciesId,isRegrowth)
+function Rules.StepsForSize(currentSize, speciesId)
+	local duration=Rules.DurationForSize(currentSize,speciesId)
 	if not duration then return nil end
 	return math.ceil(duration/Rules.SECONDS_PER_VISUAL_STEP)
 end
@@ -138,7 +136,7 @@ function Rules.NextCycle(record, now, roll)
 	if count >= Rules.MAX_HARVEST_COUNT then return nil end
 	local size = Rules.RollSize(record.SizePotential, roll)
 	if not size then return nil end
-	local duration=Rules.DurationForSize(size,record.SpeciesId,true)
+	local duration=Rules.DurationForSize(size,record.SpeciesId)
 	if not duration then return nil end
 	return {
 		PlantedAt = now,
