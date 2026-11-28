@@ -1,5 +1,23 @@
 # Core economy — first quantitative pass
 
+## Grove parallel progression — source balance (2026-11-28)
+
+Goal: Grove develops alongside equipment, breaks up farming, and supplies renewable exact-species/mutation logs at the cost of temporarily losing mature passives. No mandatory waiting or new currencies.
+
+| Species | Initial growth | Regrowth | Passive scale |
+|---|---:|---:|---:|
+| Bamboo | 45s | 120s | 1 |
+| Oak | 60s | 180s | 1.15 |
+| Ironwood (legacy) | 120s | 300s | 1.15 |
+
+Sapwood fallback 45/120s and multiplier 1 (not currently a wild sapling acquisition source). Species-specific durations apply to new planting/regrowth, independent of size. Existing persisted MaturesAt is never rewritten; offline wall-clock growth already supported, one mature harvest maximum per tree, no accumulation or automatic harvesting. Stump hold included. One protected log per harvest, rerolls actual size within 65–100% of genetic potential; no new Heartwood or additional yield. Mature-only passives unchanged. Size-dependent bonus is already a strong incentive to retain excellent specimens. Later species provisional multiplier anchors F4–10 1.25/1.35/1.45/1.55/1.65/1.75/1.85, regrowth 4/5/6/8/10/12/15m, not implemented and subject to joint boss balance; early shop Ironwood deliberately has no out-of-order passive advantage. Acquisition remains 10% ordinary drop, 6% mutated life, 20% mutated drop conditional on mutation; quality bands/genetics/shop stock remain unchanged. Exceptional size+mutation+desired genetic combinations already scarce. No new acquisition system.
+
+Grove expansion costs 500/2500/10000/40000/120000 for 4/5/6/8/10 slots (total 173000, previously 62000); first upgrade unchanged, existing unlocked levels preserved. Latest 10h income budget must account for this, not old Grove cost. Harvesting should alternate with normal play; 3 Oak trees theoretically yield 60 logs/hour on immediate recurring harvest, 10 Oak trees 200/hour, before collection travel, passive opportunity costs and storage; rare-size/mutated material accumulation will need observation. Larger future species take longer to regrow. Do not add log harvest timers beyond the existing per-tree deadline or offline resource accumulation. Shop and quest intro unchanged; future species acquisition/access gates need proper content design. Grove manager displays countdown to maturity from persisted timestamp, presentation only.
+
+Existing Grove growth smoke suite updated for species deadlines and old persisted deadlines; no new suite, no Studio test. Check growth visual stepping at longer durations, maturity/rejoin, current-size rolls, passive loss/restore, capacity purchases and UI countdown. Actual progress times and Grove farming profitability unknown. Next: progression objectives (no narrative) and future species/layout; joint 10h balancing continues.
+
+---
+
 ## Weapon XP curve — current source balance (2026-11-28)
 
 World 1 target remains ~10 active hours; player explicitly wants multiple meaningful goals, not ten hours of coins. Game is an incremental/tycoon, not a narrative RPG. Use progression objectives/tutorials/challenges rather than story-driven quests; optional event lore is fine. Existing technical Story quest category is retained for save/remote compatibility until a presentation rename is needed.

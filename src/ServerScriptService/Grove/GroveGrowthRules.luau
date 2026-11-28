@@ -2,15 +2,18 @@
 -- stays fixed while each mature growth cycle rolls a bounded actual size.
 local Rules = {}
 
--- Temporary test pacing: all newly planted / regrowing Grove trees take
--- exactly 30 seconds, regardless of actual or genetic size. There are
--- fifteen two-second clock intervals in the entire cycle.
+-- Legacy visual defaults are retained for old fixtures; production planting
+-- and regrowth use the species-specific duration table below.
 Rules.SECONDS_PER_VISUAL_STEP = 2
 Rules.MATURITY_SECONDS = 30
 Rules.TOTAL_CYCLE_STEPS = Rules.MATURITY_SECONDS / Rules.SECONDS_PER_VISUAL_STEP
--- Following a harvest, the first two intervals are stump/cinematic hold
--- (the falling tree presentation lasts ~2.6 seconds). They are INCLUDED in
--- the 30-second deadline, not added on top.
+Rules.SPECIES_GROWTH = {
+	Sapwood = { Initial=45, Regrowth=120 },
+	Bamboo = { Initial=45, Regrowth=120 },
+	Oak = { Initial=60, Regrowth=180 },
+	Ironwood = { Initial=120, Regrowth=300 },
+}
+-- The stump/cinematic hold is INCLUDED in the saved regrowth deadline.
 Rules.STUMP_SECONDS = Rules.SECONDS_PER_VISUAL_STEP * 2
 Rules.SAPLING_FRACTION = 0.25
 Rules.MIN_POTENTIAL = 0.1
@@ -21,18 +24,20 @@ local function finite(x)
 	return type(x) == "number" and x == x and x > -math.huge and x < math.huge
 end
 
--- Keep the existing API while freezing size-dependent growth for testing.
--- We validate the input but intentionally ignore its magnitude. Once we're
--- ready to balance large-vs-small trees, only these rules need to change.
--- Existing saved trees retain their MaturesAt rather than being retimed.
-function Rules.StepsForSize(currentSize)
+-- Bigger saplings are a reward, not a longer wait. Saved MaturesAt
+-- remains authoritative. Unknown species fail closed in real planting.
+function Rules.DurationForSize(currentSize, speciesId, isRegrowth)
 	if not finite(currentSize) or currentSize <= 0 then return nil end
-	return Rules.TOTAL_CYCLE_STEPS
+	if speciesId==nil then return Rules.MATURITY_SECONDS end -- legacy callers/fixtures
+	local spec=Rules.SPECIES_GROWTH[speciesId]
+	if not spec then return nil end
+	return if isRegrowth then spec.Regrowth else spec.Initial
 end
 
-function Rules.DurationForSize(currentSize)
-	if not Rules.StepsForSize(currentSize) then return nil end
-	return Rules.MATURITY_SECONDS
+function Rules.StepsForSize(currentSize, speciesId, isRegrowth)
+	local duration=Rules.DurationForSize(currentSize,speciesId,isRegrowth)
+	if not duration then return nil end
+	return math.ceil(duration/Rules.SECONDS_PER_VISUAL_STEP)
 end
 
 function Rules.ValidPotential(x)
@@ -125,9 +130,11 @@ function Rules.NextCycle(record, now, roll)
 	if count >= Rules.MAX_HARVEST_COUNT then return nil end
 	local size = Rules.RollSize(record.SizePotential, roll)
 	if not size then return nil end
+	local duration=Rules.DurationForSize(size,record.SpeciesId,true)
+	if not duration then return nil end
 	return {
 		PlantedAt = now,
-		MaturesAt = now + Rules.DurationForSize(size),
+		MaturesAt = now + duration,
 		CurrentSizeScale = size,
 		HarvestCount = count + 1,
 	}

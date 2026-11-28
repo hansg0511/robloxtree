@@ -3,14 +3,14 @@
 local Growth = require(script.Parent.GroveGrowthRules)
 local Rules = {}
 Rules.START_CAPACITY = 3
--- Neutral placeholders until joint weapon/Grove/economy balancing.
--- Later forest species should receive progressively stronger passives.
--- This is independent of material strength, sale price and growth duration.
+-- Later species confer stronger passives per unit of actual mature size.
+-- Legacy Ironwood is not yet assigned to its future forest; do not give
+-- its early shop availability an out-of-order passive power spike.
 Rules.SPECIES_PASSIVE_MULTIPLIERS = {
 	Sapwood = 1,
 	Bamboo = 1,
-	Oak = 1,
-	Ironwood = 1,
+	Oak = 1.15,
+	Ironwood = 1.15,
 }
 Rules.GENETICS = {
 	Strength = { Damage = 0.03 },

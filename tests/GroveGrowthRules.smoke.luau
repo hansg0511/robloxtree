@@ -1,4 +1,4 @@
--- Roblox Studio SERVER Command Bar. Fixed 30-second Grove pacing tests.
+-- Roblox Studio SERVER Command Bar. Legacy deadlines and species growth pacing.
 -- Existing records with different persisted deadlines must remain unchanged.
 local rules = require(game.ServerScriptService.Grove.GroveGrowthRules)
 local function check(name, ok) assert(ok, name .. " failed") end
@@ -68,6 +68,15 @@ check("rolled sizes still differ", cycleSmall.CurrentSizeScale < cycleLarge.Curr
 check("lineage isn't modified", cycleSmall.SourceSaplingUID == nil)
 check("harvest count increments once", cycleSmall.HarvestCount == 3)
 check("invalid cycle rejected", rules.NextCycle({ SizePotential = 0 }, 2000, 0.5) == nil)
+for _,spec in ipairs({{"Bamboo",45,120},{"Oak",60,180},{"Ironwood",120,300}}) do
+	local species,initial,regrowth=spec[1],spec[2],spec[3]
+	check("species initial growth "..species,rules.DurationForSize(1,species,false)==initial)
+	check("species large growth "..species,rules.DurationForSize(4.9,species,false)==initial)
+	local cycle=rules.NextCycle({SpeciesId=species,SizePotential=1,HarvestCount=1},2000,0.5)
+	check("species regrowth "..species,cycle and cycle.MaturesAt==2000+regrowth)
+	check("species deadline authoritative "..species,rules.Stage(cycle,2000+regrowth-1)~="mature" and rules.Stage(cycle,2000+regrowth)=="mature")
+end
+check("unknown species fails closed",rules.DurationForSize(1,"Unknown",false)==nil)
 
 -- Legacy persisted cycle deadlines remain authoritative; we do not
 -- rewrite or restart a tree that is already partway through growth.

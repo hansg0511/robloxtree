@@ -699,8 +699,10 @@ renderTreeManager=function()
 	local mutations=formatMutationNames(tree.Mutations)
 	local name=if mutations=="" then tostring(tree.SpeciesId)
 		else mutations.." "..tostring(tree.SpeciesId)
+	local seconds=math.max(0,math.ceil((tonumber(tree.MaturesAt) or os.time())-os.time()))
+	local stageText=if tree.Stage=="mature" then "mature" else string.format("%s • %dm %02ds remaining",tostring(tree.Stage or "growing"),math.floor(seconds/60),seconds%60)
 	managerDetails.Text=string.format("%s\nGenetic potential: %.2fx  •  Current size: %.2fx\nStage: %s",
-		name,tonumber(tree.SizePotential) or 1,tonumber(tree.CurrentSizeScale) or 1,tostring(tree.Stage or "growing"))
+		name,tonumber(tree.SizePotential) or 1,tonumber(tree.CurrentSizeScale) or 1,stageText)
 	managerPassives.Text=tostring(tree.GeneticPassive or "Unknown").." • "..(if tree.Stage == "mature" then "ACTIVE: "..formatPassives(tree.Passives)
 		else "INACTIVE UNTIL MATURE")
 	managerTotals.Text="TOTAL GROVE BONUSES\n"..formatPassives(passiveTotals)
@@ -1489,6 +1491,16 @@ task.spawn(function()
 		task.wait(1)
 		if not cleanedUp and panel.Visible then
 			renderRestock()
+			if managerOpen and groveManagerPanel.Visible then
+				local tree=selectedManagedTree()
+				if tree and tree.Stage~="mature" then
+					local seconds=math.max(0,math.ceil((tonumber(tree.MaturesAt) or os.time())-os.time()))
+					local mutations=formatMutationNames(tree.Mutations)
+					local name=if mutations=="" then tostring(tree.SpeciesId) else mutations.." "..tostring(tree.SpeciesId)
+					managerDetails.Text=string.format("%s\nGenetic potential: %.2fx  •  Current size: %.2fx\nStage: %s • %dm %02ds remaining",
+						name,tonumber(tree.SizePotential) or 1,tonumber(tree.CurrentSizeScale) or 1,tostring(tree.Stage or "growing"),math.floor(seconds/60),seconds%60)
+				end
+			end
 			if not shopSnapshot or os.time()>=shopSnapshot.RestockAt or os.time()%10==0 then refreshSaplingShop() end
 		end
 	end

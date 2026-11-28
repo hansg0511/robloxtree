@@ -706,7 +706,7 @@ local function plantSapling(player, saplingUID, localX, localZ)
 	local yaw = Random.new():NextNumber(0, math.pi * 2)
 	local rolledSize = GroveGrowthRules.RollSize(sapling.SizePotential, Random.new():NextNumber())
 	if not rolledSize then return false end
-	local duration = GroveGrowthRules.DurationForSize(rolledSize)
+	local duration = GroveGrowthRules.DurationForSize(rolledSize,sapling.SpeciesId,false)
 	if not duration then return false end
 	local groveRecord = {
 		UID = uid,

@@ -3,10 +3,10 @@ local Rules = {}
 Rules.LEVELS = {
 	[1] = { Capacity = 3, MaxMutations = 1, UpgradeCoins = 0 },
 	[2] = { Capacity = 4, MaxMutations = 1, UpgradeCoins = 500 },
-	[3] = { Capacity = 5, MaxMutations = 2, UpgradeCoins = 1500 },
-	[4] = { Capacity = 6, MaxMutations = 2, UpgradeCoins = 5000 },
-	[5] = { Capacity = 8, MaxMutations = 3, UpgradeCoins = 15000 },
-	[6] = { Capacity = 10, MaxMutations = 4, UpgradeCoins = 40000 },
+	[3] = { Capacity = 5, MaxMutations = 2, UpgradeCoins = 2500 },
+	[4] = { Capacity = 6, MaxMutations = 2, UpgradeCoins = 10000 },
+	[5] = { Capacity = 8, MaxMutations = 3, UpgradeCoins = 40000 },
+	[6] = { Capacity = 10, MaxMutations = 4, UpgradeCoins = 120000 },
 }
 function Rules.NormalizeLevel(level)
 	return if type(level) == "number" and level == level and Rules.LEVELS[level] then level else 1
