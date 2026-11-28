@@ -16,6 +16,7 @@ local MutationDefinitions = require(game.ServerScriptService.Grove.MutationDefin
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
 
 local VALID_GROVE_STAGES = {
+	stump = true,
 	sapling = true,
 	young = true,
 	mature = true,
@@ -74,7 +75,40 @@ function TreeVisualModifiers.Apply(model, context)
 	model:SetAttribute("VisualGrowthStage", groveStage)
 	model:SetAttribute("VisualSizePotential", sizePotential)
 	model:SetAttribute("VisualScale", currentScale)
-	model:SetAttribute("VisualModifierVersion", 1)
+	model:SetAttribute("VisualModifierVersion", 2)
+
+	-- Readable rarity at a glance: a restrained colored outline on
+	-- truly mutated trees. Reuses one Highlight per model (no per-frame
+	-- instances or expensive foliage recoloring). Rare wild trees show
+	-- the SAME mutation the owner can inherit through sapling discovery.
+	local colors={
+		Golden=Color3.fromRGB(255,209,65),
+		Frenzied=Color3.fromRGB(255,100,114),
+		Shocked=Color3.fromRGB(87,193,255),
+		Giant=Color3.fromRGB(197,122,255),
+		Crystal=Color3.fromRGB(139,232,223),
+	}
+	local color
+	for _,mutationId in ipairs({"Golden","Frenzied","Shocked","Giant","Crystal"}) do
+		if mutations[mutationId]==true then
+			color=colors[mutationId]
+			break
+		end
+	end
+	local old=model:FindFirstChild("MutationOutline")
+	if color then
+		local outline=if old and old:IsA("Highlight") then old else Instance.new("Highlight")
+		outline.Name="MutationOutline"
+		outline.Adornee=model
+		outline.FillColor=color
+		outline.FillTransparency=0.92
+		outline.OutlineColor=color
+		outline.OutlineTransparency=0.03
+		outline.DepthMode=Enum.HighlightDepthMode.Occluded
+		outline.Parent=model
+	elseif old then
+		old:Destroy()
+	end
 
 	return true
 end

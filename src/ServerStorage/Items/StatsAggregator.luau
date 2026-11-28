@@ -1,6 +1,10 @@
 local statDatabase = require(script.Parent.StatsDatabase)
 local StatAggregator = {}
 local playerProfileCache = require(game.ServerScriptService.PlayerProfile.ProfileService.ProfileDataCache)
+local WeaponProgressionRules = require(game.ServerScriptService.WeaponProgressionRules)
+local Substats = require(game.ServerScriptService.WeaponSubstatRules)
+
+local BASE_ATTACK = 5
 
 function StatAggregator.CollectSources(player)
 	local sources = {
@@ -9,7 +13,7 @@ function StatAggregator.CollectSources(player)
 			SourceId = "Base",
 			Stats = {
 				CritChance = 5,
-				Attack = 5,
+				Attack = BASE_ATTACK,
 				CritDamage = 200 
 			}
 		}
@@ -30,6 +34,16 @@ function StatAggregator.CollectSources(player)
 			SourceId = weaponUID .. "SubStats",
 			Stats = weapon.ItemSubstat or {}
 		})
+		-- Add level/rarity growth as a separate derived stat source.
+		-- The original forged ItemStats.Attack must never be rewritten here.
+		local bonusAttack = WeaponProgressionRules.DerivedAttackBonus(weapon, BASE_ATTACK)
+		if bonusAttack > 0 then
+			table.insert(sources, {
+				SourceType = "WeaponProgression",
+				SourceId = weaponUID .. "Progression",
+				Stats = { Attack = bonusAttack },
+			})
+		end
 	end
 
 	-- Active pets
@@ -74,7 +88,10 @@ function StatAggregator.Aggregate(player)
 	for stat, mult in pairs(multipliers) do
 		final[stat] = (final[stat] or 0) * mult
 	end
-	playerProfileCache.GetProfile(player).Data.Runtime.FinalStats = final
+	local runtime=playerProfileCache.GetProfile(player).Data.Runtime
+	local equipped=runtime.EquippedWeaponUID and runtime.Weapon[runtime.EquippedWeaponUID]
+	player:SetAttribute("WeaponPassiveHaste", Substats.Totals(equipped).Haste or 0)
+	runtime.FinalStats = final
 	return final
 end
 

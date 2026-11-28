@@ -57,4 +57,8 @@ function BaseStationAccess.CanUseForge(player)
 	return canUseStation(player, "ForgeStation")
 end
 
+function BaseStationAccess.CanUseGroveShop(player)
+	return canUseStation(player, "GroveShopStation")
+end
+
 return BaseStationAccess

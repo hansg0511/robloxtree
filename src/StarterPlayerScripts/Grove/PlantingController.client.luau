@@ -8,6 +8,11 @@ local UserInputService = game:GetService("UserInputService")
 local ContextActionService = game:GetService("ContextActionService")
 local RunService = game:GetService("RunService")
 local GuiService = game:GetService("GuiService")
+local ProximityPromptService=game:GetService("ProximityPromptService")
+local shopRF = ReplicatedStorage:WaitForChild("Grove"):WaitForChild("GetSaplingShopRF")
+local buySaplingRE = ReplicatedStorage:WaitForChild("Grove"):WaitForChild("BuySaplingRE")
+local uprootGroveTreeRE = ReplicatedStorage:WaitForChild("Grove"):WaitForChild("UprootGroveTreeRE")
+local upgradeGroveRE = ReplicatedStorage:WaitForChild("Grove"):WaitForChild("UpgradeGroveRE")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -34,7 +39,24 @@ local hasAssignedGrove = false
 local latestStateRevision = -1
 local saplings = {}
 local groveMaterials = {}
+local groveTrees = {}
 local selectedSaplingUID
+local selectedGroveTreeUID
+local groveCapacity = 3 -- overwritten by the server snapshot
+local groveLevel = 1
+local groveMaxMutations = 1
+local nextGroveUpgrade
+local upgradePending = false
+local passiveTotals = {}
+local managerOpen = false
+local stallOpen=false
+local uprootPending = false
+local confirmUprootUID
+local confirmUprootUntil = 0
+local groveManagerPanel
+local selectionHighlight
+local renderTreeManager
+local render
 local plantingMode = false
 local pendingPlantUID
 local plantingAttemptId = 0
@@ -80,11 +102,55 @@ local panel = Instance.new("Frame")
 panel.Name = "StatusPanel"
 panel.AnchorPoint = Vector2.new(0, 1)
 panel.Position = UDim2.new(0, 18, 1, -18)
-panel.Size = UDim2.fromOffset(372, 210)
+panel.Size = UDim2.fromOffset(372, 486)
 panel.BackgroundColor3 = Color3.fromRGB(21, 29, 25)
 panel.BackgroundTransparency = 0.08
 panel.BorderSizePixel = 0
 panel.Parent = screenGui
+
+-- Debug management panel is strictly contextual. Leaving the stall or
+-- opening another economy modal closes it, never automatically reopens it.
+local function nearGroveStall()
+	local world=Workspace:FindFirstChild("SourceWorld")
+	local station=world and world:FindFirstChild("GroveShopStation")
+	local interaction=station and station:FindFirstChild("Interaction")
+	local root=player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+	if not interaction or not interaction:IsA("BasePart") or not root then return false end
+	local distance=interaction:GetAttribute("UseDistance")
+	if type(distance)~="number" or distance<=0 then return false end
+	local pos=interaction.CFrame:PointToObjectSpace(root.Position)
+	local half=interaction.Size*0.5
+	local closest=Vector3.new(math.clamp(pos.X,-half.X,half.X),math.clamp(pos.Y,-half.Y,half.Y),math.clamp(pos.Z,-half.Z,half.Z))
+	return (pos-closest).Magnitude<=distance
+end
+local function syncGrovePanelWithEconomy()
+	if playerGui:GetAttribute("EconomyModalOpen")==true or not nearGroveStall() then stallOpen=false end
+	panel.Visible=stallOpen
+	if not stallOpen then
+		managerOpen=false
+		confirmUprootUID=nil
+		confirmUprootUntil=0
+		if selectionHighlight then selectionHighlight.Enabled=false end
+	end
+	if groveManagerPanel then groveManagerPanel.Visible=stallOpen and managerOpen end
+end
+local function closeStall()
+	stallOpen=false
+	syncGrovePanelWithEconomy()
+end
+keepConnection(playerGui:GetAttributeChangedSignal("EconomyModalOpen"):Connect(syncGrovePanelWithEconomy))
+syncGrovePanelWithEconomy()
+local closeButton=Instance.new("TextButton")
+closeButton.Name="CloseGroveShop"
+closeButton.Size=UDim2.fromOffset(30,26)
+closeButton.Position=UDim2.new(1,-36,0,5)
+closeButton.Text="×"
+closeButton.TextSize=21
+closeButton.Font=Enum.Font.GothamBold
+closeButton.TextColor3=Color3.fromRGB(235,240,225)
+closeButton.BackgroundColor3=Color3.fromRGB(64,91,67)
+closeButton.Parent=panel
+keepConnection(closeButton.Activated:Connect(closeStall))
 
 local panelCorner = Instance.new("UICorner")
 panelCorner.CornerRadius = UDim.new(0, 8)
@@ -105,7 +171,8 @@ local titleLabel = makeLabel(
 	14,
 	Color3.fromRGB(225, 240, 220)
 )
-titleLabel.Text = "PERSONAL GROVE"
+titleLabel.Text = "GROVE SHOP • PROTOTYPE"
+titleLabel.Size=UDim2.new(1,-52,0,20)
 
 local groveStatusLabel = makeLabel(
 	panel,
@@ -127,9 +194,9 @@ local saplingsLabel = makeLabel(
 	Color3.fromRGB(234, 236, 224)
 )
 
-local heartwoodLabel = makeLabel(
+local groveSummaryLabel = makeLabel(
 	panel,
-	"Heartwood",
+	"GroveTreeSummary",
 	UDim2.fromOffset(13, 73),
 	UDim2.new(1, -26, 0, 19),
 	Enum.Font.GothamMedium,
@@ -182,6 +249,271 @@ local function setFeedback(message, kind)
 		feedbackLabel.TextColor3 = Color3.fromRGB(185, 203, 183)
 	end
 end
+
+-- Global stock catalogue; only offers with positive initial stock appear in
+-- the mutated tab. Bought-out rows remain until the next restock.
+local shopHeading = makeLabel(panel,"SaplingShopHeading",
+	UDim2.fromOffset(13,207),UDim2.new(1,-26,0,16),
+	Enum.Font.GothamBold,12,Color3.fromRGB(232,218,153))
+local function shopButton(parent,name,x,y,w,h)
+	local b=Instance.new("TextButton")
+	b.Name=name
+	b.Size=UDim2.fromOffset(w,h)
+	b.Position=UDim2.fromOffset(x,y)
+	b.BackgroundColor3=Color3.fromRGB(59,106,71)
+	b.TextColor3=Color3.fromRGB(240,255,228)
+	b.TextSize=12
+	b.TextWrapped=true
+	b.Font=Enum.Font.GothamBold
+	b.BorderSizePixel=0
+	b.Parent=parent
+	local corner=Instance.new("UICorner")
+	corner.CornerRadius=UDim.new(0,6)
+	corner.Parent=b
+	return b
+end
+local ordinaryTab=shopButton(panel,"OrdinaryTab",13,227,169,27)
+ordinaryTab.Text="ORDINARY"
+local mutatedTab=shopButton(panel,"MutatedTab",187,227,169,27)
+mutatedTab.Text="MUTATED"
+local stockList=Instance.new("ScrollingFrame")
+stockList.Name="SaplingStockList"
+stockList.Position=UDim2.fromOffset(13,260)
+stockList.Size=UDim2.fromOffset(343,123)
+stockList.BackgroundTransparency=1
+stockList.BorderSizePixel=0
+stockList.ScrollBarThickness=5
+stockList.ScrollingDirection=Enum.ScrollingDirection.Y
+stockList.AutomaticCanvasSize=Enum.AutomaticSize.Y
+stockList.CanvasSize=UDim2.fromOffset(0,0)
+stockList.Parent=panel
+local stockLayout=Instance.new("UIListLayout")
+stockLayout.Padding=UDim.new(0,4)
+stockLayout.SortOrder=Enum.SortOrder.LayoutOrder
+stockLayout.Parent=stockList
+local shopSnapshot
+local shopPending=false
+local shopBusy=false
+local shopTab="ordinary"
+local refreshSaplingShop
+local buyOffer
+local function renderRestock()
+	local remaining=if type(shopSnapshot)=="table" and type(shopSnapshot.RestockAt)=="number"
+		then math.max(0,shopSnapshot.RestockAt-os.time()) else 0
+	shopHeading.Text=if shopSnapshot then string.format("SAPLING SHOP  •  RESTOCK %02d:%02d",math.floor(remaining/60),remaining%60)
+		else "SAPLING SHOP • LOADING"
+end
+local function renderSaplingShop()
+	renderRestock()
+	ordinaryTab.BackgroundColor3=if shopTab=="ordinary" then Color3.fromRGB(70,122,78) else Color3.fromRGB(64,72,66)
+	mutatedTab.BackgroundColor3=if shopTab=="mutated" then Color3.fromRGB(113,83,165) else Color3.fromRGB(64,72,66)
+	for _,child in ipairs(stockList:GetChildren()) do
+		if child~=stockLayout then child:Destroy() end
+	end
+	local count=0
+	for _,offer in ipairs(type(shopSnapshot)=="table" and shopSnapshot.Offers or {}) do
+		if (offer.Rare==true)~=(shopTab=="mutated") then continue end
+		if offer.Rare and (offer.InitialStock or 0)<=0 then continue end
+		count+=1
+		local row=Instance.new("Frame")
+		row.Name=offer.Id
+		row.Size=UDim2.new(1,-7,0,40)
+		row.BackgroundColor3=Color3.fromRGB(36,48,40)
+		row.BorderSizePixel=0
+		row.LayoutOrder=count
+		row.Parent=stockList
+		local label=makeLabel(row,"Offer",UDim2.fromOffset(6,0),UDim2.new(1,-112,1,0),
+			Enum.Font.GothamMedium,12,Color3.fromRGB(234,236,224))
+		local status=if offer.Stock<=0 then "SOLD OUT" else tostring(offer.Stock).." in stock"
+		label.Text=string.format("%s\n%.2fx  •  %s",offer.Name,offer.SizePotential,status)
+		local buy=shopButton(row,"Buy",0,3,100,34)
+		buy.Position=UDim2.new(1,-103,0,3)
+		buy.Text=if not offer.Unlocked then "FOREST LOCKED" elseif offer.Stock<=0 then "SOLD OUT" else tostring(offer.Price).." COINS"
+		buy.Active=offer.CanBuy==true and not shopPending
+		buy.AutoButtonColor=buy.Active
+		buy.BackgroundColor3=if buy.Active then Color3.fromRGB(59,106,71) else Color3.fromRGB(81,89,83)
+		local id=offer.Id
+		buy.Activated:Connect(function() if buy.Active then buyOffer(id) end end)
+	end
+	if count==0 then
+		local empty=makeLabel(stockList,"Empty",UDim2.fromOffset(0,0),UDim2.new(1,-8,0,44),
+			Enum.Font.GothamMedium,12,Color3.fromRGB(192,209,190))
+		empty.Text=if not shopSnapshot then "Loading saplings..." elseif shopTab=="mutated" then "No mutated saplings this restock." else "No ordinary saplings available."
+	end
+end
+buyOffer=function(id)
+	if shopPending or not shopSnapshot then return end
+	local offer
+	for _,o in ipairs(shopSnapshot.Offers or {}) do
+		if o.Id==id and o.CanBuy==true then offer=o break end
+	end
+	if not offer then return end
+	shopPending=true
+	renderSaplingShop()
+	buySaplingRE:FireServer(id,shopSnapshot.Cycle)
+	task.delay(3,function()
+		if shopPending and not cleanedUp then
+			shopPending=false
+			renderSaplingShop()
+			if refreshSaplingShop then refreshSaplingShop() end
+		end
+	end)
+end
+ordinaryTab.Activated:Connect(function()
+	shopTab="ordinary"
+	stockList.CanvasPosition=Vector2.zero
+	renderSaplingShop()
+end)
+mutatedTab.Activated:Connect(function()
+	shopTab="mutated"
+	stockList.CanvasPosition=Vector2.zero
+	renderSaplingShop()
+end)
+refreshSaplingShop=function()
+	if shopBusy or cleanedUp or not panel.Visible then return end
+	shopBusy=true
+	task.spawn(function()
+		local ok,result=pcall(function() return shopRF:InvokeServer() end)
+		shopBusy=false
+		if cleanedUp then return end
+		if ok and type(result)=="table" then shopSnapshot=result end
+		renderSaplingShop()
+	end)
+end
+keepConnection(buySaplingRE.OnClientEvent:Connect(function(result)
+	shopPending=false
+	if type(result)=="table" and result.Reason=="PURCHASED" then
+		setFeedback("Bought "..tostring(result.Name or "sapling").."! Plant with [G].","success")
+		if refreshState then refreshState() end
+		-- Do not briefly re-enable a stale last copy before the snapshot arrives.
+		for _,o in ipairs(shopSnapshot and shopSnapshot.Offers or {}) do
+			if o.Id==result.OfferId and result.Cycle==shopSnapshot.Cycle then
+				o.Stock=math.max(0,o.Stock-1)
+				o.CanBuy=false
+			end
+		end
+	else
+		local names={
+			NOT_AT_GROVE_SHOP="Return to the Grove shop.",
+			NOT_ENOUGH_COINS="Not enough coins for this sapling.",
+			SOLD_OUT="Your stock is sold out until restock.",
+			OFFER_NOT_AVAILABLE="Stock rotated. Please check the shop again.",
+			SAPLING_STORAGE_FULL="Too many unplanted saplings.",
+			FOREST_LOCKED="Unlock this forest before buying its saplings.",
+		}
+		setFeedback(names[result and result.Reason] or "Sapling purchase unavailable. Try again.","error")
+	end
+	renderSaplingShop()
+	refreshSaplingShop()
+end))
+renderSaplingShop()
+
+-- Management is an optional contextual panel. Keep the existing shop
+-- and planting HUD compact instead of adding a full-screen inventory.
+local function makeManagerButton(parent,name,caption,x,y,width,height,color)
+	local b=Instance.new("TextButton")
+	b.Name=name
+	b.Text=caption
+	b.Position=UDim2.fromOffset(x,y)
+	b.Size=UDim2.fromOffset(width,height)
+	b.BackgroundColor3=color or Color3.fromRGB(60,99,70)
+	b.TextColor3=Color3.fromRGB(245,244,234)
+	b.Font=Enum.Font.GothamBold
+	b.TextSize=12
+	b.TextWrapped=true
+	b.BorderSizePixel=0
+	b.Parent=parent
+	local corner=Instance.new("UICorner")
+	corner.CornerRadius=UDim.new(0,6)
+	corner.Parent=b
+	return b
+end
+
+local managerToggle=makeManagerButton(panel,"ManagePlantedTrees",
+	"MANAGE PLANTED TREES",13,390,343,31)
+local upgradeButton=makeManagerButton(panel,"UpgradeGrove","GROVE UPGRADE",13,429,343,46,Color3.fromRGB(113,83,165))
+local function renderUpgrade()
+	local nextLevel = nextGroveUpgrade
+	upgradeButton.Text = if upgradePending then "UPGRADING..."
+		elseif type(nextLevel)=="table" then string.format("GROVE LV %d → %d • %d COINS\n%d PLANTING SLOTS • %d MAX MUTATIONS (PLANNED)",
+			groveLevel,nextLevel.ToLevel,nextLevel.CoinCost,nextLevel.Capacity,nextLevel.MaxMutations)
+		elseif stateLoaded then "GROVE LV "..tostring(groveLevel).." • MAX LEVEL"
+		else "GROVE UPGRADE • LOADING"
+	upgradeButton.Active = stateLoaded and hasAssignedGrove and type(nextLevel)=="table" and not upgradePending
+	upgradeButton.AutoButtonColor = upgradeButton.Active
+	upgradeButton.BackgroundColor3 = if upgradeButton.Active then Color3.fromRGB(113,83,165) else Color3.fromRGB(81,89,83)
+end
+keepConnection(upgradeButton.Activated:Connect(function()
+	if not upgradeButton.Active then return end
+	upgradePending = true
+	renderUpgrade()
+	upgradeGroveRE:FireServer(groveLevel)
+	task.delay(3,function()
+		if upgradePending and not cleanedUp then
+			upgradePending = false
+			if refreshState then refreshState() end
+			renderUpgrade()
+		end
+	end)
+end))
+keepConnection(upgradeGroveRE.OnClientEvent:Connect(function(result)
+	upgradePending = false
+	if type(result)=="table" and result.Success then
+		setFeedback("Grove upgraded to level "..tostring(result.Level).."!","success")
+	elseif type(result)=="table" and result.Reason=="NOT_ENOUGH_COINS" then
+		setFeedback("Not enough coins for Grove upgrade.","error")
+	else
+		setFeedback("Grove upgrade unavailable. Please refresh.","error")
+	end
+	if refreshState then refreshState() end
+	renderUpgrade()
+	refreshSaplingShop()
+end))
+renderUpgrade()
+groveManagerPanel=Instance.new("Frame")
+groveManagerPanel.Name="SelectedGroveTree"
+groveManagerPanel.AnchorPoint=Vector2.new(0,1)
+groveManagerPanel.Position=UDim2.new(0,401,1,-18)
+groveManagerPanel.Size=UDim2.fromOffset(340,354)
+groveManagerPanel.BackgroundColor3=Color3.fromRGB(21,29,25)
+groveManagerPanel.BackgroundTransparency=0.04
+groveManagerPanel.BorderSizePixel=0
+groveManagerPanel.Visible=false
+groveManagerPanel.Parent=screenGui
+local managerCorner=Instance.new("UICorner")
+managerCorner.CornerRadius=UDim.new(0,8)
+managerCorner.Parent=groveManagerPanel
+local managerStroke=Instance.new("UIStroke")
+managerStroke.Color=Color3.fromRGB(104,145,108)
+managerStroke.Transparency=0.12
+managerStroke.Parent=groveManagerPanel
+local managerTitle=makeLabel(groveManagerPanel,"ManageTitle",
+	UDim2.fromOffset(12,7),UDim2.fromOffset(312,22),
+	Enum.Font.GothamBold,14,Color3.fromRGB(225,240,220))
+managerTitle.Text="SELECT A PLANTED TREE"
+local managerPrevious=makeManagerButton(groveManagerPanel,
+	"PreviousTree","<",12,34,40,32)
+local managerNext=makeManagerButton(groveManagerPanel,
+	"NextTree",">",286,34,40,32)
+local managerPosition=makeLabel(groveManagerPanel,"TreeIndex",
+	UDim2.fromOffset(58,34),UDim2.fromOffset(222,32),
+	Enum.Font.GothamBold,12,Color3.fromRGB(225,240,220))
+managerPosition.TextXAlignment=Enum.TextXAlignment.Center
+local managerDetails=makeLabel(groveManagerPanel,"TreeDetails",
+	UDim2.fromOffset(12,75),UDim2.fromOffset(314,80),
+	Enum.Font.GothamMedium,13,Color3.fromRGB(231,229,211))
+managerDetails.TextYAlignment=Enum.TextYAlignment.Top
+local managerPassives=makeLabel(groveManagerPanel,"TreePassives",
+	UDim2.fromOffset(12,157),UDim2.fromOffset(314,42),
+	Enum.Font.GothamBold,12,Color3.fromRGB(160,218,158))
+local managerTotals=makeLabel(groveManagerPanel,"TotalPassives",
+	UDim2.fromOffset(12,201),UDim2.fromOffset(314,58),
+	Enum.Font.GothamMedium,12,Color3.fromRGB(225,240,220))
+local uprootButton=makeManagerButton(groveManagerPanel,
+	"UprootTree","UPROOT SELECTED TREE",12,265,314,41,Color3.fromRGB(131,68,57))
+local uprootWarning=makeLabel(groveManagerPanel,"PermanentRemovalWarning",
+	UDim2.fromOffset(12,310),UDim2.fromOffset(314,33),
+	Enum.Font.Gotham,11,Color3.fromRGB(235,177,154))
 
 local function containsSaplingUID(list, uid)
 	for _, sapling in ipairs(list) do
@@ -268,7 +600,207 @@ local function getAssignedGroveArea()
 	return nil
 end
 
-local function render()
+local function selectedManagedTree()
+	for i,tree in ipairs(groveTrees) do
+		if tree.UID==selectedGroveTreeUID then return tree,i end
+	end
+	return nil,nil
+end
+
+local function highlightManagedTree()
+	if not managerOpen or not panel.Visible or not selectedGroveTreeUID then
+		if selectionHighlight then selectionHighlight.Enabled=false end
+		return
+	end
+	local area=getAssignedGroveArea()
+	local plotModel=area and area.Parent
+	local model
+	if plotModel then
+		for _,item in ipairs(plotModel:GetChildren()) do
+			if item:IsA("Model") and item:GetAttribute("PersistentGrove")==true
+				and item:GetAttribute("OwnerUserId")==player.UserId
+				and item:GetAttribute("GroveTreeUID")==selectedGroveTreeUID then
+				model=item
+				break
+			end
+		end
+	end
+	if model and not selectionHighlight then
+		selectionHighlight=Instance.new("Highlight")
+		selectionHighlight.Name="LocalSelectedGroveTreeOutline"
+		selectionHighlight.FillTransparency=1
+		selectionHighlight.OutlineColor=Color3.fromRGB(245,238,115)
+		selectionHighlight.OutlineTransparency=0
+		selectionHighlight.DepthMode=Enum.HighlightDepthMode.Occluded
+		selectionHighlight.Parent=Workspace
+	end
+	if selectionHighlight then
+		selectionHighlight.Adornee=model
+		selectionHighlight.Enabled=model~=nil
+	end
+end
+
+local function selectManagedTree(uid)
+	if uprootPending then return false end
+	for _,tree in ipairs(groveTrees) do
+		if tree.UID==uid then
+			selectedGroveTreeUID=uid
+			managerOpen=true
+			confirmUprootUID=nil
+			confirmUprootUntil=0
+			render()
+			return true
+		end
+	end
+	return false
+end
+
+local PASSIVE_DISPLAY = {
+	{ Key="Damage", Name="damage", Scale=100, Unit="%" },
+	{ Key="Haste", Name="attack speed", Scale=100, Unit="%" },
+	{ Key="Sale", Name="sale value", Scale=100, Unit="%" },
+	{ Key="SaplingChance", Name="sapling chance (relative)", Scale=100, Unit="%" },
+	{ Key="CritChance", Name="crit chance", Scale=1, Unit=" pp" },
+	{ Key="CritDamage", Name="crit damage", Scale=1, Unit=" pp" },
+	{ Key="BossDamage", Name="boss damage", Scale=100, Unit="%" },
+}
+local function formatPassives(values)
+	local parts = {}
+	for _, entry in ipairs(PASSIVE_DISPLAY) do
+		local value = type(values) == "table" and values[entry.Key]
+		if type(value) == "number" and value > 0 then
+			table.insert(parts, string.format("+%.1f%s %s", value*entry.Scale, entry.Unit, entry.Name))
+		end
+	end
+	return if #parts > 0 then table.concat(parts, "  •  ") else "None"
+end
+
+renderTreeManager=function()
+	local count=#groveTrees
+	managerToggle.Text=string.format("MANAGE PLANTED TREES  •  %d / %d",count,groveCapacity)
+	managerToggle.Active=stateLoaded and hasAssignedGrove and count>0 and not uprootPending
+	managerToggle.AutoButtonColor=managerToggle.Active
+	managerToggle.BackgroundColor3=if managerToggle.Active
+		then Color3.fromRGB(57,103,73) else Color3.fromRGB(79,87,79)
+	if managerOpen and count>0 and not selectedManagedTree() then
+		selectedGroveTreeUID=groveTrees[1].UID
+		confirmUprootUID=nil
+		confirmUprootUntil=0
+	end
+	groveManagerPanel.Visible=managerOpen and panel.Visible and count>0
+	if not groveManagerPanel.Visible then
+		highlightManagedTree()
+		return
+	end
+	local tree,index=selectedManagedTree()
+	if not tree then return end
+	managerTitle.Text=string.format("TREE MANAGEMENT  •  %d / %d",count,groveCapacity)
+	managerPosition.Text=string.format("TREE %d OF %d",index,count)
+	local mutations=formatMutationNames(tree.Mutations)
+	local name=if mutations=="" then tostring(tree.SpeciesId)
+		else mutations.." "..tostring(tree.SpeciesId)
+	local seconds=math.max(0,math.ceil((tonumber(tree.MaturesAt) or os.time())-os.time()))
+	local stageText=if tree.Stage=="mature" then "mature" else string.format("%s • %dm %02ds remaining",tostring(tree.Stage or "growing"),math.floor(seconds/60),seconds%60)
+	managerDetails.Text=string.format("%s\nGenetic potential: %.2fx  •  Current size: %.2fx\nStage: %s",
+		name,tonumber(tree.SizePotential) or 1,tonumber(tree.CurrentSizeScale) or 1,stageText)
+	managerPassives.Text=tostring(tree.GeneticPassive or "Unknown").." • "..(if tree.Stage == "mature" then "ACTIVE: "..formatPassives(tree.Passives)
+		else "INACTIVE UNTIL MATURE")
+	managerTotals.Text="TOTAL GROVE BONUSES\n"..formatPassives(passiveTotals)
+	local rare=mutations~=""
+	uprootWarning.Text=if rare
+		then "WARNING: Mutated sapling LOST FOREVER. No materials refunded."
+		else "Permanent removal. Planted sapling is NOT returned to inventory."
+	uprootWarning.TextColor3=if rare then Color3.fromRGB(255,157,127)
+		else Color3.fromRGB(235,187,154)
+	managerPrevious.Active=not uprootPending and count>1
+	managerNext.Active=not uprootPending and count>1
+	local armed=confirmUprootUID==tree.UID and os.clock()<=confirmUprootUntil
+	uprootButton.Active=not uprootPending
+	uprootButton.AutoButtonColor=uprootButton.Active
+	uprootButton.BackgroundColor3=if armed then Color3.fromRGB(185,56,50)
+		else Color3.fromRGB(130,68,57)
+	uprootButton.Text=if uprootPending then "UPROOTING..."
+		else if armed then "CONFIRM PERMANENT DESTRUCTION"
+		else "UPROOT SELECTED TREE"
+	highlightManagedTree()
+end
+
+managerToggle.Activated:Connect(function()
+	if uprootPending or not stateLoaded or not hasAssignedGrove or #groveTrees==0 then return end
+	managerOpen=not managerOpen
+	confirmUprootUID=nil
+	confirmUprootUntil=0
+	if managerOpen and not selectedManagedTree() then
+		selectedGroveTreeUID=groveTrees[1].UID
+	end
+	render()
+end)
+
+local function cycleManagedTree(direction)
+	if uprootPending or #groveTrees==0 then return end
+	local _,index=selectedManagedTree()
+	local nextIndex=(((index or 1)-1+direction)%#groveTrees)+1
+	selectManagedTree(groveTrees[nextIndex].UID)
+end
+managerPrevious.Activated:Connect(function() cycleManagedTree(-1) end)
+managerNext.Activated:Connect(function() cycleManagedTree(1) end)
+
+uprootButton.Activated:Connect(function()
+	if uprootPending or not managerOpen or not uprootButton.Active then return end
+	local tree=selectedManagedTree()
+	if not tree then return end
+	local uid=tree.UID
+	if confirmUprootUID~=uid or os.clock()>confirmUprootUntil then
+		confirmUprootUID=uid
+		confirmUprootUntil=os.clock()+7
+		renderTreeManager()
+		task.delay(7,function()
+			if not cleanedUp and confirmUprootUID==uid
+				and os.clock()>=confirmUprootUntil then
+				confirmUprootUID=nil
+				renderTreeManager()
+			end
+		end)
+		return
+	end
+	-- Second click required for the SAME owned Grove UID, within 7 seconds.
+	confirmUprootUID=nil
+	uprootPending=true
+	renderTreeManager()
+	uprootGroveTreeRE:FireServer(uid)
+	task.delay(5,function()
+		if not cleanedUp and uprootPending then
+			uprootPending=false
+			setFeedback("Uproot result delayed. Refresh before retrying.","error")
+			refreshState()
+			render()
+		end
+	end)
+end)
+
+keepConnection(uprootGroveTreeRE.OnClientEvent:Connect(function(payload)
+	if type(payload)~="table" then return end
+	uprootPending=false
+	confirmUprootUID=nil
+	confirmUprootUntil=0
+	if payload.Success==true then
+		managerOpen=false
+		if selectedGroveTreeUID==payload.UID then selectedGroveTreeUID=nil end
+		setFeedback("Tree permanently uprooted. Grove slot freed.","success")
+	else
+		local reasons={
+			INVALID_TREE_UID="Invalid tree selection.",
+			TREE_NOT_OWNED="Tree not found in your Grove. Refresh selection.",
+			GROVE_NOT_READY="Grove is not ready. Try again.",
+			SERVER_ERROR="Tree removal failed on the server.",
+		}
+		setFeedback(reasons[payload.Reason] or "Could not remove tree.","error")
+	end
+	refreshState()
+	render()
+end))
+
+render = function()
 	if cleanedUp then
 		return
 	end
@@ -284,18 +816,25 @@ local function render()
 		groveStatusLabel.Text = "Grove: assigned area is still loading"
 		groveStatusLabel.TextColor3 = Color3.fromRGB(231, 207, 151)
 	else
-		groveStatusLabel.Text = "Grove: available"
+		groveStatusLabel.Text = string.format("Grove Lv %d • %d planting slots", groveLevel, groveCapacity)
 		groveStatusLabel.TextColor3 = Color3.fromRGB(160, 218, 158)
 	end
 
+	renderUpgrade()
 	local selected = getSelectedSapling()
 	saplingsLabel.Text = string.format("Saplings remaining: %d", #saplings)
-	heartwoodLabel.Text = string.format("Heartwood: %d", #groveMaterials)
+	local mature = 0
+	for _, groveTree in ipairs(groveTrees) do
+		if groveTree.Stage == "mature" then mature += 1 end
+	end
+	groveSummaryLabel.Text = string.format("Grove: %d / %d planted • %d mature • %d growing",
+		#groveTrees, groveCapacity, mature, #groveTrees - mature)
 	if selected then
 		selectedSaplingLabel.Text = string.format(
-			"Selected: %s\nSize: %.2fx",
+			"Selected: %s\nSize: %.2fx • %s",
 			describeSapling(selected),
-			type(selected.SizePotential) == "number" and selected.SizePotential or 1
+			type(selected.SizePotential) == "number" and selected.SizePotential or 1,
+			tostring(selected.GeneticPassive or "Unknown")
 		)
 	else
 		selectedSaplingLabel.Text = "Selected: none"
@@ -311,6 +850,7 @@ local function render()
 	else
 		feedbackLabel.TextColor3 = Color3.fromRGB(185, 203, 183)
 	end
+	renderTreeManager()
 end
 
 local function createPreviewPart(name, size, color, material, shape, transparency)
@@ -348,7 +888,7 @@ local function makePreview()
 	previewModel.Name = "LocalGrovePlantingPreview"
 	previewTrunk = createPreviewPart(
 		"PreviewTrunk",
-		Vector3.new(0.45, 2.6, 0.45),
+		Vector3.new(0.65, 3.8, 0.65),
 		Color3.fromRGB(126, 87, 57),
 		Enum.Material.Wood,
 		nil,
@@ -356,10 +896,10 @@ local function makePreview()
 	)
 	previewLeaves = createPreviewPart(
 		"PreviewCanopy",
-		Vector3.new(2.7, 2.7, 2.7),
+		Vector3.new(2.6, 1.9, 2.4),
 		Color3.fromRGB(105, 174, 93),
-		Enum.Material.Grass,
-		Enum.PartType.Ball,
+		Enum.Material.Plastic,
+		nil,
 		0.22
 	)
 	previewModel.PrimaryPart = previewTrunk
@@ -414,22 +954,47 @@ local function updatePreview()
 		return
 	end
 
+	local selected = getSelectedSapling()
+	local species = selected and selected.SpeciesId or "Oak"
+	local trunkHeight = if species == "Bamboo" then 2.7
+		else if species == "Ironwood" then 5.4 else 3.8
+	previewTrunk.Size = Vector3.new(
+		if species == "Bamboo" then 0.45 else if species == "Ironwood" then 0.95 else 0.65,
+		trunkHeight,
+		if species == "Bamboo" then 0.45 else if species == "Ironwood" then 0.95 else 0.65
+	)
+	previewLeaves.Size = if species == "Bamboo"
+		then Vector3.new(2.3, 0.22, 0.6)
+		else if species == "Ironwood"
+		then Vector3.new(3.2, 2.3, 3.1)
+		else Vector3.new(2.6, 1.9, 2.4)
+	previewTrunk.Color = if species == "Bamboo"
+		then Color3.fromRGB(127, 179, 80)
+		else if species == "Ironwood" then Color3.fromRGB(79, 50, 36)
+		else Color3.fromRGB(126, 87, 57)
+	previewLeaves.Color = if species == "Bamboo"
+		then Color3.fromRGB(63, 151, 68)
+		else if species == "Ironwood" then Color3.fromRGB(48, 141, 91)
+		else Color3.fromRGB(105, 174, 93)
 	previewTrunk.Transparency = 0.12
 	previewLeaves.Transparency = 0.22
 	previewTrunk.CFrame = area.CFrame * CFrame.new(
 		coordinates.visualX,
-		coordinates.groundY + 1.3,
+		coordinates.groundY + trunkHeight * 0.5,
 		coordinates.visualZ
 	)
 	previewLeaves.CFrame = area.CFrame * CFrame.new(
 		coordinates.visualX,
-		coordinates.groundY + 3.0,
+		coordinates.groundY + trunkHeight + 0.5,
 		coordinates.visualZ
 	)
 end
 
 local function setPlantingMode(enabled, showFeedback)
 	if enabled then
+		managerOpen=false
+		confirmUprootUID=nil
+		confirmUprootUntil=0
 		if not stateLoaded or not hasAssignedGrove then
 			setFeedback("Planting unavailable until an assigned Grove is ready.", "error")
 			render()
@@ -481,7 +1046,15 @@ local function applySnapshot(snapshot)
 	end
 
 	stateLoaded = true
+	groveLevel = tonumber(snapshot.GroveLevel) or 1
+	groveMaxMutations = tonumber(snapshot.MaxMutations) or 1
+	nextGroveUpgrade = snapshot.Upgrade
+	passiveTotals = if type(snapshot.PassiveTotals) == "table" then snapshot.PassiveTotals else {}
 	hasAssignedGrove = snapshot.HasAssignedGrove == true
+	if type(snapshot.Capacity)=="number" and snapshot.Capacity>=1
+		and snapshot.Capacity%1==0 then
+		groveCapacity=snapshot.Capacity
+	end
 	saplings = {}
 	if type(snapshot.Saplings) == "table" then
 		for _, sapling in ipairs(snapshot.Saplings) do
@@ -492,6 +1065,24 @@ local function applySnapshot(snapshot)
 				table.insert(saplings, sapling)
 			end
 		end
+	end
+
+	groveTrees = {}
+	if type(snapshot.GroveTrees) == "table" then
+		for _, groveTree in ipairs(snapshot.GroveTrees) do
+			if type(groveTree) == "table" and type(groveTree.UID) == "string" then
+				table.insert(groveTrees, groveTree)
+			end
+		end
+	end
+
+	if selectedGroveTreeUID and not selectedManagedTree() then
+		selectedGroveTreeUID=nil
+		confirmUprootUID=nil
+		confirmUprootUntil=0
+	end
+	if #groveTrees==0 or not hasAssignedGrove then
+		managerOpen=false
 	end
 
 	groveMaterials = {}
@@ -754,19 +1345,45 @@ local function isPointerOverPanel()
 	return false
 end
 
+-- Click a planted tree to select it directly, or use the UI arrows
+-- while it is still a stump/rebuilding. Server metadata is NOT trusted for
+-- deletion; the UID is revalidated against the player's profile there.
+local function selectClickedGroveTree()
+	if plantingMode or uprootPending or not panel.Visible
+		or not hasAssignedGrove or isPointerOverPanel() then return end
+	local mouse=player:GetMouse()
+	local current=mouse and mouse.Target
+	while current and current~=Workspace do
+		if current:IsA("Model") and current:GetAttribute("PersistentGrove")==true then
+			if current:GetAttribute("OwnerUserId")==player.UserId then
+				local uid=current:GetAttribute("GroveTreeUID")
+				if type(uid)=="string" then selectManagedTree(uid) end
+			end
+			return
+		end
+		current=current.Parent
+	end
+end
+
 keepConnection(UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then
 		return
 	end
 
-	if input.KeyCode == Enum.KeyCode.G then
-		setPlantingMode(not plantingMode, true)
-	elseif input.KeyCode == Enum.KeyCode.Q then
+	if input.UserInputType==Enum.UserInputType.MouseButton1 then
+		selectClickedGroveTree()
+		return
+	end
+	if input.KeyCode == Enum.KeyCode.G and (panel.Visible or plantingMode) then
+		local wasPlanting=plantingMode
+		if setPlantingMode(not plantingMode,true) and not wasPlanting then closeStall() end
+	elseif input.KeyCode == Enum.KeyCode.Q and (panel.Visible or plantingMode) then
 		cycleSapling(-1)
-	elseif input.KeyCode == Enum.KeyCode.E then
+	elseif input.KeyCode == Enum.KeyCode.E and (panel.Visible or plantingMode) then
 		cycleSapling(1)
 	elseif input.KeyCode == Enum.KeyCode.Escape then
-		setPlantingMode(false, true)
+		setPlantingMode(false,true)
+		closeStall()
 	end
 end))
 
@@ -799,13 +1416,18 @@ end))
 keepConnection(Workspace.DescendantAdded:Connect(function(descendant)
 	if descendant.Name == "GroveArea" or descendant.Name == "PlayerPlots" then
 		render()
+	elseif managerOpen and descendant:IsA("Model")
+		and descendant.Name=="Tree" then
+		task.defer(highlightManagedTree)
 	end
 end))
 keepConnection(player:GetAttributeChangedSignal("PlotNumber"):Connect(render))
 keepConnection(player.CharacterRemoving:Connect(function()
+	closeStall()
 	setPlantingMode(false, false)
 end))
 keepConnection(player.CharacterAdded:Connect(function()
+	closeStall()
 	setPlantingMode(false, false)
 end))
 keepConnection(script.Destroying:Connect(function()
@@ -819,6 +1441,10 @@ keepConnection(script.Destroying:Connect(function()
 	end
 	ContextActionService:UnbindAction(ACTION_NAME)
 	destroyPreview()
+	if selectionHighlight then
+		selectionHighlight:Destroy()
+		selectionHighlight=nil
+	end
 	if stateUpdatedConnection then
 		stateUpdatedConnection:Disconnect()
 		stateUpdatedConnection = nil
@@ -836,5 +1462,46 @@ keepConnection(script.Destroying:Connect(function()
 	end
 end))
 
+-- Bind dynamically to survive world rebuilds and streaming.
+keepConnection(ProximityPromptService.PromptTriggered:Connect(function(prompt,who)
+	if who~=player or prompt.Name~="GroveShopPrompt" or not nearGroveStall() then return end
+	local station=prompt.Parent and prompt.Parent.Parent
+	local world=Workspace:FindFirstChild("SourceWorld")
+	if not station or station.Parent~=world or station.Name~="GroveShopStation" then return end
+	if playerGui:GetAttribute("EconomyModalOpen")==true then return end
+	setPlantingMode(false,false)
+	stallOpen=true
+	syncGrovePanelWithEconomy()
+	render()
+	if refreshState then refreshState() end
+	refreshSaplingShop()
+end))
+task.spawn(function()
+	while not cleanedUp do
+		task.wait(0.2)
+		if stallOpen then syncGrovePanelWithEconomy() end
+	end
+end)
 render()
 refreshRemotes()
+-- No client-side authority over stock: periodically refresh the actual
+-- server snapshot so rare restocks and affordability appear automatically.
+task.spawn(function()
+	while not cleanedUp do
+		task.wait(1)
+		if not cleanedUp and panel.Visible then
+			renderRestock()
+			if managerOpen and groveManagerPanel.Visible then
+				local tree=selectedManagedTree()
+				if tree and tree.Stage~="mature" then
+					local seconds=math.max(0,math.ceil((tonumber(tree.MaturesAt) or os.time())-os.time()))
+					local mutations=formatMutationNames(tree.Mutations)
+					local name=if mutations=="" then tostring(tree.SpeciesId) else mutations.." "..tostring(tree.SpeciesId)
+					managerDetails.Text=string.format("%s\nGenetic potential: %.2fx  •  Current size: %.2fx\nStage: %s • %dm %02ds remaining",
+						name,tonumber(tree.SizePotential) or 1,tonumber(tree.CurrentSizeScale) or 1,tostring(tree.Stage or "growing"),math.floor(seconds/60),seconds%60)
+				end
+			end
+			if not shopSnapshot or os.time()>=shopSnapshot.RestockAt or os.time()%10==0 then refreshSaplingShop() end
+		end
+	end
+end)

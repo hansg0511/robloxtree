@@ -6,19 +6,17 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LogService = require(game.ServerScriptService.Inventory.LogService)
 local ProfileCache = require(game.ServerScriptService.PlayerProfile.ProfileService.ProfileDataCache)
 local MutationDefinitions = require(script.Parent.MutationDefinitions)
+local Passives = require(script.Parent.GrovePassiveRules)
+local Quality = require(script.Parent.SaplingQualityRules)
 
 local SaplingDiscoveryService = {}
 
 SaplingDiscoveryService.Config = {
-	-- Provisional 3A balance values. Keep these centralized for later tuning.
-	DropChance = 0.10,
-	MutationCountWeights = {
-		{ Count = 0, Weight = 0.75 },
-		{ Count = 1, Weight = 0.22 },
-		{ Count = 2, Weight = 0.03 },
-	},
-	SizePotentialMinimum = 0.85,
-	SizePotentialMaximum = 1.15,
+	-- Provisional; shop/quest sources and later economy balancing can
+	-- change these without touching persistent mutation provenance.
+	DropChance = 0.10, -- ordinary wild tree: ordinary sapling
+	WildMutationChance = 0.06, -- visible rare wild tree per life
+	MutatedDropChance = 0.20, -- rare wild tree -> matching rare sapling
 }
 
 -- Explicit definition-to-species eligibility prevents category-based or Grove
@@ -64,58 +62,36 @@ local function newSaplingUID(data)
 	return nil
 end
 
-local function rollMutationCount()
-	local totalWeight = 0
-	for _, entry in ipairs(SaplingDiscoveryService.Config.MutationCountWeights) do
-		totalWeight += entry.Weight
+-- Every wild tree's mutation is rolled ON SPAWN and is visible in
+-- its model. A discovered sapling inherits exactly that server-owned
+-- mutation; it is never independently mutated by discovery RNG.
+-- One mutation family per wild tree avoids unforgeable mixed-family wood.
+function SaplingDiscoveryService.RollWildTreeMutations(chanceDraw,kindDraw)
+	local chance=if type(chanceDraw)=="number" then chanceDraw else random:NextNumber()
+	if type(chance)~="number" or chance~=chance or chance<0 or chance>=1
+		or chance>=SaplingDiscoveryService.Config.WildMutationChance then return {} end
+	local total=0
+	for _,id in ipairs(MutationDefinitions.OrderedIds) do
+		local definition=MutationDefinitions.ById[id]
+		if definition and definition.Weight>0 then total+=definition.Weight end
 	end
-	if totalWeight <= 0 then return 0 end
-
-	local roll = random:NextNumber(0, totalWeight)
-	local accumulated = 0
-	for _, entry in ipairs(SaplingDiscoveryService.Config.MutationCountWeights) do
-		accumulated += entry.Weight
-		if roll <= accumulated then return entry.Count end
-	end
-	return 0
-end
-
-local function rollMutations()
-	local selected = {}
-	local excluded = {}
-	for _ = 1, rollMutationCount() do
-		local totalWeight = 0
-		for _, id in ipairs(MutationDefinitions.OrderedIds) do
-			local definition = MutationDefinitions.ById[id]
-			if not excluded[id] and definition then totalWeight += definition.Weight end
-		end
-		if totalWeight <= 0 then break end
-
-		local roll = random:NextNumber(0, totalWeight)
-		local accumulated = 0
-		for _, id in ipairs(MutationDefinitions.OrderedIds) do
-			local definition = MutationDefinitions.ById[id]
-			if not excluded[id] and definition then
-				accumulated += definition.Weight
-				if roll <= accumulated then
-					selected[id] = true
-					excluded[id] = true
-					break
-				end
-			end
+	if total<=0 then return {} end
+	local roll=if type(kindDraw)=="number" then kindDraw else random:NextNumber()
+	if type(roll)~="number" or roll~=roll or roll<0 or roll>=1 then return {} end
+	local threshold=roll*total
+	local count=0
+	for _,id in ipairs(MutationDefinitions.OrderedIds) do
+		local definition=MutationDefinitions.ById[id]
+		if definition and definition.Weight>0 then
+			count+=definition.Weight
+			if threshold<count then return {[id]=true} end
 		end
 	end
-	return selected
+	return {}
 end
 
-local function rollSizePotential()
-	local minimum = SaplingDiscoveryService.Config.SizePotentialMinimum
-	local maximum = SaplingDiscoveryService.Config.SizePotentialMaximum
-	-- Averaging three uniform samples creates a modest center-weighted roll while
-	-- retaining the explicitly bounded Grove validation range.
-	local normalized = (random:NextNumber() + random:NextNumber() + random:NextNumber()) / 3
-	local value = minimum + (maximum - minimum) * normalized
-	return math.floor(value * 1000 + 0.5) / 1000
+local function rollSizePotential(mutations,speciesId)
+	return Quality.Wild(mutations, random,speciesId)
 end
 
 local function makeClientRecord(record)
@@ -124,6 +100,7 @@ local function makeClientRecord(record)
 		SpeciesId = record.SpeciesId,
 		Mutations = MutationDefinitions.CopyKnown(record.Mutations),
 		SizePotential = record.SizePotential,
+		GeneticPassive = record.GeneticPassive,
 	}
 end
 
@@ -156,12 +133,15 @@ function SaplingDiscoveryService.AwardForTreeDeath(tree, contributions, deathGen
 	-- This is the same highest-valid-damage / lowest-UserId-on-tie rule used by
 	-- ordinary wild-log rewards. It remains independent of log pickup success.
 	local winner = LogService.GetTreeAwardWinner(contributions)
-	if not winner or random:NextNumber() >= SaplingDiscoveryService.Config.DropChance then
-		return nil
-	end
-
+	local inherited=MutationDefinitions.CopyKnown(tree.Mutations)
+	local hasMutation=next(inherited)~=nil
+	local chance=if hasMutation then SaplingDiscoveryService.Config.MutatedDropChance
+		else SaplingDiscoveryService.Config.DropChance
+	if not winner then return nil end
 	local data = getProfileData(winner)
 	if not data then return nil end
+	chance = math.clamp(chance * (1 + Passives.Totals(data, os.time()).SaplingChance), 0, 1)
+	if random:NextNumber() >= chance then return nil end
 	if type(data.Saplings) ~= "table" then data.Saplings = {} end
 
 	local uid = newSaplingUID(data)
@@ -169,13 +149,15 @@ function SaplingDiscoveryService.AwardForTreeDeath(tree, contributions, deathGen
 	local record = {
 		UID = uid,
 		SpeciesId = speciesId,
-		Mutations = rollMutations(),
-		SizePotential = rollSizePotential(),
+		Mutations = inherited,
+		SizePotential = rollSizePotential(inherited,speciesId),
+		GeneticPassive = Passives.RollGenetic(),
 		CreatedAt = os.time(),
 	}
 	if type(record.CreatedAt) ~= "number" or record.CreatedAt < 0 then return nil end
 
 	table.insert(data.Saplings, record)
+	require(game.ServerScriptService.LifetimeStatsRules).RecordSaplingDiscovery(data,record.SizePotential)
 	-- Resolve lazily to avoid a TreeObject → discovery → GroveService require
 	-- cycle at module load. A discovery must advance the snapshot revision before
 	-- the client performs its normal refresh.

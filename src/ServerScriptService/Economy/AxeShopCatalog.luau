@@ -1,12 +1,12 @@
--- Prototype progression configuration. Standard axes are deterministic recipes;
--- special/RNG crafting is intentionally outside this catalog for now.
+-- Forge progression configuration. RNG is the only active craft path.
+-- Legacy fixed recipe definitions remain solely for saved-item compatibility.
 local AxeShopCatalog = {}
 
 AxeShopCatalog.AxeHeads = {
 	{
 		Id = "copper_head",
 		Name = "Copper Axe Head",
-		Price = 150,
+		Price = 60, -- first full starter bag can fund a head while retaining three logs
 		RequiredForestId = "Forest1",
 		Tier = 1,
 	},
@@ -14,7 +14,7 @@ AxeShopCatalog.AxeHeads = {
 		Id = "iron_head",
 		Name = "Iron Axe Head",
 		Price = 750,
-		RequiredForestId = "Forest2",
+		RequiredForestId = "Forest3",
 		Tier = 2,
 	},
 }
@@ -23,6 +23,7 @@ AxeShopCatalog.StandardAxeRecipes = {
 	{
 		Id = "copper_axe",
 		Name = "Copper Axe",
+		WeaponKind = "Axe",
 		HeadId = "copper_head",
 		OutputItemID = 102,
 		Tier = 1,
@@ -33,13 +34,52 @@ AxeShopCatalog.StandardAxeRecipes = {
 	{
 		Id = "iron_axe",
 		Name = "Iron Axe",
+		WeaponKind = "Axe",
 		HeadId = "iron_head",
 		OutputItemID = 103,
 		Tier = 2,
 		RequiredLogCount = 3,
 		HeadBasePower = 17,
-		RequiredForestId = "Forest2",
+		RequiredForestId = "Forest3",
 	},
+}
+
+-- Active RNG recipes. Keep component IDs and recipe IDs stable for existing saves.
+-- Legacy fixed recipes above are not exposed or accepted by the forge.
+-- OutputItemID values refer to existing Tool models, not final dagger/hammer art.
+AxeShopCatalog.ExperimentalForgeRecipes = {
+	{
+		Id = "experiment_copper",
+		Name = "COPPER BLANK • FORGE",
+		HeadId = "copper_head",
+		Tier = 1,
+		HeadBasePower = 25,
+		RequiredForestId = "Forest1",
+		Outputs = { Dagger = 101, Axe = 102, Battlehammer = 105 },
+	},
+	{
+		Id = "experiment_iron",
+		Name = "IRON BLANK • FORGE",
+		HeadId = "iron_head",
+		Tier = 2,
+		HeadBasePower = 55,
+		RequiredForestId = "Forest3",
+		Outputs = { Dagger = 101, Axe = 103, Battlehammer = 105 },
+	},
+}
+
+function AxeShopCatalog.FindExperimentalForgeRecipe(recipeId)
+	if type(recipeId) ~= "string" then return nil end
+	for _, entry in ipairs(AxeShopCatalog.ExperimentalForgeRecipes) do
+		if entry.Id == recipeId then return entry end
+	end
+	return nil
+end
+
+-- Prototype one-step workstation upgrade; more forge tiers later.
+AxeShopCatalog.ForgeLevelUpgrade = {
+	ToLevel = 2,
+	CoinCost = require(game.ReplicatedStorage.Shared.ProgressionConfig).UpgradeCost(2),
 }
 
 AxeShopCatalog.DEFAULT_CAPACITY_KG = 10

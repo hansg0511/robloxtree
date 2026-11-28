@@ -7,6 +7,11 @@ local profileBindableEvent = game.ServerScriptService.PlayerProfile.ProfileInit.
 local itemFolder = game.ServerStorage.Items
 local itemDataBase = require(itemFolder.ItemDataBase)
 local StatsAggregator = require(itemFolder.StatsAggregator)
+local WeaponProgressionRules = require(game.ServerScriptService.WeaponProgressionRules)
+local Fervor = require(game.ServerScriptService.WeaponEffects.Fervor)
+local GoldenRush = require(game.ServerScriptService.WeaponEffects.GoldenRush)
+local Bloodrush = require(game.ServerScriptService.WeaponEffects.Bloodrush)
+local Rampage = require(game.ServerScriptService.WeaponEffects.Rampage)
 local StatsDatabase = require(itemFolder.StatsDatabase)
 local EquipAxeRE = game.ReplicatedStorage.Economy:WaitForChild("EquipAxeRE")
 local LogService = require(game.ServerScriptService.Inventory.LogService)
@@ -20,6 +25,33 @@ local REMOTE_INTERVALS = {
 	SpawnEquippedItem = 0.75,
 	EquipAxe = 0.5,
 }
+
+-- Use the real tier-two mutation definitions, selecting the midpoint of
+-- every ability's probability bucket. Debug-only composition bypasses forge
+-- slot selection, but all effects still pass the ordinary dispatcher rules.
+local function debugMutationEffects()
+	local effects = {}
+	if not game:GetService("RunService"):IsStudio() then return effects end
+	local rules = require(game.ReplicatedStorage.Shared.ForgeMutationRules)
+	local tier = 2
+	for _, family in ipairs(rules.FAMILIES) do
+		local cumulative = 0
+		for _, choice in ipairs(rules.AbilityOdds(family, tier)) do
+			local draw = cumulative + choice.Chance * 0.5
+			local result = rules.Roll({
+				Family = family, Tier = tier, Potency = rules.TIERS[tier].PotencyCap,
+			}, tier, {
+				NextNumber = function() return draw end,
+			})
+			if result and result.Id == choice.Id then
+				result.Effect.Source = "DebugProAxe"
+				table.insert(effects, result.Effect)
+			end
+			cumulative += choice.Chance
+		end
+	end
+	return effects
+end
 
 local DEBUG_PRO_PLAYER_NAME = "ForsakenDemonz"
 local DEBUG_PRO_ALLOWED_USER_IDS = {}
@@ -101,6 +133,37 @@ local function consumeRemoteBudget(player, action)
 	return true
 end
 
+-- Scale a fresh unparented Tool clone about its handle; never mutate the
+-- template or resize an already-equipped tool. Preserve relative rotations.
+local MaterialGeometry = require(game.ReplicatedStorage.Shared.MaterialGeometry)
+local function scaleCraftedTool(tool, scale)
+	if type(scale) ~= "number" or scale ~= scale or scale <= 0 or scale == math.huge then return end
+	scale = math.clamp(scale, MaterialGeometry.WEAPON_MIN_SCALE, MaterialGeometry.WEAPON_MAX_SCALE)
+	local handle = tool:FindFirstChild("Handle")
+	if not handle or not handle:IsA("BasePart") then return end
+	local origin = handle.CFrame
+	local descendants = tool:GetDescendants()
+	-- Set joint offsets as well as part transforms, so authored rigid welds
+	-- and attachments stay aligned with the scaled geometry.
+	for _, part in ipairs(descendants) do
+		if part:IsA("BasePart") then
+			local relative = origin:ToObjectSpace(part.CFrame)
+			part.Size *= scale
+			part.CFrame = origin * CFrame.new(relative.Position * scale) * relative.Rotation
+		elseif part:IsA("JointInstance") then
+			part.C0 = CFrame.new(part.C0.Position * scale) * part.C0.Rotation
+			part.C1 = CFrame.new(part.C1.Position * scale) * part.C1.Rotation
+		elseif part:IsA("Attachment") then
+			part.Position *= scale
+		elseif part:IsA("SpecialMesh") then
+			part.Offset *= scale
+			if part.MeshType == Enum.MeshType.FileMesh then part.Scale *= scale end
+		end
+	end
+	tool.Grip = CFrame.new(tool.Grip.Position * scale) * tool.Grip.Rotation
+	tool:SetAttribute("CraftWeaponScale", scale)
+end
+
 local function prepareToolAssembly(tool)
 	local handle = tool:FindFirstChild("Handle")
 	if not handle or not handle:IsA("BasePart") then return false end
@@ -179,6 +242,7 @@ local function initInventoryData(player: Player): { any }
 					HeadId = "debug_pro_head",
 					CraftedPower = 10000,
 					DebugOnly = true,
+					Effects = debugMutationEffects(),
 					Materials = {},
 				},
 			}
@@ -230,6 +294,7 @@ local function EquipItem(player, item)
 	end
 	if not item or item.ItemType ~= "Weapon" or typeof(item.ItemUID) ~= "string" then return false end
 	local runtime = playerProfile.Data.Runtime
+	local previousWeaponUID = runtime.EquippedWeaponUID
 	if runtime.Weapon[item.ItemUID] ~= item then return false end
 	local toolTemplate = itemDataBase.Instances[item.ItemID]
 	if not toolTemplate or not toolTemplate:IsA("Tool") or toolTemplate.Name ~= item.InstanceName then return false end
@@ -240,6 +305,9 @@ local function EquipItem(player, item)
 	if not backpack then return false end
 
 	local tool = toolTemplate:Clone()
+	if type(item.WeaponData) == "table" then
+		scaleCraftedTool(tool, item.WeaponData.WeaponScale)
+	end
 	if not prepareToolAssembly(tool) then
 		tool:Destroy()
 		return false
@@ -247,6 +315,15 @@ local function EquipItem(player, item)
 
 	tool:SetAttribute("EquippedAxe", true)
 	tool:SetAttribute("AxeItemUID", item.ItemUID)
+	-- Only server-forged experimental weapons carry individually rolled rates.
+	-- Native Tools are temporary class models; attack rate is enforced by the
+	-- server ChopHandler, not trusted from this replicated attribute.
+	local weaponData = type(item.WeaponData) == "table" and item.WeaponData or nil
+	local attackRate = weaponData and weaponData.AttacksPerSecond
+	if type(attackRate) == "number" and attackRate == attackRate
+		and attackRate >= 0.1 and attackRate <= 10 then
+		tool:SetAttribute("CraftAttackRate", attackRate)
+	end
 	tool.Parent = backpack
 	playerHumanoid:EquipTool(tool)
 	for _, container in ipairs({backpack, character}) do
@@ -266,7 +343,12 @@ local function EquipItem(player, item)
 		-- Debug equipment is session-only; leave the profile's saved weapon untouched.
 	else
 		playerProfile.Data.Equipped.Weapon = item.ItemUID
+		require(game.ServerScriptService.LifetimeStatsRules).RecordEquip(playerProfile.Data)
 	end
+	Fervor.OnWeaponEquipped(player, previousWeaponUID, item.ItemUID)
+	GoldenRush.OnWeaponEquipped(player, previousWeaponUID, item.ItemUID)
+	Bloodrush.OnWeaponEquipped(player, previousWeaponUID, item.ItemUID)
+	Rampage.OnWeaponEquipped(player, previousWeaponUID, item.ItemUID)
 	StatsAggregator.Aggregate(player)
 	return true
 end
@@ -351,6 +433,12 @@ addShopAxeItem.OnInvoke = function(player, itemRecord)
 		if type(itemRecord.WeaponData) ~= "table" then return false end
 		persistedRecord.WeaponData = deepCopy(itemRecord.WeaponData)
 	end
+	-- The forged item's existing Rarity is authoritative; progression defaults
+	-- are derived once on the server before creating runtime/IMS copies.
+	if itemRecord.ItemID == 9001 or itemRecord.Rarity == "Debug"
+		or not WeaponProgressionRules.NormalizeWeaponItem(persistedRecord) then
+		return false
+	end
 	local runtimeItem = itemDataBase.ParseItem(persistedRecord)
 	if not runtimeItem then return false end
 	profile.Data.Runtime.Weapon[runtimeItem.ItemUID] = runtimeItem
@@ -373,6 +461,11 @@ addShopAxeItem.OnInvoke = function(player, itemRecord)
 		rollbackUncommittedShopAxe(player, profile, inv, runtimeItem, persistedRecord)
 		return false
 	end
+	-- The first successfully crafted weapon should immediately replace
+	-- bare hands. Do not auto-swap an established player's equipped weapon.
+	local firstEquipment = profile.Data.Runtime.EquippedWeaponUID == nil
+		and type(profile.Data.Equipped) == "table"
+		and profile.Data.Equipped.Weapon == nil
 	local pendingAdds = deferredShopAxeAddedItems[player]
 	deferredShopAxeAddedItems[player] = nil
 	if pendingAdds then
@@ -380,6 +473,17 @@ addShopAxeItem.OnInvoke = function(player, itemRecord)
 			pcall(function()
 				IMRemotes.NewInventoryItemRE:FireClient(player, pendingAdd.Item, pendingAdd.StackOnAdd)
 			end)
+		end
+	end
+	if firstEquipment then
+		-- Inventory and recipe payment are already committed. An equip/character
+		-- race must never roll the craft back or duplicate its materials.
+		local equipOk, didEquip = pcall(EquipOwnedAxe, player, runtimeItem.ItemUID)
+		if equipOk and didEquip then
+			pcall(function() IMRemotes.SpawnEquippedItemRE:FireClient(player) end)
+		else
+			-- The player still owns the weapon and may equip it normally.
+			warn("[Inventory] First forged weapon saved; automatic equip unavailable")
 		end
 	end
 	return true
@@ -395,6 +499,12 @@ profileBindableEvent.Event:Connect(function(player: Player)
 			itemUID = playerProfile.Data.Equipped.Weapon
 		end
 		local item = itemUID and runtime.Weapon[itemUID]
+		if not item then
+			-- Fresh profiles have no equipped weapon. Do not accidentally use
+			-- an IMS selection (including a developer-only tool) as a fallback.
+			StatsAggregator.Aggregate(player)
+			return
+		end
 		if not EquipItem(player, item) then return end
 		local inv = playerInventories[player]
 		if not inv then return end

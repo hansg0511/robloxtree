@@ -1,30 +1,37 @@
 local profileCache = require(script.Parent.ProfileService.ProfileDataCache)
 local DevelopmentLoadouts = require(script.Parent.DevelopmentLoadouts)
 local AxeShopCatalog = require(game.ServerScriptService.Economy.AxeShopCatalog)
+local StudioForgeSandbox = require(game.ServerScriptService.Economy.StudioForgeSandbox)
+local ChopLeaderboardService = require(game.ServerScriptService.ChopLeaderboardService)
 local bindableLoaded = script.ProfileLoadedEvent
 local remoteLoaded = game.ReplicatedStorage.Profile.ProfileLoadEvent
 
 
 local ProfileTemplate = {
 	
-	Inventory = {
-		{
-			ItemID = 101,
-			UID = "starter-basic-axe",
-			Stats = {
-				["Attack"] = 5,
-			},
-			Substat = {},
-			Rarity = "Common",
-		},
-	},
+	-- New players punch starter trees until they forge their first weapon.
+	-- Reconcile must not remove previously owned legacy starter axes.
+	Inventory = {},
 	-- One unique physical log per record; material kg cost is resolved server-side.
 	Logs = {},
+	-- Protected, individually identified crafting materials; outside carry kg.
+	StoredLogs = {},
+	AutoKeep = { Mutations = true, Oversized = true, SizeThreshold = 1.5 },
 	-- Personal Grove ownership is stored as primitive profile records. Runtime
 	-- TreeObjects and world transforms are rebuilt after the player's plot loads.
 	Saplings = {},
+	SaplingShop = { Cycle = -1, Purchased = {}, RareBoughtCycle = -1 },
+	-- One-time tutorial campaign plus independent recurring task progress.
+	QuestProgress = { Stage = 1, Count = 0 },
+	QuestRecurring = {}, -- UTC window IDs and per-task counts; normalized on load.
+	-- Server-verified wild-tree deaths, not competitive weighted scoring.
+	ChopLeaderboard = { Lifetime = 0, WeeklyWindowId = -1, WeeklyCount = 0 },
+	LifetimeStats = {}, -- permanent verified achievement counters
 	GroveTrees = {},
 	GroveMaterials = {},
+	-- Expandable server-owned stackable upgrade-material balances.
+	-- No materials are granted here; new items need an acquisition source.
+	MaterialBalances = {PremiumCurrency=0,AscensionCrystal=0},
 	ActiveGroveTreeUIDs = {},
 	-- Axe heads are crafting materials, never equipable Tools.
 	AxeHeads = {
@@ -39,8 +46,10 @@ local ProfileTemplate = {
 			Base = true,
 			Forest1 = true,
 			Forest2 = false,
+			Forest3 = false,
 		},
 	},
+	GroveLevel = 1,
 	CarryCapacityKg = AxeShopCatalog.DEFAULT_CAPACITY_KG,
 	-- Neutral server-owned seam for future character/prestige progression.
 	-- It deliberately has no player-facing progression in this prototype.
@@ -48,9 +57,7 @@ local ProfileTemplate = {
 	Coins = 0,
 	Wood = 0,
 	LogInTimes = 0,
-	Equipped = {
-		Weapon = "starter-basic-axe",
-	},
+	Equipped = {},
 	-- Retained because StatsAggregator supports legacy/current pet records. New
 	-- profiles start empty; pets are not part of this rework's feature scope.
 	ActivePets = {}
@@ -113,6 +120,10 @@ local function PlayerAdded(player)
 		end
 		DevelopmentLoadouts.ApplyStudioPreset(player, profile.Data)
 		DevelopmentLoadouts.ApplyGroveSaplings(player, profile.Data)
+		-- Authoritative Studio-only fixtures: auto-supply funding, metal
+		-- components and quality-varied unique logs for instant forge tests.
+		StudioForgeSandbox.Refill(player, profile.Data)
+		DevelopmentLoadouts.ApplyCombatFixtures(player, profile.Data)
 		profileCache.NormalizeGroveData(profile.Data)
 		profile:ListenToRelease(function()
 			profileCache.Remove(player)
@@ -121,6 +132,9 @@ local function PlayerAdded(player)
 		end)
 		if player:IsDescendantOf(Players) == true then
 			profileCache.Set(player, profile)
+			-- Native player-list standings, independent of quest UI/reward delivery.
+			local rankingOk, rankingErr = pcall(ChopLeaderboardService.RefreshPlayer, player)
+			if not rankingOk then warn("[ChopLeaderboard] Initial display failed", rankingErr) end
 			bindableLoaded:Fire(player)
 			player:SetAttribute("ProfileReady", true)
 			remoteLoaded:FireClient(player)

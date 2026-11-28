@@ -3,11 +3,25 @@
 -- always supplied by server-owned tree/log records.
 local SpeciesVisuals = {}
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
+local MaterialGeometry = require(game.ReplicatedStorage.Shared.MaterialGeometry)
 local replicatedStorage = game:GetService("ReplicatedStorage")
 local OakLogAppearance = require(replicatedStorage:WaitForChild("Shared"):WaitForChild("OakLogAppearance"))
 
 local PALETTES = {
 	Oak = OakLogAppearance.Palette,
+	-- A recognizable young tree rather than a bamboo stalk: pale warm bark
+	-- and cuboid green foliage, distinct from mature Oaks.
+	Sapwood = {
+		Bark = Color3.fromRGB(159, 111, 71),
+		BarkHighlight = Color3.fromRGB(185, 138, 91),
+		BarkShadow = Color3.fromRGB(113, 76, 49),
+		CutEnd = Color3.fromRGB(224, 193, 146),
+		CutRing = Color3.fromRGB(174, 131, 85),
+		CutRingShadow = Color3.fromRGB(122, 91, 61),
+		Leaf = Color3.fromRGB(49, 124, 64),
+		LeafHighlight = Color3.fromRGB(77, 161, 80),
+		LeafShadow = Color3.fromRGB(34, 91, 53),
+	},
 	Ironwood = {
 		Bark = Color3.fromRGB(79, 50, 36),
 		BarkHighlight = Color3.fromRGB(116, 76, 49),
@@ -176,7 +190,7 @@ end
 -- visualScale affects only this disposable model; inventory records deliberately
 -- have no presentation-scale field.
 -- Returns a direct-child Handle plus the direct-child decorative end caps.
-function SpeciesVisuals.CreateLogParts(logRecord, handleName, visualScale)
+function SpeciesVisuals.CreateLogParts(logRecord, handleName, visualScale, physicalDimensions)
 	assert(type(logRecord) == "table", "A server-owned log record is required")
 	local palette = SpeciesVisuals.GetPalette(logRecord.SpeciesId)
 	local modelMultiplier = if type(visualScale) == "number" and visualScale > 0 then visualScale else 1
@@ -186,13 +200,21 @@ function SpeciesVisuals.CreateLogParts(logRecord, handleName, visualScale)
 	-- dimensions exactly four times the unchanged back-stack dimensions.
 	local length = CARRY_LOG_LENGTH * geometryScale
 	local diameter = CARRY_LOG_DIAMETER * geometryScale
+	local height = diameter
+	if physicalDimensions then
+		local l, w, h = MaterialGeometry.Dimensions(logRecord.SpeciesId, logRecord.SizeScale)
+		if l then
+			length, diameter, height = l, w, h
+			geometryScale = diameter / CARRY_LOG_DIAMETER
+		end
+	end
 	local isOak = logRecord.SpeciesId == "Oak"
 
 	local handle = configurePart(Instance.new("Part"))
 	handle.Name = handleName or "Handle"
 	-- Oak uses the smooth layered treatment approved for standardized logs;
 	-- existing non-Oak surface styles and the matching cut ends are preserved.
-	handle.Size = Vector3.new(length, diameter, diameter)
+	handle.Size = Vector3.new(length, height, diameter)
 	handle.CFrame = CFrame.new()
 	handle.Color = palette.Bark
 	handle.Material = Enum.Material.Plastic
@@ -241,22 +263,33 @@ function SpeciesVisuals.CreateLogParts(logRecord, handleName, visualScale)
 	return handle, caps
 end
 
--- Small, standardized cosmetic log for the character's back cargo. It stays a
--- consistent size across species and has no inventory-driven presentation
--- scale. The caller positions and welds the body and cut-end roots to its
--- character-local cargo anchor; Oak bark and grain parts follow those roots.
+-- Physical dimensions compressed uniformly for back cargo. The caller
+-- positions and welds the roots to the cargo anchor; Oak details follow.
+function SpeciesVisuals.GetBackpackDimensions(logRecord)
+	local length, width, height = MaterialGeometry.Dimensions(logRecord.SpeciesId, logRecord.SizeScale or 1)
+	if not length then
+		local scale = SpeciesVisuals.GetCarryVisualScale(logRecord.SpeciesId)
+		return CARRY_LOG_LENGTH * scale, CARRY_LOG_DIAMETER * scale, CARRY_LOG_DIAMETER * scale
+	end
+	local compression = MaterialGeometry.BACKPACK_COMPRESSION
+	return length * compression, width * compression, height * compression
+end
+
+function SpeciesVisuals.GetBackpackLayoutScale(logRecord)
+	local _, width, height = SpeciesVisuals.GetBackpackDimensions(logRecord)
+	return math.max(width, height) / CARRY_LOG_DIAMETER
+end
 function SpeciesVisuals.CreateCarryLogParts(logRecord)
 	assert(type(logRecord) == "table", "A server-owned log record is required")
 	local palette = SpeciesVisuals.GetPalette(logRecord.SpeciesId)
-	local carryScale = SpeciesVisuals.GetCarryVisualScale(logRecord.SpeciesId)
-	local length = CARRY_LOG_LENGTH * carryScale
-	local diameter = CARRY_LOG_DIAMETER * carryScale
-	local capThickness = CARRY_CAP_THICKNESS * carryScale
+	local length, diameter, height = SpeciesVisuals.GetBackpackDimensions(logRecord)
+	local carryScale = SpeciesVisuals.GetBackpackLayoutScale(logRecord)
+	local capThickness = CARRY_CAP_THICKNESS * diameter / CARRY_LOG_DIAMETER
 	local isOak = logRecord.SpeciesId == "Oak"
 
 	local body = configurePart(Instance.new("Part"))
 	body.Name = "CarryLogBody"
-	body.Size = Vector3.new(length, diameter, diameter)
+	body.Size = Vector3.new(length, height, diameter)
 	body.CFrame = CFrame.new()
 	body.Color = palette.Bark
 	body.Material = Enum.Material.Plastic

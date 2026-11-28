@@ -240,8 +240,9 @@ local function setupLightingComparison()
 
 	local lightingPanel = Instance.new("Frame")
 	lightingPanel.Name = "LightingPreviewPanel"
-	lightingPanel.AnchorPoint = Vector2.new(0, 1)
-	lightingPanel.Position = UDim2.new(0, 14, 1, -62)
+	-- Top-right rather than bottom-left, clear of the Grove and the Bag's INFO rail.
+	lightingPanel.AnchorPoint = Vector2.new(1, 0)
+	lightingPanel.Position = UDim2.new(1, -14, 0, 62)
 	lightingPanel.Size = UDim2.fromOffset(460, 122)
 	lightingPanel.BackgroundColor3 = Color3.fromRGB(27, 36, 34)
 	lightingPanel.BackgroundTransparency = 0.08
@@ -287,8 +288,8 @@ local function setupLightingComparison()
 
 	local lightingToggle = Instance.new("TextButton")
 	lightingToggle.Name = "ToggleLightingPreview"
-	lightingToggle.AnchorPoint = Vector2.new(0, 1)
-	lightingToggle.Position = UDim2.new(0, 14, 1, -14)
+	lightingToggle.AnchorPoint = Vector2.new(1, 0)
+	lightingToggle.Position = UDim2.new(1, -14, 0, 14)
 	lightingToggle.Size = UDim2.fromOffset(176, 40)
 	lightingToggle.BackgroundColor3 = Color3.fromRGB(62, 91, 106)
 	lightingToggle.BorderSizePixel = 0
@@ -301,6 +302,19 @@ local function setupLightingComparison()
 	local toggleCorner = Instance.new("UICorner")
 	toggleCorner.CornerRadius = UDim.new(0, 7)
 	toggleCorner.Parent = lightingToggle
+
+	-- Keep the user's expanded/collapsed choice when an economy modal opens.
+	-- DevGalleryNavigation has DisplayOrder 1000, so hiding these controls is
+	-- essential: merely raising the Bag ZIndex cannot cover them.
+	local lightingPanelRequested = false
+	local function syncLightingWithEconomy()
+		local economyOpen = playerGui:GetAttribute("EconomyModalOpen") == true
+		lightingToggle.Visible = not economyOpen
+		lightingPanel.Visible = lightingPanelRequested and not economyOpen
+	end
+	table.insert(previewConnections,
+		playerGui:GetAttributeChangedSignal("EconomyModalOpen"):Connect(syncLightingWithEconomy))
+	syncLightingWithEconomy()
 
 	local function createPresetButton(name, label, x, width, color)
 		local button = Instance.new("TextButton")
@@ -470,10 +484,9 @@ local function setupLightingComparison()
 		applyPreset(presetB)
 	end)
 	lightingToggle.Activated:Connect(function()
-		if cleanedUp then
-			return
-		end
-		lightingPanel.Visible = not lightingPanel.Visible
+		if cleanedUp or playerGui:GetAttribute("EconomyModalOpen") == true then return end
+		lightingPanelRequested = not lightingPanelRequested
+		syncLightingWithEconomy()
 	end)
 
 	local function cleanup()

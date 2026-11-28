@@ -1,6 +1,8 @@
 -- Builds the source-controlled corridor and registers its public TreeObject records.
 local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
 local TreeObject = require(game.ServerScriptService.Trees.TreeObject)
+local Challenges = require(script.Parent.TreeChallengeService)
 local TreeDefinitions = require(game.ServerScriptService.Trees.TreeDefinitions)
 local Configuration = require(script.Parent.WorldLayoutConfiguration)
 local WorldStyleBaseline = require(script.Parent.WorldStyleBaseline)
@@ -419,6 +421,35 @@ local function createHomeEconomyStation(parent)
 	)
 	counter:SetAttribute("WorldLayoutOwned", true)
 
+	-- A bright, chunky wood processor: the machine pays Coins directly.
+	-- There is no timber currency or secondary processed inventory.
+	local housing = createPart(
+		"ProcessorHousing", Vector3.new(6.4, 3.0, 3.6),
+		CFrame.new(position + Vector3.new(0, 3.5, 0.2)),
+		Color3.fromRGB(55, 145, 173), Enum.Material.Metal, station
+	)
+	housing:SetAttribute("WorldLayoutOwned", true)
+	createPart(
+		"ProcessorMouth", Vector3.new(4.8, 2.1, 0.25),
+		CFrame.new(position + Vector3.new(0, 3.5, -1.7)),
+		Color3.fromRGB(28, 37, 47), Enum.Material.SmoothPlastic, station
+	)
+	createPart(
+		"ProcessorStripe", Vector3.new(6.0, 0.35, 3.75),
+		CFrame.new(position + Vector3.new(0, 4.9, 0.2)),
+		Color3.fromRGB(255, 192, 57), Enum.Material.Neon, station
+	)
+	local intake = createPart(
+		"ProcessorIntake", Vector3.new(3, 2, 1),
+		CFrame.new(position + Vector3.new(0, 3.5, -2.15)),
+		Color3.fromRGB(34, 46, 56), Enum.Material.SmoothPlastic, station
+	)
+	intake.Transparency = 1
+	intake.CanCollide = false
+	intake.CanQuery = false
+	intake.CanTouch = false
+	intake:SetAttribute("WorldLayoutOwned", true)
+
 	local interaction = createPart(
 		"Interaction",
 		Vector3.new(8, 6, 5),
@@ -436,8 +467,8 @@ local function createHomeEconomyStation(parent)
 
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = "EconomyPrompt"
-	prompt.ActionText = "Sell logs"
-	prompt.ObjectText = "Lumber Depot"
+	prompt.ActionText = "Process carried logs"
+	prompt.ObjectText = "Wood Processor"
 	prompt.MaxActivationDistance = Configuration.STATION_USE_DISTANCES.HomeEconomyStation
 	prompt.RequiresLineOfSight = false
 	prompt.HoldDuration = 0
@@ -455,8 +486,8 @@ local function createHomeEconomyStation(parent)
 	createStationSign(
 		station,
 		"LumberDepot",
-		"Lumber Depot",
-		"Sell Logs",
+		"WOOD PROCESSOR",
+		"Log Stack → Coins",
 		position + Vector3.new(0, 6.1, 0),
 		Color3.fromRGB(235, 159, 57),
 		Color3.fromRGB(255, 234, 181)
@@ -534,6 +565,82 @@ local function createAxeShopStation(parent)
 	prompt.ActionText = "Browse axes"
 	prompt.ObjectText = "Axe Shop"
 	prompt.MaxActivationDistance = Configuration.STATION_USE_DISTANCES.AxeShopStation
+	prompt.RequiresLineOfSight = false
+	prompt.HoldDuration = 0
+	prompt.Parent = interaction
+
+	return station
+end
+
+local function createGroveShopStation(parent)
+	local station = Instance.new("Model")
+	station.Name = "GroveShopStation"
+	station:SetAttribute("WorldLayoutOwned", true)
+	station:SetAttribute("UseDistance", Configuration.STATION_USE_DISTANCES.GroveShopStation)
+	station.Parent = parent
+
+	local position = Configuration.GROVE_SHOP_STATION.Position
+	local counter = createPart(
+		"Counter",
+		Vector3.new(10, 3.5, 3.5),
+		CFrame.new(position + Vector3.new(0, 1.75, 0)),
+		Color3.fromRGB(106, 155, 80),
+		Enum.Material.WoodPlanks,
+		station
+	)
+	counter:SetAttribute("WorldLayoutOwned", true)
+
+	local counterTop = createPart(
+		"CounterTop",
+		Vector3.new(11, 0.6, 4.2),
+		CFrame.new(position + Vector3.new(0, 3.8, 0)),
+		Color3.fromRGB(160, 218, 108),
+		Enum.Material.Plastic,
+		station
+	)
+	counterTop:SetAttribute("WorldLayoutOwned", true)
+	counterTop.TopSurface = Enum.SurfaceType.Studs
+
+	local signPost = createPart(
+		"SignPost",
+		Vector3.new(0.6, 3.4, 0.6),
+		CFrame.new(position + Vector3.new(0, 5.5, 0)),
+		Color3.fromRGB(92, 137, 80),
+		Enum.Material.Plastic,
+		station
+	)
+	signPost:SetAttribute("WorldLayoutOwned", true)
+
+	createStationSign(
+		station,
+		"GroveShop",
+		"Grove Shop",
+		"Saplings & management",
+		position + Vector3.new(0, 6.2, 0),
+		Color3.fromRGB(68, 191, 104),
+		Color3.fromRGB(255, 249, 219)
+	)
+
+	local interaction = createPart(
+		"Interaction",
+		Vector3.new(10, 6, 5),
+		CFrame.new(position + Vector3.new(0, 3, -3.5)),
+		Color3.fromRGB(88, 164, 92),
+		Enum.Material.Plastic,
+		station
+	)
+	interaction.Transparency = 1
+	interaction.CanCollide = false
+	interaction.CanTouch = false
+	interaction.CanQuery = false
+	interaction:SetAttribute("WorldLayoutOwned", true)
+	interaction:SetAttribute("UseDistance", Configuration.STATION_USE_DISTANCES.GroveShopStation)
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "GroveShopPrompt"
+	prompt.ActionText = "Open Grove"
+	prompt.ObjectText = "Grove Shop"
+	prompt.MaxActivationDistance = Configuration.STATION_USE_DISTANCES.GroveShopStation
 	prompt.RequiresLineOfSight = false
 	prompt.HoldDuration = 0
 	prompt.Parent = interaction
@@ -660,6 +767,54 @@ local function spawnTreeRecord(forestFolder, forestId, record)
 	return tree
 end
 
+-- Dedicated Studio-only *real* wild-tree encounter for testing the Cleave
+-- dispatcher. These trees use the normal ChopEvent, TreeObject, eligibility,
+-- damage, log rewards and respawn; no dummy visual models or client hitboxes.
+local function buildStudioCleavePatch(forestRoot, pathFolder, spawnedTrees)
+	if not RunService:IsStudio() or Configuration.STUDIO_CLEAVE_PATCH_ENABLED ~= true then return end
+
+	local patch = createFolder("CleaveTestPatch", forestRoot)
+	patch:SetAttribute("StudioOnly", true)
+	patch:SetAttribute("ForestId", "Forest1")
+	-- Place the whole patch INSIDE Forest 1's playable footprint. The old
+	-- X=-216 location was beyond the solid WestCliff at X=-200.
+	-- Raised a few hundredths above the existing forest floor to avoid z-fighting.
+	createGround(
+		patch, "CleaveTestGround",
+		Vector3.new(-93, -0.71, 185), Vector3.new(30, 0.5, 28),
+		Color3.fromRGB(101, 173, 83), nil, "ForestGround"
+	)
+	createPath(pathFolder, {
+		Name = "CleaveTestAccess",
+		Start = Vector3.new(-112, 0, 185),
+		End = Vector3.new(-106, 0, 185),
+		Width = 8,
+	})
+	createSign(patch, {
+		Text = "CLEAVE TEST - STUDIO ONLY",
+		Position = Vector3.new(-93, 0, 174),
+	}, "South")
+
+	-- 7.5-stud separation is within even the weakest current rolled Cleave
+	-- radius (16 * (0.5 + 0.5 * 0.1) * 0.9 = 7.92 studs).
+	-- The short trunks stay separate, but their foliage can overlap.
+	for _, position in ipairs({
+		Vector3.new(-97, -0.5, 181),
+		Vector3.new(-89.5, -0.5, 181),
+		Vector3.new(-97, -0.5, 188.5),
+		Vector3.new(-89.5, -0.5, 188.5),
+	}) do
+		local tree = spawnTreeRecord(patch, "Forest1", {
+			DefinitionId = "StarterForestTree",
+			Position = position,
+		})
+		if tree then
+			if tree.model then tree.model:SetAttribute("CleaveTestTree", true) end
+			table.insert(spawnedTrees, tree)
+		end
+	end
+end
+
 local function destroyTreesForExistingRoot(existing)
 	local treesToDestroy = {}
 	local seenTrees = {}
@@ -750,7 +905,14 @@ local function buildWorld()
 	local proceduralStarterOaksEnabled = Configuration.PROCEDURAL_STARTER_OAKS_ENABLED == true
 	if existing
 		and existing:GetAttribute("WorldLayoutVersion") == Configuration.VERSION
-		and (existing:GetAttribute("ProceduralStarterOaksEnabled") == true) == proceduralStarterOaksEnabled then
+		and (existing:GetAttribute("ProceduralStarterOaksEnabled") == true) == proceduralStarterOaksEnabled
+		and existing:FindFirstChild("GroveShopStation")
+		and existing:FindFirstChild("HomeEconomyStation")
+		and existing.HomeEconomyStation:FindFirstChild("ProcessorIntake")
+		and (not RunService:IsStudio() or (
+			existing:FindFirstChild("Forests") ~= nil
+			and existing.Forests:FindFirstChild("CleaveTestPatch") ~= nil
+		)) then
 		return existing
 	end
 	if existing then
@@ -768,6 +930,7 @@ local function buildWorld()
 	createHomeEconomyStation(root)
 	createAxeShopStation(root)
 	createForgeStation(root)
+	createGroveShopStation(root)
 
 	createGround(
 		terrain,
@@ -839,7 +1002,19 @@ local function buildWorld()
 
 	local starterForest = forestRoot:FindFirstChild("StarterForest")
 	local barrier = spawnTreeRecord(starterForest, Configuration.BARRIER.ForestId, Configuration.BARRIER)
-	if barrier then table.insert(spawnedTrees, barrier) end
+	if barrier then
+		assert(Challenges.RegisterGuardian(barrier),"First guardian registration failed")
+		table.insert(spawnedTrees, barrier)
+	end
+	local second = Configuration.SECOND_BARRIER
+	if second then
+		local gate = spawnTreeRecord(forestFoldersById[second.ForestId], second.ForestId, second)
+		if gate then
+			assert(Challenges.RegisterGuardian(gate),"Second guardian registration failed")
+			table.insert(spawnedTrees, gate)
+		end
+	end
+	buildStudioCleavePatch(forestRoot, pathFolder, spawnedTrees)
 	local kitOk, kitFolder, kitReport = false, nil, nil
 	local kitFailureReason = environmentKitLoadFailure
 	if world1EnvironmentKit then

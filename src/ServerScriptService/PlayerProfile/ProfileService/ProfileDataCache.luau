@@ -6,6 +6,16 @@ local ProfileService = playerProfileFolder.ProfileService
 local AxeShopCatalog = require(game.ServerScriptService.Economy.AxeShopCatalog)
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
 local MutationDefinitions = require(game.ServerScriptService.Grove.MutationDefinitions)
+local GroveGrowthRules = require(game.ServerScriptService.Grove.GroveGrowthRules)
+local GroveUpgrades = require(game.ServerScriptService.Grove.GroveUpgradeRules)
+local GrovePassives = require(game.ServerScriptService.Grove.GrovePassiveRules)
+local QuestRules = require(game.ServerScriptService.Quests.QuestRules)
+local ChopLeaderboardRules = require(game.ServerScriptService.ChopLeaderboardRules)
+local ItemDataBase = require(game.ServerStorage.Items.ItemDataBase)
+local WeaponProgressionRules = require(game.ServerScriptService.WeaponProgressionRules)
+local SlotRules=require(game.ServerScriptService.Economy.WeaponUpgradeRules)
+local ProgressionConfig=require(game.ReplicatedStorage.Shared.ProgressionConfig)
+local Premium=require(game.ReplicatedStorage.Shared.PremiumEconomyConfig)
 
 local PlayerProfileCache = {}
 
@@ -22,7 +32,7 @@ end
 local MAX_GROVE_UID_LENGTH = 80
 local MAX_GROVE_COORDINATE = 512
 local MIN_SIZE_POTENTIAL = 0.1
-local MAX_SIZE_POTENTIAL = 2
+local MAX_SIZE_POTENTIAL = GroveGrowthRules.MAX_POTENTIAL
 
 local function isFiniteNumber(value)
 	return type(value) == "number"
@@ -125,11 +135,25 @@ function PlayerProfileCache.NormalizeGroveData(data)
 	countRawRecordUIDs(rawGroveTrees, uidCounts)
 	countRawRecordUIDs(rawGroveMaterials, uidCounts)
 
+	-- Grove trees and earned Heartwood may refer to the SAME planted
+	-- sapling. These are separate, legitimate provenance relationships.
+	-- Counting both in one map used to silently DELETE the entire Grove
+	-- tree and Heartwood upon profile reload after the first harvest.
 	local sourceSaplingUIDCounts = {}
 	countRawSourceUIDs(rawGroveTrees, "SourceSaplingUID", sourceSaplingUIDCounts)
-	countRawSourceUIDs(rawGroveMaterials, "SourceSaplingUID", sourceSaplingUIDCounts)
+	local heartwoodSaplingUIDCounts = {}
+	countRawSourceUIDs(rawGroveMaterials, "SourceSaplingUID", heartwoodSaplingUIDCounts)
 	local sourceGroveTreeUIDCounts = {}
 	countRawSourceUIDs(rawGroveMaterials, "SourceGroveTreeUID", sourceGroveTreeUIDCounts)
+	local rawTreeByUID = {}
+	if type(rawGroveTrees)=="table" then
+		for _,tree in pairs(rawGroveTrees) do
+			if type(tree)=="table" and isValidGroveUID(tree.UID)
+				and uidCounts[tree.UID]==1 then
+				rawTreeByUID[tree.UID]=tree
+			end
+		end
+	end
 
 	local saplings = {}
 	if type(rawSaplings) == "table" then
@@ -141,6 +165,7 @@ function PlayerProfileCache.NormalizeGroveData(data)
 					SpeciesId = record.SpeciesId,
 					Mutations = copyGroveMutations(record.Mutations),
 					SizePotential = record.SizePotential,
+					GeneticPassive = GrovePassives.NormalizeGenetic(record.GeneticPassive, record.UID),
 					CreatedAt = record.CreatedAt,
 				})
 			end
@@ -160,6 +185,9 @@ function PlayerProfileCache.NormalizeGroveData(data)
 					SpeciesId = record.SpeciesId,
 					Mutations = copyGroveMutations(record.Mutations),
 					SizePotential = record.SizePotential,
+					GeneticPassive = GrovePassives.NormalizeGenetic(record.GeneticPassive, record.SourceSaplingUID),
+					CurrentSizeScale = GroveGrowthRules.NormalizeCurrentSize(record.CurrentSizeScale, record.SizePotential),
+					HarvestCount = GroveGrowthRules.NormalizeHarvestCount(record.HarvestCount),
 					LocalX = record.LocalX,
 					LocalZ = record.LocalZ,
 					Yaw = record.Yaw,
@@ -175,9 +203,15 @@ function PlayerProfileCache.NormalizeGroveData(data)
 		for _, record in pairs(rawGroveMaterials) do
 			if isValidHeartwoodRecord(record)
 				and uidCounts[record.UID] == 1
-				and uidCounts[record.SourceGroveTreeUID] == nil
+				and (uidCounts[record.SourceGroveTreeUID]==nil
+					or (uidCounts[record.SourceGroveTreeUID]==1
+						and rawTreeByUID[record.SourceGroveTreeUID]~=nil
+						and rawTreeByUID[record.SourceGroveTreeUID].SourceSaplingUID
+							==record.SourceSaplingUID
+						and rawTreeByUID[record.SourceGroveTreeUID].SpeciesId
+							==record.SpeciesId))
 				and uidCounts[record.SourceSaplingUID] == nil
-				and sourceSaplingUIDCounts[record.SourceSaplingUID] == 1
+				and heartwoodSaplingUIDCounts[record.SourceSaplingUID] == 1
 				and sourceGroveTreeUIDCounts[record.SourceGroveTreeUID] == 1 then
 				table.insert(groveMaterials, {
 					UID = record.UID,
@@ -192,6 +226,7 @@ function PlayerProfileCache.NormalizeGroveData(data)
 			end
 		end
 	end
+	data.GroveLevel = GroveUpgrades.NormalizeLevel(data.GroveLevel)
 	data.Saplings = saplings
 	data.GroveTrees = groveTrees
 	data.GroveMaterials = groveMaterials
@@ -200,7 +235,80 @@ function PlayerProfileCache.NormalizeGroveData(data)
 	return true
 end
 
+-- The tutorial campaign is a small, one-time persisted state machine.
+-- Normalize legacy/malformed saves without changing any currency/materials.
+function PlayerProfileCache.NormalizeQuestProgress(data)
+	if type(data)~="table" then return false end
+	data.QuestProgress=QuestRules.Normalize(data.QuestProgress)
+	return true
+end
+
+-- Migrates old saves without recurring tasks; never changes coins or rewards.
+function PlayerProfileCache.NormalizeRecurringQuestProgress(data)
+	if type(data)~="table" then return false end
+	local clean=QuestRules.NormalizeRecurring(data.QuestRecurring,os.time())
+	if not clean then return false end
+	data.QuestRecurring=clean
+	return true
+end
+
+-- Normalize legacy leaderboard data without granting past or unverified kills.
+function PlayerProfileCache.NormalizeChopLeaderboard(data)
+	if type(data) ~= "table" then return false end
+	local clean = ChopLeaderboardRules.Normalize(data.ChopLeaderboard, os.time())
+	if not clean then return false end
+	data.ChopLeaderboard = clean
+	return true
+end
+
+-- Normalize persisted, unique weapon records BEFORE ItemDataBase parses them
+-- into the transient runtime equipment cache. Skip non-weapons and the
+-- session-only debug axe (which must never become a progression candidate).
+function PlayerProfileCache.NormalizeWeaponData(data)
+	if type(data) ~= "table" or type(data.Inventory) ~= "table" then return false end
+	for _, item in ipairs(data.Inventory) do
+		if type(item) == "table" and item.ItemID ~= 9001 then
+			local definition = ItemDataBase.Info[item.ItemID]
+			if definition and definition.Type == "Weapon" then
+				WeaponProgressionRules.NormalizeWeaponItem(item)
+				if ProgressionConfig.HasSecondSlot(item.Rarity) then
+					local level=type(data.RunProgress)=="table" and data.RunProgress.ForgeLevel or 1
+					if not ProgressionConfig.ValidForge(level) then level=1 end
+					level=math.max(level,ProgressionConfig.RequiredForge(item.Rarity))
+					local granted,reason=SlotRules.GrantSecond(item.WeaponData,item.Rarity,level,Random.new())
+					if granted then item.WeaponData=granted else warn("[Mutation migration]",item.UID,reason) end
+				end
+			end
+		end
+	end
+	return true
+end
+
 local function normalizeProgressionData(data)
+	-- Persistent per-offer purchase counts for the current restock.
+	if type(data.SaplingShop)~="table" then data.SaplingShop={} end
+	local shop=data.SaplingShop
+	if not isNonnegativeInteger(shop.Cycle) or shop.Cycle>1000000000 then shop.Cycle=-1; shop.Purchased={} end
+	if type(shop.Purchased)~="table" then shop.Purchased={} end
+	for id,count in pairs(shop.Purchased) do
+		if type(id)~="string" or #id>90 or not isNonnegativeInteger(count) or count>96 then shop.Purchased[id]=nil end
+	end
+	if not isNonnegativeInteger(shop.RareBoughtCycle) or shop.RareBoughtCycle>1000000000 then shop.RareBoughtCycle=-1 end
+	-- Future stackable upgrade ingredients. Keep owned nonnegative counts
+	-- during migration, reject malformed IDs, NaN and negative balances.
+	if type(data.MaterialBalances) ~= "table" then
+		data.MaterialBalances = {}
+	end
+	for id, count in pairs(data.MaterialBalances) do
+		if type(id) ~= "string" or #id < 1 or #id > 80
+			or id:find("[%c]") or not isNonnegativeInteger(count) then
+			data.MaterialBalances[id] = nil
+		end
+	end
+
+	for _,id in ipairs({Premium.PREMIUM,Premium.CRYSTAL}) do
+		if data.MaterialBalances[id]==nil then data.MaterialBalances[id]=0 end
+	end
 	if type(data.AxeHeads) ~= "table" then
 		data.AxeHeads = {}
 	end
@@ -222,6 +330,10 @@ local function normalizeProgressionData(data)
 	if not isNonnegativeInteger(runProgress.StandardAxeTier) then
 		runProgress.StandardAxeTier = 0
 	end
+	-- Permanent Forge workstation upgrade, separate from existing axe
+	-- progression. Older profiles start at tier 1 with no data loss.
+	if not isNonnegativeInteger(runProgress.ForgeLevel) then runProgress.ForgeLevel=1 end
+	runProgress.ForgeLevel=math.clamp(runProgress.ForgeLevel,1,require(game.ReplicatedStorage.Shared.ForgeMutationRules).MAX_LEVEL)
 	if type(runProgress.UnlockedForests) ~= "table" then
 		runProgress.UnlockedForests = {}
 	end
@@ -231,6 +343,9 @@ local function normalizeProgressionData(data)
 	unlockedForests.Forest1 = true
 	if unlockedForests.Forest2 == nil or type(unlockedForests.Forest2) ~= "boolean" then
 		unlockedForests.Forest2 = false
+	end
+	if type(unlockedForests.Forest3) ~= "boolean" then
+		unlockedForests.Forest3 = false
 	end
 	for forestId, unlocked in pairs(unlockedForests) do
 		if type(forestId) ~= "string" or type(unlocked) ~= "boolean" then
@@ -245,6 +360,10 @@ export type PlayerProfileCache = {
 	Remove: (player: Player) -> (),
 	NormalizeCarryCapacity: (data: { [string]: any }) -> number,
 	NormalizeGroveData: (data: { [string]: any }) -> boolean,
+	NormalizeQuestProgress: (data: { [string]: any }) -> boolean,
+	NormalizeRecurringQuestProgress: (data: { [string]: any }) -> boolean,
+	NormalizeChopLeaderboard: (data: { [string]: any }) -> boolean,
+	NormalizeWeaponData: (data: { [string]: any }) -> boolean,
 	FireLoaded: (profile: profileType.PlayerData) -> ()
 }
 
@@ -281,6 +400,11 @@ function PlayerProfileCache.Set(player: Player, profile)
 	if profile and type(profile.Data) == "table" then
 		PlayerProfileCache.NormalizeCarryCapacity(profile.Data)
 		PlayerProfileCache.NormalizeGroveData(profile.Data)
+		PlayerProfileCache.NormalizeQuestProgress(profile.Data)
+		PlayerProfileCache.NormalizeRecurringQuestProgress(profile.Data)
+		PlayerProfileCache.NormalizeChopLeaderboard(profile.Data)
+		profile.Data.LifetimeStats=require(game.ServerScriptService.LifetimeStatsRules).Normalize(profile.Data.LifetimeStats)
+		PlayerProfileCache.NormalizeWeaponData(profile.Data)
 		normalizeProgressionData(profile.Data)
 	end
 	BuildRuntime(profile)

@@ -5,6 +5,72 @@ local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 
 local DevelopmentLoadouts = {}
+local ForgeRules = require(game.ReplicatedStorage.Shared.ExperimentalForgeRules)
+local AxeShopCatalog = require(game.ServerScriptService.Economy.AxeShopCatalog)
+
+-- Enabled only in Studio's existing forge sandbox. A fresh session starts
+-- unarmed, with the three reproducible weapons available in the normal bag.
+DevelopmentLoadouts.COMBAT_FIXTURES_ENABLED = true
+local COMBAT_FIXTURE_PREFIX = "dev-cadence-"
+
+function DevelopmentLoadouts.ApplyCombatFixtures(player, data)
+	if not RunService:IsStudio() or type(data) ~= "table"
+		or type(data.Inventory) ~= "table" then return false end
+
+	local sandbox = require(game.ServerScriptService.Economy.StudioForgeSandbox)
+	-- Remove only this fixture family's old test records when refreshing the
+	-- baseline or disabling it for a clean economy session.
+	for i = #data.Inventory, 1, -1 do
+		local item = data.Inventory[i]
+		if type(item) == "table" and type(item.UID) == "string"
+			and string.sub(item.UID, 1, #COMBAT_FIXTURE_PREFIX) == COMBAT_FIXTURE_PREFIX
+			and type(item.WeaponData) == "table" and item.WeaponData.DevCadenceFixture == true then
+			if type(data.Equipped) == "table" and data.Equipped.Weapon == item.UID then
+				data.Equipped.Weapon = nil
+			end
+			table.remove(data.Inventory, i)
+		end
+	end
+	if not DevelopmentLoadouts.COMBAT_FIXTURES_ENABLED or not sandbox.IsEnabled() then return false end
+
+	local recipe = AxeShopCatalog.FindExperimentalForgeRecipe("experiment_copper")
+	if not recipe then return false end
+	local preview = ForgeRules.Preview(recipe.HeadBasePower, {
+		{ SpeciesId = "Sapwood", SizeScale = 1, Mutations = {} },
+	}, 1)
+	if not preview then return false end
+	local function midpoint(range)
+		return (range.Min + range.Max) * 0.5
+	end
+	for _, class in ipairs(ForgeRules.CLASSES) do
+		local range = preview.Ranges[class]
+		local power = math.floor(midpoint(range.Damage) * 10 + 0.5) / 10
+		local effects = {}
+		if class == "Battlehammer" then
+			effects[1] = { Id = "Cleave", Trigger = "OnHit", Source = "WeaponClass",
+				Params = { DamageFraction = midpoint(range.CleaveDamageFraction),
+					Radius = midpoint(range.CleaveRadius) } }
+		end
+		table.insert(data.Inventory, {
+			ItemID = recipe.Outputs[class],
+			UID = COMBAT_FIXTURE_PREFIX .. string.lower(class),
+			Stats = { Attack = math.max(0, power - AxeShopCatalog.BaseAttack) },
+			Substat = {},
+			Rarity = "Common",
+			WeaponData = {
+				RecipeId = recipe.Id, WeaponKind = class, ExperimentalClass = class,
+				Metal = "Copper", AxeTier = recipe.Tier, HeadId = recipe.HeadId,
+				CraftedPower = power, MaterialQuality = preview.MaterialQuality,
+				AverageWoodStrength = preview.AverageWoodStrength,
+				AttacksPerSecond = midpoint(range.AttacksPerSecond),
+				Reach = midpoint(range.Reach), Effects = effects,
+				Progression = { Level = 1, XP = 0 },
+				Materials = {}, DevCadenceFixture = true,
+			},
+		})
+	end
+	return true
+end
 
 DevelopmentLoadouts.STUDIO_PRESET_BY_USER_ID = {
 	-- [123456789] = "Strong",
@@ -143,6 +209,7 @@ function DevelopmentLoadouts.ApplyGroveSaplings(player, profileData)
 					SpeciesId = definition.SpeciesId,
 					Mutations = {},
 					SizePotential = 1,
+					GeneticPassive = require(game.ServerScriptService.Grove.GrovePassiveRules).RollGenetic(),
 					CreatedAt = createdAt,
 				})
 				changed = true

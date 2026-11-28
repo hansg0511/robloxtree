@@ -2,6 +2,7 @@ local Tree = {}
 Tree.__index = Tree
 
 local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
 local ServerStorage = game:GetService("ServerStorage")
 local TweenService = game:GetService("TweenService")
 local SpeciesVisuals = require(ServerStorage:WaitForChild("SpeciesVisuals"))
@@ -11,11 +12,20 @@ local DamageEvent = game.ReplicatedStorage.DamageEvent
 local FXService = require(game.ReplicatedStorage.FXService)
 local HarvestVisualConfig = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("HarvestVisualConfig"))
 local Definitions = require(script.Parent.TreeDefinitions)
+local FirstHitClaimRules = require(script.Parent.FirstHitClaimRules)
 local MutationDefinitions = require(game.ServerScriptService.Grove.MutationDefinitions)
 local WorldProgressService = require(game.ServerScriptService.WorldProgressService)
+local PassiveStats = require(game.ServerScriptService.PassiveStats)
+local ProfileCache = require(game.ServerScriptService.PlayerProfile.ProfileService.ProfileDataCache)
 local LogService = require(game.ServerScriptService.Inventory.LogService)
 local MaterialDefinitions = require(game.ServerScriptService.Economy.MaterialDefinitions)
 local SaplingDiscoveryService = require(game.ServerScriptService.Grove.SaplingDiscoveryService)
+local QuestService = require(game.ServerScriptService.Quests.QuestService)
+local ChopLeaderboardService = require(game.ServerScriptService.ChopLeaderboardService)
+local GroveHarvestVisualService = require(game.ServerScriptService.Grove.GroveHarvestVisualService)
+local GroveHarvestPresentation = require(game.ReplicatedStorage.Shared.GroveHarvestPresentation)
+local GroveGrowthRules = require(game.ServerScriptService.Grove.GroveGrowthRules)
+local GroveGrowthVisuals = require(script.Parent.GroveGrowthVisuals)
 local StarterOakGenerator
 local generatorFolder = game.ServerScriptService:FindFirstChild("Trees")
 local generatorModule = generatorFolder and generatorFolder:FindFirstChild("StarterOakGenerator")
@@ -31,14 +41,9 @@ local WorldLayoutConfiguration = require(game.ServerScriptService.WorldLayout:Wa
 
 local treeRandom = Random.new()
 
+local MaterialGeometry = require(game.ReplicatedStorage.Shared.MaterialGeometry)
 local function rollTreeScale()
-	local roll = treeRandom:NextNumber()
-	if roll < 0.82 then
-		return treeRandom:NextNumber(0.7, 1.3)
-	elseif roll < 0.91 then
-		return treeRandom:NextNumber(0.45, 0.7)
-	end
-	return treeRandom:NextNumber(1.3, 1.7)
+	return MaterialGeometry.RollWildSize(treeRandom)
 end
 
 local function makeBrickPart(name, size, position, color, parent, root, canCollide)
@@ -76,6 +81,9 @@ local function addBarkStuds(brick, root, palette)
 	local function attachStud(position, rotation, color)
 		local stud = Instance.new("Part")
 		stud.Name = "BarkStud"
+		-- Let the Grove growth visual reveal this decoration at the same
+		-- instant as its supporting trunk/branch, never as floating debris.
+		stud:SetAttribute("GroveGrowthAttachment", brick.Name)
 		stud.Shape = Enum.PartType.Cylinder
 		stud.Size = Vector3.new(studDepth, studDiameter, studDiameter)
 		stud.CFrame = brick.CFrame * CFrame.new(position) * rotation
@@ -234,6 +242,86 @@ local function makeStarterForestTree()
 	return model
 end
 
+-- Sapwood uses two clean, height-extendable trunk segments and a compact
+-- cuboid crown. No brick studs or textured brick faces; the small number of
+-- authored parts remain compatible with the existing harvest/growth adapters.
+local function makeSapwoodTree()
+	local palette = SpeciesVisuals.GetPalette("Sapwood")
+	local model = Instance.new("Model")
+	model.Name = "SapwoodTree"
+
+	local function makeSmoothPart(name, size, position, color, parent, root)
+		local part = makeBrickPart(name, size, position, color, parent, root, false)
+		part.Material = Enum.Material.SmoothPlastic
+		part.TopSurface = Enum.SurfaceType.Smooth
+		part.BottomSurface = Enum.SurfaceType.Smooth
+		part.FrontSurface = Enum.SurfaceType.Smooth
+		part.BackSurface = Enum.SurfaceType.Smooth
+		part.LeftSurface = Enum.SurfaceType.Smooth
+		part.RightSurface = Enum.SurfaceType.Smooth
+		part.CanTouch = false
+		return part
+	end
+
+	-- Invisible carrier keeps the entire tree rigid until the two harvest
+	-- pieces detach at impact. A clear silhouette matters more than detail.
+	local carrier = makeSmoothPart("SapwoodRootCarrier",
+		Vector3.new(0.7, 12, 0.7), Vector3.new(0, 6, 0),
+		palette.Bark, model)
+	carrier.PivotOffset = CFrame.new(0, -6, 0)
+	carrier.Transparency = 1
+	carrier.CanQuery = false
+	carrier:SetAttribute("AlwaysInvisible", true)
+	model.PrimaryPart = carrier
+
+	local sectionsFolder = Instance.new("Folder")
+	sectionsFolder.Name = "SapwoodHarvestSections"
+	sectionsFolder.Parent = model
+	local sections = {}
+	-- Matching bark colors keep the two pieces visually continuous, with a
+	-- gentle natural taper instead of the previous stacked-toy-block look.
+	for index, definition in ipairs({
+		{ Name = "SapwoodLowerTrunk", Size = Vector3.new(1.6, 6, 1.6),
+			Position = Vector3.new(0, 3, 0) },
+		{ Name = "SapwoodUpperTrunk", Size = Vector3.new(1.4, 6, 1.4),
+			Position = Vector3.new(0, 9, 0) },
+	}) do
+		local section = Instance.new("Model")
+		section.Name = "SapwoodHarvestSection" .. index
+		section:SetAttribute("AuthoredHarvestSection", true)
+		section:SetAttribute("HarvestSectionIndex", index)
+		section:SetAttribute("SpeciesId", "Sapwood")
+		section.Parent = sectionsFolder
+		local trunk = makeSmoothPart(definition.Name, definition.Size,
+			definition.Position, palette.Bark, section, carrier)
+		trunk:SetAttribute("GroveGrowthAxis", "Y")
+		trunk:SetAttribute("GroveGrowthRole", "trunk")
+		section.PrimaryPart = trunk
+		sections[index] = section
+	end
+
+	local leaves = Instance.new("Folder")
+	leaves.Name = "Leaves"
+	leaves.Parent = model
+	-- All World 1 leaves stay cuboids; overlapping, restrained masses read as
+	-- one leafy young tree rather than multiple disconnected Minecraft blocks.
+	for index, definition in ipairs({
+		{ Size = Vector3.new(7.4, 4.2, 7.2),
+			Position = Vector3.new(0, 12.8, 0), Color = palette.Leaf },
+		{ Size = Vector3.new(5.6, 4.0, 5.4),
+			Position = Vector3.new(-1.2, 15.0, -0.7), Color = palette.LeafHighlight },
+		{ Size = Vector3.new(4.8, 3.4, 4.6),
+			Position = Vector3.new(1.4, 14.4, 0.8), Color = palette.LeafShadow },
+	}) do
+		local leaf = makeSmoothPart("Leaf" .. index, definition.Size,
+			definition.Position, definition.Color, leaves, carrier)
+		leaf.CastShadow = true
+	end
+	addChopHitbox(model, carrier, Vector3.new(5, 12, 5),
+		Vector3.new(0, 6, 0))
+	return model, sections
+end
+
 local function makeStarterForestHarvestOak(sectionCount)
 	local sectionNamesByCount = {
 		[1] = { "Base" },
@@ -313,7 +401,8 @@ end
 local PROCEDURAL_OAK_LEGACY_BASE_HEIGHT = 18
 local PROCEDURAL_OAK_NORMAL_MEAN_HEIGHT = 14.5
 local PROCEDURAL_OAK_MIN_SIZE_SCALE = 0.45
-local PROCEDURAL_OAK_MAX_SIZE_SCALE = 1.7
+local PROCEDURAL_OAK_MAX_SIZE_SCALE = 1.7 -- legacy Grove generation envelope
+local PROCEDURAL_OAK_WILD_MAX_SIZE_SCALE = MaterialGeometry.MAX_LOG_SIZE
 
 local function isFiniteNumber(value)
 	return type(value) == "number"
@@ -355,7 +444,7 @@ local function getProceduralOakVisualScale(coreHeight, sizeScale)
 	-- existing production scale envelope; HP and yield still use SizeScale.
 	local normalizedScale = sizeScale * PROCEDURAL_OAK_LEGACY_BASE_HEIGHT / PROCEDURAL_OAK_NORMAL_MEAN_HEIGHT
 	local minimumHeight = PROCEDURAL_OAK_LEGACY_BASE_HEIGHT * PROCEDURAL_OAK_MIN_SIZE_SCALE
-	local maximumHeight = PROCEDURAL_OAK_LEGACY_BASE_HEIGHT * PROCEDURAL_OAK_MAX_SIZE_SCALE
+	local maximumHeight = PROCEDURAL_OAK_LEGACY_BASE_HEIGHT * PROCEDURAL_OAK_WILD_MAX_SIZE_SCALE
 	return math.clamp(normalizedScale, minimumHeight / coreHeight, maximumHeight / coreHeight)
 end
 
@@ -806,7 +895,7 @@ end
 local function shouldUseProceduralStarterOak(tree)
 	return WorldLayoutConfiguration.PROCEDURAL_STARTER_OAKS_ENABLED == true
 		and tree.DefinitionId == "StarterForestTree"
-		and tree.ForestId == "Forest1"
+		and (tree.ForestId == "Forest3" or tree.ForestId == "Forest1")
 		and tree.SpeciesId == "Oak"
 		and tree.YieldsLog == true
 		and not tree.IsPersistentGrove
@@ -1000,16 +1089,46 @@ end
 local SOURCE_BUILT_MODELS = {
 	BrickPlaceholder = makeBrickPlaceholder,
 	StarterForestTree = makeStarterForestTree,
+	SapwoodTree = makeSapwoodTree,
 	Forest2Tree = makeForest2Tree,
 	BambooClump = makeBambooClump,
 	BarrierTree = makeBarrierTree,
 }
 
-local GROVE_STAGE_SCALE = {
-	sapling = 0.18,
-	young = 0.52,
+-- Gameplay status remains stump/sapling/young/mature, but their visual
+-- presentation uses progressively REVEALED PARTS OF ONE MATURE MODEL.
+local GROVE_STAGES = { stump = true, sapling = true, young = true, mature = true }
+
+local GROVE_PREVIEW_PROGRESS = {
+	stump = 0,
+	sapling = 0.25,
+	young = 0.58,
 	mature = 1,
 }
+
+-- Oak trees in the Grove and Forest 1 use the same generator and adaptation
+-- contract, so a fully grown Grove Oak actually looks like the forest Oak.
+-- The generated variant is deterministic per planting location and stable
+-- across regrowth; only the overall size roll changes with each cycle.
+local function makeGroveMatureOak(seed, sizeScale)
+	local model
+	local visualScale
+	if WorldLayoutConfiguration.PROCEDURAL_STARTER_OAKS_ENABLED == true and StarterOakGenerator then
+		local ok, generated, _sections, generatedScale = pcall(makeProceduralStarterOak, seed, 3, math.min(sizeScale, PROCEDURAL_OAK_MAX_SIZE_SCALE))
+		if ok and generated and generated:IsA("Model")
+			and isFiniteNumber(generatedScale) and generatedScale > 0 then
+			model = generated
+			visualScale = generatedScale * math.max(1, sizeScale / PROCEDURAL_OAK_MAX_SIZE_SCALE)
+		elseif generated and typeof(generated) == "Instance" then
+			generated:Destroy()
+		end
+	end
+	if not model then
+		-- Same established Oak fallback as the wild StarterForestTree.
+		model = makeStarterForestHarvestOak(3)
+	end
+	return model, visualScale
+end
 
 Tree.ActiveTrees = {}
 Tree._nextCreationId = 0
@@ -1031,54 +1150,56 @@ end
 -- kind: "GroveOak", "WildOak", "Bamboo", or "Ironwood"
 -- context: { GroveStage = "sapling" | "young" | "mature", SizePotential = number, Mutations = { [id] = true } }
 function Tree.BuildPreviewModel(kind, context)
-	if not RunService:IsStudio() then return nil end
-	if type(kind) ~= "string" then return nil end
+	if not RunService:IsStudio() or type(kind) ~= "string" then return nil end
 	context = if type(context) == "table" then context else {}
-
-	local groveStage = context.GroveStage or "mature"
-	local stageScale = GROVE_STAGE_SCALE[groveStage]
-	if not stageScale then return nil end
-
+	local stage = context.GroveStage or "mature"
+	if not GROVE_STAGES[stage] then return nil end
 	local sizePotential = context.SizePotential
 	if sizePotential == nil then sizePotential = 1 end
-	if type(sizePotential) ~= "number"
-		or sizePotential ~= sizePotential
-		or sizePotential < 0.1
-		or sizePotential > 2
-		or sizePotential == math.huge then
-		return nil
-	end
-
-	local model
+	if not GroveGrowthRules.ValidPotential(sizePotential) then return nil end
 	local speciesId
-	if kind == "GroveOak" then
-		model = makeStarterForestTree()
-		speciesId = "Oak"
-	elseif kind == "WildOak" then
-		-- Three authored sections provide a representative mature wild Oak while
-		-- using the same harvest-core construction path as live forest trees.
-		model = makeStarterForestHarvestOak(3)
+	local model
+	local visualScale
+	if kind == "GroveOak" or kind == "WildOak" then
+		model, visualScale = makeGroveMatureOak(12917, sizePotential)
 		speciesId = "Oak"
 	elseif kind == "Bamboo" then
 		model = makeBambooClump()
 		speciesId = "Bamboo"
 	elseif kind == "Ironwood" then
-		-- nil intentionally selects the builder's same default section grouping
-		-- used by PersistentGroveTree spawning.
 		model = makeForest2Tree(nil)
 		speciesId = "Ironwood"
 	else
 		return nil
 	end
-
 	if not model then return nil end
-	local currentScale = sizePotential * stageScale
+	local currentScale = visualScale or sizePotential
 	model:ScaleTo(currentScale)
 	model.Name = "DevTreePreview_" .. kind
 	model:SetAttribute("DevTreePreviewKind", kind)
 
-	-- Previews only display the builder output: remove the invisible chop target
-	-- and make every remaining part static and non-interactive before parenting.
+	-- Same final model and growth adapter used by actual planted Grove trees.
+	-- Tests can observe visible parts at any fraction (not just 3 labels).
+	if kind ~= "WildOak" then
+		local progress = context.GrowthProgress
+		if not isFiniteNumber(progress) then progress = GROVE_PREVIEW_PROGRESS[stage] end
+		-- Studio previews default to the growth step count implied by
+		-- their visual scale. Tests may override it explicitly.
+		local previewDuration = context.GrowthDurationSeconds
+		if not isFiniteNumber(previewDuration) or previewDuration <= 0 then
+			previewDuration = GroveGrowthRules.DurationForSize(currentScale)
+		end
+		local previewSteps = math.max(1, math.ceil(previewDuration
+			/ GroveGrowthRules.SECONDS_PER_VISUAL_STEP))
+		local growth = GroveGrowthVisuals.Prepare(model, speciesId, previewSteps)
+		if growth then
+			-- Prepare builds the stump before parenting. Apply accepts models
+			-- that are unparented ONLY for the Studio preview path.
+			GroveGrowthVisuals.Apply(growth, progress, true)
+		end
+	end
+
+	-- Previews are never server-registered chop targets or interactables.
 	local chopHitbox = model:FindFirstChild("ChopHitbox", true)
 	if chopHitbox then chopHitbox:Destroy() end
 	for _, descendant in ipairs(model:GetDescendants()) do
@@ -1089,15 +1210,41 @@ function Tree.BuildPreviewModel(kind, context)
 			descendant.CanQuery = false
 		end
 	end
-
 	TreeVisualModifiers.Apply(model, {
 		SpeciesId = speciesId,
 		Mutations = context.Mutations,
-		GroveStage = groveStage,
+		GroveStage = stage,
 		SizePotential = sizePotential,
 		CurrentScale = currentScale,
 	})
 	return model
+end
+
+-- Claims are per tree life, server-only. Expired/abandoned claims lose their
+-- reward contribution, but existing tree damage stays until death/respawn.
+-- This avoids rerolling mutation/size simply by waiting out a claim.
+function Tree:ReleaseFirstHitClaim()
+	self.FirstHitClaimOwnerUserId = nil
+	self.FirstHitClaimOwnerPlayer = nil
+	self.FirstHitClaimLastDamageAt = nil
+	self.DamageContributions = {}
+	if self.model and self.model.Parent then
+		self.model:SetAttribute("FirstHitClaimOwnerUserId", nil)
+		self.model:SetAttribute("FirstHitClaimExpiresAt", nil)
+	end
+end
+
+function Tree:HasActiveFirstHitClaim(now)
+	if not self.FirstHitClaimEnabled or not self.FirstHitClaimOwnerUserId then return false end
+	local owner = self.FirstHitClaimOwnerPlayer
+	if typeof(owner) ~= "Instance" or not owner:IsA("Player")
+		or owner.Parent ~= Players
+		or not FirstHitClaimRules.IsActive(self.FirstHitClaimOwnerUserId,
+			self.FirstHitClaimLastDamageAt, now) then
+		self:ReleaseFirstHitClaim()
+		return false
+	end
+	return true
 end
 
 function Tree.new(options)
@@ -1125,9 +1272,17 @@ function Tree.new(options)
 	self.RespawnSeconds = definition.RespawnSeconds
 	self.OwnerOnly = definition.OwnerOnly
 	self.OwnerUserId = options.OwnerUserId
+	-- Public farming trees claimable by first valid damaging hit.
+	-- Future public-event/treasure definitions can explicitly opt out.
+	self.FirstHitClaimEnabled = definition.FirstHitClaimEnabled ~= false
+		and definition.OwnerOnly ~= true
+	self.FirstHitClaimOwnerUserId = nil
+	self.FirstHitClaimOwnerPlayer = nil
+	self.FirstHitClaimLastDamageAt = nil
 	self.Choppable = definition.Choppable
 	self.ForestId = options.ForestId or definition.ForestId or "Base"
 	self.RequiredStandardAxeTier = definition.RequiredStandardAxeTier
+	self.VisualScaleMultiplier = definition.VisualScaleMultiplier or 1
 	self.UnlockForestId = definition.UnlockForestId
 	self.InteractionPartName = definition.InteractionPartName
 	self.ChopRadius = definition.ChopRadius
@@ -1138,6 +1293,7 @@ function Tree.new(options)
 	if self.IsPersistentGrove then
 		local speciesConfig = Definitions.PersistentGroveSpecies[options.SpeciesId]
 		local sizePotential = options.SizePotential
+		local currentSizeScale = options.CurrentSizeScale
 		local plantedAt = options.PlantedAt
 		local maturesAt = options.MaturesAt
 		assert(type(options.GroveTreeUID) == "string" and #options.GroveTreeUID > 0, "Persistent Grove tree UID required")
@@ -1145,7 +1301,8 @@ function Tree.new(options)
 		assert(speciesConfig ~= nil and MaterialDefinitions.Get(options.SpeciesId) ~= nil, "Unknown Persistent Grove species")
 		assert(type(speciesConfig.MaxHP) == "number" and speciesConfig.MaxHP > 1, "Invalid Persistent Grove prototype HP")
 		assert(type(speciesConfig.ChopRadius) == "number" and speciesConfig.ChopRadius > 0, "Invalid Persistent Grove chop radius")
-		assert(type(sizePotential) == "number" and sizePotential == sizePotential and sizePotential >= 0.1 and sizePotential <= 2, "Invalid Persistent Grove size potential")
+		assert(GroveGrowthRules.ValidPotential(sizePotential), "Invalid Persistent Grove size potential")
+		assert(type(currentSizeScale) == "number" and currentSizeScale == currentSizeScale and currentSizeScale > 0 and currentSizeScale <= sizePotential, "Invalid Grove current size")
 		assert(type(plantedAt) == "number" and plantedAt == plantedAt and plantedAt >= 0 and plantedAt < math.huge, "Invalid Persistent Grove planting time")
 		assert(type(maturesAt) == "number" and maturesAt > plantedAt and maturesAt < math.huge, "Invalid Persistent Grove maturity time")
 		self.ModelName = speciesConfig.ModelName
@@ -1158,9 +1315,11 @@ function Tree.new(options)
 		self.SourceSaplingUID = options.SourceSaplingUID
 		self.Mutations = MutationDefinitions.CopyKnown(options.Mutations)
 		self.GroveSizePotential = sizePotential
+		self.GroveCurrentSize = currentSizeScale
+		self.GroveHarvestCount = math.max(0, math.floor(tonumber(options.HarvestCount) or 0))
 		self.GrovePlantedAt = plantedAt
 		self.GroveMaturesAt = maturesAt
-		self.GroveStage = if GROVE_STAGE_SCALE[options.GroveStage] then options.GroveStage else "sapling"
+		self.GroveStage = if GROVE_STAGES[options.GroveStage] then options.GroveStage else "sapling"
 		self.YieldsLog = false
 		self.RespawnSeconds = nil
 		self.OwnerOnly = true
@@ -1186,8 +1345,15 @@ function Tree:Spawn()
 	local hasLogDrop = self.YieldsLog
 		and self.Category ~= "Barrier"
 		and hasKnownMaterial
+	-- Wild mutation is a property of THIS tree incarnation, not of a
+	-- randomly discovered sapling. Respawning rerolls it; planted Grove
+	-- trees retain the mutations inherited from their original saplings.
+	if not self.IsPersistentGrove then
+		self.Mutations=if hasLogDrop
+			then SaplingDiscoveryService.RollWildTreeMutations() else {}
+	end
 	self.SizeScale = if self.IsPersistentGrove
-		then self.GroveSizePotential
+		then self.GroveCurrentSize
 		elseif type(self.FixedSizeScale) == "number" and self.FixedSizeScale > 0
 		then self.FixedSizeScale
 		elseif hasLogDrop
@@ -1197,6 +1363,9 @@ function Tree:Spawn()
 	self.MaxHP = math.max(1, math.floor(self.BaseHP * (self.SizeScale ^ 1.4) + 0.5))
 	self.HP = self.MaxHP
 	self.DamageContributions = {}
+	self.FirstHitClaimOwnerUserId = nil
+	self.FirstHitClaimOwnerPlayer = nil
+	self.FirstHitClaimLastDamageAt = nil
 	self.OakHarvestSections = nil
 	self.HarvestSections = nil
 	local oakHarvestCount
@@ -1208,11 +1377,11 @@ function Tree:Spawn()
 	local model
 	local oakHarvestSections
 	local authoredHarvestSections
-	local modelScale = self.SizeScale
-	if self.IsPersistentGrove then
-		modelScale *= GROVE_STAGE_SCALE[self.GroveStage]
-	end
-	if self.DefinitionId == "StarterForestTree" and oakHarvestCount then
+	local modelScale = self.SizeScale * (if self.IsPersistentGrove then 1 else self.VisualScaleMultiplier)
+	if self.IsPersistentGrove and self.SpeciesId == "Oak" then
+		model, modelScale = makeGroveMatureOak(getStableProceduralOakSeed(self), self.SizeScale)
+		modelScale = modelScale or self.SizeScale
+	elseif self.DefinitionId == "StarterForestTree" and oakHarvestCount then
 		if shouldUseProceduralStarterOak(self) then
 			local seed = getStableProceduralOakSeed(self)
 			local generationOk, generatedModel, generatedSections, generatedScale = pcall(
@@ -1234,6 +1403,8 @@ function Tree:Spawn()
 		if not model then
 			model, oakHarvestSections = makeStarterForestHarvestOak(oakHarvestCount)
 		end
+	elseif self.DefinitionId == "SapwoodTree" and hasLogDrop then
+		model, authoredHarvestSections = makeSapwoodTree()
 	elseif self.DefinitionId == "Forest2Tree" and hasLogDrop then
 		local harvestCount = LogService.GetTreeLogYieldCount(self)
 		if harvestCount then
@@ -1243,6 +1414,8 @@ function Tree:Spawn()
 		model, authoredHarvestSections = makeBambooClump()
 	end
 	if not model and builder then
+		-- Oak shares its production forest builder above; Bamboo and
+		-- Ironwood retain their exact mature forest species builders here.
 		model = builder()
 	end
 	if not model then
@@ -1273,6 +1446,7 @@ function Tree:Spawn()
 		model:SetAttribute("SourceSaplingUID", self.SourceSaplingUID)
 		model:SetAttribute("GroveStage", self.GroveStage)
 		model:SetAttribute("GroveSizeScale", modelScale)
+		model:SetAttribute("GroveCurrentSize", self.GroveCurrentSize)
 		model:SetAttribute("GrovePlantedAt", self.GrovePlantedAt)
 		model:SetAttribute("GroveMaturesAt", self.GroveMaturesAt)
 	end
@@ -1281,7 +1455,7 @@ function Tree:Spawn()
 	if self.DefinitionId == "StarterForestTree" then
 		self.OakHarvestSections = oakHarvestSections
 	end
-	self.HarvestSections = oakHarvestSections or authoredHarvestSections
+	self.HarvestSections = if self.IsPersistentGrove then nil else oakHarvestSections or authoredHarvestSections
 	self.isDead = false
 	local interactionPart = model:FindFirstChild(self.InteractionPartName, true)
 	if not interactionPart or not interactionPart:IsA("BasePart") then
@@ -1292,20 +1466,42 @@ function Tree:Spawn()
 	end
 	self.InteractionPart = interactionPart
 	self:BuildLeafPool()
+	if self.IsPersistentGrove then
+		local record = {
+			PlantedAt = self.GrovePlantedAt,
+			MaturesAt = self.GroveMaturesAt,
+			HarvestCount = self.GroveHarvestCount,
+		}
+		local currentProgress, _, totalSteps = GroveGrowthRules.VisualProgress(record, os.time())
+		self.GroveGrowthVisual = GroveGrowthVisuals.Prepare(model, self.SpeciesId, totalSteps)
+		GroveGrowthVisuals.Apply(self.GroveGrowthVisual, currentProgress)
+		self:RefreshGroveHarvestPrompt()
+	end
 	return model
 end
 
-function Tree:SetGroveStage(stage)
-	local stageScale = GROVE_STAGE_SCALE[stage]
-	if not self.IsPersistentGrove or not stageScale then return false end
+-- Called by the server Grove clock (polled each second for stage changes).
+-- Geometry is updated only when the five-second visual milestone changes.
+function Tree:SetGroveStage(stage, progress)
+	if not self.IsPersistentGrove or not GROVE_STAGES[stage]
+		or not self.model or not self.model.Parent then return false end
+	local oldStage = self.GroveStage
 	self.GroveStage = stage
-	local model = self.model
-	if model and model.Parent then
-		local modelScale = self.GroveSizePotential * stageScale
-		model:ScaleTo(modelScale)
+	local fraction = if isFiniteNumber(progress) then progress
+		else GroveGrowthRules.VisualProgress({
+			PlantedAt = self.GrovePlantedAt,
+			MaturesAt = self.GroveMaturesAt,
+			HarvestCount = self.GroveHarvestCount,
+		}, os.time())
+	if not GroveGrowthVisuals.Apply(self.GroveGrowthVisual, fraction) then
+		self.GroveStage = oldStage
+		return false
+	end
+	if oldStage ~= stage then
+		local model = self.model
 		model:SetAttribute("GroveStage", stage)
-		model:SetAttribute("GroveSizeScale", modelScale)
-		applyVisualModifiers(self, model, modelScale)
+		applyVisualModifiers(self, model, model:GetScale())
+		self:RefreshGroveHarvestPrompt()
 	end
 	return true
 end
@@ -1324,17 +1520,86 @@ function Tree:BuildLeafPool()
 	self.leavesRemaining = self.totalLeaves
 end
 
+-- Wild trees remain attack targets. A planted Grove tree is intentionally
+-- never eligible for the generic ChopEvent / TakeDamage path.
 function Tree:CanChop(player)
 	if self.destroyed or self.isDead or not self.model or not self.model.Parent then return false end
 	if typeof(player) ~= "Instance" or not player:IsA("Player") then return false end
-	if self.IsPersistentGrove then
-		if self.OwnerUserId ~= player.UserId or type(self.CanChopCallback) ~= "function" then return false end
-		local ok, canChop = pcall(self.CanChopCallback, player, self)
-		return ok and canChop == true
-	end
+	if self.IsPersistentGrove then return false end
 	if not self.Choppable then return false end
 	if self.OwnerOnly and self.OwnerUserId ~= player.UserId then return false end
+	if self.IsChallengeTarget then
+		return type(self.ChallengeCanChop)=="function" and self.ChallengeCanChop(player)==true
+	end
+	if self.FirstHitClaimEnabled then
+		local now = os.clock()
+		self:HasActiveFirstHitClaim(now)
+		if not FirstHitClaimRules.CanHit(self.FirstHitClaimOwnerUserId,
+			self.FirstHitClaimLastDamageAt, player.UserId, now) then return false end
+	end
 	return true
+end
+
+function Tree:CanHarvestFromPrompt(player)
+	if typeof(player) ~= "Instance" or not player:IsA("Player") then return false end
+	if not self.IsPersistentGrove or self.GroveStage ~= "mature"
+		or self.destroyed or self.isDead or self.HarvestInProgress
+		or not self.model or not self.model.Parent
+		or self.OwnerUserId ~= player.UserId
+		or type(self.CanChopCallback) ~= "function" then return false end
+	local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+	local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	if not root or not humanoid or humanoid.Health <= 0 then return false end
+	-- Validate distance to the planted trunk's base, not its oversized hitbox,
+	-- to reject spoofed ProximityPrompt activations from across the plot.
+	if (root.Position - self.CFrame.Position).Magnitude > GroveHarvestPresentation.InteractionDistance then
+		return false
+	end
+	local ok, canHarvest = pcall(self.CanChopCallback, player, self)
+	return ok and canHarvest == true
+end
+
+function Tree:TryHarvestFromPrompt(player)
+	if not self:CanHarvestFromPrompt(player) then return false end
+	return self:Die(player) == true
+end
+
+function Tree:RefreshGroveHarvestPrompt()
+	if not self.IsPersistentGrove or not self.model
+		or not self.model.Parent or not self.InteractionPart then return end
+	local anchor = self.model:FindFirstChild("GroveHarvestPromptAnchor")
+	if self.GroveStage ~= "mature" or self.isDead or self.HarvestInProgress then
+		if anchor then anchor:Destroy() end
+		return
+	end
+	if anchor then return end
+	-- Attach E at the trunk BASE, not at the middle of a tall ChopHitbox.
+	-- Otherwise a large Ironwood can be impossible to harvest from ground.
+	anchor = Instance.new("Part")
+	anchor.Name = "GroveHarvestPromptAnchor"
+	anchor.Size = Vector3.one
+	anchor.CFrame = self.CFrame * CFrame.new(0, 2.5, 0)
+	anchor.Transparency = 1
+	anchor.Anchored = true
+	anchor.CanCollide = false
+	anchor.CanTouch = false
+	anchor.CanQuery = false
+	anchor.CastShadow = false
+	anchor:SetAttribute("AlwaysInvisible", true)
+	anchor.Parent = self.model
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "GroveHarvestPrompt"
+	prompt.ActionText = "Harvest"
+	prompt.ObjectText = self.SpeciesId .. " Grove Tree"
+	prompt.KeyboardKeyCode = Enum.KeyCode.E
+	prompt.MaxActivationDistance = GroveHarvestPresentation.PromptDistance
+	prompt.HoldDuration = 0
+	prompt.RequiresLineOfSight = false
+	prompt.Exclusivity = Enum.ProximityPromptExclusivity.OnePerButton
+	prompt.Triggered:Connect(function(player)
+		if self:TryHarvestFromPrompt(player) then prompt.Enabled = false end
+	end)
+	prompt.Parent = anchor
 end
 
 function Tree:GetInteractionDistance(worldPosition)
@@ -1358,8 +1623,15 @@ function Tree:GetInteractionDistance(worldPosition)
 	return (worldPosition - closestWorldPoint).Magnitude
 end
 
-function Tree.GetBestChopTarget(player, eligibilityFilter)
+function Tree.GetBestChopTarget(player, eligibilityFilter, reachMultiplier)
 	assert(type(eligibilityFilter) == "function", "Tree eligibility filter required")
+	-- Only server callers choose this bounded multiplier. Old axe calls retain
+	-- their original 1.0-range behavior, and each swing still picks ONE tree.
+	if type(reachMultiplier) ~= "number" or reachMultiplier ~= reachMultiplier
+		or reachMultiplier == math.huge or reachMultiplier == -math.huge then
+		reachMultiplier = 1
+	end
+	reachMultiplier = math.clamp(reachMultiplier, 0.5, 2)
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	local root = character and character:FindFirstChild("HumanoidRootPart")
@@ -1370,7 +1642,7 @@ function Tree.GetBestChopTarget(player, eligibilityFilter)
 	for tree in pairs(Tree.ActiveTrees) do
 		if eligibilityFilter(tree) then
 			local distance = tree:GetInteractionDistance(root.Position)
-			if distance <= tree.ChopRadius then
+			if distance <= tree.ChopRadius * reachMultiplier then
 				if distance < bestDistance - 0.001
 					or (math.abs(distance - bestDistance) <= 0.001 and bestTree and tree.CreationId < bestTree.CreationId)
 					or not bestTree then
@@ -1871,8 +2143,42 @@ function Tree:TakeDamage(ctx, player)
 	local damage = ctx.Damage
 	if type(damage) ~= "number" or damage ~= damage or damage <= 0 or damage == math.huge then return false end
 
+	-- Boss bonuses apply to the actual destination of each verified hit.
+	-- Ordinary trees and Grove harvests never receive this multiplier.
+	if PassiveStats.IsBossTarget(self) then
+		local data = ProfileCache.GetData(player)
+		if type(data) ~= "table" then return false end
+		local bonuses = PassiveStats.ForPlayer(player,data,os.time())
+		damage = PassiveStats.ScaleBossDamage(self,damage,bonuses.BossDamage)
+	end
 	local appliedDamage = math.min(math.floor(damage), self.HP)
 	if appliedDamage <= 0 then return false end
+	if self.IsChallengeTarget then
+		-- Personal HP; never invoke the shared visual death/harvest/unlock path.
+		self.HP=math.max(0,self.HP-appliedDamage)
+		local lethal=self.HP==0
+		ChopFX:FireClient(player,"playHit",{model=self.model})
+		DamageEvent:FireClient(player,{Target=self.model,Damage=appliedDamage,IsCrit=ctx.IsCrit,HP=self.HP,MaxHP=self.MaxHP})
+		self.ChallengeOnHit(player)
+		return true,appliedDamage,lethal
+	end
+	-- Claim ONLY after positive, server-validated HP damage. This is the
+	-- central gate for primary strikes, Cleave and Chain Lightning alike.
+	if self.FirstHitClaimEnabled then
+		local now = os.clock()
+		local active = self:HasActiveFirstHitClaim(now)
+		if not FirstHitClaimRules.CanHit(self.FirstHitClaimOwnerUserId,
+			self.FirstHitClaimLastDamageAt, player.UserId, now) then return false end
+		if not active then
+			self.FirstHitClaimOwnerUserId = player.UserId
+			self.FirstHitClaimOwnerPlayer = player
+			self.DamageContributions = {}
+		end
+		self.FirstHitClaimLastDamageAt = now
+		self.model:SetAttribute("FirstHitClaimOwnerUserId", player.UserId)
+		self.model:SetAttribute("FirstHitClaimExpiresAt",
+			workspace:GetServerTimeNow() + FirstHitClaimRules.CLAIM_IDLE_SECONDS)
+	end
 	self.HP = math.max(0, self.HP - appliedDamage)
 	local isLethalHit = self.HP == 0
 	local contribution = self.DamageContributions[player.UserId]
@@ -1891,6 +2197,12 @@ function Tree:TakeDamage(ctx, player)
 		IsCrit = ctx.IsCrit,
 		HP = self.HP,
 		MaxHP = self.MaxHP,
+		FirstHitClaimOwnerUserId = if self.FirstHitClaimEnabled
+			then self.FirstHitClaimOwnerUserId else nil,
+		-- Never expose Studio diagnostics in published play.
+		EffectId = if RunService:IsStudio()
+			and (ctx.EffectId == "Cleave" or ctx.EffectId == "Thunderstrike")
+			then ctx.EffectId else nil,
 	})
 
 	if not isLethalHit and not (self.IsPersistentGrove and self.isDead) then
@@ -1908,23 +2220,29 @@ function Tree:TakeDamage(ctx, player)
 	if self.HP == 0 and not self.IsPersistentGrove then
 		self:Die(player)
 	end
-	return true
+	-- Backward compatible: existing callers still use the first boolean.
+	-- The server's XP path also receives HP-clamped applied damage and
+	-- the lethal-hit flag, never raw calculated/overkill damage.
+	return true, appliedDamage, isLethalHit
 end
 
 function Tree:Die(player)
 	if self.isDead or self.destroyed then return end
 	if self.IsPersistentGrove then
-		if self.HarvestInProgress then return false end
+		-- Only the server-owned E prompt can invoke this path. Axe strikes
+		-- never target Grove trees and do not award profile materials.
+		if not self:CanHarvestFromPrompt(player) then return false end
 		self.HarvestInProgress = true
 		local fallenModel = self.model
 		local fallRotation = FXService.GetTreeFallRotation(fallenModel, player)
-		local harvested = false
+		local harvested, reward = false, nil
 		if type(self.OnPersistentHarvest) == "function" then
-			local ok, result = pcall(self.OnPersistentHarvest, player, self)
+			local ok, result, details = pcall(self.OnPersistentHarvest, player, self)
 			harvested = ok and result == true
+			if harvested then reward = details end
 		end
 		if not harvested then
-			self.HP = 1
+			self.HP = self.MaxHP
 			self.HarvestInProgress = false
 			return false
 		end
@@ -1932,8 +2250,29 @@ function Tree:Die(player)
 		self.Choppable = false
 		self.DamageContributions = {}
 		Tree.ActiveTrees[self] = nil
+		self:RefreshGroveHarvestPrompt()
 		task.spawn(function()
-			FXService:TreeFall(fallenModel, player, fallRotation, nil)
+			-- The camera gets a brief wind-up before the existing tree-fall
+			-- animation begins. The log appears at the fall's reveal beat,
+			-- never as an additional real ground pickup.
+			task.wait(GroveHarvestPresentation.WindupSeconds)
+			if fallenModel and fallenModel.Parent then
+				GroveHarvestVisualService.PlaySlash(fallenModel)
+			end
+			local revealed = false
+			local function revealOnce()
+				if revealed then return end
+				revealed = true
+				if type(reward) == "table" then
+					task.spawn(GroveHarvestVisualService.Reveal, player, reward)
+				end
+			end
+			-- FXService may abort a fall when a model vanishes. Still show the
+			-- granted reward to the owner exactly once in that failure case.
+			task.delay(GroveHarvestPresentation.LogRevealFallbackSeconds, revealOnce)
+			local ok, err = pcall(FXService.TreeFall, FXService, fallenModel, player, fallRotation, revealOnce)
+			if not ok then warn("[Grove] Harvest fall visual failed", err) end
+			revealOnce()
 			self.destroyed = true
 			self.model = nil
 			self.InteractionPart = nil
@@ -1959,6 +2298,18 @@ function Tree:Die(player)
 	)
 	if not awardSnapshot then
 		LogService.DebugHarvestPickupLifecycle("NO_REWARD_CREATED", self.SpeciesId, "reason=award-snapshot-unavailable")
+	else
+		-- Credit only the validated wild-log award winner for a legitimate
+		-- server-owned tree death; never credit from client log pickup.
+		local winner=LogService.GetTreeAwardWinner(self.DamageContributions)
+		if winner then
+			local ok,err=pcall(QuestService.RecordWildTreeChopped,winner,self)
+			if not ok then warn("[Quests] Wild chop credit failed",err) end
+			-- The same validated death recipient gets leaderboard credit;
+			-- neither partial hits nor Grove prompt harvests can inflate it.
+			local scored,scoreErr=pcall(ChopLeaderboardService.RecordWildTreeChopped,winner,self)
+			if not scored then warn("[ChopLeaderboard] Wild chop credit failed",scoreErr) end
+		end
 	end
 	if self.UnlockForestId then
 		WorldProgressService.UnlockForest(player, self.UnlockForestId)
@@ -2033,7 +2384,9 @@ function Tree:Die(player)
 
 					local callbackOk, callbackError = pcall(function()
 						local rewardCount = awardSnapshot and LogService.GetTreeLogYieldCount(awardSnapshot)
-						if awardSnapshot and rewardCount then
+						-- Additional logs use the standard physical-drop path; authored
+						-- sections were built for the original yield at spawn time.
+						if awardSnapshot and rewardCount and rewardCount==awardSnapshot.BaseLogYield then
 							preparedVisuals, sourcePivots, inFlightCFrames, targetCFrames, preparationFailure = createPreparedAuthoredHarvestLogs(
 								impactModel,
 								harvestSections,
@@ -2162,6 +2515,7 @@ end
 
 function Tree:Destroy()
 	self.destroyed = true
+	self:ReleaseFirstHitClaim()
 	Tree.ActiveTrees[self] = nil
 	if self.model then
 		self.model:Destroy()
@@ -2169,5 +2523,14 @@ function Tree:Destroy()
 	self.model = nil
 	self.InteractionPart = nil
 end
+
+-- A player leaving cannot hold trees hostage for the remaining idle lease.
+Players.PlayerRemoving:Connect(function(player)
+	for tree in pairs(Tree.ActiveTrees) do
+		if tree.FirstHitClaimOwnerPlayer == player then
+			tree:ReleaseFirstHitClaim()
+		end
+	end
+end)
 
 return Tree

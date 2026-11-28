@@ -11,28 +11,25 @@ local function makeTreeRecords(definitionId, positions)
 	return records
 end
 
-local starterForestTrees = makeTreeRecords("StarterForestTree", {
-	-- Loose, alternating clusters leave a broad clear lane through Forest 1.
+-- Sapwood is the first plentiful, light-log harvest. Keep the corridor
+-- centered on x=-112 clear; the skinny trees flank it in loose clusters.
+local starterForestTrees = makeTreeRecords("SapwoodTree", {
 	Vector3.new(-156, -0.5, 160),
+	Vector3.new(-142, -0.5, 160),
+	Vector3.new(-154, -0.5, 175),
 	Vector3.new(-137, -0.5, 174),
+	Vector3.new(-136, -0.5, 193),
 	Vector3.new(-160, -0.5, 201),
 	Vector3.new(-138, -0.5, 213),
-	Vector3.new(-157, -0.5, 237),
-	Vector3.new(-136, -0.5, 239),
+	Vector3.new(-159, -0.5, 219),
 	Vector3.new(-86, -0.5, 164),
+	Vector3.new(-72, -0.5, 166),
 	Vector3.new(-67, -0.5, 182),
+	Vector3.new(-82, -0.5, 185),
 	Vector3.new(-88, -0.5, 206),
-	Vector3.new(-66, -0.5, 223),
-	Vector3.new(-84, -0.5, 239),
 	Vector3.new(-69, -0.5, 199),
 })
-table.insert(starterForestTrees, {
-	DefinitionId = "BambooClump",
-	-- Retain the existing Forest 1 Bamboo gameplay tree beside the entrance.
-	Position = Vector3.new(-61, -0.5, 157),
-})
-
-local forest2Trees = makeTreeRecords("Forest2Tree", {
+local forest2Trees = makeTreeRecords("BambooClump", {
 	Vector3.new(-157, -0.5, 303),
 	Vector3.new(-137, -0.5, 319),
 	Vector3.new(-159, -0.5, 341),
@@ -47,20 +44,34 @@ local forest2Trees = makeTreeRecords("Forest2Tree", {
 	Vector3.new(-68, -0.5, 343),
 })
 
+local forest3Trees = makeTreeRecords("StarterForestTree", {
+	Vector3.new(-156, -0.5, 443),
+	Vector3.new(-136, -0.5, 465),
+	Vector3.new(-158, -0.5, 489),
+	Vector3.new(-138, -0.5, 513),
+	Vector3.new(-85, -0.5, 445),
+	Vector3.new(-66, -0.5, 471),
+	Vector3.new(-85, -0.5, 498),
+	Vector3.new(-66, -0.5, 520),
+})
+
 local FOREST_DRESSING_DENSITY = 1.0
 
 local STATION_USE_DISTANCES = {
 	AxeShopStation = 14,
 	HomeEconomyStation = 14,
 	ForgeStation = 14,
+	GroveShopStation = 10,
 }
 
 local WorldLayoutConfiguration = {
-	-- Preserve the approved procedural Oak visual path for Forest 1.
+	-- Preserve the approved procedural Oak visual path, now in Forest 3.
 	PROCEDURAL_STARTER_OAKS_ENABLED = true,
+	-- Opt-in only: keep ordinary Studio runs representative of the actual forests.
+	STUDIO_CLEAVE_PATCH_ENABLED = false,
 
 	ROOT_NAME = "SourceWorld",
-	VERSION = 21,
+	VERSION = 25,
 	STATION_USE_DISTANCES = STATION_USE_DISTANCES,
 
 	-- Surface steps stay small: support ground -0.56, forest/base -0.5,
@@ -190,6 +201,9 @@ local WorldLayoutConfiguration = {
 		Position = Vector3.new(40, -0.4, 108),
 	},
 
+	-- Grove prototype management stall, opposite the existing Forge side.
+	GROVE_SHOP_STATION = { Position = Vector3.new(-42, -0.4, 90) },
+
 	FORESTS = {
 		{
 			Name = "StarterForest",
@@ -200,7 +214,7 @@ local WorldLayoutConfiguration = {
 			GroundCenter = Vector3.new(-112, -0.75, 200),
 			GroundSize = Vector3.new(110, 0.5, 104),
 			GroundColor = Color3.fromRGB(104, 151, 87),
-			Sign = { Text = "FOREST 1", Position = Vector3.new(-139, 0, 184) },
+			Sign = { Text = "FOREST 1 - SAPWOOD", Position = Vector3.new(-139, 0, 184) },
 			Trees = starterForestTrees,
 		},
 		{
@@ -212,21 +226,20 @@ local WorldLayoutConfiguration = {
 			GroundCenter = Vector3.new(-112, -0.75, 340),
 			GroundSize = Vector3.new(110, 0.5, 104),
 			GroundColor = Color3.fromRGB(91, 137, 82),
-			Sign = { Text = "FOREST 2", Position = Vector3.new(-139, 0, 324) },
+			Sign = { Text = "FOREST 2 - BAMBOO", Position = Vector3.new(-139, 0, 324) },
 			Trees = forest2Trees,
 		},
 		{
 			Name = "Forest3",
 			ForestId = "Forest3",
-			Status = "Blockout",
 			Dressing = { Seed = 1003, Density = FOREST_DRESSING_DENSITY },
 			Corridor = "A",
 			ApproachFrom = "South",
 			GroundCenter = Vector3.new(-112, -0.75, 480),
 			GroundSize = Vector3.new(110, 0.5, 104),
 			GroundColor = Color3.fromRGB(92, 134, 80),
-			Sign = { Text = "FOREST 3 - BLOCKOUT", Position = Vector3.new(-139, 0, 464) },
-			Trees = {},
+			Sign = { Text = "FOREST 3 - OAK", Position = Vector3.new(-139, 0, 464) },
+			Trees = forest3Trees,
 		},
 		{
 			Name = "Forest4",
@@ -321,6 +334,12 @@ local WorldLayoutConfiguration = {
 		},
 	},
 
+	-- Retain the first gate key for the existing boundary style builder.
+	SECOND_BARRIER = {
+		DefinitionId = "Forest3Barrier",
+		ForestId = "Forest2",
+		Position = Vector3.new(-112, -0.4, 410),
+	},
 	BARRIER = {
 		DefinitionId = "BarrierTree",
 		ForestId = "Forest1",
