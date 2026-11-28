@@ -114,8 +114,7 @@ local function materialMutationSummary(materials)
 				count += 1
 				local size = material.SizeScale
 				if isFiniteNumber(size) and size > 0 then
-					weightedQuality += math.clamp(
-						size / ExperimentalForgeRules.MAX_LOG_SIZE, 0, 1)
+					weightedQuality += ExperimentalForgeRules.LogQuality(size) or 0
 				end
 			end
 		end

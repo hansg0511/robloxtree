@@ -1202,14 +1202,16 @@ end
 -- Presentation only: material quality is independent of rarity and the
 -- quantity-enhanced forged quality. A rounded 99.99% is never called perfect.
 local function qualityPresentation(value)
-	if not safeAxeNumber(value) or value < 0 or value > 1 then return nil end
+	if not safeAxeNumber(value) or value < 0 or value > ExperimentalForgeRules.MAX_MATERIAL_QUALITY then return nil end
 	local percent = if value == 1 then "100%" else string.format("%.1f%%", math.floor(value * 1000) / 10)
-	local name = if value == 1 then "Perfect" elseif value >= 0.95 then "Masterwork"
+	local name = if value > 1 then "Beyond perfect" elseif value == 1 then "Perfect" elseif value >= 0.95 then "Masterwork"
 		elseif value >= 0.8 then "Exceptional" elseif value >= 0.6 then "Excellent"
 		elseif value >= 0.4 then "Good" else "Ordinary"
-	-- Keep a consistent quality-specific teal-to-gold ramp, not rarity colors.
-	local color = Color3.fromRGB(86, 182, 176):Lerp(Color3.fromRGB(250, 210, 109), value)
-	return {Percent=percent, Name=name, Color=color, Fraction=value, Masterwork=value>=0.95}
+	-- The normal track fills at 100%; exceptional material quality uses an
+	-- additional gold-to-pale-gold ramp without overflowing the UI.
+	local color = if value > 1 then Color3.fromRGB(250, 210, 109):Lerp(Color3.fromRGB(255, 245, 205), math.clamp((value-1)/math.max(1e-6,ExperimentalForgeRules.MAX_MATERIAL_QUALITY-1),0,1))
+		else Color3.fromRGB(86, 182, 176):Lerp(Color3.fromRGB(250, 210, 109), value)
+	return {Percent=percent, Name=name, Color=color, Fraction=math.min(1,value), Masterwork=value>=0.95}
 end
 
 local renderAxeDetail
@@ -1618,7 +1620,7 @@ renderAxeDetail = function(axe)
 			local mutationQuality = safeAxeNumber(mutation.MaterialQuality)
 			axeStatRow(mutation.Name .. " (" .. tostring(math.floor(mutation.LogCount)) .. " logs)",
 				if mutationQuality then
-					string.format("Q %.1f%%", math.clamp(mutationQuality, 0, 1) * 100)
+					string.format("Q %.1f%%", math.clamp(mutationQuality, 0, ExperimentalForgeRules.MAX_MATERIAL_QUALITY) * 100)
 				else "Quality unavailable")
 		end
 	end
@@ -2584,7 +2586,7 @@ local function renderForge(data)
 				end
 				-- Compact, readable item summaries. UID stays authoritative in
 				-- the callback but isn't useful clutter in the ingredient list.
-				local qualityPct = math.floor(math.clamp((tonumber(record.SizeScale) or 1) / 5, 0, 1) * 100 + 0.5)
+				local qualityPct = math.floor((ExperimentalForgeRules.LogQuality(tonumber(record.SizeScale) or 1) or 0) * 1000) / 10
 				local rowText = (if isSelected then "SELECTED  •  " else if canAdd then "+  " else "FULL  •  ")
 					.. species .. "  " .. sizeText .. "  Q" .. tostring(qualityPct) .. "%"
 					.. mutationSummary .. "  •  " .. origin
@@ -2964,7 +2966,8 @@ if legacyEconomyUpdated then
 					rarity:upper(), payload.Class:upper(), payload.Power)
 			local quality = qualityPresentation(payload.Quality)
 			if quality then
-				local prefix = if quality.Name == "Perfect" then "PERFECT CRAFT!"
+				local prefix = if quality.Name == "Beyond perfect" then "BEYOND PERFECT CRAFT!"
+				elseif quality.Name == "Perfect" then "PERFECT CRAFT!"
 					elseif quality.Masterwork then "MASTERWORK CRAFTED!" else "QUALITY"
 				toast = toast .. "\n" .. prefix .. " " .. quality.Percent
 			end

@@ -1,6 +1,12 @@
 # Core economy — first quantitative pass
 
-## Giant multiplier revision — current source
+## Giant material quality — current source
+
+User approved quality exceeding 100% for Giant. Material quality remains size/5, bounded only by the shared physical max 10x (200%); all valid log sizes follow the same formula, so Giant's size is its advantage, not a separate quality multiplier. Forge preview and roll use actual material quality for effective wood strength, quantity-adjusted forged quality and derived damage. Weapon material-quality UI accepts and labels >100% "Beyond perfect", displays the real percent, and keeps the bar within its track; ingredient list and material mutation summary share the same quality calculation. Existing crafted weapons retain stored power and quality; no retroactive recomputation. Speed quality cap 1.2, Cleave caps, weapon geometry scale/reach caps, mutation potency rules and wild size rules unchanged. Example 10x Giant log = 200% material quality, 2x its species wood strength contribution (not 2x total damage because metal is separate), 96 such logs = 390% effective forged quality. Updated existing focused assertions; no Studio runtime validation.
+
+---
+
+## Giant multiplier revision — historical source (quality cap superseded above)
 
 User prefers 2x instead of 1.4x. Shared Giant size multiplier now 2, so newly acquired Giant Grove saplings have doubled base potential and a 10x absolute maximum (ordinary jackpot 5x, Giant jackpot 10x). Non-jackpot Giant maximum now 7x; shop Giant size range 1.8–3x. Existing Giant saplings and planted trees retain their saved potential, current size and deadlines. Physical geometry and log storage derive the new 10x limit from shared configuration. Normal base size/quality reference 5x; material quality remains capped at 100% pending explicit decision on above-100% quality. Wild tree size roll and existing wild Giant behavior unchanged in this Grove-focused pass. Growth durations, genetic band weights, jackpot chances, universal growth distribution, and passive rules unchanged. At fixed base potential, new Giant expected size is 2/1.4 times previous; sale value scales with size squared, passives linearly. A new 10x jackpot Giant grows 5–10x (mean ~7.64x), so every harvest reaches 100% quality under the existing cap. Consider balance implications during subsequent quality and mutation tuning. Existing smoke assertions adapted; no Studio execution.
 

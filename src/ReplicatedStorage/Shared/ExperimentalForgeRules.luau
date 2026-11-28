@@ -4,7 +4,8 @@ local Rules = {}
 local ForgeMutations = require(script.Parent.ForgeMutationRules)
 
 local Geometry = require(script.Parent.MaterialGeometry)
-Rules.MAX_LOG_SIZE = Geometry.MAX_LOG_SIZE
+Rules.MAX_LOG_SIZE = Geometry.MAX_LOG_SIZE -- 100% quality reference, not physical cap
+Rules.MAX_MATERIAL_QUALITY = Geometry.MAX_PHYSICAL_LOG_SIZE / Rules.MAX_LOG_SIZE
 Rules.MAX_OFFERED_LOGS = 96 -- defensive transaction bound, not game economy design
 Rules.QUANTITY_QUALITY_RATE = 0.01
 Rules.MAX_SPEED_QUALITY = 1.20 -- provisional; stays within existing server cadence cap
@@ -54,7 +55,7 @@ end
 
 function Rules.LogQuality(sizeScale)
 	if not finite(sizeScale) or sizeScale <= 0 then return nil end
-	return math.clamp(sizeScale / Rules.MAX_LOG_SIZE, 0, 1)
+	return math.clamp(sizeScale / Rules.MAX_LOG_SIZE, 0, Rules.MAX_MATERIAL_QUALITY)
 end
 
 function Rules.Odds(count, forgeTier)

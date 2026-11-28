@@ -24,7 +24,7 @@ local geometry=require(game.ReplicatedStorage.Shared.MaterialGeometry)
 local length=geometry.Dimensions("Bamboo",10)
 check("Giant physical length not clipped at 5x",length==40)
 local forge=require(game.ReplicatedStorage.Shared.ExperimentalForgeRules)
-check("material quality reference stays 5x",forge.LogQuality(5)==1 and forge.LogQuality(10)==1)
+check("material quality reference stays 5x",forge.LogQuality(5)==1 and forge.LogQuality(10)==2)
 local noFilter = rules.NormalizeSettings({
 	AutoKeep = { Mutations = false, Oversized = false, SizeThreshold = 2.0 },
 })
