@@ -81,7 +81,7 @@ export type PlayerData = {
 	AutoKeep: { Mutations: boolean, Oversized: boolean, SizeThreshold: number },
 	Saplings: { Sapling },
 	SaplingShop: { RareBoughtCycle: number },
-	QuestProgress: { Stage: number, Count: number },
+	QuestProgress: { Stage: number, Count: number, Version: number?, LegacyHarvestClaimed: boolean?, LegacyHarvestReady: boolean? },
 	QuestRecurring: { [string]: { WindowId: number, Counts: { [string]: number }, Claimed: { [string]: boolean }, LastDailyWindowId: { [string]: number }? } },
 	ChopLeaderboard: { Lifetime: number, WeeklyWindowId: number, WeeklyCount: number },
 	LifetimeStats: { [string]: any },

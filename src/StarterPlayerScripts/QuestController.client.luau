@@ -197,10 +197,10 @@ local function render()
 		claimButton.Text="NOT READY"
 		claimButton.Active=false
 	elseif state.Completed then
-		heading.Text="STORY QUESTS  •  COMPLETE"
-		title.Text="You're a Grove Keeper!"
-		objective.Text="Both introductory quests are complete. More quests will come later."
-		progress.Text="2 / 2 stages complete"
+		heading.Text="MAIN QUEST  •  COMPLETE"
+		title.Text="Current chapter complete!"
+		objective.Text="Continue developing your gear and Grove. More chapters will arrive with new forests."
+		progress.Text=string.format("%d / %d stages complete",state.TotalStages or 0,state.TotalStages or 0)
 		reward.Text=""
 		claimButton.Text="ALL CLAIMED"
 		claimButton.Active=false

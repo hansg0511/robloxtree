@@ -34,7 +34,8 @@ end
 local function makeState(player)
 	local data=playerData(player)
 	if not data then return nil end
-	local progress=Rules.Normalize(data.QuestProgress)
+	local progress=Rules.Evaluate(data.QuestProgress,data)
+	data.QuestProgress=progress
 	local now=os.time()
 	local recurring=Rules.NormalizeRecurring(data.QuestRecurring,now)
 	if not recurring then return nil end
@@ -164,7 +165,8 @@ function Service.Claim(player,questId)
 		pcall(function() EconomyUpdated:FireClient(player,"PremiumBalances") end)
 		return true,"CLAIMED",tostring(reward).." "..Premium.LABELS[Premium.PREMIUM]
 	end
-	local progress=Rules.Normalize(data.QuestProgress)
+	local progress=Rules.Evaluate(data.QuestProgress,data)
+	data.QuestProgress=progress
 	local definition=Rules.Story[progress.Stage]
 	-- Client must name the exact active quest. Stale or replayed requests
 	-- cannot accidentally claim a DIFFERENT stage later.
@@ -173,32 +175,32 @@ function Service.Claim(player,questId)
 	end
 	local nextProgress=Rules.NextAfterClaim(progress)
 	if not nextProgress then return false,"NOT_COMPLETE" end
-	if #data.Saplings>=ShopRules.MAX_UNPLANTED_SAPLINGS then
-		return false,"SAPLING_STORAGE_FULL"
-	end
 	local reward=definition.Reward
-	if reward.Kind~="Sapling" then return false,"REWARD_NOT_CONFIGURED" end
-	local uid=newSaplingUID(data)
-	if not uid then return false,"UID_UNAVAILABLE" end
-	local record={
-		UID=uid,
-		SpeciesId=reward.SpeciesId,
-		Mutations=table.clone(reward.Mutations),
-		SizePotential=reward.SizePotential,
-		GeneticPassive=Passives.RollGenetic(),
-		CreatedAt=os.time(),
-	}
-	-- Nonyielding commit of exactly ONE reward and the stage transition.
-	-- Same-quest replays fail, because the active stage changes immediately.
-	table.insert(data.Saplings,record)
+	if reward.Kind=="Sapling" then
+		if #data.Saplings>=ShopRules.MAX_UNPLANTED_SAPLINGS then return false,"SAPLING_STORAGE_FULL" end
+		local uid=newSaplingUID(data)
+		if not uid then return false,"UID_UNAVAILABLE" end
+		table.insert(data.Saplings,{
+			UID=uid,SpeciesId=reward.SpeciesId,Mutations=table.clone(reward.Mutations),
+			SizePotential=reward.SizePotential,GeneticPassive=Passives.RollGenetic(),CreatedAt=os.time(),
+		})
+	elseif reward.Kind=="Coins" then
+		local balance=data.Coins
+		if type(balance)~="number" or balance~=balance or balance<0 or balance>1e12-reward.Amount then return false,"BALANCE_INVALID" end
+		data.Coins=balance+reward.Amount
+	elseif reward.Kind=="Crystals" then
+		if type(data.MaterialBalances)~="table" then return false,"PROFILE_UNAVAILABLE" end
+		local balance=data.MaterialBalances[Premium.CRYSTAL] or 0
+		if type(balance)~="number" or balance~=balance or balance<0 or balance%1~=0 or balance>1e12-reward.Amount then return false,"BALANCE_INVALID" end
+		data.MaterialBalances[Premium.CRYSTAL]=balance+reward.Amount
+	else return false,"REWARD_NOT_CONFIGURED" end
 	data.QuestProgress=nextProgress
 	publish(player)
-	-- Notify the Grove's existing state stream so a newly earned
-	-- sapling appears without a UI reload. No hard require cycle at boot.
-	local ok,err=pcall(function()
-		require(game.ServerScriptService.Grove.GroveService).NotifyState(player)
+	pcall(function()
+		if reward.Kind=="Sapling" then require(game.ServerScriptService.Grove.GroveService).NotifyState(player)
+		elseif reward.Kind=="Coins" then EconomyUpdated:FireClient(player,"Coins",data.Coins)
+		else EconomyUpdated:FireClient(player,"PremiumBalances") end
 	end)
-	if not ok then warn("[Quests] Grove reward refresh failed",err) end
 	return true,"CLAIMED",definition.Reward.Label
 end
 
@@ -232,16 +234,17 @@ function Service.Start()
 	-- Online rollover without depending on a client reopening the panel.
 	task.spawn(function()
 		while started do
-			task.wait(15)
+			task.wait(3)
 			local now=os.time()
 			for _,player in ipairs(Players:GetPlayers()) do
 				local data=playerData(player)
 				if data then
+					local before=data.QuestProgress
+					local evaluated=Rules.Evaluate(before,data)
 					local normalized,changed=Rules.NormalizeRecurring(data.QuestRecurring,now)
-					if normalized and changed then
-						data.QuestRecurring=normalized
-						publish(player)
-					end
+					if normalized then data.QuestRecurring=normalized end
+					data.QuestProgress=evaluated
+					if changed or evaluated.Stage~=before.Stage or evaluated.Count~=before.Count then publish(player) end
 				end
 			end
 		end
