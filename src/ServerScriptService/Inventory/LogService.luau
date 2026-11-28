@@ -869,6 +869,7 @@ function LogService.GrantGroveHarvestLog(player, harvest)
 		SourceSaplingUID = harvest.SourceSaplingUID,
 		Locked = false, CreatedAt = os.time(),
 	})
+	require(game.ServerScriptService.LifetimeStatsRules).RecordLog(data,harvest.SizeScale)
 	return uid
 end
 
@@ -2758,6 +2759,7 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 		entry.State = "Stored"
 		entry.LogRecord.Locked = false
 		table.insert(data.StoredLogs, entry.LogRecord)
+		require(game.ServerScriptService.LifetimeStatsRules).RecordLog(data,entry.LogRecord.SizeScale)
 		if drop.Count <= 0 then clearGroundDropBundle(bundle, drop) end
 		LogService.NotifyState(player)
 		LogProcessingFXRE:FireAllClients({
@@ -2944,6 +2946,7 @@ local function tryPickupGroundLog(player, bundle, uid, visualModel)
 		end
 		pendingUids[claim.UID] = true
 		table.insert(data.Logs, claim.Entry.LogRecord)
+		require(game.ServerScriptService.LifetimeStatsRules).RecordLog(data,claim.Entry.LogRecord.SizeScale)
 		claim.Homing = beginCarryHoming(player, claim, now)
 		debugGroundPickup("PICKUP_ACCEPTED", claim.Entry, claim.UID, "mode=Carry")
 	end
