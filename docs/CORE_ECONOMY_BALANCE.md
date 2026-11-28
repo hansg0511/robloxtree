@@ -1,6 +1,29 @@
 # Core economy — first quantitative pass
 
-## World 1 integrated working balance — 2026-11-28 (latest)
+## Revised World 1 duration target — 2026-11-28 (current)
+
+User superseded 3–6h with approximately 12 active hours for an average progressing player, to allow longer intervals between content updates. Keep the first craft 1–2m, Forest2/3 entry ~4/8m, first Iron 10–15m. Stretch mid/late progression rather than onboarding. Proposed pacing allocation (not timers, hard locks, or measured estimates):
+
+| Forest | Previous minutes | New minutes | Cumulative exit minutes |
+|---:|---:|---:|---:|
+| 1 | 4 | 4 | 4 |
+| 2 | 4 | 4 | 8 |
+| 3 | 12 | 12 | 20 |
+| 4 | 15 | 35 | 55 |
+| 5 | 20 | 55 | 110 |
+| 6 | 30 | 85 | 195 |
+| 7 | 40 | 115 | 310 |
+| 8 | 45 | 125 | 435 |
+| 9 | 50 | 135 | 570 |
+| 10 | 60 | 150 | 720 |
+
+Steel becomes available upon F7 entry (~3h15m target); later Guardian/World Boss challenges remain stationary, personal and timed. No required rarity, Forge level, metal, premium currency or minimum elapsed time. Preserve ordinary hit-count/cadence targets; longer progression should come from more meaningful equipment/quality/level/Grove development, not 2.5x HP on routine trees or multi-minute repetitive boss attempts. Keep ten forests for now; no new world count or rebirth mechanic approved.
+
+Important: the prior 280-minute affordability scenario is superseded as a duration target, NOT as source configuration. At the old hypothetical rates and 65% farming utilization, the new time allocation implies ~2,186,639 gross coins before sinks, so the previous Forge26/700-DPS boss budget cannot simply be relabeled a 12-hour progression curve. Actual players may clear much faster through quality, Bossbane and other bonuses. Re-budget late Forge targets/costs, income, repeated crafting incentives, accessible rarity and Guardian power thresholds jointly after choosing species/layout and measuring first-three-forest flow; higher levels may become plausible but Legendary should remain aspirational rather than compulsory. No promise of 12h completion without testing. Existing live costs, rarity probabilities, tree HP, material values and current two Guardian thresholds unchanged in this decision. Future material/Steel/Guardian numbers in the prior section are provisional starting points, not final 12h balance. No runtime tests performed.
+
+---
+
+## Prior World 1 integrated working balance — 2026-11-28 (280-minute scenario; superseded duration target)
 
 User approved 3–6 active hours and delegated numeric balancing. Target scenario 280 minutes (4h40m), with F10 entry at 220m. These are design inputs and affordability arithmetic, NOT predicted median completion or a simulated optimal player. Guardians are the only progression power checks, not mandatory Forge/rarity/metal tiers; an exceptional build may clear much sooner. No rare roll, ascension or Gems required.
 
