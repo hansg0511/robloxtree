@@ -18,13 +18,13 @@ check("false mutation not saved", not rules.ShouldStore({ SizeScale = 1, Mutatio
 check("size exactly at threshold", rules.ShouldStore({ SizeScale = 1.5 }, settings))
 check("inherited size fallback", rules.SizeScale({}) == 1)
 check("invalid size fallback", rules.SizeScale({ SizeScale = math.huge }) == 1)
-check("7x Giant log preserved",rules.SizeScale({SizeScale=7,Mutations={Giant=true}})==7)
-check("above physical cap rejected",rules.SizeScale({SizeScale=7.001})==1)
+check("10x Giant log preserved",rules.SizeScale({SizeScale=10,Mutations={Giant=true}})==10)
+check("above physical cap rejected",rules.SizeScale({SizeScale=10.001})==1)
 local geometry=require(game.ReplicatedStorage.Shared.MaterialGeometry)
-local length=geometry.Dimensions("Bamboo",7)
-check("Giant physical length not clipped at 5x",length==28)
+local length=geometry.Dimensions("Bamboo",10)
+check("Giant physical length not clipped at 5x",length==40)
 local forge=require(game.ReplicatedStorage.Shared.ExperimentalForgeRules)
-check("material quality reference stays 5x",forge.LogQuality(5)==1 and forge.LogQuality(7)==1)
+check("material quality reference stays 5x",forge.LogQuality(5)==1 and forge.LogQuality(10)==1)
 local noFilter = rules.NormalizeSettings({
 	AutoKeep = { Mutations = false, Oversized = false, SizeThreshold = 2.0 },
 })

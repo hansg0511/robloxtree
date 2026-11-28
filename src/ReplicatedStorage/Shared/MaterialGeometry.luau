@@ -2,7 +2,7 @@
 -- mutation potency, or Grove genetics policy belongs here.
 local Geometry = {}
 Geometry.MAX_LOG_SIZE = 5 -- unmutated size and 100% material-quality reference
-Geometry.GIANT_SIZE_MULTIPLIER = 1.4
+Geometry.GIANT_SIZE_MULTIPLIER = 2
 Geometry.MAX_PHYSICAL_LOG_SIZE = Geometry.MAX_LOG_SIZE * Geometry.GIANT_SIZE_MULTIPLIER
 Geometry.BASE_DIMENSIONS = {
 	Sapwood = { Length = 2.5, Width = 0.65, Height = 0.65 },

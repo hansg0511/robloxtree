@@ -14,9 +14,9 @@ check("new minimum is half potential", rules.RollSize(3,0)==1.5)
 check("midpoint draw slightly favors upper sizes", rules.RollSize(2,0.5)>1.5 and rules.RollSize(2,0.5)<1.55)
 check("minimum supported sapling remains valid", rules.RollSize(0.1,0)==0.05)
 check("new small size survives normalization", rules.NormalizeCurrentSize(0.05,0.1)==0.05)
-check("reject invalid gene", rules.RollSize(7.001, 0.5) == nil)
-check("Giant perfect potential grows up to 7x",rules.RollSize(7,0.995)==7)
-check("Giant nonjackpot cannot round to 7x",rules.RollSize(7,0.994999)<7)
+check("reject invalid gene", rules.RollSize(10.001, 0.5) == nil)
+check("Giant perfect potential grows up to 10x",rules.RollSize(10,0.995)==10)
+check("Giant nonjackpot cannot round to 10x",rules.RollSize(10,0.994999)<10)
 check("perfect sapling has exact perfect growth outcome", rules.RollSize(5,0.995)==5)
 check("nonjackpot cannot round up to perfect", rules.RollSize(5,0.994999)<5)
 check("minimum of perfect sapling", rules.RollSize(5,0)==2.5)
@@ -129,16 +129,16 @@ local function jackpotRng(draw)
 end
 check("ordinary jackpot exact 5x",Quality.Wild({},jackpotRng(1))==5)
 check("ordinary jackpot boundary",Quality.Wild({},jackpotRng(2))==3.5)
-check("Giant jackpot exact 7x",Quality.Wild({Giant=true},jackpotRng(4))==7)
-check("Giant jackpot boundary",Quality.Wild({Giant=true},jackpotRng(5))==4.9)
-check("Giant transform exceeds 5x",Quality.WithMutation(3.6,{Giant=true})==5.04)
-check("Giant transform reaches 7x",Quality.WithMutation(5,{Giant=true})==7)
+check("Giant jackpot exact 10x",Quality.Wild({Giant=true},jackpotRng(4))==10)
+check("Giant jackpot boundary",Quality.Wild({Giant=true},jackpotRng(5))==7)
+check("Giant transform exceeds 5x",Quality.WithMutation(3.6,{Giant=true})==7.2)
+check("Giant transform reaches 10x",Quality.WithMutation(5,{Giant=true})==10)
 check("non-Giant transform cannot round up to perfect",Quality.WithMutation(5,{})<5)
 for _, draw in ipairs({1,850,851,970,971,997,998,1000}) do
 	local rng={NextInteger=function(_,lo,hi) return if hi==10000 then 10000 else draw end,NextNumber=function(_,lo,hi) return hi end}
 	local expected=if draw<=850 then 1.1 elseif draw<=970 then 1.5 elseif draw<=997 then 2.5 else 3.5
 	check("wild size band boundary",Quality.Wild({},rng)==expected)
-	check("Giant uses same band with multiplier",math.abs(Quality.Wild({Giant=true},rng)-expected*1.4)<0.001)
+	check("Giant uses same band with multiplier",math.abs(Quality.Wild({Giant=true},rng)-expected*2)<0.001)
 end
 for _,spec in ipairs({{"Bamboo",850,970},{"Oak",800,950},{"Ironwood",750,930}}) do
 	local species,first,second=spec[1],spec[2],spec[3]
@@ -157,7 +157,7 @@ for step=0,24 do
 		local same=duplicate.Offers[i]
 		check("global stock and quality deterministic",offer.Id==same.Id and offer.Stock==same.Stock and offer.SizePotential==same.SizePotential)
 		check("numeric stock",type(offer.Stock)=="number" and offer.Stock>=0 and offer.Stock%1==0)
-		if offer.Rare then check("rare listed only if available",offer.Stock>=1 and offer.Stock<=2 and offer.SizePotential<=2.1) end
+		if offer.Rare then check("rare listed only if available",offer.Stock>=1 and offer.Stock<=2 and offer.SizePotential<=3) end
 		local own={Cycle=offers.Cycle,Purchased={[offer.Id]=offer.Stock}}
 		check("sold out quota persists",Shop.Remaining(own,offers.Cycle,offer)==0)
 		check("another player gets independent stock",Shop.Remaining({},offers.Cycle,offer)==offer.Stock)

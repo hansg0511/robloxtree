@@ -1,6 +1,12 @@
 # Core economy — first quantitative pass
 
-## Giant physical size cap — current source (2026-11-28)
+## Giant multiplier revision — current source
+
+User prefers 2x instead of 1.4x. Shared Giant size multiplier now 2, so newly acquired Giant Grove saplings have doubled base potential and a 10x absolute maximum (ordinary jackpot 5x, Giant jackpot 10x). Non-jackpot Giant maximum now 7x; shop Giant size range 1.8–3x. Existing Giant saplings and planted trees retain their saved potential, current size and deadlines. Physical geometry and log storage derive the new 10x limit from shared configuration. Normal base size/quality reference 5x; material quality remains capped at 100% pending explicit decision on above-100% quality. Wild tree size roll and existing wild Giant behavior unchanged in this Grove-focused pass. Growth durations, genetic band weights, jackpot chances, universal growth distribution, and passive rules unchanged. At fixed base potential, new Giant expected size is 2/1.4 times previous; sale value scales with size squared, passives linearly. A new 10x jackpot Giant grows 5–10x (mean ~7.64x), so every harvest reaches 100% quality under the existing cap. Consider balance implications during subsequent quality and mutation tuning. Existing smoke assertions adapted; no Studio execution.
+
+---
+
+## Giant physical size cap — historical source (superseded by 2x multiplier above)
 
 User clarified Giant may exceed 5x. Unmutated genetic maximum and 100% material-quality reference remain 5x. Giant multiplier 1.4 gives maximum genetic potential and physical Grove/log size 7x. Explicit 1/2500 Giant jackpot now yields 7x (previously 5x); non-Giant jackpot unchanged at 1/10000 -> 5x. Ordinary non-jackpot bands unchanged, hence non-jackpot Giant maximum still 4.9x today. Existing save validator derives 7x max potential; log storage/grants and shared physical dimensions now support 7x. Existing records unchanged. Forge material quality and mutation potency remain capped at 100% of their existing reference provisionally, not an approved above-100% quality rule. Wild tree base-size roll and wild Giant presentation/size behavior unchanged in this Grove-focused correction; revisit wild Giant scaling separately. Existing size-based sale value and Grove passive formulas continue to use actual size; e.g. 7x vs 5x yields 1.96x sale value and 1.4x Grove passive at equal other properties. No runtime validation.
 
