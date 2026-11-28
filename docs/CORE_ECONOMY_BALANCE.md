@@ -1,5 +1,32 @@
 # Core economy — first quantitative pass
 
+## Weapon XP curve — current source balance (2026-11-28)
+
+World 1 target remains ~10 active hours; player explicitly wants multiple meaningful goals, not ten hours of coins. Game is an incremental/tycoon, not a narrative RPG. Use progression objectives/tutorials/challenges rather than story-driven quests; optional event lore is fine. Existing technical Story quest category is retained for save/remote compatibility until a presentation rename is needed.
+
+XP earning unchanged: floor(actual HP removed) + floor(0.25*maxHP) on a verified kill, weapon XP passives apply on the server, secondary hits count actual removed HP, no overkill or challenge farming XP. New required XP for transition from level L to L+1 = 100 + 25*L + 3*(L-1)^3, same for all rarities at the same level. Rarity already determines the maximum level and power multiplier. First threshold 125 unchanged. No additional rarity multiplier, so newly crafted higher-rarity weapons develop quickly initially and ascension preserves the same level curve. Current earned level, raw in-level XP, caps, 1% damage growth per level, 2% substat growth per level, XP gain and ascension costs unchanged. No retroactive level loss or reroll; raw partial XP is retained (percentage to next level may decrease). Capped XP remains zero. No XP transfer from old weapons, new currency, AFK XP or upgrade mechanics introduced.
+
+| Rarity | Cap | Previous cumulative XP | Revised cumulative XP |
+|---|---:|---:|---:|
+| Common | 10 | 2,025 | 5,913 |
+| Uncommon | 15 | 4,025 | 28,868 |
+| Rare | 20 | 6,650 | 94,373 |
+| Epic | 30 | 13,775 | 508,283 |
+| Legendary | 45 | 29,150 | 2,713,898 |
+| Mythical | 55 | 42,525 | 6,185,808 |
+| Ultra | 65 | 58,400 | 12,251,168 |
+| Divine | 80 | 86,900 | 28,564,583 |
+| Celestial | 100 | 133,650 | 70,730,253 |
+| Eternal | 125 | 206,150 | 174,673,778 |
+| Primordial | 150 | 294,275 | 365,012,303 |
+| Transcendent | 200 | 517,400 | 1,164,905,603 |
+
+Illustrative single-player size-1 full-kill examples, no XP passive/overkill, assume constant tree throughput including movement/collection: Common cap 5913 XP / 87 XP per 70 HP Sapwood = 68 trees (~8.5m at 8 trees/min); Uncommon cap 28868 / 387 XP per planned 310 HP F4 tree = 75 trees (~12.5m at 6/min); Rare cap 94373 / 625 XP per planned 500 HP F6 tree = 151 trees (~25m at 6/min); Epic cap 508283 / 2375 XP per planned 1900 HP F10 tree = 215 trees (~43m at 5/min). Legendary cap 2713898 / 2375 = 1143 F10 size-1 trees (~3.8h at 5/min), optional mastery not world-clear requirement. These are examples from fixed assumed rates, not measured playtime. Earlier levels on each new weapon are quick; higher-HP later trees catch up low levels faster. Larger wild trees, effects, XP bonuses and actual travel/handling change throughput. Leveling overlaps farming/material hunting, not a separately additive time budget. Future-world levels 45–200 are provisional curve extrapolation only; revisit against future tree HP/damage/XP safety caps when worlds are designed. Don't interpret billion-XP endgame cap as final time target.
+
+Existing XP smoke suite first-threshold 125, 1000-XP multiple levels, 100000-XP Common cap and HP-clamped reward invariants remain compatible by arithmetic. No new smoke suite and no Studio execution. Deferred check: real XP gain, UI progress, level-up/stat refresh, actual early/mid/late cap timing, saved level/partial XP, ascension and passive scaling, no challenge XP. Next balance Grove growth/sapling loops and non-narrative progression objectives, then revisit late Guardian thresholds and whole-world pacing.
+
+---
+
 ## Current World 1 pacing target — 10 active hours (2026-11-28)
 
 User revised the target from 12 to approximately 10 active hours for an average progressing player. Keep early onboarding, ten forests, optional gear mastery and freedom to progress faster with a strong build. Working pacing allocation (not timers or validated predictions):

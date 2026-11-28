@@ -44,8 +44,12 @@ function Rules.XPToNextLevel(rarity, level)
 	local cap = Rules.GetLevelCap(rarity)
 	if not cap or type(level) ~= "number" or level % 1 ~= 0
 		or level < 1 or level >= cap then return nil end
-	-- Placeholder curve; cap-safe integer. Higher rarity has more levels.
-	return math.max(1, math.floor(Config.XP.Base + Config.XP.PerLevel * level + 0.5))
+	-- Shared curve across rarities: ascending preserves the achieved level
+	-- without changing the XP price for that same level. First threshold
+	-- remains 125; high level investment grows cubically per transition.
+	local xp=Config.XP
+	return math.max(1, math.floor(xp.Base + xp.PerLevel * level
+		+ xp.CurveScale * (level - 1)^xp.CurveExponent + 0.5))
 end
 
 function Rules.XPForAppliedHit(appliedDamage, maxHP, killed)

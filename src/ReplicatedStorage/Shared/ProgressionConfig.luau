@@ -3,7 +3,9 @@
 local C={}
 C.MAX_FORGE_LEVEL=200
 C.TOTAL_RARITY_WEIGHT=1000000
-C.XP={Base=100,PerLevel=25,PerDamage=1,KillPerMaxHP=0.25}
+-- Fast first levels, increasingly meaningful investment at higher caps.
+-- Rarity determines the cap, not the XP price of the same weapon level.
+C.XP={Base=100,PerLevel=25,CurveScale=3,CurveExponent=3,PerDamage=1,KillPerMaxHP=0.25}
 C.LEVEL_POWER_GROWTH=0.01
 -- World 1 discount tapers into the original late-game marginal curve.
 C.FORGE_COST={FirstUpgrade=500,Scale=6,Exponent=3.5,World1Exponent=3.1,World1End=30,Round=50}
