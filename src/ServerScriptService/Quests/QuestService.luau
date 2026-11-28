@@ -123,6 +123,7 @@ function Service.RecordGroveHarvested(player,groveTreeUID,harvestCount)
 	if not cycles then cycles={} processedGroveHarvests[player]=cycles end
 	if (cycles[groveTreeUID] or 0)>=harvestCount then return false end
 	cycles[groveTreeUID]=harvestCount
+	require(game.ServerScriptService.LifetimeStatsRules).RecordGroveHarvest(data)
 	return creditEvent(player,"GroveHarvested")
 end
 

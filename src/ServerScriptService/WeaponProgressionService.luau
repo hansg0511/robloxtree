@@ -73,6 +73,7 @@ function WeaponProgressionService.AwardHits(player, weaponUID, hitRecords)
 	-- The saved Inventory item is authoritative. Runtime inventory / IMS
 	-- records are distinct copies produced by ItemDataBase.ParseItem.
 	saved.WeaponData.Progression = nextProgress
+	require(game.ServerScriptService.LifetimeStatsRules).RecordLevel(data,nextProgress.Level,saved.Rarity)
 	equipped.WeaponData.Progression = table.clone(nextProgress)
 	if type(equipped.ItemWeaponData) == "table" then
 		equipped.ItemWeaponData.Progression = table.clone(nextProgress)

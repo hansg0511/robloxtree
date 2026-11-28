@@ -403,6 +403,7 @@ function PlayerProfileCache.Set(player: Player, profile)
 		PlayerProfileCache.NormalizeQuestProgress(profile.Data)
 		PlayerProfileCache.NormalizeRecurringQuestProgress(profile.Data)
 		PlayerProfileCache.NormalizeChopLeaderboard(profile.Data)
+		profile.Data.LifetimeStats=require(game.ServerScriptService.LifetimeStatsRules).Normalize(profile.Data.LifetimeStats)
 		PlayerProfileCache.NormalizeWeaponData(profile.Data)
 		normalizeProgressionData(profile.Data)
 	end

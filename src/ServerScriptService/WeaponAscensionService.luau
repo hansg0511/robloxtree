@@ -174,6 +174,7 @@ function Service.Attempt(player, uid)
 		return {Reason="WEAPON_UPDATE_FAILED"}
 	end
 	Costs.Finalize(receipt)
+	if outcome.Success then require(game.ServerScriptService.LifetimeStatsRules).RecordAscension(data,outcome.Rarity) end
 
 	if data.Runtime.EquippedWeaponUID == uid then
 		local ok, err = pcall(function() StatsAggregator.Aggregate(player) end)

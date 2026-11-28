@@ -157,6 +157,7 @@ function SaplingDiscoveryService.AwardForTreeDeath(tree, contributions, deathGen
 	if type(record.CreatedAt) ~= "number" or record.CreatedAt < 0 then return nil end
 
 	table.insert(data.Saplings, record)
+	require(game.ServerScriptService.LifetimeStatsRules).RecordSaplingDiscovery(data,record.SizePotential)
 	-- Resolve lazily to avoid a TreeObject → discovery → GroveService require
 	-- cycle at module load. A discovery must advance the snapshot revision before
 	-- the client performs its normal refresh.

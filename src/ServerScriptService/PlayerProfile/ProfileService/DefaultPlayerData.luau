@@ -84,6 +84,7 @@ export type PlayerData = {
 	QuestProgress: { Stage: number, Count: number },
 	QuestRecurring: { [string]: { WindowId: number, Counts: { [string]: number }, Claimed: { [string]: boolean }, LastDailyWindowId: { [string]: number }? } },
 	ChopLeaderboard: { Lifetime: number, WeeklyWindowId: number, WeeklyCount: number },
+	LifetimeStats: { [string]: any },
 	GroveTrees: { GroveTree },
 	GroveMaterials: { Heartwood },
 	-- Future recipe catalysts/essences, counted by server-assigned material ID.

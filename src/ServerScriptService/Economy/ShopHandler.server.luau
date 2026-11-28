@@ -698,6 +698,7 @@ local function craftRng(player, recipe, selectedLogUids)
 		return
 	end
 
+	require(game.ServerScriptService.LifetimeStatsRules).RecordCraft(data,rarity,result.MaterialQuality)
 	LogService.NotifyState(player)
 	economyUpdated:FireClient(player, "ForgeResult", {
 		Class = result.Class,

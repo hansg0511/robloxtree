@@ -46,6 +46,7 @@ local function finish(player,state,phase)
 		end
 	end
 	if phase=="Success" and state.Spec.Unlock then
+		require(game.ServerScriptService.LifetimeStatsRules).RecordGuardian(require(game.ServerScriptService.PlayerProfile.ProfileService.ProfileDataCache).GetData(player),state.Spec.Unlock)
 		player:SetAttribute("ForestAccess_"..state.Spec.Unlock,true)
 	end
 	detach(state.Target)

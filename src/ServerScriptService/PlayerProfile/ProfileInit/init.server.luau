@@ -26,6 +26,7 @@ local ProfileTemplate = {
 	QuestRecurring = {}, -- UTC window IDs and per-task counts; normalized on load.
 	-- Server-verified wild-tree deaths, not competitive weighted scoring.
 	ChopLeaderboard = { Lifetime = 0, WeeklyWindowId = -1, WeeklyCount = 0 },
+	LifetimeStats = {}, -- permanent verified achievement counters
 	GroveTrees = {},
 	GroveMaterials = {},
 	-- Expandable server-owned stackable upgrade-material balances.
