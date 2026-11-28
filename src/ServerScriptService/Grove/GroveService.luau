@@ -750,6 +750,7 @@ local function plantSapling(player, saplingUID, localX, localZ)
 		if PlayerRuntimeUIDs[player] then PlayerRuntimeUIDs[player][uid] = nil end
 		return false
 	end
+	require(game.ServerScriptService.LifetimeStatsRules).RecordPlant(data)
 	publishState(player)
 	return true
 end

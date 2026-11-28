@@ -106,7 +106,7 @@ function Rules.Evaluate(raw,data)
 		LogsSold=math.max(tonumber(s.LogsSold) or 0,if crafted>0 then 1 else 0),
 		CopperHead=math.max(tonumber(s.CopperHeadsPurchased) or 0,tonumber(heads.copper_head) or 0,if crafted>0 then 1 else 0),
 		Crafts=crafted,
-		Equipped=if type(equipped)=="string" and #equipped>0 then 1 else 0,
+		Equipped=if s.HasEquippedWeapon==true or (type(equipped)=="string" and #equipped>0) then 1 else 0,
 		WeaponLevel=level,
 		Plant=math.max(tonumber(s.SaplingsPlanted) or 0,groveCount,tonumber(s.GroveHarvests) or 0,if p.LegacyHarvestClaimed or p.LegacyHarvestReady then 1 else 0),
 		Harvests=math.max(tonumber(s.GroveHarvests) or 0,if p.LegacyHarvestReady then 1 else 0),

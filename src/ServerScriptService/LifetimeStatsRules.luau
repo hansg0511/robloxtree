@@ -24,6 +24,10 @@ function Rules.Normalize(raw)
 	end
 	return {
 		WeaponsForged=bounded(v.WeaponsForged,MAX_COUNT,true),
+		LogsSold=bounded(v.LogsSold,MAX_COUNT,true),
+		CopperHeadsPurchased=bounded(v.CopperHeadsPurchased,MAX_COUNT,true),
+		SaplingsPlanted=bounded(v.SaplingsPlanted,MAX_COUNT,true),
+		HasEquippedWeapon=v.HasEquippedWeapon==true,
 		GroveHarvests=bounded(v.GroveHarvests,MAX_COUNT,true),
 		SuccessfulAscensions=bounded(v.SuccessfulAscensions,MAX_COUNT,true),
 		HighestLogQuality=bounded(v.HighestLogQuality,maxQuality,false),
@@ -43,6 +47,22 @@ local function get(data)
 	return data.LifetimeStats
 end
 local function increment(s,key) s[key]=math.min(MAX_COUNT,s[key]+1) end
+function Rules.RecordSale(data,count)
+	local s=get(data)
+	if s then s.LogsSold=math.min(MAX_COUNT,(s.LogsSold or 0)+bounded(count,MAX_COUNT,true)) end
+end
+function Rules.RecordCopperHead(data,count)
+	local s=get(data)
+	if s then s.CopperHeadsPurchased=math.min(MAX_COUNT,(s.CopperHeadsPurchased or 0)+bounded(count,MAX_COUNT,true)) end
+end
+function Rules.RecordPlant(data)
+	local s=get(data)
+	if s then s.SaplingsPlanted=math.min(MAX_COUNT,(s.SaplingsPlanted or 0)+1) end
+end
+function Rules.RecordEquip(data)
+	local s=get(data)
+	if s then s.HasEquippedWeapon=true end
+end
 function Rules.RecordCraft(data,id,quality)
 	local s=get(data)
 	if not s or not Config.ById[id] then return end

@@ -514,6 +514,7 @@ purchaseAxeHead.OnServerEvent:Connect(function(player, headId, quantity, ...)
 	-- This does not create a weapon, change tier, or unlock another forest.
 	data.Coins = coins - total
 	data.AxeHeads[head.Id] = count + quantity
+	if head.Id=="copper_head" then require(game.ServerScriptService.LifetimeStatsRules).RecordCopperHead(data,quantity) end
 	economyUpdated:FireClient(player, "Coins", data.Coins)
 	economyUpdated:FireClient(player, "Progression")
 end)

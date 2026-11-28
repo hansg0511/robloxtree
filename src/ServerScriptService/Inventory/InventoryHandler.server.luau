@@ -343,6 +343,7 @@ local function EquipItem(player, item)
 		-- Debug equipment is session-only; leave the profile's saved weapon untouched.
 	else
 		playerProfile.Data.Equipped.Weapon = item.ItemUID
+		require(game.ServerScriptService.LifetimeStatsRules).RecordEquip(playerProfile.Data)
 	end
 	Fervor.OnWeaponEquipped(player, previousWeaponUID, item.ItemUID)
 	GoldenRush.OnWeaponEquipped(player, previousWeaponUID, item.ItemUID)
