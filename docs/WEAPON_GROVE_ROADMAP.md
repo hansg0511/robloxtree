@@ -1,5 +1,38 @@
 # Weapon + Grove Progression — Implementation Roadmap
-_Last reviewed: 2026-11-27. Current design decisions override earlier hypothetical economy notes._
+
+## Current economy and progression checkpoint — 2026-11-28
+
+**This checkpoint supersedes conflicting historical values below.** Detailed numerical working and implementation history remain in CORE_ECONOMY_BALANCE.md. Source implementation is not runtime validation.
+
+### World 1 — agreed direction
+
+- Incremental/tycoon, no overarching story; optional event lore. Meaningful equipment, material hunting, Grove, forging and challenge progression, not ten hours of coin farming.
+- Target approximately 10 active hours for average World 1 completion (supersedes 3–6h, 280m and 12h targets). Ten forests; working residence minutes F1–10: 4/4/12/30/45/70/95/105/110/125, cumulative exits 4/8/20/50/95/165/260/365/475/600m. Design allocations, not measured completion times. First Copper 1–2m; Iron F3 ~10–15m; Steel planned F7 ~165m entry. No minimum time locks, compulsory rarity, Forge level, premium spend or rebirth. Exceptional builds may clear earlier; optional mastery separate.
+- Personal timed Guardians: 3s prep, free retries, verified unlock, no combat carry or Guardian XP. First two source-implemented 2600HP/45s and 4000HP/60s. Later thresholds and distinct final World Boss arena (120–180s proposed) pending. Old Forge26/700-DPS boss budget belongs to superseded 280m scenario, not calibrated 10h target.
+
+### Current source configuration and numerical foundations
+
+- Size-1 materials Sapwood 0.5kg/5 coins/70HP, Bamboo 1kg/16 coins/125HP, Oak 2kg/60 coins/210HP; legacy Ironwood retained until assigned. Weight fixed by species, sale scales size squared, HP size^1.4. Starter fists 15 damage. Copper head 60 coins, Iron 750. Bag starts10kg; 15/20/30/40kg upgrades 250/1000/4000/15000.
+- RNG-only forge. Material quality Q=size/5, up to 200% for valid 10x Giant logs. Effective wood contribution = average(species strength*Q)*(1+0.01*(N-1)), metal added separately, class scales damage. Source wood strength Sapwood20/Bamboo30/Oak45/legacy Ironwood16; metal Copper25/Iron55. Above-100% quality increases actual damage and is displayed in UI; existing speed, Cleave, reach and mutation potency limits retained. Wild Giant size scaling not changed in Grove correction; follow-up unresolved. Future wood strengths F4–10 60/80/100/120/150/185/230 and Steel125 provisional, not source content.
+- Forge early exponent3.1 through30, continuity offset above; cumulative Forge26 573850 and Forge30 951600. Improved early rarity tails. World 1 typical Rare/Epic, Legendary aspirational, later tiers for future worlds. No mandatory rarity. XP to next level = 100+25L+3(L-1)^3; earned XP actual applied damage + floor(0.25*maxHP) on eligible kill. Same curve across rarities, existing caps. Cumulative Common10 5913, Uncommon15 28868, Rare20 94373, Epic30 508283, Legendary45 2713898. Ascension optional. Current recurring quests up to44 Gems/week; no new reward amounts or Robux pricing approved.
+
+### Grove — agreed and source-implemented
+
+- Growth and regrowth identical, stump included: Bamboo120s, Oak180s, legacy Ironwood240s, Sapwood fallback90s (no current wild sapling acquisition route). Slower species better genetic potential odds; user reaffirmed this tradeoff. Later species generally higher passive multipliers, shared passive pool. No size-dependent duration.
+- Genetic potential fixed at acquisition. Wild non-jackpot band ranges 0.7–1.1 / 1.1–1.5 / 1.5–2.5 / 2.5–3.5x; conditional weights Bamboo85/12/2.7/0.3%, Oak80/15/4.7/0.3%, Ironwood75/18/6.7/0.3%. Ordinary jackpot0.01% ->5x, Giant jackpot0.04% ->10x (conditional on discovery and mutation). Giant multiplier2x, non-jackpot max7x, shop Giant max3x, no shop jackpot. Base normal drop10%, mutated wild life6%, mutated tree sapling drop20%.
+- Universal mature size roll for every species/mutation: 0.5% exactly potential; otherwise potential*(0.5+0.5*U^0.9), U uniform, rounded below exact max. Mean ~76.43% of potential. A 10x potential Giant grows 5–10x, quality100–200%, mean size7.64x. Random acquired sapling and selected best planted sapling distributions are distinct. Existing genetics, rolled sizes, saved deadlines preserved.
+- One protected log per harvest, no offline accumulation; passive only while mature. Bamboo multiplier1, Oak/legacy Ironwood1.15; future profiles pending. Capacity3/4/5/6/8/10, upgrade costs500/2500/10000/40000/120000, total173000. No Heartwood, Ultra Mastery, automatic harvesting or approved paid growth skips.
+
+### Next work — ordered
+
+1. Progression objectives: proposed tutorial, one-time concurrent milestones, daily/weekly recurring tasks. Non-narrative, no forced linear chain; encourage meaningful forging, levels, quality, Grove and Guardians. Permanent achievements separate eventually. Individual objectives/rewards/UI/schema not yet agreed or implemented.
+2. Forests 4–10: species, layouts, materials, Steel, growth profiles; reuse existing architecture. Complete remaining Guardians and World Boss.
+3. Integrated 10h economy balancing: coin income/sinks, Forge/rarity, weapon and Grove power, selection of exceptional saplings, Giant quality and actual harvest cadence, Guardian thresholds. Prior future forest numbers remain provisional. Do not treat theoretical affordability as measured playtime.
+4. UI/UX, sound/animation feedback, integrated fresh-profile Studio playtesting, persistence/multiplayer/exploit checks. User deferred runtime validation; retain existing test backlog, avoid new smoke suites for every balance edit.
+
+---
+
+_Last reviewed: 2026-11-28. Current design decisions override earlier hypothetical economy notes._
 
 > **Status:** Design decisions recorded here are **not** a claim that the functionality is implemented. Keep this file updated as decisions or implementation status change.
 >
@@ -563,7 +596,7 @@ Source-implemented Bamboo 1 kg/16 coins and Oak 2 kg/60 coins at size 1; Sapwood
 
 See top of CORE_ECONOMY_BALANCE.md for full assumptions, 280-minute target, per-forest budget, income/weight, rarity and Guardian table. World1 exit Forge targets 1/2/3/5/7/10/15/18/22/26. Source-implemented early Forge exponent 3.1 through level30, continuous offset to original late marginal curve after 30; cumulative Forge26 573850 coins. Source-implemented Uncommon/Rare/Epic unlock tails 5%/2%/0.5%, faster early growth, Legendary+ original 0.1% unlock and growth, same unlock/floor/power/cap. Independent arithmetic check all 200 levels (cost monotonic, rarity sums/eligibility); Studio not run. No saved gear changed. Proposed future F4–10 kg/log 2/2.5/3/3/4/4/5; size-1 sale 100/200/360/600/1000/1600/2400; Steel head 6000; later Guardian DPS 150/175/205/245/390/470/565 then World Boss 700 (180s). First two gates and actual early materials unchanged. Future forest numbers remain design targets, not active content. Affordability is a scenario at 65% farming utilization and assumed overhead, not proof average players require 280min. No forced rarity/Forge gate, no premium progression requirement. Next: choose species/layout for remaining forests and implement content in stages, reuse existing personal challenges; actual playtest backlog retained.
 
-### World 1 pacing revision — 12 active hours (2026-11-28, current)
+### World 1 pacing revision — 12 active hours (2026-11-28, superseded by 10h)
 
 User wants approximately 12 active hours for average World 1 completion instead of 3–6 hours, to reduce pressure for frequent new content updates. Keep first Copper/early Iron/onboarding unchanged; proposed forest residence minutes 4/4/12/35/55/85/115/125/135/150 = 720m, Steel unlock F7 entry ~195m. See current top of CORE_ECONOMY_BALANCE.md. Ten forests retained, ordinary hit-count targets preserved; meaningful progression and build development rather than artificial timers, mandatory rarity/Forge requirements, compulsory premium spending or giant ordinary HP inflation. Old 280-minute income/Forge26/700-DPS World Boss scenario is not calibrated for 12h. Re-budget those later numerical targets with future forest implementation and integrated playtesting. Existing source values unchanged; no runtime verification. Gear perfection and optional post-clear activities remain separate from World 1 clear.
 
