@@ -21,6 +21,7 @@ Rules.MAX_POTENTIAL = require(script.Parent.SaplingQualityRules).MAX_POTENTIAL
 Rules.MIN_RELATIVE_SIZE = 0.50
 -- Inverse-CDF power: 1 is uniform, 0.9 gives a gentle upper-size bias.
 Rules.SIZE_ROLL_EXPONENT = 0.9
+Rules.PERFECT_GROWTH_CHANCE = 0.005
 Rules.MAX_HARVEST_COUNT = 1000000
 local function finite(x)
 	return type(x) == "number" and x == x and x > -math.huge and x < math.huge
@@ -64,9 +65,14 @@ end
 function Rules.RollSize(potential, roll)
 	if not Rules.ValidPotential(potential) then return nil end
 	if not finite(roll) or roll < 0 or roll > 1 then return nil end
-	local fraction = Rules.MIN_RELATIVE_SIZE + (1 - Rules.MIN_RELATIVE_SIZE) * roll^Rules.SIZE_ROLL_EXPONENT
+	-- A separate exact-potential outcome; normalize the remaining draw
+	-- back to [0,1) to preserve the continuous distribution's shape.
+	local cutoff=1-Rules.PERFECT_GROWTH_CHANCE
+	if roll>=cutoff then return potential end
+	local fraction = Rules.MIN_RELATIVE_SIZE + (1 - Rules.MIN_RELATIVE_SIZE) * (roll/cutoff)^Rules.SIZE_ROLL_EXPONENT
 	local raw = potential * fraction
-	return math.min(potential, math.max(Rules.MIN_POTENTIAL * Rules.MIN_RELATIVE_SIZE,
+	-- Rounding must not inflate the explicit perfect-growth probability.
+	return math.min(potential-0.001, math.max(Rules.MIN_POTENTIAL * Rules.MIN_RELATIVE_SIZE,
 		math.floor(raw * 1000 + 0.5) / 1000))
 end
 

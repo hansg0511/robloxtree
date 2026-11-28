@@ -1,6 +1,14 @@
 # Core economy — first quantitative pass
 
-## Grove mature-size roll revision (current)
+## Perfect Grove saplings — source implemented (2026-11-28)
+
+Wild saplings have an explicit 5x genetic-potential jackpot, conditional on a successful discovery: 1/10000 for non-Giant (including other mutations), 4/10000 for Giant. Separate draw first, then existing size bands conditional on non-jackpot. Those bands remain unchanged: non-jackpot ordinary max 3.5x, Giant max 4.9x. Mutation transform capped at 4.999x defensively so future probability changes cannot accidentally create perfect saplings. Shop/quest awards unchanged, no jackpot in shop. Profile max genetic potential now 5x; log storage already supports 5x. With existing 94% ordinary wild lives at 10% sapling drop, 6% mutated lives at 20% drop, and 1/4 of mutations Giant, base perfect probability per eligible tree = .103*.0001+.003*.0004=.0000115 (~1 in 86,957 eligible kills, before seedfinder). 
+
+Each initial growth and regrowth has 0.5% exact-potential outcome, universal. Otherwise use the preceding 50–100% skewed size curve with a normalized draw and rounding cap at potential minus 0.001. For 5x saplings, exact 5x logs therefore occur in 1/200 cycles; other saplings cannot produce 5x logs. Expected mature size ~76.43% of potential before rounding. Existing sizes, genetics, timelines and mutation provenance preserved. No change to acquisition frequency, timers, size bands or passive multipliers. Equal initial/regrowth durations and species-specific genetic distributions still pending separate configuration. Existing smoke assertions updated, no new suite, no Studio execution.
+
+---
+
+## Grove mature-size roll revision (superseded by exact-potential outcome above)
 
 User requested a wider size roll, slightly skewed toward larger outcomes. For a sapling with fixed genetic potential P, each new planting/regrowth draws independent U uniform on [0,1], then size = P*(0.5+0.5*U^0.9), rounded to existing three decimal places and capped at P. Range 50–100% (previously uniform 65–100%), mean before rounding 76.3158% of P (uniform new range would be 75%). Probability above 75% is ~53.7%, above 90% ~22.0%. Universal cycle distribution across species; sapling potential distribution, genetic passive, mutations, species, and existing mature/growing size rolls unchanged. Existing minimum size checks derive from the new 0.5 constant; minimum supported mature size 0.05 matches log storage. No growth-time or species-specific genetic distribution changes here; duration equality (initial = regrowth) remains an agreed correction pending a separately selected species table. Existing smoke suite updated for bounds and bias, no runtime execution.
 

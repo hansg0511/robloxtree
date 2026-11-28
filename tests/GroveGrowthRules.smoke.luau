@@ -14,7 +14,10 @@ check("new minimum is half potential", rules.RollSize(3,0)==1.5)
 check("midpoint draw slightly favors upper sizes", rules.RollSize(2,0.5)>1.5 and rules.RollSize(2,0.5)<1.55)
 check("minimum supported sapling remains valid", rules.RollSize(0.1,0)==0.05)
 check("new small size survives normalization", rules.NormalizeCurrentSize(0.05,0.1)==0.05)
-check("reject invalid gene", rules.RollSize(5, 0.5) == nil)
+check("reject invalid gene", rules.RollSize(5.001, 0.5) == nil)
+check("perfect sapling has exact perfect growth outcome", rules.RollSize(5,0.995)==5)
+check("nonjackpot cannot round up to perfect", rules.RollSize(5,0.994999)<5)
+check("minimum of perfect sapling", rules.RollSize(5,0)==2.5)
 check("reject invalid roll", rules.RollSize(1, 1.5) == nil)
 
 check("two seconds per interval", rules.SECONDS_PER_VISUAL_STEP == 2)
@@ -118,9 +121,17 @@ end
 check("restock deadline is a future window",
 	first.RestockAt>now and first.RestockAt<=now+Shop.RESTOCK_SECONDS)
 local Quality=require(game.ServerScriptService.Grove.SaplingQualityRules)
-check("jackpot genetic size supported", rules.RollSize(4.9,1)==4.9)
+check("legacy giant size supported", rules.RollSize(4.9,1)==4.9)
+local function jackpotRng(draw)
+	return {NextInteger=function(_,lo,hi) return if hi==10000 then draw else 1000 end,NextNumber=function(_,lo,hi) return hi end}
+end
+check("ordinary jackpot exact 5x",Quality.Wild({},jackpotRng(1))==5)
+check("ordinary jackpot boundary",Quality.Wild({},jackpotRng(2))==3.5)
+check("Giant jackpot exact 5x",Quality.Wild({Giant=true},jackpotRng(4))==5)
+check("Giant jackpot boundary",Quality.Wild({Giant=true},jackpotRng(5))==4.9)
+check("mutation transform cannot round up to perfect",Quality.WithMutation(5,{Giant=true})<5)
 for _, draw in ipairs({1,850,851,970,971,997,998,1000}) do
-	local rng={NextInteger=function() return draw end,NextNumber=function(_,lo,hi) return hi end}
+	local rng={NextInteger=function(_,lo,hi) return if hi==10000 then 10000 else draw end,NextNumber=function(_,lo,hi) return hi end}
 	local expected=if draw<=850 then 1.1 elseif draw<=970 then 1.5 elseif draw<=997 then 2.5 else 3.5
 	check("wild size band boundary",Quality.Wild({},rng)==expected)
 	check("Giant uses same band with multiplier",math.abs(Quality.Wild({Giant=true},rng)-expected*1.4)<0.001)
